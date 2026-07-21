@@ -880,7 +880,6 @@ class MainWindow(QMainWindow):
             
             widget = GameBannerWidget(game_id, name, banner_url)
             widget.clicked.connect(self._select_game)
-            widget.doubleClicked.connect(self._on_game_double_clicked)
             
             widgets.append(widget)
             self.banner_widgets[game_id] = widget
@@ -916,7 +915,7 @@ class MainWindow(QMainWindow):
             self.banner_widgets[game_id].set_banner(image_path)
 
     def _select_game(self, game_id: int):
-        """Select a game by clicking its banner"""
+        """Single clicking a game banner selects it and opens launch menu directly"""
         # Deselect all
         for widget in self.banner_widgets.values():
             widget.set_selected(False)
@@ -928,10 +927,7 @@ class MainWindow(QMainWindow):
                 if game_id in self.banner_widgets:
                     self.banner_widgets[game_id].set_selected(True)
                 break
-
-    def _on_game_double_clicked(self, game_id: int):
-        """Double clicking a game selects and immediately launches it"""
-        self._select_game(game_id)
+        
         self._on_launch()
 
     def _get_selected_game(self):
@@ -980,9 +976,19 @@ class MainWindow(QMainWindow):
         if mode == "linux":
             action_linux = menu.addAction("🐧 Native Linux Script/Binary")
 
-        # Position menu at launch button or screen center
-        pos = self.btn_launch.mapToGlobal(self.btn_launch.rect().topLeft())
-        pos.setY(pos.y() - 140)  # Show menu above button
+        # Position popup menu centered over the selected game's banner widget if available
+        from PyQt6.QtCore import QPoint
+        menu_size = menu.sizeHint()
+        menu_half_w = menu_size.width() // 2
+        menu_half_h = menu_size.height() // 2
+        
+        target_widget = self.banner_widgets.get(game_id)
+        if target_widget and target_widget.isVisible():
+            global_center = target_widget.mapToGlobal(target_widget.rect().center())
+            pos = QPoint(global_center.x() - menu_half_w, global_center.y() - menu_half_h)
+        else:
+            global_center = self.mapToGlobal(self.rect().center())
+            pos = QPoint(global_center.x() - menu_half_w, global_center.y() - menu_half_h)
         
         selected_action = menu.exec(pos)
         if not selected_action:
