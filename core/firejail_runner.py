@@ -3,12 +3,25 @@ import shlex
 import subprocess
 from core.interfaces import ISandboxRunner
 
-# Modes that need --noprofile because Proton/UMU uses bwrap (Bubblewrap) to create
-# user namespaces internally. Firejail's Landlock rules in default.profile block bwrap
-# namespace creation, so we must disable the profile for these modes only.
-# We keep --ignore=noroot --ignore=seccomp to specifically permit bwrap namespaces.
-# Wine and Linux native modes retain the full default.profile for maximum security.
-_UMU_MODES = {"umu", "umu_net"}
+# Modes that need --ignore=restrict-namespaces because Proton/UMU uses Bubblewrap
+# (bwrap) internally to create user namespaces for the Steam Runtime container.
+# Firejail's default.profile includes `restrict-namespaces` which blocks this.
+#
+# Security trade-off (UMU/Proton modes only):
+#   --ignore=noroot            → bwrap can map uid 0 inside its own user namespace
+#   --ignore=seccomp           → bwrap's unshare/clone syscalls are not filtered
+#   --ignore=restrict-namespaces → bwrap can create its user + mount namespace
+#
+# ALL OTHER default.profile rules remain fully active:
+#   caps.drop all              ✓ All capabilities stripped
+#   nonewprivs                 ✓ No new privilege escalation via execve/SUID
+#   netfilter                  ✓ Replaced by --net=none
+#   private-tmp, private-dev   ✓ Still active
+#   landlock-common.inc        ✓ Landlock filesystem restrictions still active
+#   disable-common.inc         ✓ Sensitive paths still blacklisted
+#   --whitelist                ✓ Home dir locked to only whitelisted paths
+#
+# Wine and Linux native modes do NOT need these ignores and use the full profile.
 _VALID_MODES = {"umu", "umu_net", "wine", "linux"}
 
 
@@ -34,23 +47,22 @@ class FirejailSandboxRunner(ISandboxRunner):
         prefix_path = shlex.quote(os.path.join(game_path, 'prefix'))
 
         if mode == "umu":
-            # --noprofile: required for Proton/UMU (bwrap needs user namespaces).
-            # --ignore=noroot --ignore=seccomp: permit bwrap namespace creation.
-            # --net=none: block all network access inside the sandbox.
             cmd = (
-                f"cd {q_path} && firejail --noprofile --ignore=noroot --ignore=seccomp --net=none "
+                f"cd {q_path} && firejail "
+                f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
+                f"--net=none "
                 f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
                 f"--env=WINEPREFIX={prefix_path} umu-run {q_exe}"
             )
         elif mode == "umu_net":
-            # Same as umu but with network access enabled for online/multiplayer games.
             cmd = (
-                f"cd {q_path} && firejail --noprofile --ignore=noroot --ignore=seccomp "
+                f"cd {q_path} && firejail "
+                f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
                 f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
                 f"--env=WINEPREFIX={prefix_path} umu-run {q_exe}"
             )
         elif mode == "linux":
-            # Native Linux binary / shell script - full default.profile, no network.
+            # Native Linux binary - full default.profile, no namespace ignores needed.
             full_exe_path = os.path.join(game_path, executable)
             if os.path.exists(full_exe_path):
                 try:
@@ -62,7 +74,7 @@ class FirejailSandboxRunner(ISandboxRunner):
                 f"--whitelist={q_path} ./{q_exe}"
             )
         else:  # "wine"
-            # Legacy Wine - full default.profile, no network.
+            # Legacy Wine - full default.profile, no namespace ignores needed.
             cmd = (
                 f"cd {q_path} && firejail --net=none "
                 f"--whitelist={q_path} "
