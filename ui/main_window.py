@@ -705,6 +705,7 @@ class EditGameDialog(AddGameDialog):
         # Unpack game data (game_id, name, path, exe, mode, banner_url, steam_id, ...)
         game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game_data, 0)
         self.game_id = game_id
+        self.banner_path = banner_url  # Preserve existing banner URL/path
         
         # Populate pre-existing values
         self.name_input.setText(name or "")
@@ -1128,6 +1129,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", "Invalid game path.")
                 return
             
+            path = os.path.abspath(os.path.expanduser(path))
             save_sandbox_config(path, exe)
             self.db.add_game(name, path, exe, mode, banner_path)
             self._refresh_library()
@@ -1151,6 +1153,7 @@ class MainWindow(QMainWindow):
                 return
 
             game_id = game[0]
+            path = os.path.abspath(os.path.expanduser(path))
             save_sandbox_config(path, exe)
             self.db.update_game(game_id, name, path, exe, mode, banner_path)
             self._refresh_library()
@@ -1160,12 +1163,13 @@ class MainWindow(QMainWindow):
     def _on_sync_sandbox(self, quiet: bool = False):
         """Auto-discover installed games in ~/Games/Sandbox"""
         found = scan_sandbox_games(DEFAULT_SANDBOX_DIR)
-        existing_paths = {g[2] for g in self.db.get_all_games()}
+        existing_paths = {os.path.abspath(g[2]) for g in self.db.get_all_games() if g[2]}
         
         added_count = 0
         for game in found:
-            if game['path'] not in existing_paths:
-                self.db.add_game(game['name'], game['path'], game['executable'], game['mode'])
+            norm_path = os.path.abspath(game['path'])
+            if norm_path not in existing_paths:
+                self.db.add_game(game['name'], norm_path, game['executable'], game['mode'])
                 added_count += 1
                 
         if added_count > 0:

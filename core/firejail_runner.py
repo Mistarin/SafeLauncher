@@ -48,7 +48,7 @@ class FirejailSandboxRunner(ISandboxRunner):
 
         if mode == "umu":
             cmd = (
-                f"cd {q_path} && firejail "
+                f"cd {q_path} && exec firejail "
                 f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
                 f"--net=none "
                 f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
@@ -56,7 +56,7 @@ class FirejailSandboxRunner(ISandboxRunner):
             )
         elif mode == "umu_net":
             cmd = (
-                f"cd {q_path} && firejail "
+                f"cd {q_path} && exec firejail "
                 f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
                 f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
                 f"--env=WINEPREFIX={prefix_path} umu-run {q_exe}"
@@ -70,20 +70,17 @@ class FirejailSandboxRunner(ISandboxRunner):
                 except Exception:
                     pass
             cmd = (
-                f"cd {q_path} && firejail --net=none "
+                f"cd {q_path} && exec firejail --net=none "
                 f"--whitelist={q_path} ./{q_exe}"
             )
         else:  # "wine"
             # Legacy Wine - full default.profile, no namespace ignores needed.
             cmd = (
-                f"cd {q_path} && firejail --net=none "
+                f"cd {q_path} && exec firejail --net=none "
                 f"--whitelist={q_path} "
                 f"--env=WINEPREFIX={prefix_path} wine {q_exe}"
             )
 
-        # Use `exec` inside the shell so the shell process is *replaced* by firejail.
-        # This means process.wait() tracks the Firejail PID directly — the moment
-        # Firejail shuts down (which happens right after the game exits and it prints
-        # "Parent is shutting down, bye...") our tracker unblocks immediately.
-        # Without `exec`, bash wraps firejail and adds an extra layer of latency.
-        return subprocess.Popen(["/bin/bash", "-c", f"exec {cmd}"], shell=False)
+        # `exec firejail` replaces the subshell process image directly with Firejail.
+        # This allows process.wait() to monitor the Firejail process cleanly without wrapper latency.
+        return subprocess.Popen(["/bin/bash", "-c", cmd], shell=False)
