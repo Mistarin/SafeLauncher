@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
+from typing import Optional
+import subprocess
 
 class ISandboxRunner(ABC):
     @abstractmethod
-    def launch(self, game_path: str, executable: str, mode: str) -> None:
+    def launch(self, game_path: str, executable: str, mode: str) -> Optional[subprocess.Popen]:
         pass
 
 class IBackupManager(ABC):

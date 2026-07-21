@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QVariantAnimation, QEas
 from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.steamgriddb_client import SteamGridDBClient
+from core.playtime_tracker import PlaytimeTrackerThread
 from core.archive_extractor import (
     DEFAULT_SANDBOX_DIR, ensure_sandbox_dir, extract_archive_sandboxed,
     find_executables, save_sandbox_config, load_sandbox_config, scan_sandbox_games
@@ -101,11 +102,12 @@ class GameBannerWidget(QFrame):
     clicked = pyqtSignal(int)
     doubleClicked = pyqtSignal(int)
 
-    def __init__(self, game_id: int, name: str, banner_path: str = None):
+    def __init__(self, game_id: int, name: str, banner_path: str = None, playtime_seconds: int = 0):
         super().__init__()
         self.game_id = game_id
         self.name = name
         self.banner_path = banner_path
+        self.playtime_seconds = playtime_seconds
         self.selected = False
         self.is_missing = False
         self._hover_progress = 0.0  # LERP progress: 0.0 (normal) -> 1.0 (hovered)
@@ -118,12 +120,12 @@ class GameBannerWidget(QFrame):
 
         self.setFrameStyle(QFrame.Shape.NoFrame)
         self.setLineWidth(0)
-        self.setFixedSize(QSize(200, 340))
+        self.setFixedSize(QSize(200, 355))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(3)
         
         # Banner image (2:3 portrait aspect ratio matching Steam 600x900 library covers)
         self.image_label = QLabel()
@@ -141,8 +143,36 @@ class GameBannerWidget(QFrame):
         self.name_label.setFont(pixel_font)
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.name_label)
+
+        # Playtime label — small, dimmed, below the title
+        self.playtime_label = QLabel(self._format_playtime(playtime_seconds))
+        pt_font = QFont("Monospace")
+        pt_font.setStyleHint(QFont.StyleHint.Monospace)
+        pt_font.setPixelSize(10)
+        self.playtime_label.setFont(pt_font)
+        self.playtime_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.playtime_label.setStyleSheet("color: #888888; background: transparent;")
+        layout.addWidget(self.playtime_label)
         
         self.update_appearance()
+
+    @staticmethod
+    def _format_playtime(seconds: int) -> str:
+        """Convert raw seconds to a human-readable playtime string."""
+        if not seconds or seconds < 60:
+            return "⏱ Never played" if not seconds else f"⏱ {seconds}s"
+        minutes = seconds // 60
+        hours = minutes // 60
+        remaining_mins = minutes % 60
+        if hours > 0:
+            return f"⏱ {hours}h {remaining_mins}m" if remaining_mins else f"⏱ {hours}h"
+        return f"⏱ {minutes}m"
+
+    def set_playtime(self, seconds: int):
+        """Update displayed playtime without rebuilding the whole widget."""
+        self.playtime_seconds = seconds
+        self.playtime_label.setText(self._format_playtime(seconds))
+        
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
@@ -670,6 +700,7 @@ class MainWindow(QMainWindow):
         self.selected_game = None
         self.banner_widgets = {}
         self.auto_fetchers = []
+        self.playtime_trackers = []  # keep references so GC doesn't kill running threads
 
         self.setWindowTitle("🎮 MGLauncher - Game Sandbox Manager")
         self.resize(1180, 750)
@@ -876,9 +907,9 @@ class MainWindow(QMainWindow):
         
         widgets = []
         for game in self.games:
-            game_id, name, path, executable, mode, banner_url, steam_id = game
+            game_id, name, path, executable, mode, banner_url, steam_id, playtime_seconds = (*game[:7], game[7] if len(game) > 7 else 0)
             
-            widget = GameBannerWidget(game_id, name, banner_url)
+            widget = GameBannerWidget(game_id, name, banner_url, playtime_seconds or 0)
             widget.clicked.connect(self._select_game)
             
             widgets.append(widget)
@@ -897,7 +928,7 @@ class MainWindow(QMainWindow):
     def _check_games_on_drive(self):
         """Check all games in library against disk and grey out missing ones"""
         for game in self.games:
-            game_id, name, path, executable, mode, banner_url, steam_id = game
+            game_id, name, path, executable, mode, banner_url, steam_id, *_ = (*game, 0)
             
             folder_exists = os.path.exists(path) if path else False
             full_exe_path = os.path.join(path, executable) if (path and executable) else path
@@ -940,7 +971,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please select a game to launch.")
             return
         
-        game_id, name, path, exe, mode, banner_url, steam_id = game
+        game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game, 0)
         if not path or not os.path.exists(path):
             QMessageBox.warning(self, "Missing Game", f"Cannot launch '{name}'. Game directory does not exist on disk:\n{path}")
             return
@@ -1006,10 +1037,30 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            self.runner.launch(path, exe, selected_mode)
+            process = self.runner.launch(path, exe, selected_mode)
+            if process:
+                tracker = PlaytimeTrackerThread(game_id, process, parent=self)
+                tracker.playtime_recorded.connect(self._on_playtime_recorded)
+                tracker.finished.connect(lambda t=tracker: self._cleanup_tracker(t))
+                tracker.start()
+                self.playtime_trackers.append(tracker)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to launch game: {str(e)}")
-    
+
+    def _on_playtime_recorded(self, game_id: int, elapsed_seconds: int):
+        """Called (on main thread) when a game exits — persists and displays playtime."""
+        self.db.add_playtime(game_id, elapsed_seconds)
+        total = self.db.get_playtime(game_id)
+        if game_id in self.banner_widgets:
+            self.banner_widgets[game_id].set_playtime(total)
+
+    def _cleanup_tracker(self, tracker: PlaytimeTrackerThread):
+        """Remove finished tracker from the list so it can be garbage collected."""
+        try:
+            self.playtime_trackers.remove(tracker)
+        except ValueError:
+            pass
+
     def _on_add(self):
         dialog = AddGameDialog(self, self.sgdb_client)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -1026,6 +1077,7 @@ class MainWindow(QMainWindow):
             self._refresh_library()
             QMessageBox.information(self, "Success", f"Game '{name}' added to library.")
     
+
     def _on_sync_sandbox(self, quiet: bool = False):
         """Auto-discover installed games in ~/Games/Sandbox"""
         found = scan_sandbox_games(DEFAULT_SANDBOX_DIR)

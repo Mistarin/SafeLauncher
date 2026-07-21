@@ -22,11 +22,11 @@ except ImportError as e:
     print(f"✗ Import error: {e}")
     sys.exit(1)
 
-# 2. Test database operations & schema auto-migration
+# 2. Test database operations & schema auto-migration (including playtime)
 try:
     with tempfile.TemporaryDirectory() as tmp_dir:
         old_db_path = os.path.join(tmp_dir, "old_library.db")
-        # Create an old schema database missing banner_url and steam_id
+        # Create an old schema database missing banner_url, steam_id, and playtime_seconds
         conn = sqlite3.connect(old_db_path)
         conn.execute('''
             CREATE TABLE games (
@@ -43,13 +43,25 @@ try:
         db = GameDatabase(old_db_path)
         print("✓ Database initialized & auto-migrated schema from old library.db")
         
+        # Verify banner_url column + add game
         db.add_game("Test Game", "/tmp/test", "test.exe", "wine", "banner.jpg", "12345")
         games = db.get_all_games()
         assert len(games) == 1, "Game not added correctly"
         assert games[0][5] == "banner.jpg", "banner_url column missing or invalid"
         print("✓ Database add operation works with banner_url column")
         
+        # Test playtime column was auto-migrated
         game_id = games[0][0]
+        assert db.get_playtime(game_id) == 0, "Initial playtime should be 0"
+        print("✓ playtime_seconds column auto-migrated (default 0)")
+        
+        # Test add_playtime accumulates correctly
+        db.add_playtime(game_id, 3600)   # 1 hour
+        db.add_playtime(game_id, 900)    # +15 min
+        total = db.get_playtime(game_id)
+        assert total == 4500, f"Expected 4500s playtime, got {total}s"
+        print("✓ add_playtime / get_playtime correctly accumulates seconds")
+        
         db.remove_game(game_id)
         games = db.get_all_games()
         assert len(games) == 0, "Game not removed correctly"

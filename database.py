@@ -71,6 +71,8 @@ class GameDatabase:
                 cursor.execute("ALTER TABLE games ADD COLUMN banner_url TEXT")
             if "steam_id" not in columns:
                 cursor.execute("ALTER TABLE games ADD COLUMN steam_id TEXT")
+            if "playtime_seconds" not in columns:
+                cursor.execute("ALTER TABLE games ADD COLUMN playtime_seconds INTEGER DEFAULT 0")
 
     def add_game(self, name: str, path: str, executable: str, mode: str, banner_url: str = None, steam_id: str = None):
         with self.conn:
@@ -78,6 +80,22 @@ class GameDatabase:
                 INSERT INTO games (name, path, executable, mode, banner_url, steam_id)
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (name, path, executable, mode, banner_url, steam_id))
+
+    def add_playtime(self, game_id: int, seconds: int) -> None:
+        """Atomically increment total playtime for a game by the given seconds."""
+        if seconds > 0:
+            with self.conn:
+                self.conn.execute(
+                    'UPDATE games SET playtime_seconds = COALESCE(playtime_seconds, 0) + ? WHERE id = ?',
+                    (seconds, game_id)
+                )
+
+    def get_playtime(self, game_id: int) -> int:
+        """Return total playtime in seconds for the given game, or 0 if not found."""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT playtime_seconds FROM games WHERE id = ?', (game_id,))
+        row = cursor.fetchone()
+        return row[0] if row and row[0] else 0
 
     def update_game_banner(self, game_id: int, banner_url: str):
         with self.conn:

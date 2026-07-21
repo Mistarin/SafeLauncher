@@ -81,4 +81,4 @@ class FirejailSandboxRunner(ISandboxRunner):
                 f"--env=WINEPREFIX={prefix_path} wine {q_exe}"
             )
 
-        subprocess.Popen(cmd, shell=True)
+        return subprocess.Popen(cmd, shell=True)
