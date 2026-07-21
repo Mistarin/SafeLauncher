@@ -225,13 +225,3 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Success", "Save imported successfully.")
             else:
                 QMessageBox.critical(self, "Error", "Failed to import save.")
-        game = self.games[row]
-        save_dir = f"{game[2]}/prefix/drive_c/users/steamuser/AppData"
-        
-        export_file, _ = QFileDialog.getSaveFileName(self, "Export Save File", f"{game[1]}_save.zip", "Zip Files (*.zip)")
-        if export_file:
-            success = self.backup.export_save(save_dir, export_file)
-            if success:
-                QMessageBox.information(self, "Success", "Save exported successfully!")
-            else:
-                QMessageBox.warning(self, "Error", "Failed to locate save directory.")
