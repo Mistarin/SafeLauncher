@@ -2,14 +2,37 @@ import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
-    QComboBox, QFormLayout, QScrollArea, QFrame
+    QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal
 from PyQt6.QtGui import QPixmap, QFont
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.steamgriddb_client import SteamGridDBClient
 from database import GameDatabase
-import threading
+
+class BannerFetcher(QThread):
+    """Background thread for fetching game banners - thread-safe"""
+    banner_found = pyqtSignal(str)  # banner_path
+    error_occurred = pyqtSignal(str)  # error message
+    
+    def __init__(self, game_name: str, sgdb_client: SteamGridDBClient):
+        super().__init__()
+        self.game_name = game_name
+        self.sgdb_client = sgdb_client
+    
+    def run(self):
+        try:
+            result = self.sgdb_client.search_game(self.game_name)
+            if result and result.get("banner_url"):
+                banner_path = self.sgdb_client.download_banner(result["banner_url"], 0)
+                if banner_path and os.path.exists(banner_path):
+                    self.banner_found.emit(banner_path)
+                    return
+            
+            # No banner found
+            self.error_occurred.emit("No banner found for this game")
+        except Exception as e:
+            self.error_occurred.emit(f"Error: {str(e)}")
 
 class GameBannerWidget(QFrame):
     """Individual game banner card"""
@@ -68,9 +91,10 @@ class AddGameDialog(QDialog):
     def __init__(self, parent=None, sgdb_client: SteamGridDBClient = None):
         super().__init__(parent)
         self.setWindowTitle("Add Game")
-        self.setGeometry(100, 100, 500, 350)
+        self.setGeometry(100, 100, 550, 400)
         self.sgdb_client = sgdb_client
         self.banner_path = None
+        self.fetcher_thread = None
         
         layout = QFormLayout()
         
@@ -85,8 +109,14 @@ class AddGameDialog(QDialog):
         path_layout.addWidget(browse_btn)
         layout.addRow("Game Path:", path_layout)
         
+        # Executable with browse button
         self.exe_input = QLineEdit()
-        layout.addRow("Executable:", self.exe_input)
+        exe_browse_btn = QPushButton("Browse...")
+        exe_browse_btn.clicked.connect(self._browse_exe)
+        exe_layout = QHBoxLayout()
+        exe_layout.addWidget(self.exe_input)
+        exe_layout.addWidget(exe_browse_btn)
+        layout.addRow("Executable:", exe_layout)
         
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["umu", "wine"])
@@ -126,8 +156,21 @@ class AddGameDialog(QDialog):
         if path:
             self.path_input.setText(path)
     
+    def _browse_exe(self):
+        """Browse for executable file"""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Executable",
+            "",
+            "Executables (*.exe *.sh);;All Files (*)"
+        )
+        if path:
+            # Store just the filename, not the full path
+            filename = os.path.basename(path)
+            self.exe_input.setText(filename)
+    
     def _fetch_banner(self):
-        game_name = self.name_input.text()
+        game_name = self.name_input.text().strip()
         if not game_name:
             QMessageBox.warning(self, "Error", "Please enter a game name first.")
             return
@@ -136,29 +179,40 @@ class AddGameDialog(QDialog):
             QMessageBox.warning(self, "Error", "Banner fetcher not available.")
             return
         
-        # Fetch in background
-        def fetch():
-            try:
-                result = self.sgdb_client.search_game(game_name)
-                if result and result.get("banner_url"):
-                    self.banner_path = self.sgdb_client.download_banner(result["banner_url"], 0)
-                    if self.banner_path and os.path.exists(self.banner_path):
-                        pixmap = QPixmap(self.banner_path)
-                        self.banner_label.setPixmap(pixmap)
-                        QMessageBox.information(self, "Success", "Banner fetched!")
-                        return
-                
-                QMessageBox.information(self, "Info", "No banner found. You can still add the game.")
-            except Exception as e:
-                QMessageBox.warning(self, "Error", f"Failed to fetch banner: {str(e)}")
+        # Disable button while fetching
+        sender = self.sender()
+        sender.setEnabled(False)
+        sender.setText("🔄 Searching...")
         
-        threading.Thread(target=fetch, daemon=True).start()
+        # Create and start fetcher thread
+        self.fetcher_thread = BannerFetcher(game_name, self.sgdb_client)
+        self.fetcher_thread.banner_found.connect(self._on_banner_found)
+        self.fetcher_thread.error_occurred.connect(self._on_banner_error)
+        self.fetcher_thread.finished.connect(lambda: self._reset_fetch_button(sender))
+        self.fetcher_thread.start()
+    
+    def _on_banner_found(self, banner_path: str):
+        """Handle banner found (called from main thread via signal)"""
+        self.banner_path = banner_path
+        if os.path.exists(banner_path):
+            pixmap = QPixmap(banner_path)
+            self.banner_label.setPixmap(pixmap)
+            QMessageBox.information(self, "Success", "✓ Banner fetched successfully!")
+    
+    def _on_banner_error(self, error_msg: str):
+        """Handle banner error (called from main thread via signal)"""
+        QMessageBox.information(self, "Info", f"Banner fetch: {error_msg}")
+    
+    def _reset_fetch_button(self, button):
+        """Re-enable fetch button"""
+        button.setEnabled(True)
+        button.setText("🔍 Fetch Banner from SteamGridDB")
     
     def get_values(self):
         return (
-            self.name_input.text(),
-            self.path_input.text(),
-            self.exe_input.text(),
+            self.name_input.text().strip(),
+            self.path_input.text().strip(),
+            self.exe_input.text().strip(),
             self.mode_combo.currentText(),
             self.banner_path
         )
