@@ -81,4 +81,9 @@ class FirejailSandboxRunner(ISandboxRunner):
                 f"--env=WINEPREFIX={prefix_path} wine {q_exe}"
             )
 
-        return subprocess.Popen(cmd, shell=True)
+        # Use `exec` inside the shell so the shell process is *replaced* by firejail.
+        # This means process.wait() tracks the Firejail PID directly — the moment
+        # Firejail shuts down (which happens right after the game exits and it prints
+        # "Parent is shutting down, bye...") our tracker unblocks immediately.
+        # Without `exec`, bash wraps firejail and adds an extra layer of latency.
+        return subprocess.Popen(["/bin/bash", "-c", f"exec {cmd}"], shell=False)
