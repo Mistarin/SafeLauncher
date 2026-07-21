@@ -1,4 +1,5 @@
 import sqlite3
+import os
 
 class GameDatabase:
     def __init__(self, db_path: str = "library.db"):
@@ -13,16 +14,24 @@ class GameDatabase:
                     name TEXT NOT NULL,
                     path TEXT NOT NULL,
                     executable TEXT NOT NULL,
-                    mode TEXT NOT NULL
+                    mode TEXT NOT NULL,
+                    banner_url TEXT,
+                    steam_id TEXT
                 )
             ''')
 
-    def add_game(self, name: str, path: str, executable: str, mode: str):
+    def add_game(self, name: str, path: str, executable: str, mode: str, banner_url: str = None, steam_id: str = None):
         with self.conn:
             self.conn.execute('''
-                INSERT INTO games (name, path, executable, mode)
-                VALUES (?, ?, ?, ?)
-            ''', (name, path, executable, mode))
+                INSERT INTO games (name, path, executable, mode, banner_url, steam_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (name, path, executable, mode, banner_url, steam_id))
+
+    def update_game_banner(self, game_id: int, banner_url: str):
+        with self.conn:
+            self.conn.execute('''
+                UPDATE games SET banner_url = ? WHERE id = ?
+            ''', (banner_url, game_id))
 
     def get_all_games(self):
         cursor = self.conn.cursor()
