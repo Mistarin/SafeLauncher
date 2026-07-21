@@ -62,6 +62,14 @@ try:
         assert total == 4500, f"Expected 4500s playtime, got {total}s"
         print("✓ add_playtime / get_playtime correctly accumulates seconds")
         
+        # Test update_game functionality
+        db.update_game(game_id, "Updated Game Name", "/tmp/test", "new_test.exe", "umu", "new_banner.jpg")
+        updated_games = db.get_all_games()
+        assert updated_games[0][1] == "Updated Game Name", "Game name update failed"
+        assert updated_games[0][3] == "new_test.exe", "Executable update failed"
+        assert updated_games[0][4] == "umu", "Mode update failed"
+        print("✓ Database update_game operation works")
+
         db.remove_game(game_id)
         games = db.get_all_games()
         assert len(games) == 0, "Game not removed correctly"

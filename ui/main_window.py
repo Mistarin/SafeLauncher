@@ -344,6 +344,12 @@ class ResponsiveGridContainer(QWidget):
         self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
     def set_banner_widgets(self, widgets: list):
+        # Hide and destroy previous widgets that are no longer active
+        for old_w in self.widgets:
+            if old_w not in widgets:
+                old_w.hide()
+                old_w.setParent(None)
+                old_w.deleteLater()
         self.widgets = widgets
         self.reflow()
 
@@ -352,7 +358,7 @@ class ResponsiveGridContainer(QWidget):
         self.reflow()
 
     def reflow(self):
-        # Clear items without destroying child widgets
+        # Clear layout items without double-destroying child widgets
         while self.grid_layout.count() > 0:
             item = self.grid_layout.takeAt(0)
         
@@ -689,6 +695,40 @@ class AddGameDialog(QDialog):
             self.banner_path
         )
 
+
+class EditGameDialog(AddGameDialog):
+    """Dialog pre-populated with existing game details allowing editing name, path, exe, mode, and cover art."""
+    def __init__(self, game_data: tuple, parent=None, sgdb_client: SteamGridDBClient = None):
+        super().__init__(parent, sgdb_client)
+        self.setWindowTitle("Edit Game Settings")
+        
+        # Unpack game data (game_id, name, path, exe, mode, banner_url, steam_id, ...)
+        game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game_data, 0)
+        self.game_id = game_id
+        
+        # Populate pre-existing values
+        self.name_input.setText(name or "")
+        self.path_input.setText(path or "")
+        
+        if path and os.path.exists(path):
+            self._scan_and_populate_exes(path)
+            
+        if exe:
+            self.exe_combo.setEditText(exe)
+            
+        mode_idx = self.mode_combo.findText(mode)
+        if mode_idx >= 0:
+            self.mode_combo.setCurrentIndex(mode_idx)
+            
+        if banner_url and os.path.exists(banner_url):
+            self._on_banner_downloaded(banner_url)
+            
+        # Customize main action button
+        for child in self.findChildren(QPushButton):
+            if child.text() == "✓ Add Game":
+                child.setText("💾 Save Changes")
+                break
+
 class MainWindow(QMainWindow):
     def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager):
         super().__init__()
@@ -835,6 +875,11 @@ class MainWindow(QMainWindow):
         self.btn_add.clicked.connect(self._on_add)
         self.btn_add.setMinimumHeight(40)
         action_layout.addWidget(self.btn_add)
+
+        self.btn_edit = QPushButton("✏️ Edit Game")
+        self.btn_edit.clicked.connect(self._on_edit)
+        self.btn_edit.setMinimumHeight(40)
+        action_layout.addWidget(self.btn_edit)
         
         self.btn_remove = QPushButton("🗑️ Remove")
         self.btn_remove.clicked.connect(self._on_remove)
@@ -893,7 +938,13 @@ class MainWindow(QMainWindow):
 
     def _refresh_library(self):
         """Clear and reload game banners into dynamic responsive grid"""
+        # Explicitly hide and destroy old child widgets to prevent layout overlap/stacking
+        for old_w in list(self.banner_widgets.values()):
+            old_w.hide()
+            old_w.setParent(None)
+            old_w.deleteLater()
         self.banner_widgets.clear()
+        
         self.games = self.db.get_all_games()
         
         self.stat_label.setText(f"{len(self.games)} Game(s) Installed")
@@ -1007,6 +1058,8 @@ class MainWindow(QMainWindow):
         if mode == "linux":
             action_linux = menu.addAction("🐧 Native Linux Script/Binary")
 
+        action_edit_menu = menu.addAction("✏️ Edit Game Settings")
+
         # Position popup menu centered over the selected game's banner widget if available
         from PyQt6.QtCore import QPoint
         menu_size = menu.sizeHint()
@@ -1025,7 +1078,10 @@ class MainWindow(QMainWindow):
         if not selected_action:
             return  # User cancelled menu
 
-        if selected_action == action_umu:
+        if selected_action == action_edit_menu:
+            self._on_edit()
+            return
+        elif selected_action == action_umu:
             selected_mode = "umu"
         elif selected_action == action_umu_net:
             selected_mode = "umu_net"
@@ -1076,6 +1132,29 @@ class MainWindow(QMainWindow):
             self.db.add_game(name, path, exe, mode, banner_path)
             self._refresh_library()
             QMessageBox.information(self, "Success", f"Game '{name}' added to library.")
+
+    def _on_edit(self):
+        """Edit details of the currently selected game."""
+        game = self._get_selected_game()
+        if not game:
+            QMessageBox.warning(self, "Warning", "Please select a game to edit.")
+            return
+
+        dialog = EditGameDialog(game, self, self.sgdb_client)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name, path, exe, mode, banner_path = dialog.get_values()
+            if not name or not path or not exe:
+                QMessageBox.warning(self, "Error", "All fields are required.")
+                return
+            if not os.path.isdir(path):
+                QMessageBox.warning(self, "Error", "Invalid game path.")
+                return
+
+            game_id = game[0]
+            save_sandbox_config(path, exe)
+            self.db.update_game(game_id, name, path, exe, mode, banner_path)
+            self._refresh_library()
+            QMessageBox.information(self, "Success", f"Updated settings for '{name}'.")
     
 
     def _on_sync_sandbox(self, quiet: bool = False):

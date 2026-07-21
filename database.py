@@ -97,6 +97,15 @@ class GameDatabase:
         row = cursor.fetchone()
         return row[0] if row and row[0] else 0
 
+    def update_game(self, game_id: int, name: str, path: str, executable: str, mode: str, banner_url: str = None):
+        """Update existing game record in the database."""
+        with self.conn:
+            self.conn.execute('''
+                UPDATE games 
+                SET name = ?, path = ?, executable = ?, mode = ?, banner_url = ?
+                WHERE id = ?
+            ''', (name, path, executable, mode, banner_url, game_id))
+
     def update_game_banner(self, game_id: int, banner_url: str):
         with self.conn:
             self.conn.execute('''
