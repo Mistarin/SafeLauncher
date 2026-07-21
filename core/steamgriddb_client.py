@@ -1,23 +1,65 @@
 import os
+import shutil
 import requests
 import hashlib
 from pathlib import Path
 from typing import Optional, List, Dict
 
+# [M2 FIX] XDG-compliant cache directory: ~/.cache/mglauncher/banners/
+# Owner-only permissions (700 on dir, 600 on files) to prevent other local users
+# from reading cached cover art files.
+_XDG_CACHE_HOME = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
+_DEFAULT_CACHE_DIR = os.path.join(_XDG_CACHE_HOME, "mglauncher", "banners")
+_LEGACY_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".banner_cache")
+
+
 class SteamGridDBClient:
     """Fetches game banners using Steam Store API (primary) and optional API keys if provided."""
-    
+
     STEAM_STORE_API = "https://store.steampowered.com/api/storesearch"
     RAWG_API = "https://api.rawg.io/api"
-    
-    def __init__(self, cache_dir: str = ".banner_cache", rawg_api_key: str = None):
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def __init__(self, cache_dir: str = None, rawg_api_key: str = None):
+        # [M2 FIX] Default to XDG cache dir; allow override for tests.
+        resolved = Path(cache_dir) if cache_dir else Path(_DEFAULT_CACHE_DIR)
+        resolved.mkdir(parents=True, exist_ok=True)
+        # Owner-only directory: prevents other local users from listing/reading cache.
+        try:
+            resolved.chmod(0o700)
+        except Exception:
+            pass
+        self.cache_dir = resolved
+
+        # [M2 FIX] Migrate any cached banners from the old in-project .banner_cache/
+        self._migrate_legacy_cache()
+
         self.rawg_api_key = rawg_api_key or os.environ.get("RAWG_API_KEY")
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'SafeLauncher/1.0 (Game Launcher)'
+            'User-Agent': 'MGLauncher/1.0 (Game Launcher)'
         })
+
+    def _migrate_legacy_cache(self) -> None:
+        """Move any .jpg files from old project-dir .banner_cache/ to the XDG cache dir."""
+        legacy = Path(_LEGACY_CACHE_DIR)
+        if not legacy.is_dir():
+            return
+        try:
+            for f in legacy.glob("*.jpg"):
+                dest = self.cache_dir / f.name
+                if not dest.exists():
+                    shutil.move(str(f), str(dest))
+                    try:
+                        dest.chmod(0o600)
+                    except Exception:
+                        pass
+            # Remove legacy dir if now empty
+            remaining = list(legacy.iterdir())
+            if not remaining:
+                legacy.rmdir()
+                print(f"[SteamGridDBClient] Migrated banner cache → {self.cache_dir}")
+        except Exception as e:
+            print(f"[SteamGridDBClient] Legacy cache migration error: {e}")
     
     def search_game(self, game_name: str) -> Dict:
         """Search for a game banner via Steam Store API (primary) or RAWG API (if key available)."""
@@ -103,8 +145,17 @@ class SteamGridDBClient:
             'primary': None
         }
     
+    # [H1 FIX] Maximum banner download size: 10 MB. Prevents memory exhaustion from
+    # unexpectedly large responses (e.g. compromised CDN or MITM attack).
+    _MAX_BANNER_BYTES = 10 * 1024 * 1024  # 10 MB
+
     def download_banner(self, url: str, game_id: Optional[int] = None) -> Optional[str]:
-        """Download and cache banner locally, uniquely keyed by URL MD5 hash to prevent cache collisions."""
+        """Download and cache banner locally, uniquely keyed by URL MD5 hash to prevent cache collisions.
+        
+        Security controls:
+        - Validates HTTP Content-Type is an image/* before writing to disk.
+        - Caps download size at 10 MB to prevent memory exhaustion.
+        """
         if not url:
             return None
         
@@ -121,12 +172,36 @@ class SteamGridDBClient:
             if cache_file.exists():
                 return str(cache_file.resolve())
             
-            # Download banner
-            response = self.session.get(url, timeout=10)
-            if response.status_code == 200:
-                with open(cache_file, 'wb') as f:
-                    f.write(response.content)
-                return str(cache_file.resolve())
+            # Download banner with streaming to enforce size cap
+            response = self.session.get(url, timeout=10, stream=True)
+            if response.status_code != 200:
+                return None
+
+            # [H1 FIX] Validate Content-Type is an image before writing anything to disk.
+            content_type = response.headers.get('Content-Type', '')
+            if not content_type.startswith('image/'):
+                print(f"Refusing banner download: unexpected Content-Type '{content_type}' from {url}")
+                return None
+
+            # [H1 FIX] Enforce 10 MB size cap while streaming.
+            chunks = []
+            total = 0
+            for chunk in response.iter_content(chunk_size=65536):
+                total += len(chunk)
+                if total > self._MAX_BANNER_BYTES:
+                    print(f"Refusing banner download: response exceeds {self._MAX_BANNER_BYTES // (1024*1024)} MB from {url}")
+                    return None
+                chunks.append(chunk)
+
+            with open(cache_file, 'wb') as f:
+                for chunk in chunks:
+                    f.write(chunk)
+            # [M2 FIX] Restrict cached file to owner-only (rw-------)
+            try:
+                cache_file.chmod(0o600)
+            except Exception:
+                pass
+            return str(cache_file.resolve())
         except Exception as e:
             print(f"Error downloading banner from {url}: {e}")
         

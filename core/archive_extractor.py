@@ -1,5 +1,4 @@
 import os
-import shlex
 import subprocess
 from typing import List, Optional, Dict
 
@@ -43,33 +42,44 @@ def load_sandbox_config(game_dir: str) -> Optional[str]:
     return None
 
 def extract_archive_sandboxed(archive_path: str, dest_dir: str) -> bool:
-    """Extract game archive securely in a Firejail sandbox."""
-    if not os.path.exists(archive_path):
+    """Extract game archive securely in a Firejail sandbox.
+    
+    Uses shell=False (argument lists) to eliminate all shell injection surface.
+    Firejail whitelist strictly scopes the extractor process to only the archive
+    and destination directory.
+    """
+    # [H2 FIX] Validate archive path is a real, regular file before proceeding.
+    if not os.path.isfile(archive_path):
         return False
-    
+
     os.makedirs(dest_dir, exist_ok=True)
-    
+
     archive_abs = os.path.abspath(archive_path)
     dest_abs = os.path.abspath(dest_dir)
-    
-    q_arc = shlex.quote(archive_abs)
-    q_dest = shlex.quote(dest_abs)
-    
+
     lower_arc = archive_abs.lower()
-    
+
+    # [S2 FIX] Use shell=False with argument list - zero shell injection surface.
+    # Firejail args + extractor args are passed as a flat list; no string interpolation.
+    firejail_base = [
+        "firejail", "--net=none",
+        f"--whitelist={archive_abs}",
+        f"--whitelist={dest_abs}",
+    ]
+
     if lower_arc.endswith(".zip"):
-        cmd = f"firejail --net=none --whitelist={q_arc} --whitelist={q_dest} unzip -q {q_arc} -d {q_dest}"
+        cmd = firejail_base + ["unzip", "-q", archive_abs, "-d", dest_abs]
     elif lower_arc.endswith(".7z"):
-        cmd = f"firejail --net=none --whitelist={q_arc} --whitelist={q_dest} 7z x {q_arc} -o{q_dest} > /dev/null"
+        cmd = firejail_base + ["7z", "x", archive_abs, f"-o{dest_abs}"]
     elif lower_arc.endswith(".tar.gz") or lower_arc.endswith(".tgz"):
-        cmd = f"firejail --net=none --whitelist={q_arc} --whitelist={q_dest} tar -xzf {q_arc} -C {q_dest}"
+        cmd = firejail_base + ["tar", "-xzf", archive_abs, "-C", dest_abs]
     elif lower_arc.endswith(".tar"):
-        cmd = f"firejail --net=none --whitelist={q_arc} --whitelist={q_dest} tar -xf {q_arc} -C {q_dest}"
+        cmd = firejail_base + ["tar", "-xf", archive_abs, "-C", dest_abs]
     else:
         return False
 
     try:
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        res = subprocess.run(cmd, shell=False, capture_output=True, text=True)
         return res.returncode == 0
     except Exception as e:
         print(f"Error during sandboxed extraction: {e}")
@@ -80,7 +90,7 @@ def find_executables(game_dir: str) -> List[str]:
     exes = []
     if not os.path.isdir(game_dir):
         return exes
-    
+
     for root, _, files in os.walk(game_dir):
         for f in files:
             ext = os.path.splitext(f)[1].lower()
@@ -88,7 +98,7 @@ def find_executables(game_dir: str) -> List[str]:
                 full_path = os.path.join(root, f)
                 rel_path = os.path.relpath(full_path, start=game_dir)
                 exes.append(rel_path)
-    
+
     exes.sort()
     return exes
 
@@ -97,7 +107,7 @@ def scan_sandbox_games(sandbox_dir: str = DEFAULT_SANDBOX_DIR) -> List[Dict]:
     found_games = []
     if not os.path.exists(sandbox_dir):
         return found_games
-    
+
     try:
         entries = os.listdir(sandbox_dir)
         for name in entries:
@@ -105,15 +115,15 @@ def scan_sandbox_games(sandbox_dir: str = DEFAULT_SANDBOX_DIR) -> List[Dict]:
             if os.path.isdir(full_path):
                 cfg_exe = load_sandbox_config(full_path)
                 exes = find_executables(full_path)
-                
+
                 exe = cfg_exe if cfg_exe else (exes[0] if exes else "")
-                
+
                 # Determine mode based on executable extension
                 if exe.lower().endswith(".sh"):
                     mode = "linux"
                 else:
                     mode = "umu"
-                    
+
                 if exe:
                     found_games.append({
                         'name': name,
@@ -123,5 +133,5 @@ def scan_sandbox_games(sandbox_dir: str = DEFAULT_SANDBOX_DIR) -> List[Dict]:
                     })
     except Exception as e:
         print(f"Error scanning sandbox games: {e}")
-        
+
     return found_games

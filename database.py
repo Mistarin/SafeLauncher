@@ -1,14 +1,52 @@
 import sqlite3
 import os
+import shutil
+
+# [M1 FIX] Store database in XDG-compliant user data dir (~/.local/share/mglauncher/)
+# instead of next to source files in the project directory. This keeps user data
+# separate from application code and follows freedesktop.org conventions.
+_XDG_DATA_HOME = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+_APP_DATA_DIR = os.path.join(_XDG_DATA_HOME, "mglauncher")
+DEFAULT_DB_PATH = os.path.join(_APP_DATA_DIR, "library.db")
+
+# Legacy path in the project dir - migrated automatically on first run.
+_LEGACY_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library.db")
+
+
+def _migrate_legacy_db(new_path: str) -> None:
+    """If an old library.db exists in the project directory, move it to the new XDG path."""
+    if os.path.isfile(_LEGACY_DB_PATH) and not os.path.isfile(new_path):
+        try:
+            shutil.move(_LEGACY_DB_PATH, new_path)
+            print(f"[GameDatabase] Migrated library.db → {new_path}")
+        except Exception as e:
+            print(f"[GameDatabase] Could not migrate legacy DB: {e}")
+
 
 class GameDatabase:
     def __init__(self, db_path: str = None):
         if db_path is None or db_path == "library.db":
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            db_path = os.path.join(base_dir, "library.db")
-        
+            db_path = DEFAULT_DB_PATH
+
+        # SQLite :memory: is a special in-memory database used in tests - skip all filesystem ops.
+        if db_path != ":memory:":
+            # Ensure parent directory exists with restrictive permissions (owner-only).
+            os.makedirs(os.path.dirname(db_path), mode=0o700, exist_ok=True)
+
+            # Migrate old project-dir DB if present.
+            _migrate_legacy_db(db_path)
+
         self.conn = sqlite3.connect(db_path)
+
+        if db_path != ":memory:":
+            # Restrict DB file to owner-only after opening (rw-------)
+            try:
+                os.chmod(db_path, 0o600)
+            except Exception:
+                pass
+
         self._create_table()
+
 
     def _create_table(self):
         with self.conn:
@@ -23,12 +61,12 @@ class GameDatabase:
                     steam_id TEXT
                 )
             ''')
-            
+
             # Auto-migrate table schema if opening an older database file lacking columns
             cursor = self.conn.cursor()
             cursor.execute("PRAGMA table_info(games)")
             columns = [column[1] for column in cursor.fetchall()]
-            
+
             if "banner_url" not in columns:
                 cursor.execute("ALTER TABLE games ADD COLUMN banner_url TEXT")
             if "steam_id" not in columns:
