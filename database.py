@@ -73,6 +73,19 @@ class GameDatabase:
                 cursor.execute("ALTER TABLE games ADD COLUMN steam_id TEXT")
             if "playtime_seconds" not in columns:
                 cursor.execute("ALTER TABLE games ADD COLUMN playtime_seconds INTEGER DEFAULT 0")
+            if "is_favorite" not in columns:
+                cursor.execute("ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0")
+            if "last_played" not in columns:
+                cursor.execute("ALTER TABLE games ADD COLUMN last_played INTEGER DEFAULT 0")
+            if "tags" not in columns:
+                cursor.execute("ALTER TABLE games ADD COLUMN tags TEXT DEFAULT ''")
+            if "build_id" not in columns:
+                cursor.execute("ALTER TABLE games ADD COLUMN build_id TEXT DEFAULT ''")
+
+    def update_build_id(self, game_id: int, build_id: str):
+        """Update local recorded build_id for a game."""
+        with self.conn:
+            self.conn.execute("UPDATE games SET build_id = ? WHERE id = ?", (build_id, game_id))
 
     def add_game(self, name: str, path: str, executable: str, mode: str, banner_url: str = None, steam_id: str = None):
         with self.conn:
@@ -80,6 +93,27 @@ class GameDatabase:
                 INSERT INTO games (name, path, executable, mode, banner_url, steam_id)
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (name, path, executable, mode, banner_url, steam_id))
+
+    def toggle_favorite(self, game_id: int) -> bool:
+        """Toggle favorite status for a game and return the new status (True/False)."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT is_favorite FROM games WHERE id = ?", (game_id,))
+        row = cursor.fetchone()
+        current = row[0] if row and row[0] else 0
+        new_val = 0 if current else 1
+        with self.conn:
+            self.conn.execute("UPDATE games SET is_favorite = ? WHERE id = ?", (new_val, game_id))
+        return bool(new_val)
+
+    def update_last_played(self, game_id: int, timestamp: int):
+        """Update last played Unix timestamp for a game."""
+        with self.conn:
+            self.conn.execute("UPDATE games SET last_played = ? WHERE id = ?", (timestamp, game_id))
+
+    def update_game_tags(self, game_id: int, tags: str):
+        """Update tags string (comma-separated) for a game."""
+        with self.conn:
+            self.conn.execute("UPDATE games SET tags = ? WHERE id = ?", (tags, game_id))
 
     def add_playtime(self, game_id: int, seconds: int) -> None:
         """Atomically increment total playtime for a game by the given seconds."""
