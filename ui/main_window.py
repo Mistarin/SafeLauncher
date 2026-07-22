@@ -3,9 +3,10 @@ import shutil
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
-    QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu
+    QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
+    QApplication
 )
-from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer
+from PyQt6.QtCore import Qt, QSize, QPoint, QThread, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QEvent
 from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.steamgriddb_client import SteamGridDBClient
@@ -15,6 +16,7 @@ from core.archive_extractor import (
     find_executables, save_sandbox_config, load_sandbox_config, scan_sandbox_games
 )
 from database import GameDatabase
+from ui.icons import get_app_icon, get_icon
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGO_PATH = os.path.join(BASE_DIR, "assets", "logo.png")
@@ -101,6 +103,7 @@ class GameBannerWidget(QFrame):
     """Individual borderless game banner card with pixel font title and LERP zoom"""
     clicked = pyqtSignal(int)
     doubleClicked = pyqtSignal(int)
+    rightClicked = pyqtSignal(int, QPoint)
 
     def __init__(self, game_id: int, name: str, banner_path: str = None, playtime_seconds: int = 0):
         super().__init__()
@@ -178,6 +181,8 @@ class GameBannerWidget(QFrame):
         super().mousePressEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.game_id)
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.rightClicked.emit(self.game_id, event.globalPosition().toPoint())
 
     def mouseDoubleClickEvent(self, event):
         super().mouseDoubleClickEvent(event)
@@ -289,11 +294,10 @@ class GameBannerWidget(QFrame):
             return
 
         # 2. Normal game state with LERP hover zoom
-        if self.banner_path and os.path.exists(self.banner_path):
+        if self.banner_path and self.banner_path != "none" and os.path.exists(self.banner_path):
             pixmap = QPixmap(self.banner_path)
             if not pixmap.isNull():
-                # Smooth LERP scale: 1.0x -> 1.08x
-                scale_factor = 1.0 + (0.08 * progress)
+                scale_factor = 1.0 + (0.04 * progress)
                 zoom_w = int(target_w * scale_factor)
                 zoom_h = int(target_h * scale_factor)
                 
@@ -306,30 +310,19 @@ class GameBannerWidget(QFrame):
                 crop_y = max(0, (scaled.height() - target_h) // 2)
                 cropped = scaled.copy(crop_x, crop_y, target_w, target_h)
                 
-                # Smooth LERP dark overlay alpha: 0 -> 75 (30% max dark tint)
-                alpha = int(75 * progress)
-                if alpha > 0:
-                    darkened = QPixmap(cropped.size())
-                    darkened.fill(Qt.GlobalColor.transparent)
-                    painter = QPainter(darkened)
-                    painter.drawPixmap(0, 0, cropped)
-                    painter.fillRect(darkened.rect(), QColor(0, 0, 0, alpha))
-                    painter.end()
-                    self.image_label.setPixmap(darkened)
-                else:
-                    self.image_label.setPixmap(cropped)
-                    
+                self.image_label.setPixmap(cropped)
                 self.image_label.setText("")
                 return
-        
-        # Fallback card if banner is missing
-        self.image_label.setPixmap(QPixmap())
-        self.image_label.setText(f"🎮\n\n{self.name}")
-        bg = f"stop:0 #0d47a1, stop:1 #1565c0" if progress > 0.5 else "stop:0 #1e3c72, stop:1 #2a5298"
-        self.image_label.setStyleSheet(
-            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:1, {bg});"
-            "color: #ffffff; font-weight: bold; font-size: 13px; padding: 10px; border-radius: 6px;"
-        )
+
+        # 3. Placeholder card when cover art is cleared ('none') or missing
+        placeholder = QPixmap(target_w, target_h)
+        placeholder.fill(QColor("#181818"))
+        painter = QPainter(placeholder)
+        painter.setPen(QColor("#777777"))
+        painter.setFont(QFont("Monospace", 12, QFont.Weight.Bold))
+        painter.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, self.name)
+        painter.end()
+        self.image_label.setPixmap(placeholder)
 
 class ResponsiveGridContainer(QWidget):
     """Container widget that reflows game banner widgets dynamically into columns based on window width"""
@@ -373,11 +366,67 @@ class ResponsiveGridContainer(QWidget):
             col = index % cols
             self.grid_layout.addWidget(widget, row, col)
 
+class DialogTitleBar(QFrame):
+    """Custom top drag bar for modal dialogs with title and close button."""
+    def __init__(self, dialog: QDialog, title: str):
+        super().__init__(dialog)
+        self.dialog = dialog
+        self.drag_pos = None
+        self.setFixedHeight(38)
+        self.setStyleSheet("""
+            QFrame {
+                background: #090909;
+                border-bottom: 1px solid #222222;
+            }
+            QLabel {
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 13px;
+                background: transparent;
+            }
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 0, 8, 0)
+
+        self.title_label = QLabel(title)
+        layout.addWidget(self.title_label)
+        layout.addStretch()
+
+        btn_close = QPushButton()
+        btn_close.setIcon(get_app_icon("close"))
+        btn_close.setFixedSize(26, 26)
+        btn_close.setStyleSheet("QPushButton { background: transparent; border-radius: 4px; padding: 0px; } QPushButton:hover { background: #c62828; }")
+        btn_close.clicked.connect(self.dialog.reject)
+        layout.addWidget(btn_close)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            widget = self.childAt(event.position().toPoint())
+            if not isinstance(widget, QPushButton):
+                handle = self.dialog.windowHandle()
+                if handle and hasattr(handle, "startSystemMove"):
+                    handle.startSystemMove()
+                else:
+                    self.drag_pos = event.globalPosition().toPoint() - self.dialog.frameGeometry().topLeft()
+                event.accept()
+
+    def mouseMoveEvent(self, event):
+        if (event.buttons() & Qt.MouseButton.LeftButton) and getattr(self, 'drag_pos', None) is not None:
+            self.dialog.move(event.globalPosition().toPoint() - self.drag_pos)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self.drag_pos = None
+        super().mouseReleaseEvent(event)
+
+
 class AddGameDialog(QDialog):
     def __init__(self, parent=None, sgdb_client: SteamGridDBClient = None):
         super().__init__(parent)
         self.setWindowTitle("Add / Install Game")
-        self.setGeometry(100, 100, 620, 640)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setFixedSize(860, 680)
         if os.path.exists(LOGO_PATH):
             self.setWindowIcon(QIcon(LOGO_PATH))
             
@@ -389,119 +438,173 @@ class AddGameDialog(QDialog):
         self.search_results = []
         
         ensure_sandbox_dir()
-        
-        layout = QFormLayout()
-        
+
+        # Root vertical layout (Title bar + Main body + Bottom action bar)
+        root_layout = QVBoxLayout()
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        # Custom Draggable Title Bar
+        self.title_bar = DialogTitleBar(self, "➕ Add / Install Game")
+        root_layout.addWidget(self.title_bar)
+
+        # Main Body Widget (2-Column Grid Layout)
+        body_widget = QWidget()
+        body_layout = QHBoxLayout(body_widget)
+        body_layout.setContentsMargins(25, 20, 25, 20)
+        body_layout.setSpacing(25)
+
+        # -------------------------------------------------------------
+        # LEFT COLUMN: Game Configuration Form (~500px width)
+        # -------------------------------------------------------------
+        left_box = QVBoxLayout()
+        left_box.setSpacing(14)
+
+        sec_details = QLabel("Game Configuration")
+        sec_details.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        sec_details.setStyleSheet("color: #ffffff; padding-bottom: 5px;")
+        left_box.addWidget(sec_details)
+
+        form_layout = QFormLayout()
+        form_layout.setSpacing(12)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+
         # Name
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("e.g., Portal 2, Baldur's Gate 3")
-        layout.addRow("Game Name:", self.name_input)
-        
-        # Game path with Browse Folder / Install Archive options
+        self.name_input.setPlaceholderText("e.g., Portal 2, Cyberpunk 2077")
+        self.name_input.setMinimumHeight(36)
+        form_layout.addRow("Game Title:", self.name_input)
+
+        # Game Path
         self.path_input = QLineEdit()
         self.path_input.setPlaceholderText(f"e.g., {DEFAULT_SANDBOX_DIR}/MyGame")
-        browse_folder_btn = QPushButton("📁 Folder...")
+        self.path_input.setMinimumHeight(36)
+        
+        browse_folder_btn = QPushButton(" Browse...")
+        browse_folder_btn.setIcon(get_app_icon("sandbox"))
+        browse_folder_btn.setMinimumHeight(36)
         browse_folder_btn.clicked.connect(self._browse_path)
-        install_archive_btn = QPushButton("📦 Install Zip/7z...")
-        install_archive_btn.clicked.connect(self._install_archive)
-        
-        path_layout = QHBoxLayout()
-        path_layout.addWidget(self.path_input)
-        path_layout.addWidget(browse_folder_btn)
-        path_layout.addWidget(install_archive_btn)
-        layout.addRow("Game Path:", path_layout)
-        
-        # Executable editable dropdown
+
+        path_row = QHBoxLayout()
+        path_row.addWidget(self.path_input)
+        path_row.addWidget(browse_folder_btn)
+        form_layout.addRow("Game Directory:", path_row)
+
+        # Executable
         self.exe_combo = QComboBox()
         self.exe_combo.setEditable(True)
         self.exe_combo.setPlaceholderText("e.g., game.exe, bin/game.exe, start.sh")
-        exe_browse_btn = QPushButton("Browse...")
-        exe_browse_btn.clicked.connect(self._browse_exe)
-        exe_layout = QHBoxLayout()
-        exe_layout.addWidget(self.exe_combo)
-        exe_layout.addWidget(exe_browse_btn)
-        layout.addRow("Executable:", exe_layout)
+        self.exe_combo.setMinimumHeight(36)
         
+        exe_browse_btn = QPushButton(" Browse...")
+        exe_browse_btn.setIcon(get_app_icon("sandbox"))
+        exe_browse_btn.setMinimumHeight(36)
+        exe_browse_btn.clicked.connect(self._browse_exe)
+        
+        exe_row = QHBoxLayout()
+        exe_row.addWidget(self.exe_combo)
+        exe_row.addWidget(exe_browse_btn)
+        form_layout.addRow("Executable File:", exe_row)
+
         # Launch Mode
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems([
-            "umu",
-            "umu_net",
-            "wine",
-            "linux"
-        ])
-        layout.addRow("Launch Mode:", self.mode_combo)
-        
-        # Status message label
+        self.mode_combo.setMinimumHeight(36)
+        self.mode_combo.addItem("🛡️ Primary: UMU (Proton/Wine - Offline)", "umu")
+        self.mode_combo.addItem("🌐 Secondary: UMU (Network Enabled)", "umu_net")
+        self.mode_combo.addItem("🍷 3rd: Legacy Wine (Standalone)", "wine")
+        self.mode_combo.addItem("🐧 Native Linux Binary / Script", "linux")
+        form_layout.addRow("Runner Mode:", self.mode_combo)
+
+        left_box.addLayout(form_layout)
+
+        # Status Label / Banner
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #00e676; font-style: italic;")
-        layout.addRow("", self.status_label)
-        
-        # Banner section
-        banner_label = QLabel("Cover Art (optional):")
-        banner_label.setStyleSheet("font-weight: bold; color: #fff;")
-        layout.addRow(banner_label)
-        
-        # Banner preview (2:3 vertical portrait aspect ratio)
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 11px; padding: 6px 0px;")
+        left_box.addWidget(self.status_label)
+
+        left_box.addStretch()
+        body_layout.addLayout(left_box, stretch=3)
+
+        # -------------------------------------------------------------
+        # RIGHT COLUMN: Cover Art & Steam Grid DB Search (~280px width)
+        # -------------------------------------------------------------
+        right_box = QVBoxLayout()
+        right_box.setSpacing(12)
+        right_box.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        sec_cover = QLabel("Cover Art Poster")
+        sec_cover.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        sec_cover.setStyleSheet("color: #ffffff; padding-bottom: 5px;")
+        right_box.addWidget(sec_cover)
+
+        # Banner preview card (2:3 portrait aspect ratio)
+        preview_container = QHBoxLayout()
         self.banner_label = QLabel()
         self.banner_label.setFixedSize(QSize(180, 270))
         self.banner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.banner_label.setStyleSheet("border: 2px solid #666; border-radius: 3px; background: #111;")
+        self.banner_label.setStyleSheet("border: 2px solid #333333; border-radius: 6px; background: #080808;")
         pixmap = QPixmap(180, 270)
-        pixmap.fill(QColor("#333333"))
+        pixmap.fill(QColor("#1f1f1f"))
         self.banner_label.setPixmap(pixmap)
-        layout.addRow("Preview:", self.banner_label)
-        
-        # Search button and results
-        search_layout = QHBoxLayout()
-        self.fetch_btn = QPushButton("🔍 Search for Cover Art (Steam Store)")
+        preview_container.addWidget(self.banner_label)
+        right_box.addLayout(preview_container)
+
+        # Search cover art button
+        self.fetch_btn = QPushButton(" Search Cover Art")
+        self.fetch_btn.setIcon(get_app_icon("search"))
+        self.fetch_btn.setMinimumHeight(34)
         self.fetch_btn.clicked.connect(self._fetch_banner)
-        search_layout.addWidget(self.fetch_btn)
-        layout.addRow(search_layout)
-        
-        # Results list
-        results_label = QLabel("Search Results:")
-        results_label.setStyleSheet("font-weight: bold; color: #fff; margin-top: 5px;")
-        layout.addRow(results_label)
-        
-        self.results_list = QListWidget()
-        self.results_list.setMaximumHeight(120)
-        self.results_list.itemClicked.connect(self._on_result_selected)
-        layout.addRow(self.results_list)
-        
-        # Buttons
-        buttons_layout = QHBoxLayout()
-        add_btn = QPushButton("✓ Add Game")
-        cancel_btn = QPushButton("✗ Cancel")
-        skip_btn = QPushButton("⊘ Skip Banner")
-        add_btn.clicked.connect(self.accept)
-        cancel_btn.clicked.connect(self.reject)
+        right_box.addWidget(self.fetch_btn)
+
+        skip_btn = QPushButton(" Clear Cover")
+        skip_btn.setIcon(get_icon("ph.x-circle-bold"))
+        skip_btn.setMinimumHeight(32)
         skip_btn.clicked.connect(self._skip_banner)
-        buttons_layout.addWidget(skip_btn)
-        buttons_layout.addWidget(add_btn)
-        buttons_layout.addWidget(cancel_btn)
-        layout.addRow(buttons_layout)
-        
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        container = QWidget()
-        container.setLayout(layout)
-        scroll.setWidget(container)
-        
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(scroll)
-        self.setLayout(main_layout)
-        
+        right_box.addWidget(skip_btn)
+
+        body_layout.addLayout(right_box, stretch=2)
+        root_layout.addWidget(body_widget)
+
+        # -------------------------------------------------------------
+        # BOTTOM ACTION TOOLBAR
+        # -------------------------------------------------------------
+        bottom_frame = QFrame()
+        bottom_frame.setStyleSheet("QFrame { background: #090909; border-top: 1px solid #222222; }")
+        bottom_layout = QHBoxLayout(bottom_frame)
+        bottom_layout.setContentsMargins(25, 12, 25, 12)
+
+        bottom_layout.addStretch()
+
+        cancel_btn = QPushButton(" Cancel")
+        cancel_btn.setIcon(get_app_icon("close"))
+        cancel_btn.setMinimumSize(110, 38)
+        cancel_btn.clicked.connect(self.reject)
+        bottom_layout.addWidget(cancel_btn)
+
+        self.add_btn = QPushButton(" Add Game")
+        self.add_btn.setIcon(get_app_icon("add"))
+        self.add_btn.setMinimumSize(140, 38)
+        self.add_btn.setStyleSheet("QPushButton { background: #2e7d32; color: white; font-weight: bold; border-radius: 6px; } QPushButton:hover { background: #388e3c; }")
+        self.add_btn.clicked.connect(self.accept)
+        bottom_layout.addWidget(self.add_btn)
+
+        root_layout.addWidget(bottom_frame)
+        self.setLayout(root_layout)
+
         self.setStyleSheet("""
-            QDialog { background: #1a1a1a; }
-            QLabel { color: #fff; }
-            QLineEdit { background: #2a2a2a; color: #fff; border: 1px solid #666; padding: 5px; border-radius: 3px; }
-            QPushButton { background: #0d47a1; color: white; border: none; padding: 8px; border-radius: 5px; font-weight: bold; }
-            QPushButton:hover { background: #1565c0; }
-            QComboBox { background: #2a2a2a; color: #fff; border: 1px solid #666; padding: 5px; border-radius: 3px; }
-            QListWidget { background: #2a2a2a; color: #fff; border: 1px solid #666; border-radius: 3px; }
-            QListWidget::item:selected { background: #0d47a1; }
-            QListWidget::item:hover { background: #1a1a2a; }
+            QDialog { background: #121212; border: 1px solid #2a2a2a; border-radius: 8px; }
+            QLabel { color: #e5e5e5; font-size: 12px; }
+            QLineEdit { background: #1c1c1c; color: #fff; border: 1px solid #333333; padding: 6px 10px; border-radius: 5px; }
+            QLineEdit:focus { border: 1px solid #2563eb; }
+            QPushButton { background: #222222; color: white; border: 1px solid #333333; padding: 6px 14px; border-radius: 5px; font-weight: bold; }
+            QPushButton:hover { background: #333333; }
+            QComboBox { background: #1c1c1c; color: #fff; border: 1px solid #333333; padding: 6px 10px; border-radius: 5px; }
+            QComboBox::drop-down { border: none; }
+            QListWidget { background: #1c1c1c; color: #fff; border: 1px solid #333333; border-radius: 5px; }
+            QListWidget::item { padding: 6px; }
+            QListWidget::item:selected { background: #1e293b; color: #64b5f6; }
+            QListWidget::item:hover { background: #262626; }
         """)
 
     def closeEvent(self, event):
@@ -609,7 +712,6 @@ class AddGameDialog(QDialog):
         # Disable button while fetching
         self.fetch_btn.setEnabled(False)
         self.fetch_btn.setText("🔄 Searching...")
-        self.results_list.clear()
         
         # Create and start fetcher thread
         self.fetcher_thread = BannerFetcher(game_name, self.sgdb_client)
@@ -619,40 +721,59 @@ class AddGameDialog(QDialog):
         self.fetcher_thread.start()
     
     def _on_results_found(self, results: list):
-        """Handle search results (called from main thread via signal)"""
+        """Display search results in a floating overlay popup menu right below the search button"""
         self.search_results = results
-        self.results_list.clear()
-        
+        if not results:
+            if hasattr(self.parent(), '_show_toast'):
+                self.parent()._show_toast("No cover art found on Steam.", is_error=True)
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #181818;
+                color: #ffffff;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 6px;
+            }
+            QMenu::item {
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QMenu::item:selected {
+                background-color: #1e293b;
+                color: #64b5f6;
+            }
+        """)
+
         for i, result in enumerate(results):
             name = result.get('name', 'Unknown')
             released = result.get('released', 'Unknown')
-            item_text = f"🎮 {name} ({released})"
-            item = QListWidgetItem(item_text)
-            item.setData(Qt.ItemDataRole.UserRole, i)
-            self.results_list.addItem(item)
-        
-        # Auto-select first result
-        if results:
-            self.results_list.setCurrentRow(0)
-            self._on_result_selected(self.results_list.item(0))
-    
-    def _on_result_selected(self, item):
-        """Handle result selection asynchronously"""
-        idx = item.data(Qt.ItemDataRole.UserRole)
+            action = menu.addAction(get_app_icon("library"), f"{name} ({released})")
+            action.setData(i)
+
+        # Position menu right underneath the fetch button
+        pos = self.fetch_btn.mapToGlobal(QPoint(0, self.fetch_btn.height()))
+        selected_action = menu.exec(pos)
+        if selected_action is not None:
+            idx = selected_action.data()
+            if idx is not None and 0 <= idx < len(self.search_results):
+                self._select_result_idx(idx)
+
+    def _select_result_idx(self, idx: int):
+        """Download and set selected result from popup menu"""
         if 0 <= idx < len(self.search_results):
             result = self.search_results[idx]
             banner_url = result.get('banner_url')
-            
             if banner_url and self.sgdb_client:
-                # Stop existing downloader thread if running
                 if self.downloader_thread and self.downloader_thread.isRunning():
                     self.downloader_thread.quit()
                     self.downloader_thread.wait(500)
-                
-                # Start non-blocking downloader thread
                 self.downloader_thread = BannerDownloader(banner_url, self.sgdb_client)
                 self.downloader_thread.download_complete.connect(self._on_banner_downloaded)
-                self.downloader_thread.download_failed.connect(lambda msg: None)
                 self.downloader_thread.start()
     
     def _on_banner_downloaded(self, image_path: str):
@@ -682,16 +803,25 @@ class AddGameDialog(QDialog):
         self.fetch_btn.setText("🔍 Search for Cover Art (Steam Store)")
     
     def _skip_banner(self):
-        """Skip banner selection and continue"""
-        self.banner_path = None
-        self.accept()
+        """Clear cover art preview and mark as explicitly cleared."""
+        self.banner_path = "none"
+        pixmap = QPixmap(180, 270)
+        pixmap.fill(QColor("#181818"))
+        painter = QPainter(pixmap)
+        painter.setPen(QColor("#777777"))
+        painter.setFont(QFont("Monospace", 11, QFont.Weight.Bold))
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "No Cover Art")
+        painter.end()
+        self.banner_label.setPixmap(pixmap)
     
     def get_values(self):
+        """Extract entered form values cleanly."""
+        mode = self.mode_combo.currentData() or self.mode_combo.currentText()
         return (
             self.name_input.text().strip(),
             self.path_input.text().strip(),
             self.exe_combo.currentText().strip(),
-            self.mode_combo.currentText(),
+            mode,
             self.banner_path
         )
 
@@ -700,7 +830,7 @@ class EditGameDialog(AddGameDialog):
     """Dialog pre-populated with existing game details allowing editing name, path, exe, mode, and cover art."""
     def __init__(self, game_data: tuple, parent=None, sgdb_client: SteamGridDBClient = None):
         super().__init__(parent, sgdb_client)
-        self.setWindowTitle("Edit Game Settings")
+        self.title_bar.title_label.setText("✏️ Edit Game Settings")
         
         # Unpack game data (game_id, name, path, exe, mode, banner_url, steam_id, ...)
         game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game_data, 0)
@@ -717,18 +847,309 @@ class EditGameDialog(AddGameDialog):
         if exe:
             self.exe_combo.setEditText(exe)
             
-        mode_idx = self.mode_combo.findText(mode)
+        mode_idx = self.mode_combo.findData(mode)
+        if mode_idx < 0:
+            mode_idx = self.mode_combo.findText(mode)
         if mode_idx >= 0:
             self.mode_combo.setCurrentIndex(mode_idx)
             
         if banner_url and os.path.exists(banner_url):
             self._on_banner_downloaded(banner_url)
             
-        # Customize main action button
-        for child in self.findChildren(QPushButton):
-            if child.text() == "✓ Add Game":
-                child.setText("💾 Save Changes")
-                break
+        # Customize main action button for Edit mode
+        self.add_btn.setText("Save Changes")
+        self.add_btn.setIcon(get_app_icon("export"))
+
+
+class ToastNotification(QFrame):
+    """Floating non-blocking toast overlay for smooth status updates."""
+    def __init__(self, parent=None, message: str = "", is_error: bool = False, duration_ms: int = 3000):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.SubWindow)
+        
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #141414;
+                border: none;
+                border-radius: 6px;
+            }
+            QLabel {
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 12px;
+                background: transparent;
+                border: none;
+                padding: 0px;
+            }
+        """)
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(8)
+        
+        icon_name = "shield" if is_error else "library"
+        icon_label = QLabel()
+        icon_label.setPixmap(get_app_icon(icon_name).pixmap(16, 16))
+        layout.addWidget(icon_label)
+        
+        text_label = QLabel(message)
+        layout.addWidget(text_label)
+        
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self._auto_close)
+        self.duration_ms = duration_ms
+
+    def show_toast(self, parent_widget: QWidget):
+        self.adjustSize()
+        px = parent_widget.width() - self.width() - 25
+        py = parent_widget.height() - self.height() - 25
+        self.move(max(10, px), max(10, py))
+        self.raise_()
+        self.show()
+        self.timer.start(self.duration_ms)
+
+    def _auto_close(self):
+        self.hide()
+        self.deleteLater()
+
+
+class CustomRemoveDialog(QDialog):
+    """Custom styled dark confirmation dialog for game removal."""
+    def __init__(self, game_name: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Remove Game")
+        self.setFixedWidth(440)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #181818;
+                border: 1px solid #333333;
+                border-radius: 8px;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+            QPushButton {
+                padding: 10px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+                border: none;
+            }
+        """)
+
+        self.choice = None  # 'library_only', 'delete_disk', or 'cancel'
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title_label = QLabel("🗑️ Remove Game")
+        title_label.setFont(QFont("Arial", 15, QFont.Weight.Bold))
+        layout.addWidget(title_label)
+
+        msg_label = QLabel(f"How would you like to remove '{game_name}'?")
+        msg_label.setWordWrap(True)
+        msg_label.setStyleSheet("color: #cccccc; font-size: 13px;")
+        layout.addWidget(msg_label)
+
+        btn_box = QVBoxLayout()
+        btn_box.setSpacing(10)
+
+        btn_lib = QPushButton("Library Only (Keep Files on Disk)")
+        btn_lib.setStyleSheet("QPushButton { background: #1e293b; color: white; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
+        btn_lib.clicked.connect(self._select_lib)
+
+        btn_disk = QPushButton("Delete Game Files & Sandbox Data from Disk")
+        btn_disk.setStyleSheet("QPushButton { background: #c62828; color: white; } QPushButton:hover { background: #e53935; }")
+        btn_disk.clicked.connect(self._select_disk)
+
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setStyleSheet("QPushButton { background: #333333; color: #aaaaaa; } QPushButton:hover { background: #444444; color: white; }")
+        btn_cancel.clicked.connect(self.reject)
+
+        btn_box.addWidget(btn_lib)
+        btn_box.addWidget(btn_disk)
+        btn_box.addWidget(btn_cancel)
+        layout.addLayout(btn_box)
+
+    def _select_lib(self):
+        self.choice = 'library_only'
+        self.accept()
+
+    def _select_disk(self):
+        self.choice = 'delete_disk'
+        self.accept()
+
+
+class CustomTitleBar(QFrame):
+    """Custom top title bar containing navigation actions, window dragging, double-click maximize, and app control buttons."""
+    def __init__(self, main_window: QMainWindow):
+        super().__init__(main_window)
+        self.main_window = main_window
+        self.drag_pos = None
+        self.setFixedHeight(44)
+        self.setStyleSheet("""
+            QFrame {
+                background: #090909;
+                border-bottom: 1px solid #222222;
+            }
+            QPushButton {
+                background: transparent;
+                color: #aaaaaa;
+                padding: 5px 12px;
+                border-radius: 5px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #1e1e1e;
+                color: #ffffff;
+            }
+            QPushButton:checked {
+                background: #1e293b;
+                color: #ffffff;
+                border: 1px solid #334155;
+            }
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(8)
+
+        # App Logo on far left of top bar
+        if os.path.exists(LOGO_PATH):
+            logo_label = QLabel()
+            logo_pix = QPixmap(LOGO_PATH).scaled(
+                24, 24,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            logo_label.setPixmap(logo_pix)
+            layout.addWidget(logo_label)
+
+        # Top Bar Navigation Buttons
+        self.nav_library = QPushButton(" My Library")
+        self.nav_library.setIcon(get_app_icon("library"))
+        self.nav_library.setCheckable(True)
+        self.nav_library.setChecked(True)
+
+        self.nav_sandbox = QPushButton(" Sandbox Folder")
+        self.nav_sandbox.setIcon(get_app_icon("sandbox"))
+
+        self.nav_install_zip = QPushButton(" Install Zip/7z")
+        self.nav_install_zip.setIcon(get_icon("ph.archive-bold"))
+        self.nav_install_zip.setToolTip("Extract and install game from ZIP or 7z archive")
+
+        self.nav_sync = QPushButton()
+        self.nav_sync.setIcon(get_app_icon("sync"))
+        self.nav_sync.setToolTip("Sync Sandbox Library")
+        self.nav_sync.setFixedSize(32, 28)
+        self.nav_sync.setStyleSheet("""
+            QPushButton {
+                background: #181818;
+                border-radius: 5px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background: #252525;
+            }
+        """)
+
+        self.btn_saves = QPushButton(" Saves")
+        self.btn_saves.setIcon(get_app_icon("export"))
+        
+        saves_menu = QMenu(self)
+        saves_menu.setStyleSheet("""
+            QMenu {
+                background-color: #1a1a1a;
+                color: #ffffff;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 6px;
+            }
+            QMenu::item {
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QMenu::item:selected {
+                background-color: #1e293b;
+                color: #ffffff;
+            }
+        """)
+        self.act_export = saves_menu.addAction(get_app_icon("export"), " Export Selected Game Save")
+        self.act_import = saves_menu.addAction(get_app_icon("import"), " Import Selected Game Save")
+        self.btn_saves.setMenu(saves_menu)
+
+        layout.addWidget(self.nav_library)
+        layout.addWidget(self.nav_sandbox)
+        layout.addWidget(self.nav_install_zip)
+        layout.addWidget(self.nav_sync)
+        layout.addWidget(self.btn_saves)
+
+        layout.addStretch()
+
+        # Installed Games Counter badge in top bar
+        self.stat_label = QLabel("0 Games Installed")
+        self.stat_label.setStyleSheet("color: #777777; font-size: 11px; font-weight: bold; margin-right: 10px;")
+        layout.addWidget(self.stat_label)
+
+        # Window Control Buttons (Minimize, Maximize/Restore, Close)
+        btn_minimize = QPushButton()
+        btn_minimize.setIcon(get_app_icon("minimize"))
+        btn_minimize.setFixedSize(32, 28)
+        btn_minimize.setToolTip("Minimize Window")
+        btn_minimize.setStyleSheet("QPushButton { background: transparent; border-radius: 4px; padding: 0px; } QPushButton:hover { background: #222; }")
+        btn_minimize.clicked.connect(self.main_window.showMinimized)
+
+        self.btn_max = QPushButton()
+        self.btn_max.setIcon(get_app_icon("maximize"))
+        self.btn_max.setFixedSize(32, 28)
+        self.btn_max.setToolTip("Maximize / Restore Window")
+        self.btn_max.setStyleSheet("QPushButton { background: transparent; border-radius: 4px; padding: 0px; } QPushButton:hover { background: #222; }")
+        self.btn_max.clicked.connect(self.main_window._toggle_maximize)
+
+        btn_close = QPushButton()
+        btn_close.setIcon(get_app_icon("close"))
+        btn_close.setFixedSize(32, 28)
+        btn_close.setToolTip("Close Window")
+        btn_close.setStyleSheet("QPushButton { background: transparent; border-radius: 4px; padding: 0px; } QPushButton:hover { background: #c62828; }")
+        btn_close.clicked.connect(self.main_window.close)
+
+        layout.addWidget(btn_minimize)
+        layout.addWidget(self.btn_max)
+        layout.addWidget(btn_close)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            widget = self.childAt(event.position().toPoint())
+            if not isinstance(widget, QPushButton):
+                handle = self.main_window.windowHandle()
+                if handle and hasattr(handle, "startSystemMove"):
+                    handle.startSystemMove()
+                else:
+                    self.drag_pos = event.globalPosition().toPoint() - self.main_window.frameGeometry().topLeft()
+                event.accept()
+
+    def mouseMoveEvent(self, event):
+        if (event.buttons() & Qt.MouseButton.LeftButton) and getattr(self, 'drag_pos', None) is not None:
+            if not self.main_window.isMaximized():
+                self.main_window.move(event.globalPosition().toPoint() - self.drag_pos)
+                event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self.drag_pos = None
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            widget = self.childAt(event.position().toPoint())
+            if not isinstance(widget, QPushButton):
+                self.main_window._toggle_maximize()
+                event.accept()
 
 class MainWindow(QMainWindow):
     def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager):
@@ -745,103 +1166,40 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("🎮 MGLauncher - Game Sandbox Manager")
         self.resize(1180, 750)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         
         if os.path.exists(LOGO_PATH):
             self.setWindowIcon(QIcon(LOGO_PATH))
 
-        # Main Root Layout (Horizontal: Left Sidebar + Right Main Panel)
+        # Root Layout: Top Title Bar + Content Panel
         root_widget = QWidget()
         root_widget.setStyleSheet("background: #141414;")
-        root_layout = QHBoxLayout(root_widget)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
+        root_vbox = QVBoxLayout(root_widget)
+        root_vbox.setContentsMargins(0, 0, 0, 0)
+        root_vbox.setSpacing(0)
         
-        # 1. Left Sidebar Bar Panel
-        sidebar = QFrame()
-        sidebar.setFixedWidth(220)
-        sidebar.setStyleSheet("""
-            QFrame {
-                background: #0d0d0d;
-                border-right: 1px solid #282828;
-            }
-            QLabel {
-                color: #fff;
-            }
-            QPushButton {
-                background: transparent;
-                color: #aaa;
-                text-align: left;
-                padding: 10px 15px;
-                border-radius: 6px;
-                font-size: 13px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: #1e1e1e;
-                color: #fff;
-            }
-            QPushButton:checked {
-                background: #0d47a1;
-                color: #fff;
-            }
-        """)
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(15, 20, 15, 20)
-        sidebar_layout.setSpacing(12)
+        # Top Custom Draggable Title Bar
+        self.title_bar = CustomTitleBar(self)
+        root_vbox.addWidget(self.title_bar)
         
-        # App Header in Sidebar with App Logo
-        header_box = QHBoxLayout()
-        header_box.setSpacing(10)
-        
-        logo_label = QLabel()
-        if os.path.exists(LOGO_PATH):
-            logo_pix = QPixmap(LOGO_PATH).scaled(
-                40, 40,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            logo_label.setPixmap(logo_pix)
-        header_box.addWidget(logo_label)
-        
-        title_vbox = QVBoxLayout()
-        title_vbox.setSpacing(2)
-        app_title = QLabel("MGLauncher")
-        app_title.setFont(QFont("Monospace", 14, QFont.Weight.Bold))
-        app_sub = QLabel("Firejail Sandbox")
-        app_sub.setStyleSheet("color: #777; font-size: 10px;")
-        title_vbox.addWidget(app_title)
-        title_vbox.addWidget(app_sub)
-        header_box.addLayout(title_vbox)
-        
-        sidebar_layout.addLayout(header_box)
-        sidebar_layout.addSpacing(10)
-        
-        # Sidebar Navigation Items
-        self.nav_library = QPushButton("🎮 My Library")
-        self.nav_library.setChecked(True)
-        self.nav_sandbox = QPushButton("📁 Sandbox Folder")
+        self.nav_library = self.title_bar.nav_library
+        self.nav_sandbox = self.title_bar.nav_sandbox
         self.nav_sandbox.clicked.connect(self._open_sandbox_dir)
-        self.nav_sync = QPushButton("🔄 Sync Library")
+        self.nav_install_zip = self.title_bar.nav_install_zip
+        self.nav_install_zip.clicked.connect(self._on_install_zip_archive)
+        self.nav_sync = self.title_bar.nav_sync
         self.nav_sync.clicked.connect(self._on_sync_sandbox)
-        
-        sidebar_layout.addWidget(self.nav_library)
-        sidebar_layout.addWidget(self.nav_sandbox)
-        sidebar_layout.addWidget(self.nav_sync)
-        
-        sidebar_layout.addStretch()
-        
-        # Sidebar Footer Badge
-        self.stat_label = QLabel("0 Games Installed")
-        self.stat_label.setStyleSheet("color: #666; font-size: 11px;")
-        sidebar_layout.addWidget(self.stat_label)
-        
-        root_layout.addWidget(sidebar)
+        self.stat_label = self.title_bar.stat_label
 
-        # 2. Right Main Content Panel
+        self.title_bar.act_export.triggered.connect(self._on_export)
+        self.title_bar.act_import.triggered.connect(self._on_import)
+
+        # Main Content Panel (Full Width Game Library Grid)
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(20, 20, 20, 20)
         right_layout.setSpacing(15)
+        root_vbox.addWidget(right_panel)
         
         # Right Header / Title
         header_layout = QHBoxLayout()
@@ -862,45 +1220,27 @@ class MainWindow(QMainWindow):
         scroll_area.setWidget(self.grid_container)
         right_layout.addWidget(scroll_area)
 
-        # Action Buttons Layout (Launch, Add, Remove, Export, Import)
+        # Action Buttons Layout (Add Game on bottom-left, Launch on bottom-right)
         action_layout = QHBoxLayout()
-        action_layout.setSpacing(10)
+        action_layout.setContentsMargins(0, 5, 0, 0)
         
-        self.btn_launch = QPushButton("▶ Launch Selected")
-        self.btn_launch.clicked.connect(self._on_launch)
-        self.btn_launch.setMinimumHeight(40)
-        self.btn_launch.setStyleSheet("background: #2e7d32; color: white; font-weight: bold; border-radius: 6px;")
-        action_layout.addWidget(self.btn_launch)
-        
-        self.btn_add = QPushButton("➕ Add / Install Game")
+        self.btn_add = QPushButton(" Add / Install Game")
+        self.btn_add.setIcon(get_app_icon("add"))
         self.btn_add.clicked.connect(self._on_add)
-        self.btn_add.setMinimumHeight(40)
+        self.btn_add.setMinimumHeight(42)
+        self.btn_add.setStyleSheet("QPushButton { background: #1e293b; color: white; font-weight: bold; border-radius: 6px; border: 1px solid #334155; padding: 10px 20px; } QPushButton:hover { background: #334155; }")
         action_layout.addWidget(self.btn_add)
 
-        self.btn_edit = QPushButton("✏️ Edit Game")
-        self.btn_edit.clicked.connect(self._on_edit)
-        self.btn_edit.setMinimumHeight(40)
-        action_layout.addWidget(self.btn_edit)
-        
-        self.btn_remove = QPushButton("🗑️ Remove")
-        self.btn_remove.clicked.connect(self._on_remove)
-        self.btn_remove.setMinimumHeight(40)
-        self.btn_remove.setStyleSheet("background: #c62828; color: white; font-weight: bold; border-radius: 6px;")
-        action_layout.addWidget(self.btn_remove)
-        
-        self.btn_export = QPushButton("💾 Export Save")
-        self.btn_export.clicked.connect(self._on_export)
-        self.btn_export.setMinimumHeight(40)
-        action_layout.addWidget(self.btn_export)
-        
-        self.btn_import = QPushButton("📂 Import Save")
-        self.btn_import.clicked.connect(self._on_import)
-        self.btn_import.setMinimumHeight(40)
-        action_layout.addWidget(self.btn_import)
+        action_layout.addStretch()
+
+        self.btn_launch = QPushButton(" Launch Selected")
+        self.btn_launch.setIcon(get_app_icon("launch"))
+        self.btn_launch.clicked.connect(self._on_launch)
+        self.btn_launch.setMinimumHeight(42)
+        self.btn_launch.setStyleSheet("QPushButton { background: #2e7d32; color: white; font-weight: bold; border-radius: 6px; padding: 10px 24px; font-size: 13px; } QPushButton:hover { background: #388e3c; }")
+        action_layout.addWidget(self.btn_launch)
         
         right_layout.addLayout(action_layout)
-        
-        root_layout.addWidget(right_panel)
         self.setCentralWidget(root_widget)
         
         self.setStyleSheet("""
@@ -928,6 +1268,17 @@ class MainWindow(QMainWindow):
         self._on_sync_sandbox(quiet=True)
         self._refresh_library()
 
+    def _toggle_maximize(self):
+        """Toggle between maximized state and normal window size"""
+        if self.isMaximized():
+            self.showNormal()
+            if hasattr(self, 'title_bar'):
+                self.title_bar.btn_max.setIcon(get_app_icon("maximize"))
+        else:
+            self.showMaximized()
+            if hasattr(self, 'title_bar'):
+                self.title_bar.btn_max.setIcon(get_app_icon("restore"))
+
     def _open_sandbox_dir(self):
         """Open ~/Games/Sandbox in system file manager"""
         import subprocess
@@ -936,6 +1287,52 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["xdg-open", path])
         except Exception as e:
             QMessageBox.information(self, "Sandbox Path", f"Sandbox directory:\n{path}")
+
+    def _on_install_zip_archive(self):
+        """Install game by picking a zip/7z archive directly from the top bar."""
+        zip_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Game Zip/7z Archive",
+            "",
+            "Archive Files (*.zip *.7z *.tar.gz *.rar)"
+        )
+        if not zip_path or not os.path.exists(zip_path):
+            return
+
+        archive_name = os.path.splitext(os.path.basename(zip_path))[0]
+        sandbox_dir = ensure_sandbox_dir()
+        dest_dir = os.path.join(sandbox_dir, archive_name)
+
+        thread = ExtractionThread(zip_path, dest_dir)
+        thread.extraction_complete.connect(self._on_topbar_extraction_complete)
+        self._show_toast(f"Extracting '{archive_name}' in background...")
+        thread.start()
+        self.topbar_extractor_thread = thread
+
+    def _on_topbar_extraction_complete(self, game_name: str, dest_dir: str, success: bool):
+        """Callback when topbar archive extraction completes"""
+        if not success:
+            self._show_toast(f"Failed to extract '{game_name}'.", is_error=True)
+            return
+
+        self._show_toast(f"✓ Extracted '{game_name}' successfully!")
+        exes = find_executables(dest_dir)
+        default_exe = exes[0] if exes else ""
+
+        dialog = AddGameDialog(self, self.sgdb_client)
+        dialog.name_input.setText(game_name)
+        dialog.path_input.setText(dest_dir)
+        dialog._scan_and_populate_exes(dest_dir)
+        if default_exe:
+            dialog.exe_combo.setEditText(default_exe)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name, path, exe, mode, banner_path = dialog.get_values()
+            if name and path and exe:
+                save_sandbox_config(path, exe)
+                self.db.add_game(name, path, exe, mode, banner_path)
+                self._refresh_library()
+                self._show_toast(f"✓ Game '{name}' added to library!")
 
     def _refresh_library(self):
         """Clear and reload game banners into dynamic responsive grid"""
@@ -963,12 +1360,13 @@ class MainWindow(QMainWindow):
             
             widget = GameBannerWidget(game_id, name, banner_url, playtime_seconds or 0)
             widget.clicked.connect(self._select_game)
+            widget.rightClicked.connect(self._on_game_right_clicked)
             
             widgets.append(widget)
             self.banner_widgets[game_id] = widget
             
-            # If banner_url is missing or file does not exist on disk, auto-fetch in background!
-            if not banner_url or not os.path.exists(banner_url):
+            # Only auto-fetch if banner_url is None (never set), NOT if explicitly cleared ('none' or empty)!
+            if banner_url is None:
                 fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client)
                 fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
                 fetcher.start()
@@ -997,21 +1395,120 @@ class MainWindow(QMainWindow):
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_banner(image_path)
 
-    def _select_game(self, game_id: int):
-        """Single clicking a game banner selects it and opens launch menu directly"""
-        # Deselect all
+    def _select_game_by_id(self, game_id: int):
+        """Select a game card visually without triggering launch popup menu"""
         for widget in self.banner_widgets.values():
             widget.set_selected(False)
-        
-        # Select clicked game
         for game in self.games:
             if game[0] == game_id:
                 self.selected_game = game
                 if game_id in self.banner_widgets:
                     self.banner_widgets[game_id].set_selected(True)
                 break
-        
+
+    def _select_game(self, game_id: int):
+        """Single clicking a game banner selects it and opens launch menu directly"""
+        self._select_game_by_id(game_id)
         self._on_launch()
+
+    def _on_game_right_clicked(self, game_id: int, global_pos: QPoint):
+        """Show full context menu when right-clicking a game card"""
+        self._select_game_by_id(game_id)
+        game = self._get_selected_game()
+        if not game:
+            return
+
+        game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game, 0)
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #1a1a1a;
+                color: #ffffff;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 6px;
+            }
+            QMenu::item {
+                padding: 8px 18px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QMenu::item:selected {
+                background-color: #1e293b;
+                color: #ffffff;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #333333;
+                margin: 4px 6px;
+            }
+        """)
+
+        # 1. Launch Options Sub-Menu
+        launch_menu = menu.addMenu(get_app_icon("launch"), f" Launch {name}")
+        launch_menu.setStyleSheet(menu.styleSheet())
+        
+        act_umu = launch_menu.addAction(get_app_icon("shield"), "Primary: UMU (Offline / No Net)")
+        act_umu_net = launch_menu.addAction(get_app_icon("globe"), "Secondary: UMU (Network Enabled)")
+        act_wine = launch_menu.addAction(get_app_icon("wine"), "3rd: Legacy Wine (Offline)")
+        act_linux = None
+        if mode == "linux":
+            act_linux = launch_menu.addAction(get_app_icon("terminal"), "Native Linux Script/Binary")
+
+        menu.addSeparator()
+
+        # 2. Edit Settings
+        act_edit = menu.addAction(get_app_icon("edit"), " Edit Game Settings")
+        
+        # 3. Export Save
+        act_export = menu.addAction(get_app_icon("export"), " Export Save")
+        
+        # 4. Import Save
+        act_import = menu.addAction(get_app_icon("import"), " Import Save")
+
+        menu.addSeparator()
+
+        # 5. Remove Game
+        act_remove = menu.addAction(get_app_icon("remove"), " Remove Game")
+
+        selected = menu.exec(global_pos)
+        if not selected:
+            return
+
+        if selected == act_edit:
+            self._on_edit()
+        elif selected == act_export:
+            self._on_export()
+        elif selected == act_import:
+            self._on_import()
+        elif selected == act_remove:
+            self._on_remove()
+        elif selected == act_umu:
+            self._launch_mode(game_id, path, exe, "umu")
+        elif selected == act_umu_net:
+            self._launch_mode(game_id, path, exe, "umu_net")
+        elif selected == act_wine:
+            self._launch_mode(game_id, path, exe, "wine")
+        elif act_linux and selected == act_linux:
+            self._launch_mode(game_id, path, exe, "linux")
+
+    def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str):
+        """Helper to launch a game directly with the chosen mode"""
+        if not path or not os.path.exists(path):
+            QMessageBox.warning(self, "Missing Game", f"Cannot launch game. Path does not exist:\n{path}")
+            return
+        try:
+            process = self.runner.launch(path, exe, selected_mode)
+            if process:
+                tracker = PlaytimeTrackerThread(game_id, process, parent=self)
+                tracker.playtime_recorded.connect(self._on_playtime_recorded)
+                tracker.finished.connect(lambda t=tracker: self._cleanup_tracker(t))
+                tracker.start()
+                self.playtime_trackers.append(tracker)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to launch game: {str(e)}")
 
     def _get_selected_game(self):
         """Get the currently selected game"""
@@ -1046,20 +1543,20 @@ class MainWindow(QMainWindow):
                 font-family: 'Monospace', 'Courier New', monospace;
             }
             QMenu::item:selected {
-                background-color: #0d47a1;
+                background-color: #1e293b;
                 color: #ffffff;
             }
         """)
 
-        action_umu = menu.addAction("🛡️ Primary: UMU (Offline / No Net)")
-        action_umu_net = menu.addAction("🌐 Secondary: UMU (Network Enabled)")
-        action_wine = menu.addAction("🍷 3rd: Legacy Wine (Offline)")
+        action_umu = menu.addAction(get_app_icon("shield"), "Primary: UMU (Offline / No Net)")
+        action_umu_net = menu.addAction(get_app_icon("globe"), "Secondary: UMU (Network Enabled)")
+        action_wine = menu.addAction(get_app_icon("wine"), "3rd: Legacy Wine (Offline)")
         
         action_linux = None
         if mode == "linux":
-            action_linux = menu.addAction("🐧 Native Linux Script/Binary")
+            action_linux = menu.addAction(get_app_icon("terminal"), "Native Linux Script/Binary")
 
-        action_edit_menu = menu.addAction("✏️ Edit Game Settings")
+        action_edit_menu = menu.addAction(get_app_icon("edit"), "Edit Game Settings")
 
         # Position popup menu centered over the selected game's banner widget if available
         from PyQt6.QtCore import QPoint
@@ -1133,7 +1630,12 @@ class MainWindow(QMainWindow):
             save_sandbox_config(path, exe)
             self.db.add_game(name, path, exe, mode, banner_path)
             self._refresh_library()
-            QMessageBox.information(self, "Success", f"Game '{name}' added to library.")
+            self._show_toast(f"✓ Game '{name}' added to library!")
+
+    def _show_toast(self, message: str, is_error: bool = False):
+        """Show non-blocking toast overlay notification in bottom-right corner."""
+        toast = ToastNotification(self, message, is_error=is_error)
+        toast.show_toast(self)
 
     def _on_edit(self):
         """Edit details of the currently selected game."""
@@ -1157,7 +1659,7 @@ class MainWindow(QMainWindow):
             save_sandbox_config(path, exe)
             self.db.update_game(game_id, name, path, exe, mode, banner_path)
             self._refresh_library()
-            QMessageBox.information(self, "Success", f"Updated settings for '{name}'.")
+            self._show_toast(f"✓ Updated settings for '{name}'.")
     
 
     def _on_sync_sandbox(self, quiet: bool = False):
@@ -1175,51 +1677,38 @@ class MainWindow(QMainWindow):
         if added_count > 0:
             self._refresh_library()
             if not quiet:
-                QMessageBox.information(self, "Sync Complete", f"Found and added {added_count} game(s) from {DEFAULT_SANDBOX_DIR}.")
+                self._show_toast(f"✓ Found and added {added_count} game(s) from sandbox!")
         else:
             if not quiet:
-                QMessageBox.information(self, "Sync Complete", f"No new games found in {DEFAULT_SANDBOX_DIR}.")
+                self._show_toast("✓ No new games found in sandbox.")
 
     def _on_remove(self):
         game = self._get_selected_game()
         if not game:
-            QMessageBox.warning(self, "Warning", "Please select a game to remove.")
+            self._show_toast("Please select a game to remove.", is_error=True)
             return
         
-        box = QMessageBox(self)
-        box.setWindowTitle("Remove Game")
-        box.setText(f"How would you like to remove '{game[1]}'?")
-        box.setIcon(QMessageBox.Icon.Question)
-        
-        btn_remove_db = box.addButton("Remove from Library Only", QMessageBox.ButtonRole.AcceptRole)
-        btn_delete_disk = box.addButton("Delete Game Files & Sandbox Data from Disk", QMessageBox.ButtonRole.DestructiveRole)
-        btn_cancel = box.addButton(QMessageBox.StandardButton.Cancel)
-        
-        box.exec()
-        clicked = box.clickedButton()
-        
-        if clicked == btn_cancel or clicked is None:
-            return
+        dialog = CustomRemoveDialog(game[1], self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            game_id = game[0]
+            game_path = game[2]
             
-        game_id = game[0]
-        game_path = game[2]
-        
-        self.db.remove_game(game_id)
-        
-        if clicked == btn_delete_disk:
-            if os.path.exists(game_path):
-                try:
-                    shutil.rmtree(game_path)
-                    QMessageBox.information(self, "Success", f"Removed '{game[1]}' from library and deleted game files from disk.")
-                except Exception as e:
-                    QMessageBox.warning(self, "Warning", f"Removed from library, but failed to delete files: {e}")
+            self.db.remove_game(game_id)
+            
+            if dialog.choice == 'delete_disk':
+                if os.path.exists(game_path):
+                    try:
+                        shutil.rmtree(game_path)
+                        self._show_toast(f"✓ Removed '{game[1]}' and deleted files.")
+                    except Exception as e:
+                        self._show_toast(f"Failed to delete files: {e}", is_error=True)
+                else:
+                    self._show_toast(f"✓ Removed '{game[1]}' from library.")
             else:
-                QMessageBox.information(self, "Success", f"Removed '{game[1]}' from library (game directory not found).")
-        else:
-            QMessageBox.information(self, "Success", f"Removed '{game[1]}' from library (game files preserved).")
-            
-        self._refresh_library()
-        self.selected_game = None
+                self._show_toast(f"✓ Removed '{game[1]}' (files preserved).")
+                
+            self._refresh_library()
+            self.selected_game = None
 
     def _on_export(self):
         game = self._get_selected_game()
@@ -1242,14 +1731,14 @@ class MainWindow(QMainWindow):
         
         if export_path:
             if self.backup.export_save(save_path, export_path):
-                QMessageBox.information(self, "Success", "Save exported successfully.")
+                self._show_toast("✓ Save exported successfully.")
             else:
-                QMessageBox.critical(self, "Error", "Failed to export save.")
+                self._show_toast("Failed to export save.", is_error=True)
     
     def _on_import(self):
         game = self._get_selected_game()
         if not game:
-            QMessageBox.warning(self, "Warning", "Please select a game.")
+            self._show_toast("Please select a game to import save.", is_error=True)
             return
         
         import_path, _ = QFileDialog.getOpenFileName(
@@ -1264,6 +1753,6 @@ class MainWindow(QMainWindow):
             os.makedirs(dest_path, exist_ok=True)
             
             if self.backup.import_save(import_path, dest_path):
-                QMessageBox.information(self, "Success", "Save imported successfully.")
+                self._show_toast("✓ Save imported successfully.")
             else:
-                QMessageBox.critical(self, "Error", "Failed to import save.")
+                self._show_toast("Failed to import save.", is_error=True)
