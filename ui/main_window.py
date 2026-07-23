@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
     QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
     QApplication, QSystemTrayIcon, QCheckBox, QGraphicsOpacityEffect, QPlainTextEdit, QProgressBar,
-    QGraphicsDropShadowEffect, QStackedWidget
+    QGraphicsDropShadowEffect, QStackedWidget, QSlider
 )
 from PyQt6.QtCore import Qt, QSize, QPoint, QThread, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QEvent, QAbstractAnimation
 from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QPen, QRadialGradient, QLinearGradient, QMovie
@@ -127,9 +127,12 @@ class GameBannerWidget(QFrame):
         self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.anim.valueChanged.connect(self._on_anim_frame)
 
+        self.card_width = 200
+        self.card_height = 300
+
         self.setFrameStyle(QFrame.Shape.NoFrame)
         self.setLineWidth(0)
-        self.setFixedSize(QSize(200, 355))
+        self.setFixedSize(QSize(self.card_width, self.card_height + 55))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         layout = QVBoxLayout(self)
@@ -138,7 +141,7 @@ class GameBannerWidget(QFrame):
         
         # Banner image (2:3 portrait aspect ratio matching Steam 600x900 library covers)
         self.image_label = QLabel()
-        self.image_label.setFixedSize(QSize(200, 300))
+        self.image_label.setFixedSize(QSize(self.card_width, self.card_height))
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.image_label)
         
@@ -306,9 +309,17 @@ class GameBannerWidget(QFrame):
         painter.end()
         return res
 
+    def set_card_size(self, width: int):
+        """Dynamically resize card banner width and height (2:3 ratio)."""
+        self.card_width = width
+        self.card_height = int(width * 1.5)
+        self.setFixedSize(QSize(self.card_width, self.card_height + 55))
+        self.image_label.setFixedSize(QSize(self.card_width, self.card_height))
+        self.render_frame(self._hover_progress)
+
     def render_frame(self, progress: float):
-        """Render cover art with LERP zoom or greyed-out missing overlay"""
-        target_w, target_h = 200, 300
+        """Render cover art with LERP zoom & dark overlay on hover"""
+        target_w, target_h = self.card_width, self.card_height
         
         # 1. Missing game state (greyed out)
         if self.is_missing:
@@ -342,7 +353,7 @@ class GameBannerWidget(QFrame):
             )
             return
 
-        # 2. Normal game state with LERP hover zoom
+        # 2. Normal game state with LERP hover zoom + smooth hover darkening!
         if self.banner_path and self.banner_path != "none" and os.path.exists(self.banner_path):
             pixmap = QPixmap(self.banner_path)
             if not pixmap.isNull():
@@ -358,7 +369,17 @@ class GameBannerWidget(QFrame):
                 crop_x = max(0, (scaled.width() - target_w) // 2)
                 crop_y = max(0, (scaled.height() - target_h) // 2)
                 cropped = scaled.copy(crop_x, crop_y, target_w, target_h)
-                
+
+                # Apply smooth dark tint overlay on hover
+                if progress > 0.0:
+                    darkened = QPixmap(cropped.size())
+                    darkened.fill(Qt.GlobalColor.transparent)
+                    p = QPainter(darkened)
+                    p.drawPixmap(0, 0, cropped)
+                    p.fillRect(darkened.rect(), QColor(0, 0, 0, int(70 * progress)))
+                    p.end()
+                    cropped = darkened
+
                 self.image_label.setPixmap(self._overlay_update_badge(self._overlay_favorite_badge(cropped)))
                 self.image_label.setText("")
                 return
@@ -381,9 +402,17 @@ class ResponsiveGridContainer(QWidget):
         self.spacing = spacing
         self.widgets = []
         self.grid_layout = QGridLayout(self)
-        self.grid_layout.setContentsMargins(10, 10, 10, 10)
+        self.grid_layout.setContentsMargins(15, 15, 15, 15)
         self.grid_layout.setSpacing(spacing)
-        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+
+    def set_card_width(self, new_width: int):
+        """Update card width for all children and reflow layout."""
+        self.card_width = new_width
+        for w in self.widgets:
+            if hasattr(w, 'set_card_size'):
+                w.set_card_size(new_width)
+        self.reflow()
 
     def set_banner_widgets(self, widgets: list):
         # Hide and destroy previous widgets that are no longer active
@@ -1386,6 +1415,191 @@ class SafeLaunchDialog(QDialog):
         self._fade_dialog = fade_dialog
 
 
+def detect_linux_distro() -> tuple[str, str]:
+    """Detect Linux distribution and return (os_name, install_command)."""
+    os_name = "Linux"
+    cmd = "sudo apt install firejail"
+    if os.path.exists('/etc/os-release'):
+        try:
+            info = {}
+            with open('/etc/os-release') as f:
+                for line in f:
+                    if '=' in line:
+                        k, v = line.strip().split('=', 1)
+                        info[k] = v.strip('\"\'')
+            id_str = info.get('ID', '').lower()
+            like_str = info.get('ID_LIKE', '').lower()
+            name_str = info.get('NAME', 'Linux')
+
+            if 'arch' in id_str or 'arch' in like_str or 'manjaro' in id_str or 'endeavour' in id_str or 'cachy' in id_str:
+                return (name_str, 'sudo pacman -S firejail umu-launcher')
+            elif 'fedora' in id_str or 'fedora' in like_str or 'rhel' in id_str:
+                return (name_str, 'sudo dnf install firejail')
+            elif any(x in id_str or x in like_str for x in ['debian', 'ubuntu', 'mint', 'pop']):
+                return (name_str, 'sudo apt install firejail')
+            return (name_str, 'sudo apt install firejail')
+        except Exception:
+            pass
+    return (os_name, cmd)
+
+
+class MissingDependencyDialog(QDialog):
+    """Warning modal shown only when Firejail sandboxing dependencies are missing."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sandboxing Dependencies Missing")
+        self.setFixedSize(520, 320)
+
+        if parent:
+            p_geo = parent.geometry()
+            self.move(
+                p_geo.x() + (p_geo.width() - 520) // 2,
+                p_geo.y() + (p_geo.height() - 320) // 2
+            )
+
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+
+        distro_name, install_cmd = detect_linux_distro()
+        self.install_cmd = install_cmd
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(24, 24, 24, 24)
+        root_layout.setSpacing(14)
+
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #141417;
+                border: 2px solid #ef4444;
+                border-radius: 14px;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+        """)
+
+        # Header Title with System Warning Icon
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(12)
+
+        icon_label = QLabel()
+        icon_pix = QIcon.fromTheme("dialog-warning").pixmap(36, 36)
+        if not icon_pix.isNull():
+            icon_label.setPixmap(icon_pix)
+        header_layout.addWidget(icon_label)
+
+        title_label = QLabel("Sandboxing Dependencies Missing")
+        title_label.setStyleSheet("color: #f87171; font-size: 18px; font-weight: bold;")
+        header_layout.addWidget(title_label, 1)
+        root_layout.addLayout(header_layout)
+
+        # Explanation Body
+        body_text = (
+            f"<b>Firejail</b> is not installed on your system (<b>{distro_name}</b>).<br>"
+            "Without Firejail, the game will run in <b>direct unsandboxed mode</b>.<br><br>"
+            "Quick install command for your system:"
+        )
+        body_label = QLabel(body_text)
+        body_label.setWordWrap(True)
+        body_label.setStyleSheet("color: #d4d4d8; font-size: 13px;")
+        root_layout.addWidget(body_label)
+
+        # Code Box + Copy Button
+        cmd_layout = QHBoxLayout()
+        cmd_box = QLineEdit(install_cmd)
+        cmd_box.setReadOnly(True)
+        cmd_box.setStyleSheet("""
+            QLineEdit {
+                background-color: #09090b;
+                color: #34d399;
+                border: 1px solid #27272a;
+                border-radius: 6px;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+                padding: 8px;
+            }
+        """)
+        cmd_layout.addWidget(cmd_box)
+
+        copy_btn = QPushButton("Copy")
+        copy_icon = QIcon.fromTheme("edit-copy")
+        if not copy_icon.isNull():
+            copy_btn.setIcon(copy_icon)
+        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27272a;
+                color: #ffffff;
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                padding: 8px 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3f3f46;
+            }
+        """)
+        copy_btn.clicked.connect(self._copy_command)
+        cmd_layout.addWidget(copy_btn)
+        root_layout.addLayout(cmd_layout)
+
+        root_layout.addStretch(1)
+
+        # Action Buttons with System Theme Icons
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(12)
+
+        cancel_btn = QPushButton("Cancel Launch")
+        cancel_icon = QIcon.fromTheme("process-stop")
+        if not cancel_icon.isNull():
+            cancel_btn.setIcon(cancel_icon)
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27272a;
+                color: #a1a1aa;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3f3f46;
+                color: #ffffff;
+            }
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        launch_btn = QPushButton("Launch Unsandboxed")
+        run_icon = QIcon.fromTheme("system-run")
+        if not run_icon.isNull():
+            launch_btn.setIcon(run_icon)
+        launch_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        launch_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc2626;
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 18px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #b91c1c;
+            }
+        """)
+        launch_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(launch_btn)
+
+        root_layout.addLayout(btn_layout)
+
+    def _copy_command(self):
+        cb = QApplication.clipboard()
+        if cb:
+            cb.setText(self.install_cmd)
+
+
 class ToastNotification(QFrame):
     """Floating non-blocking toast overlay for smooth status updates."""
     def __init__(self, parent=None, message: str = "", is_error: bool = False, duration_ms: int = 3000):
@@ -2319,14 +2533,15 @@ class MainWindow(QMainWindow):
         scroll_area.setWidgetResizable(True)
         scroll_area.setStyleSheet("QScrollArea { background: #141414; border: none; }")
         
-        # Dynamic Responsive Grid Container (2:3 portrait cards, width 200px)
+        # Dynamic Responsive Grid Container (2:3 portrait cards, default width 200px)
         self.grid_container = ResponsiveGridContainer(card_width=200, spacing=15)
         scroll_area.setWidget(self.grid_container)
         right_layout.addWidget(scroll_area)
 
-        # Action Buttons Layout (Add Game on bottom-left, Launch on bottom-right)
+        # Action Buttons Layout (Add Game on bottom-left, Card Size Slider, Launch on bottom-right)
         action_layout = QHBoxLayout()
         action_layout.setContentsMargins(0, 5, 0, 0)
+        action_layout.setSpacing(15)
         
         self.btn_add = QPushButton(" Add / Install Game")
         self.btn_add.setIcon(get_app_icon("add"))
@@ -2334,6 +2549,40 @@ class MainWindow(QMainWindow):
         self.btn_add.setMinimumHeight(42)
         self.btn_add.setStyleSheet("QPushButton { background: #1e293b; color: white; font-weight: bold; border-radius: 6px; border: 1px solid #334155; padding: 10px 20px; } QPushButton:hover { background: #334155; }")
         action_layout.addWidget(self.btn_add)
+
+        # Card Size Zoom Slider
+        zoom_layout = QHBoxLayout()
+        zoom_layout.setSpacing(8)
+        zoom_label = QLabel("🔍 Size:")
+        zoom_label.setStyleSheet("color: #a1a1aa; font-weight: bold; font-size: 12px;")
+        zoom_layout.addWidget(zoom_label)
+
+        self.size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.size_slider.setRange(140, 280)
+        self.size_slider.setValue(200)
+        self.size_slider.setFixedWidth(130)
+        self.size_slider.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.size_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #27272a;
+                border-radius: 3px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #2563eb;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #ffffff;
+                width: 14px;
+                height: 14px;
+                margin: -4px 0;
+                border-radius: 7px;
+            }
+        """)
+        self.size_slider.valueChanged.connect(self._on_card_size_changed)
+        zoom_layout.addWidget(self.size_slider)
+        action_layout.addLayout(zoom_layout)
 
         action_layout.addStretch()
         right_layout.addLayout(action_layout)
@@ -2929,6 +3178,14 @@ class MainWindow(QMainWindow):
         if not path or not os.path.exists(path):
             QMessageBox.warning(self, "Missing Game", f"Cannot launch game. Path does not exist:\n{path}")
             return
+
+        # Check dependencies first. If firejail is missing, present distro install warning popup
+        deps = getattr(self.runner, 'check_dependencies', lambda: {})()
+        if deps and not deps.get('firejail', True):
+            dialog = MissingDependencyDialog(parent=self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
         try:
             game_name = "Game"
             for g in self.games:
@@ -3019,6 +3276,11 @@ class MainWindow(QMainWindow):
             self.db.add_game(name, path, exe, mode, banner_path)
             self._refresh_library()
             self._show_toast(f"✓ Game '{name}' added to library!")
+
+    def _on_card_size_changed(self, value: int):
+        """Update card banner size dynamically when user moves bottom size slider."""
+        if hasattr(self, 'grid_container') and self.grid_container:
+            self.grid_container.set_card_width(value)
 
     def _show_toast(self, message: str, is_error: bool = False):
         """Show non-blocking toast overlay notification in bottom-right corner."""
