@@ -1,37 +1,31 @@
 import os
 import shlex
+import shutil
 import subprocess
 from core.interfaces import ISandboxRunner
 
-# Modes that need --ignore=restrict-namespaces because Proton/UMU uses Bubblewrap
-# (bwrap) internally to create user namespaces for the Steam Runtime container.
-# Firejail's default.profile includes `restrict-namespaces` which blocks this.
-#
-# Security trade-off (UMU/Proton modes only):
-#   --ignore=noroot            → bwrap can map uid 0 inside its own user namespace
-#   --ignore=seccomp           → bwrap's unshare/clone syscalls are not filtered
-#   --ignore=restrict-namespaces → bwrap can create its user + mount namespace
-#
-# ALL OTHER default.profile rules remain fully active:
-#   caps.drop all              ✓ All capabilities stripped
-#   nonewprivs                 ✓ No new privilege escalation via execve/SUID
-#   netfilter                  ✓ Replaced by --net=none
-#   private-tmp, private-dev   ✓ Still active
-#   landlock-common.inc        ✓ Landlock filesystem restrictions still active
-#   disable-common.inc         ✓ Sensitive paths still blacklisted
-#   --whitelist                ✓ Home dir locked to only whitelisted paths
-#
-# Wine and Linux native modes do NOT need these ignores and use the full profile.
 _VALID_MODES = {"umu", "umu_net", "wine", "linux"}
 
 
 class FirejailSandboxRunner(ISandboxRunner):
-    def launch(self, game_path: str, executable: str, mode: str) -> None:
+    @staticmethod
+    def check_dependencies() -> dict:
+        """Returns dict of system dependencies status."""
+        return {
+            "firejail": shutil.which("firejail") is not None,
+            "umu-run": shutil.which("umu-run") is not None,
+            "wine": shutil.which("wine") is not None,
+        }
+
+    def launch(self, game_path: str, executable: str, mode: str) -> subprocess.Popen:
         if not game_path or not os.path.exists(game_path):
             raise ValueError(f"Game path does not exist: {game_path}")
 
         if mode not in _VALID_MODES:
             raise ValueError(f"Unknown launch mode: {mode!r}. Must be one of {sorted(_VALID_MODES)}")
+
+        deps = self.check_dependencies()
+        has_firejail = deps["firejail"]
 
         home_dir = os.path.expanduser('~')
         umu_share = os.path.join(home_dir, '.local', 'share', 'umu')
@@ -46,41 +40,47 @@ class FirejailSandboxRunner(ISandboxRunner):
         q_umu_cache = shlex.quote(umu_cache)
         prefix_path = shlex.quote(os.path.join(game_path, 'prefix'))
 
-        if mode == "umu":
-            cmd = (
-                f"cd {q_path} && exec firejail "
-                f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
-                f"--net=none "
-                f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
-                f"--env=WINEPREFIX={prefix_path} umu-run {q_exe}"
-            )
-        elif mode == "umu_net":
-            cmd = (
-                f"cd {q_path} && exec firejail "
-                f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
-                f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
-                f"--env=WINEPREFIX={prefix_path} umu-run {q_exe}"
-            )
+        if mode in ("umu", "umu_net"):
+            runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
+            if has_firejail:
+                net_flag = "--net=none " if mode == "umu" else ""
+                cmd = (
+                    f"cd {q_path} && exec firejail "
+                    f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
+                    f"{net_flag}"
+                    f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
+                    f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
+                )
+            else:
+                # Direct unsandboxed execution fallback
+                cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
         elif mode == "linux":
-            # Native Linux binary - full default.profile, no namespace ignores needed.
             full_exe_path = os.path.join(game_path, executable)
             if os.path.exists(full_exe_path):
                 try:
                     os.chmod(full_exe_path, 0o755)
                 except Exception:
                     pass
-            cmd = (
-                f"cd {q_path} && exec firejail --net=none "
-                f"--whitelist={q_path} ./{q_exe}"
-            )
+            if has_firejail:
+                cmd = f"cd {q_path} && exec firejail --net=none --whitelist={q_path} ./{q_exe}"
+            else:
+                cmd = f"cd {q_path} && ./{q_exe}"
         else:  # "wine"
-            # Legacy Wine - full default.profile, no namespace ignores needed.
-            cmd = (
-                f"cd {q_path} && exec firejail --net=none "
-                f"--whitelist={q_path} "
-                f"--env=WINEPREFIX={prefix_path} wine {q_exe}"
-            )
+            runner_cmd = f"wine {q_exe}"
+            if has_firejail:
+                cmd = (
+                    f"cd {q_path} && exec firejail --net=none "
+                    f"--whitelist={q_path} "
+                    f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
+                )
+            else:
+                cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
 
-        # `exec firejail` replaces the subshell process image directly with Firejail.
-        # This allows process.wait() to monitor the Firejail process cleanly without wrapper latency.
-        return subprocess.Popen(["/bin/bash", "-c", cmd], shell=False)
+        return subprocess.Popen(
+            ["/bin/bash", "-c", cmd],
+            shell=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )

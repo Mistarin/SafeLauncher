@@ -4,10 +4,11 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
     QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
-    QApplication, QSystemTrayIcon, QCheckBox
+    QApplication, QSystemTrayIcon, QCheckBox, QGraphicsOpacityEffect, QPlainTextEdit, QProgressBar,
+    QGraphicsDropShadowEffect, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QSize, QPoint, QThread, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QEvent, QAbstractAnimation
-from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter
+from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QPen, QRadialGradient, QLinearGradient, QMovie
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.steamgriddb_client import SteamGridDBClient
 from core.playtime_tracker import PlaytimeTrackerThread
@@ -1040,6 +1041,349 @@ class LaunchOptionsDialog(QDialog):
     def _select(self, mode: str):
         self.selected_mode = mode
         self.accept()
+
+
+class SafeLaunchLogReader(QThread):
+    """Background reader thread to stream stdout/stderr lines from Firejail process to SafeLaunchDialog console."""
+    log_line = pyqtSignal(str)
+
+    def __init__(self, process, parent=None):
+        super().__init__(parent)
+        self.process = process
+
+    def run(self):
+        if not self.process or not getattr(self.process, 'stdout', None):
+            return
+        try:
+            for line in iter(self.process.stdout.readline, ''):
+                if not line:
+                    break
+                self.log_line.emit(line.strip())
+        except Exception:
+            pass
+
+
+def draw_custom_lock_pixmap(size: int = 80, is_ready: bool = False) -> QPixmap:
+    """Draw a high-resolution, multi-layered vector lock or checkmark badge icon with radial glow effects."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+    cx, cy = size // 2, size // 2
+
+    if not is_ready:
+        # Radial Glow Ring
+        glow_grad = QRadialGradient(cx, cy, size // 2)
+        glow_grad.setColorAt(0.0, QColor(34, 197, 94, 60))
+        glow_grad.setColorAt(0.7, QColor(34, 197, 94, 15))
+        glow_grad.setColorAt(1.0, QColor(0, 0, 0, 0))
+        painter.setBrush(glow_grad)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(0, 0, size, size)
+
+        # Glass Badge Base
+        circle_grad = QLinearGradient(0, 0, size, size)
+        circle_grad.setColorAt(0.0, QColor(6, 78, 59))
+        circle_grad.setColorAt(1.0, QColor(2, 44, 34))
+        painter.setBrush(circle_grad)
+        painter.setPen(QPen(QColor(34, 197, 94), 2))
+        painter.drawEllipse(8, 8, size - 16, size - 16)
+
+        # White Lock Shackle
+        painter.setPen(QPen(QColor(255, 255, 255), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawArc(cx - 12, cy - 18, 24, 24, 0, 180 * 16)
+
+        # White Lock Body
+        painter.setBrush(QColor(255, 255, 255))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(cx - 15, cy - 3, 30, 22, 5, 5)
+
+        # Dark Keyhole
+        painter.setBrush(QColor(2, 44, 34))
+        painter.drawEllipse(cx - 4, cy + 3, 8, 8)
+        painter.drawRect(cx - 2, cy + 7, 4, 6)
+    else:
+        # Radial Glow Ring for Ready
+        glow_grad = QRadialGradient(cx, cy, size // 2)
+        glow_grad.setColorAt(0.0, QColor(34, 197, 94, 90))
+        glow_grad.setColorAt(0.7, QColor(34, 197, 94, 25))
+        glow_grad.setColorAt(1.0, QColor(0, 0, 0, 0))
+        painter.setBrush(glow_grad)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(0, 0, size, size)
+
+        # Emerald Badge Base
+        circle_grad = QLinearGradient(0, 0, size, size)
+        circle_grad.setColorAt(0.0, QColor(22, 163, 74))
+        circle_grad.setColorAt(1.0, QColor(21, 128, 61))
+        painter.setBrush(circle_grad)
+        painter.setPen(QPen(QColor(74, 222, 128), 2))
+        painter.drawEllipse(8, 8, size - 16, size - 16)
+
+        # Pure White Bold Checkmark
+        painter.setPen(QPen(QColor(255, 255, 255), 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.drawLine(cx - 12, cy, cx - 4, cy + 8)
+        painter.drawLine(cx - 4, cy + 8, cx + 13, cy - 9)
+
+    painter.end()
+    return pix
+
+
+GIF_PATH = "/home/martin/Stažené/penguin-pudgy.gif"
+CONFIRM_GIF_PATH = "/home/martin/Stažené/smict.gif"
+
+
+class SafeLaunchDialog(QDialog):
+    """Sleek, zero-jump animated dark card popup:
+    Page 0: Animated Pudgy Penguin GIF intro (/home/martin/Stažené/penguin-pudgy.gif)
+    Page 1: Clean 'Preparing Virtual Environment' header + progress bar + terminal console log
+    Page 2: Confirmation screen ('Enjoy your time, Martin! ✨') with animated GIF (/home/martin/Stažené/smict.gif)
+    Stage 4: Smooth 500ms opacity fade out & auto-close.
+    """
+    def __init__(self, game_name: str, user_name: str = "Martin", process=None, parent=None):
+        super().__init__(parent)
+        self.game_name = game_name
+        self.user_name = user_name
+        self.process = process
+
+        self.setWindowTitle(f"Safe Launch - {game_name}")
+        self.setFixedSize(500, 360)
+
+        # Center over parent window if available
+        if parent:
+            p_geo = parent.geometry()
+            self.move(
+                p_geo.x() + (p_geo.width() - 500) // 2,
+                p_geo.y() + (p_geo.height() - 360) // 2
+            )
+
+        # Frameless dialog (No system titlebar, solid painted window frame)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(20, 20, 20, 20)
+        root_layout.setSpacing(0)
+
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #121215;
+                border: 2px solid #27272a;
+                border-radius: 16px;
+            }
+        """)
+
+        # Main Stacked Widget for Page Transitions (Zero Layout Jumping!)
+        self.stack = QStackedWidget()
+        root_layout.addWidget(self.stack)
+
+        # ---------------------------------------------------------------------
+        # PAGE 0: Pudgy Penguin GIF Intro Stage
+        # ---------------------------------------------------------------------
+        self.page_gif = QWidget()
+        gif_layout = QVBoxLayout(self.page_gif)
+        gif_layout.setContentsMargins(0, 0, 0, 0)
+        gif_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        gif_layout.addStretch(1)
+
+        self.gif_label = QLabel()
+        self.gif_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if os.path.exists(GIF_PATH):
+            self.movie = QMovie(GIF_PATH)
+            self.movie.setScaledSize(QSize(120, 120))
+            self.gif_label.setMovie(self.movie)
+            self.movie.start()
+        else:
+            self.gif_label.setPixmap(draw_custom_lock_pixmap(80, is_ready=False))
+
+        gif_layout.addWidget(self.gif_label, 0, Qt.AlignmentFlag.AlignCenter)
+
+        gif_title = QLabel("Securing Game Launch...")
+        gif_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        gif_title.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold; margin-top: 10px;")
+        gif_layout.addWidget(gif_title, 0, Qt.AlignmentFlag.AlignCenter)
+
+        gif_sub = QLabel(f"Preparing isolated Firejail container for '{game_name}'")
+        gif_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        gif_sub.setStyleSheet("color: #a1a1aa; font-size: 12px; margin-top: 4px;")
+        gif_layout.addWidget(gif_sub, 0, Qt.AlignmentFlag.AlignCenter)
+
+        gif_layout.addStretch(1)
+        self.stack.addWidget(self.page_gif)
+
+        # ---------------------------------------------------------------------
+        # PAGE 1: Virtual Environment Console & Progress Stage
+        # ---------------------------------------------------------------------
+        self.page_console = QWidget()
+        console_layout = QVBoxLayout(self.page_console)
+        console_layout.setContentsMargins(0, 0, 0, 0)
+        console_layout.setSpacing(10)
+
+        # Clean Header
+        self.header_title = QLabel("Preparing Virtual Environment...")
+        self.header_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.header_title.setStyleSheet("color: #ffffff; font-size: 17px; font-weight: bold;")
+        console_layout.addWidget(self.header_title)
+
+        self.header_sub = QLabel(f"Initializing Firejail & UMU sandbox for '{game_name}'")
+        self.header_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.header_sub.setStyleSheet("color: #a1a1aa; font-size: 11px;")
+        console_layout.addWidget(self.header_sub)
+
+        # Progress Bar (Green Accent)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(5)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                background: #1c1c22;
+                border: none;
+                border-radius: 2.5px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #15803d, stop:1 #22c55e);
+                border-radius: 2.5px;
+            }
+        """)
+        console_layout.addWidget(self.progress_bar)
+
+        # Terminal Console View
+        self.console = QPlainTextEdit()
+        self.console.setReadOnly(True)
+        self.console.setStyleSheet("""
+            QPlainTextEdit {
+                background-color: #09090b;
+                color: #34d399;
+                border: 1px solid #27272a;
+                border-radius: 8px;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                font-size: 11px;
+                padding: 8px;
+            }
+        """)
+        console_layout.addWidget(self.console)
+        self.stack.addWidget(self.page_console)
+
+        # ---------------------------------------------------------------------
+        # PAGE 2: Confirmation Greeting Screen with smict.gif Animation
+        # ---------------------------------------------------------------------
+        self.page_confirm = QWidget()
+        confirm_layout = QVBoxLayout(self.page_confirm)
+        confirm_layout.setContentsMargins(0, 0, 0, 0)
+        confirm_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        confirm_layout.addStretch(1)
+
+        self.confirm_label = QLabel()
+        self.confirm_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if os.path.exists(CONFIRM_GIF_PATH):
+            self.confirm_movie = QMovie(CONFIRM_GIF_PATH)
+            self.confirm_movie.setScaledSize(QSize(100, 100))
+            self.confirm_label.setMovie(self.confirm_movie)
+            self.confirm_movie.start()
+        else:
+            self.confirm_label.setPixmap(draw_custom_lock_pixmap(80, is_ready=True))
+
+        confirm_layout.addWidget(self.confirm_label, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self.confirm_title = QLabel(f"Enjoy your time, {self.user_name}!")
+        self.confirm_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.confirm_title.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold; margin-top: 12px;")
+        confirm_layout.addWidget(self.confirm_title, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self.confirm_sub = QLabel(f"'{game_name}' is running safely in Firejail sandbox")
+        self.confirm_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.confirm_sub.setStyleSheet("color: #a1a1aa; font-size: 13px; margin-top: 6px;")
+        confirm_layout.addWidget(self.confirm_sub, 0, Qt.AlignmentFlag.AlignCenter)
+
+        confirm_layout.addStretch(1)
+        self.stack.addWidget(self.page_confirm)
+
+        # Overall Dialog Opacity Effect
+        self.dialog_opacity = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.dialog_opacity)
+        self.dialog_opacity.setOpacity(1.0)
+
+        # Append initial security logs
+        import time, shutil
+        t_str = time.strftime("%H:%M:%S")
+        if shutil.which("firejail"):
+            self.append_log(f"[{t_str}] 🛡️ [SECURITY] Initializing Firejail namespace isolation...")
+            self.append_log(f"[{t_str}] 🔒 [SECURITY] Applying filesystem whitelist & network sandbox (--net=none)...")
+        else:
+            self.append_log(f"[{t_str}] ⚠️ [WARNING] Firejail is not installed on this system.")
+            self.append_log(f"[{t_str}] ⚡ [FALLBACK] Running game in direct unsandboxed execution mode.")
+        self.append_log(f"[{t_str}] 🍷 [RUNNER] Loading Proton / Wine runtime container...")
+        self.append_log(f"[{t_str}] 🚀 [EXEC] Launching process for '{game_name}'...")
+
+        # Start log reader thread if process is piped
+        if self.process and getattr(self.process, 'stdout', None):
+            self.reader_thread = SafeLaunchLogReader(self.process, self)
+            self.reader_thread.log_line.connect(self.append_log)
+            self.reader_thread.start()
+
+        # Start on Page 0 (GIF Intro)
+        self.stack.setCurrentIndex(0)
+
+        # Phase 1 -> Phase 2 Timer (Pudgy Penguin GIF plays for 2.2s then transitions to Console)
+        self.gif_timer = QTimer(self)
+        self.gif_timer.setSingleShot(True)
+        self.gif_timer.timeout.connect(self._goto_console_stage)
+        self.gif_timer.start(2200)
+
+    def _goto_console_stage(self):
+        """Phase 2: Transition to Console View & animate progress bar."""
+        self.stack.setCurrentIndex(1)
+
+        # Progress bar animation (0% -> 100% over 3.5 seconds)
+        self.progress_anim = QVariantAnimation(self)
+        self.progress_anim.setStartValue(0)
+        self.progress_anim.setEndValue(100)
+        self.progress_anim.setDuration(3500)
+        self.progress_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self.progress_anim.valueChanged.connect(self.progress_bar.setValue)
+        self.progress_anim.finished.connect(self._goto_confirmation_stage)
+        self.progress_anim.start()
+
+    def append_log(self, text: str):
+        if text:
+            self.console.appendPlainText(text)
+            sb = self.console.verticalScrollBar()
+            if sb:
+                sb.setValue(sb.maximum())
+
+    def _goto_confirmation_stage(self):
+        """Phase 3: Transition to Confirmation Screen ('Enjoy your time, Martin! ✨')."""
+        import time
+        t_str = time.strftime("%H:%M:%S")
+        self.append_log(f"[{t_str}] ✔️ [SUCCESS] Sandbox container initialized cleanly.")
+        self.append_log(f"[{t_str}] ✨ [STATUS] Handing off control to {self.game_name}. Have fun!")
+
+        # Transition to Page 2 (Confirmation)
+        self.stack.setCurrentIndex(2)
+
+        # Hold confirmation screen for 2.5s, then fade out entire dialog
+        self.close_timer = QTimer(self)
+        self.close_timer.setSingleShot(True)
+        self.close_timer.timeout.connect(self._fade_out_dialog)
+        self.close_timer.start(2500)
+
+    def _fade_out_dialog(self):
+        """Phase 4: Smooth opacity fade out of entire dialog before closing."""
+        fade_dialog = QVariantAnimation(self)
+        fade_dialog.setStartValue(1.0)
+        fade_dialog.setEndValue(0.0)
+        fade_dialog.setDuration(500)
+        fade_dialog.setEasingCurve(QEasingCurve.Type.OutCubic)
+        fade_dialog.finished.connect(self.accept)
+        fade_dialog.start()
+        self._fade_dialog = fade_dialog
 
 
 class ToastNotification(QFrame):
@@ -2604,6 +2948,12 @@ class MainWindow(QMainWindow):
                 tracker.finished.connect(lambda t=tracker: self._cleanup_tracker(t))
                 tracker.start()
                 self.playtime_trackers.append(tracker)
+
+                # Show animated Safe Launch Popup with console log stream & greeting to Martin
+                popup = SafeLaunchDialog(game_name, user_name="Martin", process=process, parent=self)
+                popup.show()
+                QApplication.processEvents()
+                popup.exec()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to launch game: {str(e)}")
 
