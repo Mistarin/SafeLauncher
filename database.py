@@ -140,6 +140,11 @@ class GameDatabase:
                 WHERE id = ?
             ''', (name, path, executable, mode, banner_url, game_id))
 
+    def update_game_mode(self, game_id: int, mode: str):
+        """Update launch runner mode for a game."""
+        with self.conn:
+            self.conn.execute("UPDATE games SET mode = ? WHERE id = ?", (mode, game_id))
+
     def update_game_banner(self, game_id: int, banner_url: str):
         with self.conn:
             self.conn.execute('''

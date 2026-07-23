@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
     QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
-    QApplication, QSystemTrayIcon
+    QApplication, QSystemTrayIcon, QCheckBox
 )
 from PyQt6.QtCore import Qt, QSize, QPoint, QThread, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QEvent, QAbstractAnimation
 from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter
@@ -14,6 +14,7 @@ from core.playtime_tracker import PlaytimeTrackerThread
 from core.steam_tags import SteamTagsFetcher
 from core.steam_build_tracker import SteamBuildFetcher
 from core.disk_utils import get_dir_size, format_size, get_disk_usage
+from core.discord_rpc import DiscordRPC
 from core.archive_extractor import (
     DEFAULT_SANDBOX_DIR, ensure_sandbox_dir, extract_archive_sandboxed,
     find_executables, save_sandbox_config, load_sandbox_config, scan_sandbox_games
@@ -974,6 +975,30 @@ class LaunchOptionsDialog(QDialog):
             )
             btn_linux.clicked.connect(lambda: self._select("linux"))
             body_layout.addWidget(btn_linux)
+
+        # Checkbox to remember as default
+        self.set_as_default_cb = QCheckBox("Remember as default launch mode for this game")
+        self.set_as_default_cb.setChecked(True)
+        self.set_as_default_cb.setStyleSheet("""
+            QCheckBox {
+                color: #cccccc;
+                font-size: 11px;
+                font-weight: bold;
+                padding-top: 5px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                border: 1px solid #444;
+                background: #181818;
+            }
+            QCheckBox::indicator:checked {
+                background: #2563eb;
+                border-color: #3b82f6;
+            }
+        """)
+        body_layout.addWidget(self.set_as_default_cb)
 
         root_layout.addWidget(body)
         self.setLayout(root_layout)
@@ -1993,6 +2018,7 @@ class MainWindow(QMainWindow):
         self.drive_check_timer.start()
 
         # Auto sync sandbox games on startup
+        self.discord_rpc = DiscordRPC()
         self._on_sync_sandbox(quiet=True)
         self._setup_tray_icon()
         self._refresh_library()
@@ -2560,8 +2586,19 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Missing Game", f"Cannot launch game. Path does not exist:\n{path}")
             return
         try:
+            game_name = "Game"
+            for g in self.games:
+                if g[0] == game_id:
+                    game_name = g[1]
+                    break
+
             process = self.runner.launch(path, exe, selected_mode)
             if process:
+                # Update Discord Rich Presence
+                if hasattr(self, 'discord_rpc') and self.discord_rpc:
+                    import time
+                    self.discord_rpc.set_activity(game_name, start_timestamp=int(time.time()), details="Playing in Sandbox")
+
                 tracker = PlaytimeTrackerThread(game_id, process, parent=self)
                 tracker.playtime_recorded.connect(self._on_playtime_recorded)
                 tracker.finished.connect(lambda t=tracker: self._cleanup_tracker(t))
@@ -2575,7 +2612,7 @@ class MainWindow(QMainWindow):
         return self.selected_game
 
     def _on_launch(self):
-        """Open custom dark modal dialog in screen center to pick launch runner mode."""
+        """Launch selected game directly using default mode, or open LaunchOptionsDialog if Shift is held down or unconfigured."""
         game = self._get_selected_game()
         if not game:
             self._show_toast("Please select a game to launch.", is_error=True)
@@ -2586,9 +2623,18 @@ class MainWindow(QMainWindow):
             self._show_toast(f"Cannot launch '{name}'. Directory does not exist on disk.", is_error=True)
             return
 
-        dialog = LaunchOptionsDialog(game, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_mode:
-            self._launch_mode(game_id, path, exe, dialog.selected_mode)
+        modifiers = QApplication.keyboardModifiers()
+        shift_pressed = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+
+        if mode and not shift_pressed:
+            self._launch_mode(game_id, path, exe, mode)
+        else:
+            dialog = LaunchOptionsDialog(game, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_mode:
+                if dialog.set_as_default_cb.isChecked():
+                    self.db.update_game_mode(game_id, dialog.selected_mode)
+                    self._refresh_library()
+                self._launch_mode(game_id, path, exe, dialog.selected_mode)
 
     def _on_playtime_recorded(self, game_id: int, elapsed_seconds: int):
         """Called (on main thread) when a game exits — persists and displays playtime and last_played timestamp."""
@@ -2602,10 +2648,10 @@ class MainWindow(QMainWindow):
 
     def _cleanup_tracker(self, tracker: PlaytimeTrackerThread):
         """Remove finished tracker from the list so it can be garbage collected."""
-        try:
+        if tracker in self.playtime_trackers:
             self.playtime_trackers.remove(tracker)
-        except ValueError:
-            pass
+        if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
+            self.discord_rpc.clear_activity()
 
     def _on_add(self):
         dialog = AddGameDialog(self, self.sgdb_client)
@@ -2655,24 +2701,37 @@ class MainWindow(QMainWindow):
     
 
     def _on_sync_sandbox(self, quiet: bool = False):
-        """Auto-discover installed games in ~/Games/Sandbox"""
+        """Auto-discover installed games in ~/Games/Sandbox without creating duplicate entries."""
         found = scan_sandbox_games(DEFAULT_SANDBOX_DIR)
-        existing_paths = {os.path.abspath(g[2]) for g in self.db.get_all_games() if g[2]}
-        
+        db_games = self.db.get_all_games()
+        existing_paths = {os.path.realpath(g[2]) for g in db_games if g[2]}
+        existing_names = {g[1].lower().replace('-', ' ').replace('_', ' ').strip() for g in db_games if g[1]}
+
         added_count = 0
         for game in found:
-            norm_path = os.path.abspath(game['path'])
-            if norm_path not in existing_paths:
+            norm_path = os.path.realpath(game['path'])
+            folder_clean = game['name'].lower().replace('-', ' ').replace('_', ' ').strip()
+            
+            # Prevent duplicate if exact path exists or clean name matches existing entry
+            is_path_known = norm_path in existing_paths
+            is_name_known = any(
+                folder_clean in db_name or db_name in folder_clean
+                for db_name in existing_names
+            )
+
+            if not is_path_known and not is_name_known:
                 self.db.add_game(game['name'], norm_path, game['executable'], game['mode'])
                 added_count += 1
+                existing_paths.add(norm_path)
+                existing_names.add(folder_clean)
                 
         if added_count > 0:
             self._refresh_library()
             if not quiet:
-                self._show_toast(f"✓ Found and added {added_count} game(s) from sandbox!")
+                self._show_toast(f"✓ Found and added {added_count} new game(s) from sandbox!")
         else:
             if not quiet:
-                self._show_toast("✓ No new games found in sandbox.")
+                self._show_toast("✓ Sandbox synced (no new games found).")
 
     def _on_remove(self):
         game = self._get_selected_game()
