@@ -12,6 +12,8 @@ import requests
 import shutil
 import subprocess
 import inspect
+import platform
+import struct
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
@@ -24,6 +26,65 @@ UMU_DIR = os.path.join(_HOME, ".local", "share", "umu")
 STEAM_COMPAT_DIR = os.path.join(_HOME, ".local", "share", "Steam", "compatibilitytools.d")
 
 GITHUB_RELEASES_API = "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases"
+
+
+def _host_architecture() -> str:
+    """Return the normalized CPU family used for Proton asset selection."""
+    machine = platform.machine().lower()
+    if machine in {"aarch64", "arm64", "armv8l"}:
+        return "aarch64"
+    if machine in {"x86_64", "amd64", "x64"}:
+        return "x86_64"
+    return machine
+
+
+def _asset_architecture_score(asset_name: str) -> int:
+    """Score a release asset for this host; negative means incompatible."""
+    name = asset_name.lower()
+    has_arm = any(token in name for token in ("aarch64", "arm64", "armv8"))
+    has_x86 = any(token in name for token in ("x86_64", "amd64", "x64"))
+    host = _host_architecture()
+
+    if host == "x86_64":
+        if has_arm:
+            return -1
+        return 3 if has_x86 else 2
+    if host == "aarch64":
+        if has_x86 or not has_arm:
+            return -1
+        return 3
+    return -1 if (has_arm or has_x86) else 1
+
+
+def _proton_path_is_compatible(path: str) -> bool:
+    """Reject explicitly ARM/x86 Proton installs that cannot run on this host."""
+    name = os.path.basename(os.path.normpath(path)).lower()
+    host = _host_architecture()
+    if host == "x86_64" and any(token in name for token in ("aarch64", "arm64", "armv8")):
+        return False
+    if host == "aarch64" and any(token in name for token in ("x86_64", "amd64", "x64")):
+        return False
+
+    # Names are normally sufficient, but inspect the bundled pressure-vessel
+    # executable when a build has no architecture suffix.
+    for relative in (
+        os.path.join("pressure-vessel", "bin", "pressure-vessel-wrap"),
+        os.path.join("pressure-vessel", "bin", "pv-verify"),
+    ):
+        binary = os.path.join(path, relative)
+        try:
+            with open(binary, "rb") as stream:
+                header = stream.read(20)
+            if header[:4] != b"\x7fELF" or len(header) < 20:
+                continue
+            machine = struct.unpack("<H", header[18:20])[0]
+            if host == "x86_64" and machine == 183:  # EM_AARCH64
+                return False
+            if host == "aarch64" and machine == 62:  # EM_X86_64
+                return False
+        except OSError:
+            continue
+    return True
 
 
 def get_default_install_dir() -> str:
@@ -56,7 +117,13 @@ def list_installed_ge_proton() -> list[dict]:
             for item in os.listdir(base_dir):
                 full_path = os.path.join(base_dir, item)
                 valid_path = find_valid_proton_dir(full_path)
-                if os.path.isdir(valid_path) and os.path.exists(os.path.join(valid_path, "toolmanifest.vdf")):
+                # Only list actual GE-Proton builds. UMU runtime folders such
+                # as steamrt4 also contain toolmanifest.vdf but are not Proton
+                # tools and may contain a different architecture.
+                is_ge_name = item.lower().startswith(("ge-proton", "proton-ge"))
+                if (is_ge_name and os.path.isdir(valid_path)
+                        and os.path.exists(os.path.join(valid_path, "toolmanifest.vdf"))
+                        and _proton_path_is_compatible(valid_path)):
                     if item not in seen:
                         seen.add(item)
                         installed.append({
@@ -91,12 +158,17 @@ def fetch_online_ge_proton_releases(max_results: int = 12) -> list[dict]:
 
                 tarball_url = ""
                 size_mb = 0.0
+                candidates = []
                 for asset in release.get("assets", []):
                     asset_name = asset.get("name", "")
                     if asset_name.endswith(".tar.gz") or asset_name.endswith(".tar.xz"):
-                        tarball_url = asset.get("browser_download_url", "")
-                        size_mb = round(asset.get("size", 0) / (1024 * 1024), 1)
-                        break
+                        score = _asset_architecture_score(asset_name)
+                        if score >= 0:
+                            candidates.append((score, asset))
+                if candidates:
+                    _, asset = max(candidates, key=lambda item: item[0])
+                    tarball_url = asset.get("browser_download_url", "")
+                    size_mb = round(asset.get("size", 0) / (1024 * 1024), 1)
 
                 if tarball_url:
                     releases.append({
@@ -241,9 +313,16 @@ class GEProtonDownloader(SafeQThread):
 
             # Resolve valid directory with toolmanifest.vdf
             valid_proton_path = find_valid_proton_dir(expected_path)
-            if not os.path.exists(os.path.join(valid_proton_path, "toolmanifest.vdf")):
-                logger.error(f"Extracted folder {valid_proton_path} missing toolmanifest.vdf")
-                self.download_failed.emit("Extracted archive is missing toolmanifest.vdf. Download may be corrupt.")
+            has_manifest = os.path.exists(os.path.join(valid_proton_path, "toolmanifest.vdf"))
+            is_compatible = _proton_path_is_compatible(valid_proton_path)
+            if not has_manifest or not is_compatible:
+                logger.error(
+                    f"Rejected extracted Proton folder {valid_proton_path}: "
+                    f"manifest={has_manifest}, compatible={is_compatible}"
+                )
+                self.download_failed.emit(
+                    "Downloaded Proton archive is missing its manifest or is incompatible with this host architecture."
+                )
                 return
 
             logger.info(f"GE-Proton {self.tag_name} installed successfully at {valid_proton_path}")
