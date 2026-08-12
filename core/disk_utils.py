@@ -3,18 +3,27 @@ import shutil
 
 
 def get_dir_size(dir_path: str) -> int:
-    """Recursively calculate total disk size of a directory in bytes."""
+    """Recursively calculate total disk size of a directory in bytes, measuring all files across the entire root folder structure."""
     if not dir_path or not os.path.exists(dir_path):
         return 0
     total_size = 0
     try:
         if os.path.isfile(dir_path):
             return os.path.getsize(dir_path)
-        for root, _, files in os.walk(dir_path):
+        
+        seen_inodes = set()
+        for root, _, files in os.walk(dir_path, followlinks=True):
             for f in files:
                 fp = os.path.join(root, f)
-                if not os.path.islink(fp):
-                    total_size += os.path.getsize(fp)
+                try:
+                    st = os.stat(fp)
+                    # Deduplicate hard links by inode to prevent double counting
+                    inode_key = (st.st_dev, st.st_ino)
+                    if inode_key not in seen_inodes:
+                        seen_inodes.add(inode_key)
+                        total_size += st.st_size
+                except (OSError, FileNotFoundError):
+                    pass
     except Exception:
         pass
     return total_size

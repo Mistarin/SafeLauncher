@@ -74,9 +74,35 @@ class FirejailSandboxRunner(ISandboxRunner):
         # This prevents Proton from seeing forward slashes in relative paths
         # (e.g. 'Subdir/game.exe'), which triggers Proton's '/unix' path handler and causes exit.
         full_exe_path = os.path.normpath(os.path.join(game_path, executable))
+        if not os.path.isfile(full_exe_path):
+            # Case-insensitive & subfolder fallback search for matching .exe on disk
+            target_name = os.path.basename(executable).lower()
+            found_path = None
+            for root, dirs, files in os.walk(game_path):
+                if "prefix" in root.split(os.sep):
+                    continue
+                for f in files:
+                    if f.lower() == target_name:
+                        found_path = os.path.join(root, f)
+                        break
+                if found_path:
+                    break
+            if found_path:
+                logger.info(f"Auto-resolved executable on disk: {found_path} (original requested: {executable})")
+                full_exe_path = found_path
+
         if os.path.isfile(full_exe_path):
             working_dir = os.path.dirname(full_exe_path)
             exe_filename = os.path.basename(full_exe_path)
+
+            # Ensure game executable has execute permissions (chmod +x) across all launch modes
+            try:
+                current_mode = os.stat(full_exe_path).st_mode
+                if not (current_mode & 0o111):
+                    os.chmod(full_exe_path, current_mode | 0o755)
+                    logger.info(f"Granted execute permissions (chmod +x) to {full_exe_path}")
+            except Exception as perm_err:
+                logger.warning(f"Could not update file permissions for {full_exe_path}: {perm_err}")
         else:
             working_dir = game_path
             exe_filename = executable
@@ -124,12 +150,6 @@ class FirejailSandboxRunner(ISandboxRunner):
             else:
                 cmd = f"cd {q_work_dir} && export WINEPREFIX={prefix_path} && {runner_cmd}"
         elif mode == "linux":
-            if os.path.exists(full_exe_path):
-                if not os.access(full_exe_path, os.X_OK):
-                    try:
-                        os.chmod(full_exe_path, os.stat(full_exe_path).st_mode | 0o111)
-                    except Exception as e:
-                        logger.warning(f"Could not make executable chmod +x {full_exe_path}: {e}")
             if has_firejail:
                 cmd = f"cd {q_work_dir} && exec firejail --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
             else:

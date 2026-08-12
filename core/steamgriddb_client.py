@@ -218,3 +218,99 @@ class SteamGridDBClient:
             except Exception as e:
                 print(f"Could not create placeholder image: {e}")
         return str(placeholder.resolve()) if placeholder.exists() else None
+
+    def download_hero_banner(self, steam_id: Optional[int], game_id: int, game_name: str) -> Optional[str]:
+        """Download and cache TRUE 16:9 wide library hero/background artwork (never 9:16 portrait cover art)."""
+        try:
+            hero_cache_dir = self.cache_dir / "heroes"
+            hero_cache_dir.mkdir(exist_ok=True, parents=True)
+            
+            filename = f"hero_{game_id}.jpg"
+            cache_file = hero_cache_dir / filename
+            
+            # If cache file exists, verify it's a 16:9 landscape image (width >= height)
+            if cache_file.exists():
+                try:
+                    from PIL import Image
+                    with Image.open(cache_file) as img:
+                        w, h = img.size
+                        if w >= h:
+                            return str(cache_file.resolve())
+                        else:
+                            cache_file.unlink()
+                except Exception:
+                    return str(cache_file.resolve())
+
+            # Resolve App ID if missing
+            resolved_appid = steam_id
+            if not resolved_appid or str(resolved_appid) in ("0", "None"):
+                search_res = self.search_game(game_name)
+                if search_res.get("found") and search_res.get("primary"):
+                    resolved_appid = search_res["primary"].get("appid")
+
+            # Priority 1: Direct 16:9 widescreen Steam CDN endpoints
+            urls_to_try = []
+            if resolved_appid and str(resolved_appid).isdigit() and int(resolved_appid) > 0:
+                urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/library_hero.jpg")
+                urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steam/apps/{resolved_appid}/library_hero.jpg")
+                urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/page_bg_raw.jpg")
+                urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steam/apps/{resolved_appid}/page_bg_generated_v6.jpg")
+                urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/header.jpg")
+                urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/capsule_616x353.jpg")
+
+            # Priority 2: Query Steam Store App Details API for 1920x1080 Screenshots
+            if resolved_appid and str(resolved_appid).isdigit() and int(resolved_appid) > 0:
+                try:
+                    app_url = f"https://store.steampowered.com/api/appdetails?appids={resolved_appid}"
+                    app_resp = self.session.get(app_url, timeout=6)
+                    if app_resp.status_code == 200:
+                        app_data = app_resp.json().get(str(resolved_appid), {}).get("data", {})
+                        screenshots = app_data.get("screenshots", [])
+                        for ss in screenshots[:3]:
+                            ss_url = ss.get("path_full")
+                            if ss_url:
+                                urls_to_try.append(ss_url)
+                except Exception as e:
+                    print(f"Steam appdetails query notice: {e}")
+
+            # Priority 3: Query RAWG API for background_image if available
+            if self.rawg_api_key and game_name:
+                try:
+                    rawg_res = self.session.get(f"{self.RAWG_API}/games", params={'search': game_name, 'key': self.rawg_api_key}, timeout=6)
+                    if rawg_res.status_code == 200:
+                        results = rawg_res.json().get('results', [])
+                        if results and results[0].get('background_image'):
+                            urls_to_try.append(results[0]['background_image'])
+                except Exception:
+                    pass
+
+            for url in urls_to_try:
+                try:
+                    response = self.session.get(url, timeout=6, stream=True)
+                    if response.status_code == 200 and response.headers.get('Content-Type', '').startswith('image/'):
+                        chunks = []
+                        for chunk in response.iter_content(chunk_size=65536):
+                            chunks.append(chunk)
+                        
+                        with open(cache_file, 'wb') as f:
+                            for chunk in chunks:
+                                f.write(chunk)
+                        
+                        # Verify downloaded file is widescreen landscape (width >= height)
+                        try:
+                            from PIL import Image
+                            with Image.open(cache_file) as img:
+                                w, h = img.size
+                                if w >= h:
+                                    return str(cache_file.resolve())
+                                else:
+                                    cache_file.unlink()
+                        except Exception:
+                            return str(cache_file.resolve())
+                except Exception:
+                    continue
+
+        except Exception as e:
+            print(f"Error fetching hero banner: {e}")
+
+        return None
