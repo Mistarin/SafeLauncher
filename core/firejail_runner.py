@@ -107,21 +107,13 @@ class FirejailSandboxRunner(ISandboxRunner):
             working_dir = game_path
             exe_filename = executable
 
-        # Resolve active Proton tool path (auto-detect downloaded Proton if empty or invalid)
+        # An empty setting is intentional: let UMU use its system/default
+        # Proton resolution. Do not silently replace that choice with the
+        # first GE-Proton directory found under ~/.local/share/umu.
         active_proton = self.proton_path
         if active_proton and not os.path.exists(os.path.join(active_proton, "toolmanifest.vdf")):
-            logger.warning(f"Configured Proton path '{active_proton}' missing toolmanifest.vdf. Falling back to auto-detection.")
+            logger.warning(f"Configured Proton path '{active_proton}' missing toolmanifest.vdf. Falling back to system/UMU default.")
             active_proton = ""
-
-        if not active_proton:
-            try:
-                from core.proton_manager import list_installed_ge_proton
-                installed_protons = list_installed_ge_proton()
-                if installed_protons:
-                    active_proton = installed_protons[0]["path"]
-                    logger.info(f"Auto-detected installed GE-Proton build: {active_proton}")
-            except Exception as e:
-                logger.warning(f"Proton auto-detection failed: {e}")
 
         q_path = shlex.quote(game_path)
         q_work_dir = shlex.quote(working_dir)

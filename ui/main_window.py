@@ -3683,7 +3683,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("proton_path", self.proton_path)
         if hasattr(self.runner, "set_proton_path"):
             self.runner.set_proton_path(self.proton_path)
-        display_name = os.path.basename(self.proton_path) if self.proton_path else "System Auto Default"
+        display_name = os.path.basename(self.proton_path) if self.proton_path else "System / UMU Default"
         self._show_toast(f"✓ Global default Proton set to: {display_name}")
 
     def _apply_proton_to_selected_game(self, proton_path: str):
