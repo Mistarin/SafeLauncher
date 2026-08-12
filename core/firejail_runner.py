@@ -70,8 +70,20 @@ class FirejailSandboxRunner(ISandboxRunner):
         os.makedirs(umu_share, exist_ok=True)
         os.makedirs(umu_cache, exist_ok=True)
 
+        # Resolve working directory and pure executable filename.
+        # This prevents Proton from seeing forward slashes in relative paths
+        # (e.g. 'Subdir/game.exe'), which triggers Proton's '/unix' path handler and causes exit.
+        full_exe_path = os.path.normpath(os.path.join(game_path, executable))
+        if os.path.isfile(full_exe_path):
+            working_dir = os.path.dirname(full_exe_path)
+            exe_filename = os.path.basename(full_exe_path)
+        else:
+            working_dir = game_path
+            exe_filename = executable
+
         q_path = shlex.quote(game_path)
-        q_exe = shlex.quote(executable)
+        q_work_dir = shlex.quote(working_dir)
+        q_exe = shlex.quote(exe_filename)
         q_umu_share = shlex.quote(umu_share)
         q_umu_cache = shlex.quote(umu_cache)
         prefix_path = shlex.quote(os.path.join(game_path, 'prefix'))
@@ -87,16 +99,15 @@ class FirejailSandboxRunner(ISandboxRunner):
             if has_firejail:
                 net_flag = "--net=none " if mode == "umu" else ""
                 cmd = (
-                    f"cd {q_path} && exec firejail "
+                    f"cd {q_work_dir} && exec firejail "
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
                     f"{net_flag}{security_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
                     f"{proton_whitelist}{proton_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
-                cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
+                cmd = f"cd {q_work_dir} && export WINEPREFIX={prefix_path} && {runner_cmd}"
         elif mode == "linux":
-            full_exe_path = os.path.join(game_path, executable)
             if os.path.exists(full_exe_path):
                 if not os.access(full_exe_path, os.X_OK):
                     try:
@@ -104,21 +115,21 @@ class FirejailSandboxRunner(ISandboxRunner):
                     except Exception as e:
                         logger.warning(f"Could not make executable chmod +x {full_exe_path}: {e}")
             if has_firejail:
-                cmd = f"cd {q_path} && exec firejail --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
+                cmd = f"cd {q_work_dir} && exec firejail --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
             else:
-                cmd = f"cd {q_path} && ./{q_exe}"
+                cmd = f"cd {q_work_dir} && ./{q_exe}"
         else:  # "wine"
             runner_cmd = f"wine {q_exe}"
             if has_firejail:
                 cmd = (
-                    f"cd {q_path} && exec firejail --net=none {security_flags} "
+                    f"cd {q_work_dir} && exec firejail --net=none {security_flags} "
                     f"--whitelist={q_path} "
                     f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
-                cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
+                cmd = f"cd {q_work_dir} && export WINEPREFIX={prefix_path} && {runner_cmd}"
 
-        logger.info(f"Spawning process in mode '{mode}' (Firejail: {has_firejail}, Private-TMP & Blacklist Active): {cmd}")
+        logger.info(f"Spawning process in mode '{mode}' (Firejail: {has_firejail}, WorkDir: {working_dir}): {cmd}")
 
         try:
             process = subprocess.Popen(
