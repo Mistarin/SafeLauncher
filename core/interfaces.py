@@ -4,7 +4,7 @@ import subprocess
 
 class ISandboxRunner(ABC):
     @abstractmethod
-    def launch(self, game_path: str, executable: str, mode: str, steam_id: str = "") -> Optional[subprocess.Popen]:
+    def launch(self, game_path: str, executable: str, mode: str, steam_id: str = "", sandbox: bool = True) -> Optional[subprocess.Popen]:
         pass
 
 class IBackupManager(ABC):

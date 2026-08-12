@@ -1,5 +1,6 @@
 import os
 import subprocess
+import time
 from typing import List, Optional, Dict
 from core.host_process import host_process_env
 
@@ -42,7 +43,7 @@ def load_sandbox_config(game_dir: str) -> Optional[str]:
             print(f"Error reading {CONFIG_FILE}: {e}")
     return None
 
-def extract_archive_sandboxed(archive_path: str, dest_dir: str) -> bool:
+def extract_archive_sandboxed(archive_path: str, dest_dir: str, cancel_callback=None, progress_callback=None) -> bool:
     """Extract game archive securely in a Firejail sandbox.
     
     Uses shell=False (argument lists) to eliminate all shell injection surface.
@@ -83,14 +84,26 @@ def extract_archive_sandboxed(archive_path: str, dest_dir: str) -> bool:
         return False
 
     try:
-        res = subprocess.run(
+        process = subprocess.Popen(
             cmd,
             shell=False,
             capture_output=True,
             text=True,
             env=host_process_env(),
-            timeout=120,
         )
+        while process.poll() is None:
+            if cancel_callback and cancel_callback():
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                return False
+            if progress_callback:
+                progress_callback(-1)
+            time.sleep(0.25)
+        stdout, stderr = process.communicate()
+        res = subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
         # Treat only a zero exit status as success. Exit code 1 means the
         # extractor reported an error or warning and must not be silently
         # accepted as a complete installation.

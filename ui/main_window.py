@@ -22,13 +22,16 @@ from core.archive_extractor import (
     DEFAULT_SANDBOX_DIR, ensure_sandbox_dir, extract_archive_sandboxed,
     find_executables, save_sandbox_config, load_sandbox_config, scan_sandbox_games
 )
+from core.archive_installer import ArchiveInstaller
 from core.proton_manager import (
     list_installed_ge_proton, fetch_online_ge_proton_releases, GEProtonDownloader, get_default_install_dir
 )
 from database import GameDatabase, _APP_DATA_DIR
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
+from core.launch_diagnostics import persist_diagnostics
 from ui.icons import get_app_icon, get_icon
+from ui.maintenance_dialogs import RuntimeInventoryDialog, PrefixMaintenanceDialog
 
 logger = get_logger("UI")
 
@@ -116,6 +119,7 @@ class BannerAutoFetcher(SafeQThread):
 class ArchiveExtractorThread(SafeQThread):
     """Background thread for extracting game archives safely in Firejail sandbox"""
     extraction_complete = pyqtSignal(str, str, bool)  # (game_name, dest_dir, success)
+    extraction_progress = pyqtSignal(int)
     
     def __init__(self, archive_path: str, dest_dir: str):
         super().__init__()
@@ -126,7 +130,12 @@ class ArchiveExtractorThread(SafeQThread):
         game_name = os.path.splitext(os.path.basename(self.archive_path))[0]
         if game_name.endswith(".tar"):
             game_name = os.path.splitext(game_name)[0]
-        success = extract_archive_sandboxed(self.archive_path, self.dest_dir)
+        success = extract_archive_sandboxed(
+            self.archive_path,
+            self.dest_dir,
+            cancel_callback=self.isInterruptionRequested,
+            progress_callback=self.extraction_progress.emit,
+        )
         self.extraction_complete.emit(game_name, self.dest_dir, success)
 
 class GameBannerWidget(QFrame):
@@ -549,6 +558,11 @@ class UserSettingsDialog(QDialog):
         runtime_manager.clicked.connect(self._open_runtime_manager)
         layout.addWidget(runtime_manager)
 
+        inventory_button = QPushButton("Inspect installed runtimes…")
+        inventory_button.setStyleSheet("QPushButton { background: #172554; border: 1px solid #1d4ed8; } QPushButton:hover { background: #1e3a8a; }")
+        inventory_button.clicked.connect(self._open_runtime_inventory)
+        layout.addWidget(inventory_button)
+
         form = QFormLayout()
         self.name_input = QLineEdit(user_name)
         self.name_input.setPlaceholderText("Your name")
@@ -581,6 +595,9 @@ class UserSettingsDialog(QDialog):
     def _open_runtime_manager(self):
         self.runtime_manager_requested.emit()
         self.reject()
+
+    def _open_runtime_inventory(self):
+        RuntimeInventoryDialog(self).exec()
 
     def _open_proton_manager(self):
         self.proton_manager_requested.emit()
@@ -1205,6 +1222,16 @@ class AddGameDialog(QDialog):
         self.status_label.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 11px; padding: 6px 0px;")
         left_box.addWidget(self.status_label)
 
+        self.install_progress = QProgressBar()
+        self.install_progress.setRange(0, 0)
+        self.install_progress.setFixedHeight(6)
+        self.install_progress.setVisible(False)
+        left_box.addWidget(self.install_progress)
+        self.cancel_install_btn = QPushButton("Cancel extraction")
+        self.cancel_install_btn.setVisible(False)
+        self.cancel_install_btn.clicked.connect(self._cancel_extraction)
+        left_box.addWidget(self.cancel_install_btn)
+
         left_box.addStretch()
         body_layout.addLayout(left_box, stretch=3)
 
@@ -1342,6 +1369,17 @@ class AddGameDialog(QDialog):
         )
         if not archive_path:
             return
+
+        try:
+            inspection = ArchiveInstaller().inspect(archive_path, DEFAULT_SANDBOX_DIR)
+            if not inspection.enough_space:
+                QMessageBox.warning(self, "Not enough disk space", f"The archive needs about {inspection.required_bytes / (1024**3):.2f} GB, but only {inspection.free_bytes / (1024**3):.2f} GB is free.")
+                return
+            if inspection.duplicate_path and QMessageBox.question(self, "Duplicate installation", f"{inspection.duplicate_path} already exists. Extract over it?") != QMessageBox.StandardButton.Yes:
+                return
+        except Exception as error:
+            QMessageBox.critical(self, "Archive preflight failed", str(error))
+            return
         
         game_name = os.path.splitext(os.path.basename(archive_path))[0]
         if game_name.endswith(".tar"):
@@ -1350,14 +1388,23 @@ class AddGameDialog(QDialog):
         dest_dir = os.path.join(DEFAULT_SANDBOX_DIR, game_name)
         
         self.status_label.setText(f"⏳ Extracting archive securely into {dest_dir}...")
+        self.install_progress.setVisible(True)
+        self.cancel_install_btn.setVisible(True)
         self.name_input.setText(game_name)
         self.path_input.setText(dest_dir)
         
         self.extractor_thread = ArchiveExtractorThread(archive_path, dest_dir)
         self.extractor_thread.extraction_complete.connect(self._on_extraction_complete)
         self.extractor_thread.start()
+
+    def _cancel_extraction(self):
+        if self.extractor_thread and self.extractor_thread.isRunning():
+            self.extractor_thread.requestInterruption()
+            self.status_label.setText("⏹ Cancelling extraction…")
     
     def _on_extraction_complete(self, game_name: str, dest_dir: str, success: bool):
+        self.install_progress.setVisible(False)
+        self.cancel_install_btn.setVisible(False)
         if success:
             self.status_label.setText("✓ Archive extracted securely!")
             self._scan_and_populate_exes(dest_dir)
@@ -1796,11 +1843,17 @@ class SafeLaunchDialog(QDialog):
     Page 2: Confirmation screen ('Enjoy your time, Martin! ✨') with animated GIF (/home/martin/Stažené/smict.gif)
     Stage 4: Smooth 500ms opacity fade out & auto-close.
     """
+    retry_requested = pyqtSignal(str)
+    unsafe_launch_requested = pyqtSignal()
+
     def __init__(self, game_name: str, user_name: str = "Martin", process=None, parent=None):
         super().__init__(parent)
         self.game_name = game_name
         self.user_name = user_name
         self.process = process
+        self.diagnostics = getattr(process, "safelauncher_diagnostics", None)
+        if self.diagnostics:
+            self.diagnostics.game_name = game_name
         self.log_lines = []
         self.launch_finished = False
         self.handoff_shown = False
@@ -1810,14 +1863,14 @@ class SafeLaunchDialog(QDialog):
         self.startup_grace_seconds = 15.0
 
         self.setWindowTitle(f"Safe Launch - {game_name}")
-        self.setFixedSize(500, 360)
+        self.setFixedSize(760, 600)
 
         # Center over parent window if available
         if parent:
             p_geo = parent.geometry()
             self.move(
-                p_geo.x() + (p_geo.width() - 500) // 2,
-                p_geo.y() + (p_geo.height() - 360) // 2
+                p_geo.x() + (p_geo.width() - self.width()) // 2,
+                p_geo.y() + (p_geo.height() - self.height()) // 2
             )
 
         # Frameless dialog (No system titlebar, solid painted window frame)
@@ -1959,6 +2012,27 @@ class SafeLaunchDialog(QDialog):
         """)
         error_layout.addWidget(self.error_details)
 
+        diagnostics_buttons = QHBoxLayout()
+        copy_diagnostics = QPushButton("Copy diagnostics")
+        copy_diagnostics.clicked.connect(self._copy_diagnostics)
+        diagnostics_buttons.addWidget(copy_diagnostics)
+        open_logs = QPushButton("Open log folder")
+        open_logs.clicked.connect(self._open_log_folder)
+        diagnostics_buttons.addWidget(open_logs)
+        diagnostics_buttons.addStretch()
+        error_layout.addLayout(diagnostics_buttons)
+
+        recovery_buttons = QHBoxLayout()
+        retry_safe = QPushButton("Retry with safe fallback")
+        retry_safe.setToolTip("Retry using the sandboxed Wine fallback.")
+        retry_safe.clicked.connect(lambda: self._request_retry("wine"))
+        recovery_buttons.addWidget(retry_safe)
+        unsafe = QPushButton("⚠ Launch without sandbox (UNSAFE)")
+        unsafe.setStyleSheet("QPushButton { background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444; font-weight: bold; }")
+        unsafe.clicked.connect(self._request_unsafe_launch)
+        recovery_buttons.addWidget(unsafe)
+        error_layout.addLayout(recovery_buttons)
+
         close_error = QPushButton("Close")
         close_error.setMinimumHeight(36)
         close_error.setStyleSheet("QPushButton { background: #991b1b; color: #ffffff; border-radius: 6px; font-weight: bold; } QPushButton:hover { background: #b91c1c; }")
@@ -2064,6 +2138,8 @@ class SafeLaunchDialog(QDialog):
     def append_log(self, text: str):
         if text:
             self.log_lines.append(text)
+            if self.diagnostics:
+                self.diagnostics.output.append(text)
             self.console.appendPlainText(text)
             if hasattr(self, "error_details") and self.stack.currentWidget() is self.page_error:
                 self.error_details.appendPlainText(text)
@@ -2146,7 +2222,11 @@ class SafeLaunchDialog(QDialog):
         if hasattr(self, "gif_timer"):
             self.gif_timer.stop()
 
-        details = "\n".join(self.log_lines[-18:])
+        # Drain the persistent file once more so diagnostics include the final
+        # Proton/UMU lines written just before process exit.
+        if getattr(self, "process_log_path", None):
+            self._poll_process_log()
+        details = "\n".join(self.log_lines)
         if return_code < 0:
             reason = f"The launcher was terminated by signal {-return_code}."
         elif return_code == 0:
@@ -2155,6 +2235,11 @@ class SafeLaunchDialog(QDialog):
             reason = f"Proton/UMU exited with code {return_code}."
 
         lower_details = details.lower()
+        if self.diagnostics:
+            self.diagnostics.return_code = return_code
+            self.diagnostics.output = list(self.log_lines)
+            persist_diagnostics(self.diagnostics)
+            reason = self.diagnostics.actionable_explanation()
         self.requires_proton_setup = any(marker in lower_details for marker in (
             "protonpath",
             "proton not found",
@@ -2173,8 +2258,26 @@ class SafeLaunchDialog(QDialog):
             reason += " Check the Proton/UMU runtime and the game prefix."
 
         self.error_summary.setText(reason)
-        self.error_details.setPlainText(details or "No diagnostic output was produced.")
+        self.error_details.setPlainText(self.diagnostics.as_text() if self.diagnostics else (details or "No diagnostic output was produced."))
         self.stack.setCurrentWidget(self.page_error)
+
+    def _copy_diagnostics(self):
+        text = self.diagnostics.as_text() if self.diagnostics else self.error_details.toPlainText()
+        QApplication.clipboard().setText(text)
+
+    def _open_log_folder(self):
+        path = getattr(self.diagnostics, "log_path", "") if self.diagnostics else ""
+        folder = os.path.dirname(path) if path else os.path.expanduser("~/.local/state/safelauncher/diagnostics")
+        os.makedirs(folder, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+
+    def _request_retry(self, mode: str):
+        self.retry_requested.emit(mode)
+        self.accept()
+
+    def _request_unsafe_launch(self):
+        self.unsafe_launch_requested.emit()
+        self.accept()
 
     def _fade_out_dialog(self):
         """Phase 4: Smooth opacity fade out of entire dialog before closing."""
@@ -3438,6 +3541,14 @@ class MainWindow(QMainWindow):
         self.btn_detail_import.clicked.connect(self._on_import)
         detail_layout.addWidget(self.btn_detail_import)
 
+        self.btn_detail_prefix = QPushButton(" Prefix Maintenance")
+        self.btn_detail_prefix.clicked.connect(self._open_prefix_maintenance)
+        detail_layout.addWidget(self.btn_detail_prefix)
+
+        self.btn_detail_runtime = QPushButton(" Set per-game Proton")
+        self.btn_detail_runtime.clicked.connect(self._set_game_runtime)
+        detail_layout.addWidget(self.btn_detail_runtime)
+
         self.btn_detail_remove = QPushButton(" Remove Game")
         self.btn_detail_remove.setIcon(get_app_icon("remove"))
         self.btn_detail_remove.setStyleSheet("""
@@ -3545,16 +3656,30 @@ class MainWindow(QMainWindow):
         self.btn_filter_fav.setStyleSheet(filter_btn_style)
         self.btn_filter_fav.clicked.connect(lambda: self._set_filter("favorites"))
 
+        self.btn_filter_recent = QPushButton("Recent")
+        self.btn_filter_recent.setIcon(get_icon("ph.clock-bold"))
+        self.btn_filter_recent.setCheckable(True)
+        self.btn_filter_recent.setStyleSheet(filter_btn_style)
+        self.btn_filter_recent.clicked.connect(lambda: self._set_filter("recent"))
+
+        self.btn_filter_attention = QPushButton("Needs attention")
+        self.btn_filter_attention.setIcon(get_icon("ph.warning-bold"))
+        self.btn_filter_attention.setCheckable(True)
+        self.btn_filter_attention.setStyleSheet(filter_btn_style)
+        self.btn_filter_attention.clicked.connect(lambda: self._set_filter("attention"))
+
         fc_layout.addWidget(self.btn_filter_all)
         fc_layout.addWidget(self.btn_filter_installed)
         fc_layout.addWidget(self.btn_filter_missing)
         fc_layout.addWidget(self.btn_filter_fav)
+        fc_layout.addWidget(self.btn_filter_recent)
+        fc_layout.addWidget(self.btn_filter_attention)
 
         header_layout.addWidget(filter_container)
 
         # Sorting ComboBox
         self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["Sort: A–Z Title", "Sort: Most Played", "Sort: Recently Added"])
+        self.sort_combo.addItems(["Sort: A–Z Title", "Sort: Most Played", "Sort: Recently Added", "Sort: Disk Size", "Sort: Runner"])
         self.sort_combo.setFixedHeight(28)
         self.sort_combo.setStyleSheet("""
             QComboBox {
@@ -3887,6 +4012,17 @@ class MainWindow(QMainWindow):
         sandbox_dir = ensure_sandbox_dir()
         dest_dir = os.path.join(sandbox_dir, archive_name)
 
+        try:
+            inspection = ArchiveInstaller().inspect(zip_path, sandbox_dir)
+            if not inspection.enough_space:
+                QMessageBox.warning(self, "Not enough disk space", f"The archive needs about {inspection.required_bytes / (1024**3):.2f} GB, but only {inspection.free_bytes / (1024**3):.2f} GB is free.")
+                return
+            if inspection.duplicate_path and QMessageBox.question(self, "Duplicate installation", f"{inspection.duplicate_path} already exists. Extract over it?") != QMessageBox.StandardButton.Yes:
+                return
+        except Exception as error:
+            QMessageBox.critical(self, "Archive preflight failed", str(error))
+            return
+
         # Reuse the archive worker used by AddGameDialog.  The old class name
         # here was never defined and caused a NameError when using the top-bar
         # install button.
@@ -3928,10 +4064,12 @@ class MainWindow(QMainWindow):
         self.btn_filter_installed.setChecked(filter_mode == "installed")
         self.btn_filter_missing.setChecked(filter_mode == "missing")
         self.btn_filter_fav.setChecked(filter_mode == "favorites")
+        self.btn_filter_recent.setChecked(filter_mode == "recent")
+        self.btn_filter_attention.setChecked(filter_mode == "attention")
         self._refresh_library()
 
     def _on_sort_changed(self, idx: int):
-        """Sort games list by A-Z, Playtime, or Recently Added"""
+        """Sort games list by title, activity, install date, size, or runner."""
         self.current_sort = idx
         self._refresh_library()
 
@@ -3979,7 +4117,8 @@ class MainWindow(QMainWindow):
             is_fav = bool(g[8]) if len(g) > 8 and g[8] else False
 
             # 1. Search Query Filter
-            if self.search_query and self.search_query not in name.lower():
+            searchable = " ".join(str(value or "") for value in (name, g[10] if len(g) > 10 else "", executable, steam_id, mode, g[12] if len(g) > 12 else "" )).lower()
+            if self.search_query and self.search_query not in searchable:
                 continue
 
             # Disk check for status filter
@@ -3995,6 +4134,10 @@ class MainWindow(QMainWindow):
                 continue
             elif self.current_filter == "favorites" and not is_fav:
                 continue
+            elif self.current_filter == "recent" and not (len(g) > 9 and g[9]):
+                continue
+            elif self.current_filter == "attention" and not (is_missing or not steam_id or (mode.startswith("umu") and not (len(g) > 12 and g[12]))):
+                continue
 
             processed.append((g, is_missing, playtime, is_fav))
 
@@ -4005,6 +4148,10 @@ class MainWindow(QMainWindow):
             processed.sort(key=lambda x: x[2], reverse=True)
         elif self.current_sort == 2:  # Recently Added (id desc)
             processed.sort(key=lambda x: x[0][0], reverse=True)
+        elif self.current_sort == 3:  # Disk size
+            processed.sort(key=lambda x: get_dir_size(x[0][2]), reverse=True)
+        elif self.current_sort == 4:  # Runner
+            processed.sort(key=lambda x: x[0][4].lower())
 
         if not processed:
             msg = f"No games matching '{self.search_query}'" if self.search_query else "No games matching selected filter."
@@ -4426,7 +4573,7 @@ class MainWindow(QMainWindow):
 
 
 
-    def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str):
+    def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True):
         """Helper to launch a game directly with the chosen mode"""
         logger.info(f"Initiating launch for Game ID {game_id}: exe='{exe}', mode='{selected_mode}', path='{path}'")
         if not path or not os.path.exists(path):
@@ -4447,7 +4594,10 @@ class MainWindow(QMainWindow):
 
             game_data = self.games_by_id.get(game_id, ())
             steam_id = str(game_data[6]).strip() if len(game_data) > 6 and game_data[6] else ""
-            process = self.runner.launch(path, exe, selected_mode, steam_id)
+            selected_proton = game_data[12] if len(game_data) > 12 and game_data[12] else self.proton_path
+            if hasattr(self.runner, "set_proton_path"):
+                self.runner.set_proton_path(selected_proton)
+            process = self.runner.launch(path, exe, selected_mode, steam_id, sandbox=sandbox)
             if process:
                 logger.info(f"Successfully launched '{game_name}' (PID: {process.pid})")
                 # Update Discord Rich Presence
@@ -4463,6 +4613,12 @@ class MainWindow(QMainWindow):
 
                 # Show animated Safe Launch Popup with console log stream & greeting to Martin
                 popup = SafeLaunchDialog(game_name, user_name=self.user_name, process=process, parent=self)
+                popup.retry_requested.connect(
+                    lambda retry_mode: self._launch_mode(game_id, path, exe, retry_mode, sandbox=True)
+                )
+                popup.unsafe_launch_requested.connect(
+                    lambda: self._launch_mode(game_id, path, exe, selected_mode, sandbox=False)
+                )
                 popup.show()
                 QApplication.processEvents()
                 popup.exec()
@@ -4486,6 +4642,23 @@ class MainWindow(QMainWindow):
     def _get_selected_game(self):
         """Get the currently selected game"""
         return self.selected_game
+
+    def _open_prefix_maintenance(self):
+        game = self._get_selected_game()
+        if not game:
+            return
+        PrefixMaintenanceDialog(game[2], self).exec()
+
+    def _set_game_runtime(self):
+        game = self._get_selected_game()
+        if not game:
+            return
+        current = game[12] if len(game) > 12 and game[12] else os.path.expanduser("~/.local/share/umu")
+        path = QFileDialog.getExistingDirectory(self, "Select Proton runtime for this game", current)
+        if path:
+            self.db.update_game_proton_path(game[0], os.path.realpath(path))
+            self._refresh_library()
+            self._select_game_by_id(game[0])
 
     def _on_launch(self):
         """Launch selected game directly using default mode, or open LaunchOptionsDialog if Shift is held down or unconfigured."""

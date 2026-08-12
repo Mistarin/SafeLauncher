@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import shutil
+import time
 from core.logger import get_logger
 
 logger = get_logger("Database")
@@ -45,6 +46,7 @@ class GameDatabase:
     GAME_COLUMNS = (
         "id, name, path, executable, mode, banner_url, steam_id, "
         "playtime_seconds, is_favorite, last_played, tags, build_id"
+        ", proton_path, collection, install_date"
     )
 
     def __init__(self, db_path: str = None):
@@ -124,6 +126,12 @@ class GameDatabase:
                     cursor.execute("ALTER TABLE games ADD COLUMN tags TEXT DEFAULT ''")
                 if "build_id" not in columns:
                     cursor.execute("ALTER TABLE games ADD COLUMN build_id TEXT DEFAULT ''")
+                if "proton_path" not in columns:
+                    cursor.execute("ALTER TABLE games ADD COLUMN proton_path TEXT DEFAULT ''")
+                if "collection" not in columns:
+                    cursor.execute("ALTER TABLE games ADD COLUMN collection TEXT DEFAULT ''")
+                if "install_date" not in columns:
+                    cursor.execute("ALTER TABLE games ADD COLUMN install_date INTEGER DEFAULT 0")
         except Exception as e:
             logger.error(f"Error initializing database schema: {e}")
 
@@ -138,9 +146,9 @@ class GameDatabase:
         try:
             with self.conn:
                 self.conn.execute('''
-                    INSERT INTO games (name, path, executable, mode, banner_url, steam_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (name, path, executable, mode, banner_url, steam_id))
+                    INSERT INTO games (name, path, executable, mode, banner_url, steam_id, install_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (name, path, executable, mode, banner_url, steam_id, int(time.time())))
                 logger.info(f"Added game '{name}' (path: {path}) to database.")
         except Exception as e:
             logger.error(f"Failed to add game '{name}': {e}")
@@ -233,6 +241,20 @@ class GameDatabase:
                 )
         except Exception as e:
             logger.error(f"Failed to update Steam ID for game {game_id}: {e}")
+
+    def update_game_proton_path(self, game_id: int, proton_path: str) -> None:
+        try:
+            with self.conn:
+                self.conn.execute("UPDATE games SET proton_path = ? WHERE id = ?", (proton_path or "", game_id))
+        except Exception as e:
+            logger.error(f"Failed to update Proton path for game {game_id}: {e}")
+
+    def update_game_collection(self, game_id: int, collection: str) -> None:
+        try:
+            with self.conn:
+                self.conn.execute("UPDATE games SET collection = ? WHERE id = ?", (collection or "", game_id))
+        except Exception as e:
+            logger.error(f"Failed to update collection for game {game_id}: {e}")
 
     def get_all_games(self):
         try:

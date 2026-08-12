@@ -3,6 +3,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+from core.launch_diagnostics import LaunchDiagnostics
 from core.interfaces import ISandboxRunner
 from core.host_process import host_process_env
 from core.prefix_sanitizer import sanitize_wine_prefix
@@ -48,7 +49,7 @@ class FirejailSandboxRunner(ISandboxRunner):
         logger.debug(f"Dependency check result: {deps}")
         return deps
 
-    def launch(self, game_path: str, executable: str, mode: str, steam_id: str = "") -> subprocess.Popen:
+    def launch(self, game_path: str, executable: str, mode: str, steam_id: str = "", sandbox: bool = True) -> subprocess.Popen:
         if not game_path or not os.path.exists(game_path):
             logger.error(f"Launch failed: Game path does not exist: {game_path}")
             raise ValueError(f"Game path does not exist: {game_path}")
@@ -62,7 +63,7 @@ class FirejailSandboxRunner(ISandboxRunner):
             sanitize_wine_prefix(game_path)
 
         deps = self.check_dependencies()
-        has_firejail = deps["firejail"]
+        has_firejail = deps["firejail"] and sandbox
 
         home_dir = os.path.expanduser('~')
         umu_share = os.path.join(home_dir, '.local', 'share', 'umu')
@@ -207,6 +208,16 @@ class FirejailSandboxRunner(ISandboxRunner):
             log_handle.close()
             log_handle = None
             process.safelauncher_log_path = process_log_path
+            process.safelauncher_diagnostics = LaunchDiagnostics(
+                game_path=game_path,
+                executable=executable,
+                mode=mode,
+                command=cmd,
+                proton_path=active_proton or "system/default",
+                prefix_path=os.path.join(game_path, "prefix"),
+                dependencies=deps,
+                unsafe=not sandbox,
+            )
             logger.info(f"Process spawned successfully with PID: {process.pid}")
             return process
         except Exception as e:
