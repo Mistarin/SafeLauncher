@@ -1,10 +1,14 @@
 import urllib.request
 import json
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
+from core.safe_thread import SafeQThread
+from core.logger import get_logger
+
+logger = get_logger("SteamBuildTracker")
 
 
-class SteamBuildFetcher(QThread):
-    """Background QThread to query SteamCMD API for latest game buildid and check for updates."""
+class SteamBuildFetcher(SafeQThread):
+    """Background worker to query SteamCMD API for latest game buildid and check for updates."""
     update_checked = pyqtSignal(int, str, bool)  # game_id, latest_build_id, is_update_available
 
     def __init__(self, game_id: int, steam_id: str, local_build_id: str = "", parent=None):
@@ -13,7 +17,7 @@ class SteamBuildFetcher(QThread):
         self.steam_id = str(steam_id).strip()
         self.local_build_id = str(local_build_id).strip()
 
-    def run(self):
+    def safe_run(self):
         if self.isInterruptionRequested():
             return
         if not self.steam_id or self.steam_id == "0":
@@ -39,11 +43,12 @@ class SteamBuildFetcher(QThread):
 
                     if latest_build_id:
                         is_update = bool(self.local_build_id and latest_build_id != self.local_build_id)
+                        logger.info(f"Steam Build check for game {self.game_id} (AppID {self.steam_id}): latest={latest_build_id}, update={is_update}")
                         if not self.isInterruptionRequested():
                             self.update_checked.emit(self.game_id, latest_build_id, is_update)
                         return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to check Steam build for AppID {self.steam_id}: {e}")
 
         if not self.isInterruptionRequested():
             self.update_checked.emit(self.game_id, "", False)

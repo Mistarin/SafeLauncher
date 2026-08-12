@@ -23,7 +23,11 @@ from core.archive_extractor import (
     find_executables, save_sandbox_config, load_sandbox_config, scan_sandbox_games
 )
 from database import GameDatabase, _APP_DATA_DIR
+from core.safe_thread import SafeQThread
+from core.logger import get_logger
 from ui.icons import get_app_icon, get_icon
+
+logger = get_logger("UI")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGO_PATH = os.path.join(BASE_DIR, "assets", "logo.png")
@@ -40,17 +44,16 @@ def asset_path(filename: str) -> str:
             return os.path.abspath(candidate)
     return os.path.abspath(candidates[0])
 
-class BannerFetcher(QThread):
+class BannerFetcher(SafeQThread):
     """Background thread for searching game banners - thread-safe"""
     results_found = pyqtSignal(list)
-    error_occurred = pyqtSignal(str)
     
     def __init__(self, game_name: str, sgdb_client: SteamGridDBClient):
         super().__init__()
         self.game_name = game_name
         self.sgdb_client = sgdb_client
     
-    def run(self):
+    def safe_run(self):
         try:
             result = self.sgdb_client.search_game(self.game_name)
             if result and result.get('found') and result.get('results'):
@@ -60,7 +63,7 @@ class BannerFetcher(QThread):
         except Exception as e:
             self.error_occurred.emit(f"Error searching banner: {str(e)}")
 
-class BannerDownloader(QThread):
+class BannerDownloader(SafeQThread):
     """Background thread for downloading selected banner image - thread-safe"""
     download_complete = pyqtSignal(str)
     download_failed = pyqtSignal(str)
@@ -70,7 +73,7 @@ class BannerDownloader(QThread):
         self.banner_url = banner_url
         self.sgdb_client = sgdb_client
         
-    def run(self):
+    def safe_run(self):
         try:
             path = self.sgdb_client.download_banner(self.banner_url)
             if path and os.path.exists(path):
@@ -80,7 +83,7 @@ class BannerDownloader(QThread):
         except Exception as e:
             self.download_failed.emit(str(e))
 
-class BannerAutoFetcher(QThread):
+class BannerAutoFetcher(SafeQThread):
     """Background thread to auto-fetch missing cover art for games in library"""
     banner_auto_downloaded = pyqtSignal(int, str)  # (game_id, downloaded_file_path)
     
@@ -90,7 +93,7 @@ class BannerAutoFetcher(QThread):
         self.game_name = game_name
         self.sgdb_client = sgdb_client
         
-    def run(self):
+    def safe_run(self):
         try:
             if self.isInterruptionRequested():
                 return
@@ -104,9 +107,9 @@ class BannerAutoFetcher(QThread):
                     if not self.isInterruptionRequested() and path and os.path.exists(path):
                         self.banner_auto_downloaded.emit(self.game_id, path)
         except Exception as e:
-            print(f"Error auto-fetching banner for {self.game_name}: {e}")
+            logger.warning(f"Error auto-fetching banner for '{self.game_name}': {e}")
 
-class ArchiveExtractorThread(QThread):
+class ArchiveExtractorThread(SafeQThread):
     """Background thread for extracting game archives safely in Firejail sandbox"""
     extraction_complete = pyqtSignal(str, str, bool)  # (game_name, dest_dir, success)
     
@@ -115,7 +118,7 @@ class ArchiveExtractorThread(QThread):
         self.archive_path = archive_path
         self.dest_dir = dest_dir
         
-    def run(self):
+    def safe_run(self):
         game_name = os.path.splitext(os.path.basename(self.archive_path))[0]
         if game_name.endswith(".tar"):
             game_name = os.path.splitext(game_name)[0]
@@ -656,7 +659,7 @@ class ProtonSetupWizard(QDialog):
         return self.path_input.text().strip()
 
 
-class UmuBootstrapWorker(QThread):
+class UmuBootstrapWorker(SafeQThread):
     """Provision UMU's Proton and Steam Runtime using an explicit network step."""
     output_line = pyqtSignal(str)
     completed = pyqtSignal(bool, int)
@@ -676,7 +679,7 @@ class UmuBootstrapWorker(QThread):
                 self.process.kill()
                 self.process.wait()
 
-    def run(self):
+    def safe_run(self):
         try:
             prefix = os.path.join(_APP_DATA_DIR, "umu-bootstrap-prefix")
             os.makedirs(prefix, mode=0o700, exist_ok=True)
@@ -1415,7 +1418,7 @@ class LaunchOptionsDialog(QDialog):
         self.accept()
 
 
-class SafeLaunchLogReader(QThread):
+class SafeLaunchLogReader(SafeQThread):
     """Background reader thread to stream stdout/stderr lines from Firejail process to SafeLaunchDialog console."""
     log_line = pyqtSignal(str)
 
@@ -1438,7 +1441,7 @@ class SafeLaunchLogReader(QThread):
             # Qt aborts if a QThread is destroyed while still running.
             self.wait()
 
-    def run(self):
+    def safe_run(self):
         if not self.process or not getattr(self.process, 'stdout', None):
             return
         try:
@@ -1448,8 +1451,8 @@ class SafeLaunchLogReader(QThread):
                 if not line:
                     break
                 self.log_line.emit(line.strip())
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Log reader finished or stream closed: {e}")
 
 
 def draw_custom_lock_pixmap(size: int = 80, is_ready: bool = False) -> QPixmap:
@@ -1905,8 +1908,8 @@ class SafeLaunchDialog(QDialog):
         fade_dialog.start()
         self._fade_dialog = fade_dialog
 
-    def closeEvent(self, event):
-        """Stop timers and stdout reader before Qt destroys the dialog."""
+    def _cleanup_resources(self):
+        """Stop all background timers, animations, and stdout reader thread safely."""
         for timer_name in ("gif_timer", "process_timer", "close_timer"):
             timer = getattr(self, timer_name, None)
             if timer:
@@ -1920,6 +1923,18 @@ class SafeLaunchDialog(QDialog):
         reader = getattr(self, "reader_thread", None)
         if reader and reader.isRunning():
             reader.stop()
+
+    def accept(self):
+        self._cleanup_resources()
+        super().accept()
+
+    def reject(self):
+        self._cleanup_resources()
+        super().reject()
+
+    def closeEvent(self, event):
+        """Stop timers and stdout reader before Qt destroys the dialog."""
+        self._cleanup_resources()
         super().closeEvent(event)
 
 
@@ -3793,13 +3808,16 @@ class MainWindow(QMainWindow):
 
     def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str):
         """Helper to launch a game directly with the chosen mode"""
+        logger.info(f"Initiating launch for Game ID {game_id}: exe='{exe}', mode='{selected_mode}', path='{path}'")
         if not path or not os.path.exists(path):
+            logger.error(f"Cannot launch Game ID {game_id}: Path does not exist on disk ({path})")
             QMessageBox.warning(self, "Missing Game", f"Cannot launch game. Path does not exist:\n{path}")
             return
 
         # Check dependencies first. If firejail is missing, present distro install warning popup
         deps = getattr(self.runner, 'check_dependencies', lambda: {})()
         if deps and not deps.get('firejail', True):
+            logger.warning("Firejail dependency is missing. Prompting user with MissingDependencyDialog.")
             dialog = MissingDependencyDialog(parent=self)
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
@@ -3809,6 +3827,7 @@ class MainWindow(QMainWindow):
 
             process = self.runner.launch(path, exe, selected_mode)
             if process:
+                logger.info(f"Successfully launched '{game_name}' (PID: {process.pid})")
                 # Update Discord Rich Presence
                 if hasattr(self, 'discord_rpc') and self.discord_rpc:
                     import time
@@ -3826,6 +3845,7 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
                 popup.exec()
                 if popup.requires_proton_setup:
+                    logger.info("Proton setup requested by launch popup.")
                     wizard = ProtonSetupWizard(self.proton_path, self)
                     if wizard.exec() == QDialog.DialogCode.Accepted:
                         proton_path = wizard.get_path()
@@ -3838,6 +3858,7 @@ class MainWindow(QMainWindow):
                         self._show_toast("Retrying Proton setup…")
                         self._launch_mode(game_id, path, exe, retry_mode)
         except Exception as e:
+            logger.error(f"Failed to launch game ID {game_id}: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Failed to launch game: {str(e)}")
 
     def _get_selected_game(self):
@@ -3905,7 +3926,7 @@ class MainWindow(QMainWindow):
             if extractor.isRunning():
                 extractor.wait()
 
-        workers = list(self.metadata_fetchers) + list(self.auto_fetchers)
+        workers = list(self.metadata_fetchers) + list(self.auto_fetchers) + list(self.playtime_trackers)
         for worker in workers:
             if worker.isRunning():
                 # Network requests use short timeouts, but allow enough time

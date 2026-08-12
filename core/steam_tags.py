@@ -1,10 +1,14 @@
 import urllib.request
 import urllib.parse
 import json
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
+from core.safe_thread import SafeQThread
+from core.logger import get_logger
+
+logger = get_logger("SteamTags")
 
 
-class SteamTagsFetcher(QThread):
+class SteamTagsFetcher(SafeQThread):
     """Background worker thread to auto-fetch Steam genres and category tags for a game."""
     tags_found = pyqtSignal(int, list)  # game_id, tags_list
 
@@ -13,7 +17,7 @@ class SteamTagsFetcher(QThread):
         self.game_id = game_id
         self.game_name = game_name
 
-    def run(self):
+    def safe_run(self):
         try:
             if self.isInterruptionRequested():
                 return
@@ -47,13 +51,14 @@ class SteamTagsFetcher(QThread):
 
             genres = [g["description"] for g in app_data.get("genres", [])]
             categories = [c["description"] for c in app_data.get("categories", [])]
-            
-            # Combine top 4 relevant tags (e.g. Action, RPG, Single-player)
+
             combined = []
             for t in genres + categories:
                 if t not in combined and len(combined) < 4:
                     combined.append(t)
 
+            logger.info(f"Fetched Steam tags for '{self.game_name}': {combined}")
             self.tags_found.emit(self.game_id, combined)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Could not fetch Steam tags for '{self.game_name}': {e}")
             self.tags_found.emit(self.game_id, [])

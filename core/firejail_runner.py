@@ -4,8 +4,26 @@ import shutil
 import subprocess
 from core.interfaces import ISandboxRunner
 from core.host_process import host_process_env
+from core.prefix_sanitizer import sanitize_wine_prefix
+from core.logger import get_logger
+
+logger = get_logger("FirejailRunner")
 
 _VALID_MODES = {"umu", "umu_net", "wine", "linux"}
+
+# Explicit blacklists to prevent untrusted binaries from reading sensitive user files
+_SECURITY_BLACKLISTS = [
+    "~/.ssh",
+    "~/.gnupg",
+    "~/.bashrc",
+    "~/.zshrc",
+    "~/.mozilla",
+    "~/.config/google-chrome",
+    "~/.config/BraveSoftware",
+    "~/Documents",
+    "~/Desktop",
+    "~/Downloads",
+]
 
 
 class FirejailSandboxRunner(ISandboxRunner):
@@ -15,22 +33,32 @@ class FirejailSandboxRunner(ISandboxRunner):
     def set_proton_path(self, proton_path: str) -> None:
         """Set an optional local Proton/GE-Proton tool directory for UMU."""
         self.proton_path = os.path.realpath(os.path.expanduser(proton_path.strip())) if proton_path.strip() else ""
+        logger.info(f"Proton path updated: {self.proton_path}")
 
     @staticmethod
     def check_dependencies() -> dict:
         """Returns dict of system dependencies status."""
-        return {
+        deps = {
             "firejail": shutil.which("firejail") is not None,
             "umu-run": shutil.which("umu-run") is not None,
             "wine": shutil.which("wine") is not None,
+            "gamescope": shutil.which("gamescope") is not None,
         }
+        logger.debug(f"Dependency check result: {deps}")
+        return deps
 
     def launch(self, game_path: str, executable: str, mode: str) -> subprocess.Popen:
         if not game_path or not os.path.exists(game_path):
+            logger.error(f"Launch failed: Game path does not exist: {game_path}")
             raise ValueError(f"Game path does not exist: {game_path}")
 
         if mode not in _VALID_MODES:
+            logger.error(f"Launch failed: Unknown mode '{mode}'")
             raise ValueError(f"Unknown launch mode: {mode!r}. Must be one of {sorted(_VALID_MODES)}")
+
+        # [SECURITY] Sanitize Wine prefix user folders (Documents, Desktop) to strip host symlinks
+        if mode in ("umu", "umu_net", "wine"):
+            sanitize_wine_prefix(game_path)
 
         deps = self.check_dependencies()
         has_firejail = deps["firejail"]
@@ -50,22 +78,22 @@ class FirejailSandboxRunner(ISandboxRunner):
         proton_env = f"--env=PROTONPATH={shlex.quote(self.proton_path)} " if self.proton_path else ""
         proton_whitelist = f"--whitelist={shlex.quote(self.proton_path)} " if self.proton_path else ""
 
+        # Build Firejail security hardening options
+        blacklist_flags = " ".join(f"--blacklist={shlex.quote(os.path.expanduser(p))}" for p in _SECURITY_BLACKLISTS)
+        security_flags = f"--private-tmp --nodbus {blacklist_flags}"
+
         if mode in ("umu", "umu_net"):
             runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
             if has_firejail:
                 net_flag = "--net=none " if mode == "umu" else ""
                 cmd = (
                     f"cd {q_path} && exec firejail "
-                    # UMU/Proton uses nested bubblewrap namespaces for the
-                    # Steam runtime. These compatibility overrides are required
-                    # for that runtime to start under Firejail.
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
-                    f"{net_flag}"
+                    f"{net_flag}{security_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
                     f"{proton_whitelist}{proton_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
-                # Direct unsandboxed execution fallback
                 cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
         elif mode == "linux":
             full_exe_path = os.path.join(game_path, executable)
@@ -73,33 +101,37 @@ class FirejailSandboxRunner(ISandboxRunner):
                 if not os.access(full_exe_path, os.X_OK):
                     try:
                         os.chmod(full_exe_path, os.stat(full_exe_path).st_mode | 0o111)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Could not make executable chmod +x {full_exe_path}: {e}")
             if has_firejail:
-                cmd = f"cd {q_path} && exec firejail --net=none --whitelist={q_path} ./{q_exe}"
+                cmd = f"cd {q_path} && exec firejail --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
             else:
                 cmd = f"cd {q_path} && ./{q_exe}"
         else:  # "wine"
             runner_cmd = f"wine {q_exe}"
             if has_firejail:
                 cmd = (
-                    f"cd {q_path} && exec firejail --net=none "
+                    f"cd {q_path} && exec firejail --net=none {security_flags} "
                     f"--whitelist={q_path} "
                     f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
                 cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
 
-        return subprocess.Popen(
-            # Keep the wrapper independent from bash/readline libraries inherited
-            # from Proton/Wine environments.  POSIX sh is sufficient for the
-            # commands above and avoids errors such as bash's
-            # "undefined symbol: rl_print_keybinding".
-            ["/bin/sh", "-c", cmd],
-            shell=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=host_process_env(),
-        )
+        logger.info(f"Spawning process in mode '{mode}' (Firejail: {has_firejail}, Private-TMP & Blacklist Active): {cmd}")
+
+        try:
+            process = subprocess.Popen(
+                ["/bin/sh", "-c", cmd],
+                shell=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=host_process_env(),
+            )
+            logger.info(f"Process spawned successfully with PID: {process.pid}")
+            return process
+        except Exception as e:
+            logger.error(f"Failed to spawn process for {executable}: {e}")
+            raise
