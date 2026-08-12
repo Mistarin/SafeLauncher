@@ -2,6 +2,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 from core.interfaces import ISandboxRunner
 from core.host_process import host_process_env
 from core.prefix_sanitizer import sanitize_wine_prefix
@@ -131,12 +132,18 @@ class FirejailSandboxRunner(ISandboxRunner):
         if mode in ("umu", "umu_net"):
             runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
             if has_firejail:
-                # UMU itself creates an AF_INET loopback socket during startup,
-                # even for offline launches. A completely disabled network
-                # namespace makes UMU fail before the game starts. Loopback
-                # keeps external networking disabled while allowing UMU's
-                # local bootstrap/runtime checks to work.
-                net_flag = "--net=lo " if mode == "umu" else ""
+                # UMU itself creates an AF_INET socket during startup. Both
+                # --net=none and --net=lo are incompatible on some hosts:
+                # the former blocks UMU's prerequisite check, while the latter
+                # can fail when Firejail cannot create a loopback device.
+                # Leave the namespace networking unchanged so UMU can start;
+                # umu_net remains the explicit network-enabled launch mode.
+                net_flag = ""
+                if mode == "umu":
+                    logger.warning(
+                        "UMU launch uses host networking because Firejail cannot "
+                        "provide a usable offline/loopback network namespace."
+                    )
                 cmd = (
                     f"cd {q_work_dir} && exec firejail "
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
@@ -164,18 +171,40 @@ class FirejailSandboxRunner(ISandboxRunner):
 
         logger.info(f"Spawning process in mode '{mode}' (Firejail: {has_firejail}, Proton: '{active_proton}'): {cmd}")
 
+        process_log_path = None
+        log_handle = None
         try:
+            # Capture diagnostics to a file rather than a pipe. The launch
+            # dialog may close while the game keeps running; a pipe that is
+            # no longer drained can block Wine/UMU when it fills.
+            log_handle = tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                errors="replace",
+                prefix="safelauncher-game-",
+                suffix=".log",
+                delete=False,
+            )
+            process_log_path = log_handle.name
             process = subprocess.Popen(
                 ["/bin/sh", "-c", cmd],
                 shell=False,
-                # A long-running game must not inherit a pipe that stops
-                # being drained when the launch dialog closes.
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
                 env=host_process_env(),
             )
+            log_handle.close()
+            log_handle = None
+            process.safelauncher_log_path = process_log_path
             logger.info(f"Process spawned successfully with PID: {process.pid}")
             return process
         except Exception as e:
+            if log_handle:
+                log_handle.close()
+            if process_log_path:
+                try:
+                    os.unlink(process_log_path)
+                except OSError:
+                    pass
             logger.error(f"Failed to spawn process for {executable}: {e}")
             raise

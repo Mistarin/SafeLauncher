@@ -2011,7 +2011,7 @@ class SafeLaunchDialog(QDialog):
         t_str = time.strftime("%H:%M:%S")
         if shutil.which("firejail"):
             self.append_log(f"[{t_str}] 🛡️ [SECURITY] Initializing Firejail namespace isolation...")
-            self.append_log(f"[{t_str}] 🔒 [SECURITY] Applying filesystem whitelist & network sandbox (external network disabled)...")
+            self.append_log(f"[{t_str}] 🔒 [SECURITY] Applying filesystem whitelist & Firejail isolation...")
         else:
             self.append_log(f"[{t_str}] ⚠️ [WARNING] Firejail is not installed on this system.")
             self.append_log(f"[{t_str}] ⚡ [FALLBACK] Running game in direct unsandboxed execution mode.")
@@ -2019,7 +2019,14 @@ class SafeLaunchDialog(QDialog):
         self.append_log(f"[{t_str}] 🚀 [EXEC] Launching process for '{game_name}'...")
 
         # Start log reader thread if process is piped
-        if self.process and getattr(self.process, 'stdout', None):
+        self.process_log_path = getattr(self.process, "safelauncher_log_path", None)
+        self._process_log_offset = 0
+        if self.process_log_path:
+            self.log_poll_timer = QTimer(self)
+            self.log_poll_timer.setInterval(250)
+            self.log_poll_timer.timeout.connect(self._poll_process_log)
+            self.log_poll_timer.start()
+        elif self.process and getattr(self.process, 'stdout', None):
             self.reader_thread = SafeLaunchLogReader(self.process, self)
             self.reader_thread.log_line.connect(self.append_log)
             self.reader_thread.start()
@@ -2070,6 +2077,22 @@ class SafeLaunchDialog(QDialog):
             # the final exit code and remaining output.
             if "parent is shutting down" in text.lower() and not self.launch_finished:
                 QTimer.singleShot(350, self._check_process_state)
+
+    def _poll_process_log(self):
+        """Append newly written game-process diagnostics without using a pipe."""
+        path = getattr(self, "process_log_path", None)
+        if not path or not os.path.exists(path):
+            return
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as stream:
+                stream.seek(self._process_log_offset)
+                new_text = stream.read()
+                self._process_log_offset = stream.tell()
+            if new_text:
+                for line in new_text.splitlines():
+                    self.append_log(line)
+        except OSError:
+            return
 
     def _goto_confirmation_stage(self):
         """Phase 3: Transition to Confirmation Screen ('Enjoy your time, Martin! ✨')."""
@@ -2175,6 +2198,9 @@ class SafeLaunchDialog(QDialog):
             timer = getattr(self, timer_name, None)
             if timer:
                 timer.stop()
+        log_poll_timer = getattr(self, "log_poll_timer", None)
+        if log_poll_timer:
+            log_poll_timer.stop()
         progress_anim = getattr(self, "progress_anim", None)
         if progress_anim:
             progress_anim.stop()
