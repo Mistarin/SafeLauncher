@@ -2011,7 +2011,7 @@ class SafeLaunchDialog(QDialog):
         t_str = time.strftime("%H:%M:%S")
         if shutil.which("firejail"):
             self.append_log(f"[{t_str}] 🛡️ [SECURITY] Initializing Firejail namespace isolation...")
-            self.append_log(f"[{t_str}] 🔒 [SECURITY] Applying filesystem whitelist & network sandbox (--net=none)...")
+            self.append_log(f"[{t_str}] 🔒 [SECURITY] Applying filesystem whitelist & network sandbox (external network disabled)...")
         else:
             self.append_log(f"[{t_str}] ⚠️ [WARNING] Firejail is not installed on this system.")
             self.append_log(f"[{t_str}] ⚡ [FALLBACK] Running game in direct unsandboxed execution mode.")
@@ -2764,6 +2764,7 @@ class DiskSizeFetcherThread(SafeQThread):
         if self.isInterruptionRequested() or not self.path or not os.path.exists(self.path):
             return
         size = get_dir_size(self.path)
+        logger.debug(f"Calculated disk size for game {self.game_id}: {size} bytes ({format_size(size)})")
         if not self.isInterruptionRequested():
             self.disk_size_calculated.emit(self.game_id, size)
 

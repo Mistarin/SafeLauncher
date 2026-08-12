@@ -139,7 +139,12 @@ class FirejailSandboxRunner(ISandboxRunner):
         if mode in ("umu", "umu_net"):
             runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
             if has_firejail:
-                net_flag = "--net=none " if mode == "umu" else ""
+                # UMU itself creates an AF_INET loopback socket during startup,
+                # even for offline launches. A completely disabled network
+                # namespace makes UMU fail before the game starts. Loopback
+                # keeps external networking disabled while allowing UMU's
+                # local bootstrap/runtime checks to work.
+                net_flag = "--net=lo " if mode == "umu" else ""
                 cmd = (
                     f"cd {q_work_dir} && exec firejail "
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "

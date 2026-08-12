@@ -3,7 +3,7 @@ import shutil
 
 
 def get_dir_size(dir_path: str) -> int:
-    """Recursively calculate total disk size of a directory in bytes, measuring all files across the entire root folder structure."""
+    """Recursively calculate regular-file size without escaping via symlinks."""
     if not dir_path or not os.path.exists(dir_path):
         return 0
     total_size = 0
@@ -12,20 +12,34 @@ def get_dir_size(dir_path: str) -> int:
             return os.path.getsize(dir_path)
         
         seen_inodes = set()
-        # Do not follow game-provided symlink directories. Apart from escaping
-        # the selected game tree, this can create cycles and unbounded scans.
-        for root, _, files in os.walk(dir_path, followlinks=False):
-            for f in files:
-                fp = os.path.join(root, f)
-                try:
-                    st = os.stat(fp)
-                    # Deduplicate hard links by inode to prevent double counting
-                    inode_key = (st.st_dev, st.st_ino)
-                    if inode_key not in seen_inodes:
-                        seen_inodes.add(inode_key)
-                        total_size += st.st_size
-                except (OSError, FileNotFoundError):
-                    pass
+        pending = [os.path.realpath(dir_path)]
+        while pending:
+            current = pending.pop()
+            try:
+                current_stat = os.stat(current, follow_symlinks=False)
+                current_key = (current_stat.st_dev, current_stat.st_ino)
+                if current_key in seen_inodes:
+                    continue
+                seen_inodes.add(current_key)
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        try:
+                            # Never descend through directory symlinks. Game
+                            # prefixes commonly contain a self-link (pfx -> .).
+                            if entry.is_dir(follow_symlinks=False):
+                                pending.append(entry.path)
+                                continue
+                            if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                                continue
+                            st = entry.stat(follow_symlinks=False)
+                            inode_key = (st.st_dev, st.st_ino)
+                            if inode_key not in seen_inodes:
+                                seen_inodes.add(inode_key)
+                                total_size += st.st_size
+                        except (OSError, FileNotFoundError):
+                            continue
+            except (OSError, FileNotFoundError, NotADirectoryError):
+                continue
     except Exception:
         pass
     return total_size
