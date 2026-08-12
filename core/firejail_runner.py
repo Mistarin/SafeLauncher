@@ -127,7 +127,12 @@ class FirejailSandboxRunner(ISandboxRunner):
 
         # Build Firejail security hardening options
         blacklist_flags = " ".join(f"--blacklist={shlex.quote(os.path.expanduser(p))}" for p in _SECURITY_BLACKLISTS)
-        security_flags = f"--private-tmp --nodbus {blacklist_flags}"
+        common_security_flags = f"--private-tmp {blacklist_flags}"
+        # UMU's Steam runtime launcher uses the session bus. Blocking D-Bus
+        # makes pressure-vessel fall back to a degraded wrapper and can cause
+        # the actual Proton game to exit immediately. Keep --nodbus for the
+        # direct Wine/Linux modes where it is safe to do so.
+        security_flags = f"{common_security_flags} --nodbus"
 
         if mode in ("umu", "umu_net"):
             runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
@@ -147,7 +152,7 @@ class FirejailSandboxRunner(ISandboxRunner):
                 cmd = (
                     f"cd {q_work_dir} && exec firejail "
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
-                    f"{net_flag}{security_flags} "
+                    f"{net_flag}{common_security_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
                     f"{proton_whitelist}{proton_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
