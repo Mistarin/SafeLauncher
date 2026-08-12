@@ -92,12 +92,16 @@ class BannerAutoFetcher(QThread):
         
     def run(self):
         try:
+            if self.isInterruptionRequested():
+                return
             res = self.sgdb_client.search_game(self.game_name)
+            if self.isInterruptionRequested():
+                return
             if res and res.get('found') and res.get('primary'):
                 url = res['primary'].get('banner_url')
                 if url:
                     path = self.sgdb_client.download_banner(url, self.game_id)
-                    if path and os.path.exists(path):
+                    if not self.isInterruptionRequested() and path and os.path.exists(path):
                         self.banner_auto_downloaded.emit(self.game_id, path)
         except Exception as e:
             print(f"Error auto-fetching banner for {self.game_name}: {e}")
@@ -1416,11 +1420,25 @@ class SafeLaunchLogReader(QThread):
         super().__init__(parent)
         self.process = process
 
+    def stop(self):
+        """Unblock readline and wait until the reader thread has exited."""
+        self.requestInterruption()
+        stdout = getattr(self.process, "stdout", None)
+        if stdout:
+            try:
+                stdout.close()
+            except (OSError, ValueError):
+                pass
+        if self.isRunning():
+            self.wait(3000)
+
     def run(self):
         if not self.process or not getattr(self.process, 'stdout', None):
             return
         try:
             for line in iter(self.process.stdout.readline, ''):
+                if self.isInterruptionRequested():
+                    break
                 if not line:
                     break
                 self.log_line.emit(line.strip())
@@ -1880,6 +1898,23 @@ class SafeLaunchDialog(QDialog):
         fade_dialog.finished.connect(self.accept)
         fade_dialog.start()
         self._fade_dialog = fade_dialog
+
+    def closeEvent(self, event):
+        """Stop timers and stdout reader before Qt destroys the dialog."""
+        for timer_name in ("gif_timer", "process_timer", "close_timer"):
+            timer = getattr(self, timer_name, None)
+            if timer:
+                timer.stop()
+        progress_anim = getattr(self, "progress_anim", None)
+        if progress_anim:
+            progress_anim.stop()
+        fade_anim = getattr(self, "_fade_dialog", None)
+        if fade_anim:
+            fade_anim.stop()
+        reader = getattr(self, "reader_thread", None)
+        if reader and reader.isRunning():
+            reader.stop()
+        super().closeEvent(event)
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -3843,6 +3878,35 @@ class MainWindow(QMainWindow):
             self.playtime_trackers.remove(tracker)
         if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
             self.discord_rpc.clear_activity()
+
+    def closeEvent(self, event):
+        """Stop all background workers before destroying the main window."""
+        for fetcher in list(self.metadata_fetchers):
+            if fetcher.isRunning():
+                fetcher.requestInterruption()
+        for fetcher in list(self.auto_fetchers):
+            if fetcher.isRunning() and hasattr(fetcher, "requestInterruption"):
+                fetcher.requestInterruption()
+        for tracker in list(self.playtime_trackers):
+            tracker.stop()
+
+        workers = list(self.metadata_fetchers) + list(self.auto_fetchers)
+        for worker in workers:
+            if worker.isRunning():
+                # Network requests use short timeouts, but allow enough time
+                # for the active request to return before Qt destroys QThread.
+                worker.wait(7000)
+
+        # A fetcher may finish just after the first pass and still be present
+        # in one of the lists.  Never leave a running QThread parented to a
+        # window that is about to be destroyed.
+        for worker in workers:
+            if worker.isRunning():
+                worker.wait()
+
+        if hasattr(self, "discord_rpc") and self.discord_rpc:
+            self.discord_rpc.clear_activity()
+        super().closeEvent(event)
 
     def _on_add(self):
         dialog = AddGameDialog(self, self.sgdb_client)

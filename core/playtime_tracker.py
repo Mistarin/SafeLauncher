@@ -26,6 +26,12 @@ class PlaytimeTrackerThread(QThread):
         self.game_id = game_id
         self.process = process
 
+    def stop(self):
+        """Interrupt monitoring without terminating the game process."""
+        self.requestInterruption()
+        if self.isRunning():
+            self.wait(3000)
+
     def run(self):
         """Block until the game process exits, then emit elapsed time."""
         # Wait until the process is confirmed alive before starting the clock.
@@ -33,6 +39,8 @@ class PlaytimeTrackerThread(QThread):
         # (max 10s) until it has either started properly or already exited.
         deadline = time.monotonic() + 10.0
         while True:
+            if self.isInterruptionRequested():
+                return
             if self.process.poll() is not None:
                 # Already exited before we even started timing — skip.
                 return
@@ -43,10 +51,12 @@ class PlaytimeTrackerThread(QThread):
                 break
 
         start = time.monotonic()
-        try:
-            self.process.wait()  # blocks until Firejail exits (= game has fully closed)
-        except Exception:
-            pass
+        # Poll instead of blocking forever in wait(), so application shutdown
+        # can interrupt this worker safely without killing the game.
+        while self.process.poll() is None:
+            if self.isInterruptionRequested():
+                return
+            time.sleep(0.25)
         elapsed = int(time.monotonic() - start)
         if elapsed > 0:
             self.playtime_recorded.emit(self.game_id, elapsed)
