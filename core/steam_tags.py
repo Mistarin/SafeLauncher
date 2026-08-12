@@ -10,7 +10,7 @@ logger = get_logger("SteamTags")
 
 class SteamTagsFetcher(SafeQThread):
     """Background worker thread to auto-fetch Steam genres and category tags for a game."""
-    tags_found = pyqtSignal(int, list)  # game_id, tags_list
+    tags_found = pyqtSignal(int, list, str)  # game_id, tags_list, steam_app_id
 
     def __init__(self, game_id: int, game_name: str, parent=None):
         super().__init__(parent)
@@ -32,7 +32,7 @@ class SteamTagsFetcher(SafeQThread):
 
             items = search_data.get("items", [])
             if not items:
-                self.tags_found.emit(self.game_id, [])
+                self.tags_found.emit(self.game_id, [], "")
                 return
 
             app_id = items[0]["id"]
@@ -46,7 +46,7 @@ class SteamTagsFetcher(SafeQThread):
 
             app_data = detail_data.get(str(app_id), {}).get("data", {})
             if not app_data:
-                self.tags_found.emit(self.game_id, [])
+                self.tags_found.emit(self.game_id, [], str(app_id))
                 return
 
             genres = [g["description"] for g in app_data.get("genres", [])]
@@ -58,7 +58,7 @@ class SteamTagsFetcher(SafeQThread):
                     combined.append(t)
 
             logger.info(f"Fetched Steam tags for '{self.game_name}': {combined}")
-            self.tags_found.emit(self.game_id, combined)
+            self.tags_found.emit(self.game_id, combined, str(app_id))
         except Exception as e:
             logger.warning(f"Could not fetch Steam tags for '{self.game_name}': {e}")
-            self.tags_found.emit(self.game_id, [])
+            self.tags_found.emit(self.game_id, [], "")

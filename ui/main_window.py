@@ -2779,7 +2779,10 @@ class DiskManagerDialog(QDialog):
 
 class DiskSizeFetcherThread(SafeQThread):
     """Background QThread for calculating directory disk size without blocking GUI main thread."""
-    disk_size_calculated = pyqtSignal(int, int)  # (game_id, bytes)
+    # Directory sizes can exceed 2 GiB; a Qt ``int`` signal is signed 32-bit
+    # and silently overflows large byte counts. ``object`` preserves Python's
+    # arbitrary-precision integer across the queued signal connection.
+    disk_size_calculated = pyqtSignal(int, object)  # (game_id, bytes)
 
     def __init__(self, game_id: int, path: str, parent=None):
         super().__init__(parent)
@@ -4247,15 +4250,19 @@ class MainWindow(QMainWindow):
             self._refresh_library()
             self._select_game_by_id(game_id)
 
-    def _on_steam_tags_found(self, game_id: int, tags_list: list):
+    def _on_steam_tags_found(self, game_id: int, tags_list: list, steam_app_id: str = ""):
         """Callback when background SteamTagsFetcher returns genres/categories"""
-        if not self.selected_game or self.selected_game[0] != game_id:
-            return
+        if steam_app_id and steam_app_id.isdigit() and int(steam_app_id) > 0:
+            self.db.update_game_steam_id(game_id, steam_app_id)
         if tags_list:
             tags_str = ", ".join(tags_list)
             self.db.update_game_tags(game_id, tags_str)
-            if self.selected_game and self.selected_game[0] == game_id:
-                self._update_tags_pills(tags_list)
+        if not self.selected_game or self.selected_game[0] != game_id:
+            return
+
+        # Reload the row so the newly discovered AppID is used by future launches.
+        self._refresh_library()
+        self._select_game_by_id(game_id)
 
     def _update_tags_pills(self, tags_list: list):
         while self.tags_layout.count() > 0:
@@ -4358,8 +4365,9 @@ class MainWindow(QMainWindow):
         if tags_str:
             tags_list = [t.strip() for t in tags_str.split(",") if t.strip()]
             self._update_tags_pills(tags_list)
-        else:
-            self._update_tags_pills([])
+        # Existing cached tags must not prevent resolving the Steam AppID:
+        # UMU needs GAMEID=umu-<appid> for Steamworks/protonfixes games.
+        if not steam_id or str(steam_id) == "0":
             if game_id not in self.metadata_attempted_tags and not any(
                 isinstance(fetcher, SteamTagsFetcher) and fetcher.game_id == game_id
                 for fetcher in self.metadata_fetchers
@@ -4368,6 +4376,8 @@ class MainWindow(QMainWindow):
                 fetcher.tags_found.connect(self._on_steam_tags_found)
                 self._track_metadata_fetcher(fetcher)
                 self.metadata_attempted_tags.add(game_id)
+        elif not tags_str:
+            self._update_tags_pills([])
 
         # Update Screenshot button badge count
         shots_dir = os.path.join(_APP_DATA_DIR, "screenshots", str(game_id))
@@ -4435,7 +4445,9 @@ class MainWindow(QMainWindow):
         try:
             game_name = self.games_by_id.get(game_id, (None, "Game"))[1]
 
-            process = self.runner.launch(path, exe, selected_mode)
+            game_data = self.games_by_id.get(game_id, ())
+            steam_id = str(game_data[6]).strip() if len(game_data) > 6 and game_data[6] else ""
+            process = self.runner.launch(path, exe, selected_mode, steam_id)
             if process:
                 logger.info(f"Successfully launched '{game_name}' (PID: {process.pid})")
                 # Update Discord Rich Presence

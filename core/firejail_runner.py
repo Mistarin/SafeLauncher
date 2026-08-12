@@ -48,7 +48,7 @@ class FirejailSandboxRunner(ISandboxRunner):
         logger.debug(f"Dependency check result: {deps}")
         return deps
 
-    def launch(self, game_path: str, executable: str, mode: str) -> subprocess.Popen:
+    def launch(self, game_path: str, executable: str, mode: str, steam_id: str = "") -> subprocess.Popen:
         if not game_path or not os.path.exists(game_path):
             logger.error(f"Launch failed: Game path does not exist: {game_path}")
             raise ValueError(f"Game path does not exist: {game_path}")
@@ -124,6 +124,12 @@ class FirejailSandboxRunner(ISandboxRunner):
         prefix_path = shlex.quote(os.path.join(game_path, 'prefix'))
         proton_env = f"--env=PROTONPATH={shlex.quote(active_proton)} " if active_proton else ""
         proton_whitelist = f"--whitelist={shlex.quote(active_proton)} " if active_proton else ""
+        game_id_env = ""
+        if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:
+            game_id_env = f"--env=GAMEID=umu-{int(steam_id)} "
+        game_id_export = ""
+        if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:
+            game_id_export = f"export GAMEID=umu-{int(steam_id)} && "
 
         # Build Firejail security hardening options
         blacklist_flags = " ".join(f"--blacklist={shlex.quote(os.path.expanduser(p))}" for p in _SECURITY_BLACKLISTS)
@@ -154,10 +160,10 @@ class FirejailSandboxRunner(ISandboxRunner):
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
                     f"{net_flag}{common_security_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
-                    f"{proton_whitelist}{proton_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
+                    f"{proton_whitelist}{proton_env}{game_id_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
-                cmd = f"cd {q_work_dir} && export WINEPREFIX={prefix_path} && {runner_cmd}"
+                cmd = f"cd {q_work_dir} && {game_id_export}export WINEPREFIX={prefix_path} && {runner_cmd}"
         elif mode == "linux":
             if has_firejail:
                 cmd = f"cd {q_work_dir} && exec firejail --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
