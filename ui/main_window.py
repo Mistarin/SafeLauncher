@@ -22,6 +22,9 @@ from core.archive_extractor import (
     DEFAULT_SANDBOX_DIR, ensure_sandbox_dir, extract_archive_sandboxed,
     find_executables, save_sandbox_config, load_sandbox_config, scan_sandbox_games
 )
+from core.proton_manager import (
+    list_installed_ge_proton, fetch_online_ge_proton_releases, GEProtonDownloader, get_default_install_dir
+)
 from database import GameDatabase, _APP_DATA_DIR
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
@@ -523,11 +526,13 @@ class DialogTitleBar(QFrame):
 class UserSettingsDialog(QDialog):
     """Small settings popup for launcher-wide profile preferences."""
     runtime_manager_requested = pyqtSignal()
+    proton_manager_requested = pyqtSignal()
+
     def __init__(self, user_name: str, proton_path: str = "", parent=None):
         super().__init__(parent)
         self.setWindowTitle("SafeLauncher Settings")
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
-        self.setMinimumWidth(390)
+        self.setMinimumWidth(420)
         self.setStyleSheet("""
             QDialog { background: #141414; color: #ffffff; }
             QLabel { color: #d4d4d8; font-weight: bold; }
@@ -545,17 +550,14 @@ class UserSettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 18)
-        title = QLabel("Profile")
+        title = QLabel("Profile & Proton Settings")
         title.setFont(QFont("Arial", 15, QFont.Weight.Bold))
         layout.addWidget(title)
-        hint = QLabel("Choose the name used in launch greetings.")
-        hint.setStyleSheet("color: #888888; font-weight: normal;")
-        layout.addWidget(hint)
 
-        proton_hint = QLabel("Optional Proton path: a local GE-Proton/UMU-Proton tool folder.\nExample: ~/.local/share/umu/compatibilitytools/UMU-Proton-10.0-4\nYou can also use: ~/.local/share/Steam/compatibilitytools.d/GE-Proton*")
-        proton_hint.setWordWrap(True)
-        proton_hint.setStyleSheet("color: #888888; font-size: 11px; font-weight: normal;")
-        layout.addWidget(proton_hint)
+        btn_ge_manager = QPushButton("📦 Open GE-Proton Manager (GitHub Downloader)…")
+        btn_ge_manager.setStyleSheet("QPushButton { background: #065f46; color: #34d399; border: 1px solid #059669; } QPushButton:hover { background: #047857; }")
+        btn_ge_manager.clicked.connect(self._open_proton_manager)
+        layout.addWidget(btn_ge_manager)
 
         runtime_manager = QPushButton("Open UMU Runtime Manager…")
         runtime_manager.setStyleSheet("QPushButton { background: #1e293b; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
@@ -593,6 +595,10 @@ class UserSettingsDialog(QDialog):
 
     def _open_runtime_manager(self):
         self.runtime_manager_requested.emit()
+        self.reject()
+
+    def _open_proton_manager(self):
+        self.proton_manager_requested.emit()
         self.reject()
 
     def get_user_name(self) -> str:
@@ -657,6 +663,202 @@ class ProtonSetupWizard(QDialog):
 
     def get_path(self) -> str:
         return self.path_input.text().strip()
+
+
+class GitHubReleasesFetcherThread(SafeQThread):
+    releases_fetched = pyqtSignal(list)
+    fetch_failed = pyqtSignal(str)
+
+    def safe_run(self):
+        try:
+            releases = fetch_online_ge_proton_releases(max_results=12)
+            self.releases_fetched.emit(releases)
+        except Exception as e:
+            self.fetch_failed.emit(str(e))
+
+
+class ProtonManagerDialog(QDialog):
+    """Sleek UI Manager for GE-Proton releases and local installations."""
+    proton_selected = pyqtSignal(str)
+
+    def __init__(self, current_proton_path: str = "", parent=None):
+        super().__init__(parent)
+        self.current_proton_path = current_proton_path
+        self.downloader_thread = None
+        self.fetcher_thread = None
+
+        self.setWindowTitle("GE-Proton Manager - GitHub Auto-Downloader")
+        self.setFixedSize(680, 520)
+        self.setStyleSheet("""
+            QDialog { background-color: #121215; color: #ffffff; }
+            QLabel { color: #d4d4d8; font-size: 12px; }
+            QPushButton {
+                background: #2563eb; color: #ffffff; border: none;
+                border-radius: 6px; padding: 6px 14px; font-weight: bold; font-size: 11px;
+            }
+            QPushButton:hover { background: #1d4ed8; }
+            QPushButton:disabled { background: #27272a; color: #71717a; }
+            QListWidget {
+                background: #18181b; color: #ffffff; border: 1px solid #27272a;
+                border-radius: 8px; padding: 4px;
+            }
+            QProgressBar {
+                background: #18181b; border: 1px solid #27272a; border-radius: 6px;
+                text-align: center; color: #ffffff; font-weight: bold; font-size: 11px;
+            }
+            QProgressBar::chunk { background-color: #22c55e; border-radius: 5px; }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        header = QLabel("📦 GE-Proton Manager (GitHub Releases)")
+        header.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        header.setStyleSheet("color: #ffffff;")
+        layout.addWidget(header)
+
+        sub = QLabel("Download GE-Proton builds directly from GitHub into ~/.local/share/umu/ with 1-click.")
+        sub.setStyleSheet("color: #a1a1aa; font-size: 12px;")
+        layout.addWidget(sub)
+
+        # Tab / List Layout
+        self.releases_list = QListWidget()
+        layout.addWidget(self.releases_list)
+
+        # Status & Progress Bar
+        self.status_label = QLabel("Querying GitHub API for GE-Proton releases...")
+        self.status_label.setStyleSheet("color: #60a5fa; font-size: 11px; font-weight: bold;")
+        layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        # Bottom Buttons
+        btn_layout = QHBoxLayout()
+
+        btn_refresh = QPushButton("🔄 Refresh Releases")
+        btn_refresh.setStyleSheet("QPushButton { background: #27272a; border: 1px solid #3f3f46; } QPushButton:hover { background: #3f3f46; }")
+        btn_refresh.clicked.connect(self._fetch_releases)
+        btn_layout.addWidget(btn_refresh)
+
+        btn_layout.addStretch(1)
+
+        btn_close = QPushButton("Close")
+        btn_close.setStyleSheet("QPushButton { background: #27272a; border: 1px solid #3f3f46; } QPushButton:hover { background: #3f3f46; }")
+        btn_close.clicked.connect(self.reject)
+        btn_layout.addWidget(btn_close)
+
+        layout.addLayout(btn_layout)
+
+        self._fetch_releases()
+
+    def _fetch_releases(self):
+        self.status_label.setText("Querying GitHub API for GE-Proton releases...")
+        self.releases_list.clear()
+
+        fetcher = GitHubReleasesFetcherThread(parent=self)
+        fetcher.releases_fetched.connect(self._on_releases_fetched)
+        fetcher.fetch_failed.connect(self._on_fetch_failed)
+        fetcher.start()
+        self.fetcher_thread = fetcher
+
+    def _on_releases_fetched(self, releases: list):
+        self.releases_list.clear()
+        installed_builds = {b["name"].lower(): b["path"] for b in list_installed_ge_proton()}
+
+        if not releases:
+            item = QListWidgetItem("No GE-Proton releases found on GitHub.")
+            self.releases_list.addItem(item)
+            self.status_label.setText("Done.")
+            return
+
+        for rel in releases:
+            tag = rel["tag"]
+            size_mb = rel["size_mb"]
+            published = rel["published"]
+
+            widget = QWidget()
+            w_layout = QHBoxLayout(widget)
+            w_layout.setContentsMargins(10, 8, 10, 8)
+
+            info_lbl = QLabel(f"<b>{tag}</b> ({size_mb} MB) — Published: {published}")
+            info_lbl.setStyleSheet("font-size: 12px; color: #f4f4f5;")
+            w_layout.addWidget(info_lbl)
+
+            w_layout.addStretch(1)
+
+            is_installed = tag.lower() in installed_builds or any(tag.lower() in k for k in installed_builds.keys())
+            if is_installed:
+                inst_btn = QPushButton("🟢 Installed / Use as Default")
+                inst_btn.setStyleSheet("QPushButton { background: #064e3b; color: #34d399; border: 1px solid #059669; } QPushButton:hover { background: #047857; }")
+                target_path = installed_builds.get(tag.lower(), os.path.join(get_default_install_dir(), tag))
+                inst_btn.clicked.connect(lambda _, p=target_path: self._select_proton(p))
+                w_layout.addWidget(inst_btn)
+            else:
+                dl_btn = QPushButton("📥 Download & Install")
+                dl_btn.clicked.connect(lambda _, r=rel: self._start_download(r))
+                w_layout.addWidget(dl_btn)
+
+            item = QListWidgetItem(self.releases_list)
+            item.setSizeHint(widget.sizeHint())
+            self.releases_list.addItem(item)
+            self.releases_list.setItemWidget(item, widget)
+
+        self.status_label.setText(f"Found {len(releases)} GE-Proton releases from GitHub.")
+
+    def _on_fetch_failed(self, error_msg: str):
+        self.status_label.setText(f"Failed to fetch GitHub releases: {error_msg}")
+
+    def _start_download(self, release: dict):
+        tag = release["tag"]
+        url = release["url"]
+
+        if self.downloader_thread and self.downloader_thread.isRunning():
+            QMessageBox.warning(self, "Download in Progress", "A download is already in progress.")
+            return
+
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.status_label.setText(f"Starting download of {tag}…")
+
+        downloader = GEProtonDownloader(url, tag, parent=self)
+        downloader.progress_changed.connect(self._on_progress_changed)
+        downloader.status_text.connect(self.status_label.setText)
+        downloader.download_complete.connect(self._on_download_complete)
+        downloader.download_failed.connect(self._on_download_failed)
+        downloader.start()
+        self.downloader_thread = downloader
+
+    def _on_progress_changed(self, downloaded: int, total: int, percentage: int):
+        self.progress_bar.setValue(percentage)
+
+    def _on_download_complete(self, tag: str, installed_path: str):
+        self.progress_bar.setVisible(False)
+        self.status_label.setText(f"✓ {tag} installed successfully to {installed_path}!")
+        QMessageBox.information(self, "GE-Proton Installed", f"✓ GE-Proton build '{tag}' was downloaded and extracted successfully!\n\nLocation:\n{installed_path}")
+        self.proton_selected.emit(installed_path)
+        self._fetch_releases()
+
+    def _on_download_failed(self, error_msg: str):
+        self.progress_bar.setVisible(False)
+        self.status_label.setText(f"❌ Download failed: {error_msg}")
+        QMessageBox.critical(self, "Download Error", f"Failed to download GE-Proton: {error_msg}")
+
+    def _select_proton(self, path: str):
+        self.proton_selected.emit(path)
+        QMessageBox.information(self, "Proton Selected", f"✓ Default Proton tool set to:\n{path}")
+        self.accept()
+
+    def closeEvent(self, event):
+        if self.downloader_thread and self.downloader_thread.isRunning():
+            self.downloader_thread.requestInterruption()
+            self.downloader_thread.wait(3000)
+        if self.fetcher_thread and self.fetcher_thread.isRunning():
+            self.fetcher_thread.requestInterruption()
+            self.fetcher_thread.wait(3000)
+        super().closeEvent(event)
 
 
 class UmuBootstrapWorker(SafeQThread):
@@ -3173,6 +3375,7 @@ class MainWindow(QMainWindow):
         """Open launcher preferences and persist profile changes."""
         dialog = UserSettingsDialog(self.user_name, self.proton_path, self)
         dialog.runtime_manager_requested.connect(self._open_runtime_manager)
+        dialog.proton_manager_requested.connect(self._open_proton_manager)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.user_name = dialog.get_user_name()
             self.proton_path = dialog.get_proton_path()
@@ -3181,6 +3384,11 @@ class MainWindow(QMainWindow):
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(self.proton_path)
             self._show_toast(f"✓ Display name changed to {self.user_name}.")
+
+    def _open_proton_manager(self):
+        manager = ProtonManagerDialog(self.proton_path, self)
+        manager.proton_selected.connect(self._set_proton_path)
+        manager.exec()
 
     def _open_runtime_manager(self):
         manager = UmuRuntimeManagerDialog(self.proton_path, self)
