@@ -680,15 +680,17 @@ class GitHubReleasesFetcherThread(SafeQThread):
 class ProtonManagerDialog(QDialog):
     """Sleek UI Manager for GE-Proton releases and local installations."""
     proton_selected = pyqtSignal(str)
+    apply_to_game_requested = pyqtSignal(str)
 
-    def __init__(self, current_proton_path: str = "", parent=None):
+    def __init__(self, current_proton_path: str = "", selected_game_name: str = "", parent=None):
         super().__init__(parent)
         self.current_proton_path = current_proton_path
+        self.selected_game_name = selected_game_name
         self.downloader_thread = None
         self.fetcher_thread = None
 
         self.setWindowTitle("GE-Proton Manager - GitHub Auto-Downloader")
-        self.setFixedSize(680, 520)
+        self.setFixedSize(720, 560)
         self.setStyleSheet("""
             QDialog { background-color: #121215; color: #ffffff; }
             QLabel { color: #d4d4d8; font-size: 12px; }
@@ -703,7 +705,7 @@ class ProtonManagerDialog(QDialog):
                 border-radius: 8px; padding: 4px;
             }
             QProgressBar {
-                background: #18181b; border: 1px solid #27272a; border-radius: 6px;
+                background: #09090b; border: 1px solid #27272a; border-radius: 6px;
                 text-align: center; color: #ffffff; font-weight: bold; font-size: 11px;
             }
             QProgressBar::chunk { background-color: #22c55e; border-radius: 5px; }
@@ -718,7 +720,10 @@ class ProtonManagerDialog(QDialog):
         header.setStyleSheet("color: #ffffff;")
         layout.addWidget(header)
 
-        sub = QLabel("Download GE-Proton builds directly from GitHub into ~/.local/share/umu/ with 1-click.")
+        sub_text = "Download GE-Proton builds directly from GitHub into ~/.local/share/umu/ with 1-click."
+        if self.selected_game_name:
+            sub_text += f"\nTarget Game: '{self.selected_game_name}'"
+        sub = QLabel(sub_text)
         sub.setStyleSheet("color: #a1a1aa; font-size: 12px;")
         layout.addWidget(sub)
 
@@ -726,14 +731,47 @@ class ProtonManagerDialog(QDialog):
         self.releases_list = QListWidget()
         layout.addWidget(self.releases_list)
 
-        # Status & Progress Bar
+        # Download Manager Active Card Panel
+        self.download_card = QFrame()
+        self.download_card.setStyleSheet("""
+            QFrame {
+                background-color: #18181b;
+                border: 1px solid #27272a;
+                border-radius: 8px;
+                padding: 8px;
+            }
+        """)
+        card_layout = QVBoxLayout(self.download_card)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setSpacing(6)
+
+        dl_row = QHBoxLayout()
+        self.download_title_lbl = QLabel("Active Download")
+        self.download_title_lbl.setStyleSheet("font-weight: bold; color: #60a5fa; font-size: 12px;")
+        dl_row.addWidget(self.download_title_lbl)
+
+        dl_row.addStretch(1)
+
+        self.btn_cancel_dl = QPushButton("❌ Cancel Download")
+        self.btn_cancel_dl.setStyleSheet("QPushButton { background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; } QPushButton:hover { background: #991b1b; }")
+        self.btn_cancel_dl.clicked.connect(self._cancel_download)
+        dl_row.addWidget(self.btn_cancel_dl)
+        card_layout.addLayout(dl_row)
+
+        self.progress_bar = QProgressBar()
+        card_layout.addWidget(self.progress_bar)
+
+        self.download_stats_lbl = QLabel("0.0 MB / 0.0 MB (0%)")
+        self.download_stats_lbl.setStyleSheet("color: #a1a1aa; font-size: 11px;")
+        card_layout.addWidget(self.download_stats_lbl)
+
+        self.download_card.setVisible(False)
+        layout.addWidget(self.download_card)
+
+        # Status Label
         self.status_label = QLabel("Querying GitHub API for GE-Proton releases...")
         self.status_label.setStyleSheet("color: #60a5fa; font-size: 11px; font-weight: bold;")
         layout.addWidget(self.status_label)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
 
         # Bottom Buttons
         btn_layout = QHBoxLayout()
@@ -742,6 +780,11 @@ class ProtonManagerDialog(QDialog):
         btn_refresh.setStyleSheet("QPushButton { background: #27272a; border: 1px solid #3f3f46; } QPushButton:hover { background: #3f3f46; }")
         btn_refresh.clicked.connect(self._fetch_releases)
         btn_layout.addWidget(btn_refresh)
+
+        btn_system = QPushButton("⚙️ Use System Auto Proton (Default)")
+        btn_system.setStyleSheet("QPushButton { background: #1e293b; color: #94a3b8; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
+        btn_system.clicked.connect(lambda: self._select_proton(""))
+        btn_layout.addWidget(btn_system)
 
         btn_layout.addStretch(1)
 
@@ -774,6 +817,8 @@ class ProtonManagerDialog(QDialog):
             self.status_label.setText("Done.")
             return
 
+        current_path_norm = os.path.realpath(os.path.expanduser(self.current_proton_path)).lower() if self.current_proton_path else ""
+
         for rel in releases:
             tag = rel["tag"]
             size_mb = rel["size_mb"]
@@ -789,13 +834,26 @@ class ProtonManagerDialog(QDialog):
 
             w_layout.addStretch(1)
 
+            target_path = installed_builds.get(tag.lower(), os.path.join(get_default_install_dir(), tag))
+            target_path_norm = os.path.realpath(os.path.expanduser(target_path)).lower()
             is_installed = tag.lower() in installed_builds or any(tag.lower() in k for k in installed_builds.keys())
-            if is_installed:
-                inst_btn = QPushButton("🟢 Installed / Use as Default")
-                inst_btn.setStyleSheet("QPushButton { background: #064e3b; color: #34d399; border: 1px solid #059669; } QPushButton:hover { background: #047857; }")
-                target_path = installed_builds.get(tag.lower(), os.path.join(get_default_install_dir(), tag))
-                inst_btn.clicked.connect(lambda _, p=target_path: self._select_proton(p))
-                w_layout.addWidget(inst_btn)
+            is_active = is_installed and current_path_norm and (current_path_norm in target_path_norm or target_path_norm in current_path_norm)
+
+            if is_active:
+                active_lbl = QLabel("✓ Currently Active")
+                active_lbl.setStyleSheet("color: #34d399; font-weight: bold; font-size: 11px; padding: 4px 8px; background: #064e3b; border-radius: 4px;")
+                w_layout.addWidget(active_lbl)
+            elif is_installed:
+                if self.selected_game_name:
+                    btn_apply_game = QPushButton("⚡ Apply to Selected Game")
+                    btn_apply_game.setStyleSheet("QPushButton { background: #166534; color: #86efac; border: 1px solid #22c55e; } QPushButton:hover { background: #15803d; }")
+                    btn_apply_game.clicked.connect(lambda _, p=target_path: self._apply_to_game(p))
+                    w_layout.addWidget(btn_apply_game)
+
+                btn_global = QPushButton("🌍 Set Global Default")
+                btn_global.setStyleSheet("QPushButton { background: #1e293b; color: #94a3b8; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
+                btn_global.clicked.connect(lambda _, p=target_path: self._select_proton(p))
+                w_layout.addWidget(btn_global)
             else:
                 dl_btn = QPushButton("📥 Download & Install")
                 dl_btn.clicked.connect(lambda _, r=rel: self._start_download(r))
@@ -819,37 +877,53 @@ class ProtonManagerDialog(QDialog):
             QMessageBox.warning(self, "Download in Progress", "A download is already in progress.")
             return
 
+        self.download_title_lbl.setText(f"Downloading {tag}…")
+        self.download_stats_lbl.setText(f"0.0 MB / {release['size_mb']} MB (0%)")
         self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(True)
-        self.status_label.setText(f"Starting download of {tag}…")
+        self.download_card.setVisible(True)
+        self.status_label.setText(f"Active Download: {tag}")
 
         downloader = GEProtonDownloader(url, tag, parent=self)
-        downloader.progress_changed.connect(self._on_progress_changed)
-        downloader.status_text.connect(self.status_label.setText)
+        downloader.progress_details.connect(self._on_progress_details)
+        downloader.status_text.connect(self.download_title_lbl.setText)
         downloader.download_complete.connect(self._on_download_complete)
         downloader.download_failed.connect(self._on_download_failed)
         downloader.start()
         self.downloader_thread = downloader
 
-    def _on_progress_changed(self, downloaded: int, total: int, percentage: int):
+    def _on_progress_details(self, tag: str, downloaded_mb: float, total_mb: float, percentage: int):
         self.progress_bar.setValue(percentage)
+        self.download_stats_lbl.setText(f"{downloaded_mb} MB / {total_mb} MB ({percentage}%)")
+
+    def _cancel_download(self):
+        if self.downloader_thread and self.downloader_thread.isRunning():
+            self.downloader_thread.requestInterruption()
+            self.downloader_thread.wait(3000)
+        self.download_card.setVisible(False)
+        self.status_label.setText("Download cancelled.")
 
     def _on_download_complete(self, tag: str, installed_path: str):
-        self.progress_bar.setVisible(False)
+        self.download_card.setVisible(False)
         self.status_label.setText(f"✓ {tag} installed successfully to {installed_path}!")
         QMessageBox.information(self, "GE-Proton Installed", f"✓ GE-Proton build '{tag}' was downloaded and extracted successfully!\n\nLocation:\n{installed_path}")
         self.proton_selected.emit(installed_path)
         self._fetch_releases()
 
     def _on_download_failed(self, error_msg: str):
-        self.progress_bar.setVisible(False)
+        self.download_card.setVisible(False)
         self.status_label.setText(f"❌ Download failed: {error_msg}")
-        QMessageBox.critical(self, "Download Error", f"Failed to download GE-Proton: {error_msg}")
+        if "cancelled" not in error_msg.lower():
+            QMessageBox.critical(self, "Download Error", f"Failed to download GE-Proton: {error_msg}")
+
+    def _apply_to_game(self, path: str):
+        self.apply_to_game_requested.emit(path)
+        self.current_proton_path = path
+        self._fetch_releases()
 
     def _select_proton(self, path: str):
         self.proton_selected.emit(path)
-        QMessageBox.information(self, "Proton Selected", f"✓ Default Proton tool set to:\n{path}")
-        self.accept()
+        self.current_proton_path = path
+        self._fetch_releases()
 
     def closeEvent(self, event):
         if self.downloader_thread and self.downloader_thread.isRunning():
@@ -3386,20 +3460,44 @@ class MainWindow(QMainWindow):
             self._show_toast(f"✓ Display name changed to {self.user_name}.")
 
     def _open_proton_manager(self):
-        manager = ProtonManagerDialog(self.proton_path, self)
-        manager.proton_selected.connect(self._set_proton_path)
+        if isinstance(self.selected_game, tuple):
+            game_name = self.selected_game[1] if len(self.selected_game) > 1 else str(self.selected_game[0])
+        elif hasattr(self.selected_game, 'name'):
+            game_name = self.selected_game.name
+        elif self.selected_game:
+            game_name = str(self.selected_game)
+        else:
+            game_name = ""
+        manager = ProtonManagerDialog(self.proton_path, game_name, self)
+        manager.proton_selected.connect(self._set_global_proton_path)
+        manager.apply_to_game_requested.connect(self._apply_proton_to_selected_game)
         manager.exec()
 
-    def _open_runtime_manager(self):
-        manager = UmuRuntimeManagerDialog(self.proton_path, self)
-        manager.proton_path_selected.connect(self._set_proton_path)
-        manager.exec()
+    def _set_global_proton_path(self, proton_path: str):
+        self.proton_path = proton_path.strip()
+        self.settings.setValue("proton_path", self.proton_path)
+        if hasattr(self.runner, "set_proton_path"):
+            self.runner.set_proton_path(self.proton_path)
+        display_name = os.path.basename(self.proton_path) if self.proton_path else "System Auto Default"
+        self._show_toast(f"✓ Global default Proton set to: {display_name}")
 
-    def _set_proton_path(self, proton_path: str):
+    def _apply_proton_to_selected_game(self, proton_path: str):
+        if not self.selected_game:
+            self._set_global_proton_path(proton_path)
+            return
         self.proton_path = proton_path
         self.settings.setValue("proton_path", proton_path)
         if hasattr(self.runner, "set_proton_path"):
             self.runner.set_proton_path(proton_path)
+        self._show_toast(f"✓ Applied {os.path.basename(proton_path)} to '{self.selected_game.name}'!")
+
+    def _open_runtime_manager(self):
+        manager = UmuRuntimeManagerDialog(self.proton_path, self)
+        manager.proton_path_selected.connect(self._set_global_proton_path)
+        manager.exec()
+
+    def _set_proton_path(self, proton_path: str):
+        self._set_global_proton_path(proton_path)
 
     def _setup_tray_icon(self):
         """Setup system tray icon with quick launch context menu for favorites and recently played games."""

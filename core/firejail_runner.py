@@ -81,14 +81,30 @@ class FirejailSandboxRunner(ISandboxRunner):
             working_dir = game_path
             exe_filename = executable
 
+        # Resolve active Proton tool path (auto-detect downloaded Proton if empty or invalid)
+        active_proton = self.proton_path
+        if active_proton and not os.path.exists(os.path.join(active_proton, "toolmanifest.vdf")):
+            logger.warning(f"Configured Proton path '{active_proton}' missing toolmanifest.vdf. Falling back to auto-detection.")
+            active_proton = ""
+
+        if not active_proton:
+            try:
+                from core.proton_manager import list_installed_ge_proton
+                installed_protons = list_installed_ge_proton()
+                if installed_protons:
+                    active_proton = installed_protons[0]["path"]
+                    logger.info(f"Auto-detected installed GE-Proton build: {active_proton}")
+            except Exception as e:
+                logger.warning(f"Proton auto-detection failed: {e}")
+
         q_path = shlex.quote(game_path)
         q_work_dir = shlex.quote(working_dir)
         q_exe = shlex.quote(exe_filename)
         q_umu_share = shlex.quote(umu_share)
         q_umu_cache = shlex.quote(umu_cache)
         prefix_path = shlex.quote(os.path.join(game_path, 'prefix'))
-        proton_env = f"--env=PROTONPATH={shlex.quote(self.proton_path)} " if self.proton_path else ""
-        proton_whitelist = f"--whitelist={shlex.quote(self.proton_path)} " if self.proton_path else ""
+        proton_env = f"--env=PROTONPATH={shlex.quote(active_proton)} " if active_proton else ""
+        proton_whitelist = f"--whitelist={shlex.quote(active_proton)} " if active_proton else ""
 
         # Build Firejail security hardening options
         blacklist_flags = " ".join(f"--blacklist={shlex.quote(os.path.expanduser(p))}" for p in _SECURITY_BLACKLISTS)
@@ -129,7 +145,7 @@ class FirejailSandboxRunner(ISandboxRunner):
             else:
                 cmd = f"cd {q_work_dir} && export WINEPREFIX={prefix_path} && {runner_cmd}"
 
-        logger.info(f"Spawning process in mode '{mode}' (Firejail: {has_firejail}, WorkDir: {working_dir}): {cmd}")
+        logger.info(f"Spawning process in mode '{mode}' (Firejail: {has_firejail}, Proton: '{active_proton}'): {cmd}")
 
         try:
             process = subprocess.Popen(

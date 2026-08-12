@@ -2,14 +2,15 @@
 
 Queries GitHub API (GloriousEggroll/proton-ge-custom) for available GE-Proton releases,
 checks local installations in ~/.local/share/umu/ or Steam compatibility tools, and provides
-a safe background thread worker (SafeQThread) to download and extract tarballs.
+a robust background thread worker (SafeQThread) to download and extract tarballs.
 """
 
 import os
 import sys
 import tarfile
-import urllib.request
-import json
+import requests
+import shutil
+import subprocess
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
@@ -30,8 +31,20 @@ def get_default_install_dir() -> str:
     return UMU_DIR
 
 
+def find_valid_proton_dir(target_dir: str) -> str:
+    """Check if target_dir or any of its subdirectories contain toolmanifest.vdf."""
+    if not os.path.isdir(target_dir):
+        return target_dir
+    if os.path.exists(os.path.join(target_dir, "toolmanifest.vdf")):
+        return target_dir
+    for root, dirs, files in os.walk(target_dir):
+        if "toolmanifest.vdf" in files:
+            return root
+    return target_dir
+
+
 def list_installed_ge_proton() -> list[dict]:
-    """Scan local directories for installed GE-Proton builds."""
+    """Scan local directories for installed GE-Proton builds containing toolmanifest.vdf."""
     installed = []
     seen = set()
 
@@ -41,12 +54,13 @@ def list_installed_ge_proton() -> list[dict]:
         try:
             for item in os.listdir(base_dir):
                 full_path = os.path.join(base_dir, item)
-                if os.path.isdir(full_path) and ("GE-Proton" in item or "Proton-GE" in item):
+                valid_path = find_valid_proton_dir(full_path)
+                if os.path.isdir(valid_path) and os.path.exists(os.path.join(valid_path, "toolmanifest.vdf")):
                     if item not in seen:
                         seen.add(item)
                         installed.append({
                             "name": item,
-                            "path": full_path,
+                            "path": valid_path,
                             "location": "umu" if base_dir == UMU_DIR else "steam"
                         })
         except Exception as e:
@@ -56,45 +70,42 @@ def list_installed_ge_proton() -> list[dict]:
     return installed
 
 
-def fetch_online_ge_proton_releases(max_results: int = 10) -> list[dict]:
+def fetch_online_ge_proton_releases(max_results: int = 12) -> list[dict]:
     """Query GitHub API for available GE-Proton releases."""
     logger.info("Querying GitHub API for GE-Proton releases...")
-    req = urllib.request.Request(
-        GITHUB_RELEASES_API,
-        headers={
-            "User-Agent": "SafeLauncher/1.0 (Linux Game Sandbox Manager)",
-            "Accept": "application/vnd.github.v3+json"
-        }
-    )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) SafeLauncher/1.0",
+        "Accept": "application/vnd.github.v3+json"
+    }
     releases = []
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status == 200:
-                data = json.loads(resp.read().decode("utf-8"))
-                for release in data[:max_results]:
-                    tag = release.get("tag_name", "")
-                    name = release.get("name", tag)
-                    published_at = release.get("published_at", "")[:10]
-                    body = release.get("body", "")
+        response = requests.get(GITHUB_RELEASES_API, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            for release in data[:max_results]:
+                tag = release.get("tag_name", "")
+                name = release.get("name", tag)
+                published_at = release.get("published_at", "")[:10]
+                body = release.get("body", "")
 
-                    tarball_url = ""
-                    size_mb = 0.0
-                    for asset in release.get("assets", []):
-                        asset_name = asset.get("name", "")
-                        if asset_name.endswith(".tar.gz") or asset_name.endswith(".tar.xz"):
-                            tarball_url = asset.get("browser_download_url", "")
-                            size_mb = round(asset.get("size", 0) / (1024 * 1024), 1)
-                            break
+                tarball_url = ""
+                size_mb = 0.0
+                for asset in release.get("assets", []):
+                    asset_name = asset.get("name", "")
+                    if asset_name.endswith(".tar.gz") or asset_name.endswith(".tar.xz"):
+                        tarball_url = asset.get("browser_download_url", "")
+                        size_mb = round(asset.get("size", 0) / (1024 * 1024), 1)
+                        break
 
-                    if tarball_url:
-                        releases.append({
-                            "tag": tag,
-                            "name": name,
-                            "url": tarball_url,
-                            "size_mb": size_mb,
-                            "published": published_at,
-                            "body": body
-                        })
+                if tarball_url:
+                    releases.append({
+                        "tag": tag,
+                        "name": name,
+                        "url": tarball_url,
+                        "size_mb": size_mb,
+                        "published": published_at,
+                        "body": body
+                    })
     except Exception as e:
         logger.error(f"Failed to fetch GE-Proton releases from GitHub: {e}")
 
@@ -104,8 +115,8 @@ def fetch_online_ge_proton_releases(max_results: int = 10) -> list[dict]:
 
 class GEProtonDownloader(SafeQThread):
     """Background worker thread to download and extract a GE-Proton release tarball."""
-    # (downloaded_bytes, total_bytes, percentage)
     progress_changed = pyqtSignal(int, int, int)
+    progress_details = pyqtSignal(str, float, float, int)
     status_text = pyqtSignal(str)
     download_complete = pyqtSignal(str, str)  # (tag_name, installed_path)
     download_failed = pyqtSignal(str)
@@ -124,65 +135,109 @@ class GEProtonDownloader(SafeQThread):
         tar_filename = os.path.basename(self.release_url)
         tar_filepath = os.path.join(self.dest_dir, tar_filename)
 
+        success = False
         try:
-            req = urllib.request.Request(
-                self.release_url,
-                headers={"User-Agent": "SafeLauncher/1.0 (Linux Game Sandbox Manager)"}
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                total_bytes = int(resp.headers.get("Content-Length", 0))
-                downloaded = 0
-                chunk_size = 128 * 1024
+            session = requests.Session()
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "*/*"
+            })
 
-                self.status_text.emit(f"Downloading {self.tag_name}…")
-                with open(tar_filepath, "wb") as f:
-                    while True:
+            resp = session.get(self.release_url, stream=True, timeout=(15, 60))
+            resp.raise_for_status()
+
+            total_bytes = int(resp.headers.get("content-length", 0))
+            total_mb = round(total_bytes / (1024 * 1024), 1) if total_bytes > 0 else 0.0
+            downloaded = 0
+            chunk_size = 256 * 1024  # 256 KB
+
+            self.status_text.emit(f"Downloading {self.tag_name}…")
+            with open(tar_filepath, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=chunk_size):
+                    if self.isInterruptionRequested():
+                        logger.info(f"Download of {self.tag_name} was interrupted by user.")
+                        f.close()
+                        if os.path.exists(tar_filepath):
+                            os.remove(tar_filepath)
+                        self.download_failed.emit("Download cancelled by user.")
+                        return
+
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        downloaded_mb = round(downloaded / (1024 * 1024), 1)
+                        percent = int((downloaded / total_bytes) * 100) if total_bytes > 0 else 0
+                        self.progress_changed.emit(downloaded, total_bytes, percent)
+                        self.progress_details.emit(self.tag_name, downloaded_mb, total_mb, percent)
+
+            success = True
+        except Exception as primary_err:
+            logger.warning(f"Python requests download failed for {self.tag_name}: {primary_err}. Attempting curl fallback...")
+            if os.path.exists(tar_filepath):
+                try:
+                    os.remove(tar_filepath)
+                except Exception:
+                    pass
+
+            if shutil.which("curl"):
+                try:
+                    self.status_text.emit(f"Downloading {self.tag_name} via curl…")
+                    cmd = ["curl", "-L", "--retry", "3", "-o", tar_filepath, self.release_url]
+                    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    while proc.poll() is None:
                         if self.isInterruptionRequested():
-                            logger.info(f"Download of {self.tag_name} was interrupted by user.")
-                            f.close()
+                            proc.terminate()
                             if os.path.exists(tar_filepath):
                                 os.remove(tar_filepath)
                             self.download_failed.emit("Download cancelled by user.")
                             return
+                        self.sleep(1)
 
-                        chunk = resp.read(chunk_size)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        percent = int((downloaded / total_bytes) * 100) if total_bytes > 0 else 0
-                        self.progress_changed.emit(downloaded, total_bytes, percent)
+                    if proc.returncode == 0 and os.path.exists(tar_filepath):
+                        success = True
+                except Exception as curl_err:
+                    logger.error(f"Curl fallback failed: {curl_err}")
 
-            if self.isInterruptionRequested():
-                if os.path.exists(tar_filepath):
-                    os.remove(tar_filepath)
-                return
+        if not success or not os.path.exists(tar_filepath):
+            self.download_failed.emit("Network connection dropped during download. Please retry.")
+            return
 
+        if self.isInterruptionRequested():
+            if os.path.exists(tar_filepath):
+                os.remove(tar_filepath)
+            return
+
+        try:
             self.status_text.emit(f"Extracting {self.tag_name} to ~/.local/share/umu/…")
             logger.info(f"Extracting {tar_filepath} into {self.dest_dir}...")
 
             with tarfile.open(tar_filepath, "r:*") as tar:
                 tar.extractall(path=self.dest_dir)
 
-            # Cleanup downloaded archive tarball after extraction
             if os.path.exists(tar_filepath):
                 os.remove(tar_filepath)
 
             expected_path = os.path.join(self.dest_dir, self.tag_name)
             if not os.path.exists(expected_path):
-                # Check if extracted folder has slightly different casing or name
                 for entry in os.listdir(self.dest_dir):
                     if self.tag_name.lower() in entry.lower():
                         expected_path = os.path.join(self.dest_dir, entry)
                         break
 
-            logger.info(f"GE-Proton {self.tag_name} installed successfully at {expected_path}")
-            self.download_complete.emit(self.tag_name, expected_path)
-        except Exception as e:
-            logger.error(f"Failed to download/extract {self.tag_name}: {e}")
+            # Resolve valid directory with toolmanifest.vdf
+            valid_proton_path = find_valid_proton_dir(expected_path)
+            if not os.path.exists(os.path.join(valid_proton_path, "toolmanifest.vdf")):
+                logger.error(f"Extracted folder {valid_proton_path} missing toolmanifest.vdf")
+                self.download_failed.emit("Extracted archive is missing toolmanifest.vdf. Download may be corrupt.")
+                return
+
+            logger.info(f"GE-Proton {self.tag_name} installed successfully at {valid_proton_path}")
+            self.download_complete.emit(self.tag_name, valid_proton_path)
+        except Exception as extract_err:
+            logger.error(f"Failed to extract {self.tag_name}: {extract_err}")
             if os.path.exists(tar_filepath):
                 try:
                     os.remove(tar_filepath)
                 except Exception:
                     pass
-            self.download_failed.emit(str(e))
+            self.download_failed.emit(f"Extraction failed: {extract_err}")
