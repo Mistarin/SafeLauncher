@@ -3762,6 +3762,16 @@ class MainWindow(QMainWindow):
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
 
+        if selected_mode in ("umu", "umu_net") and hasattr(self.runner, "user_namespace_blocked") and self.runner.user_namespace_blocked():
+            QMessageBox.warning(
+                self,
+                "UMU unavailable in this environment",
+                "UMU cannot start in the current sandboxed environment because namespace creation is blocked. "
+                "This is required by Proton/bwrap and prevents UMU from starting here.\n\n"
+                "Please switch to Wine mode or launch the app outside this restricted sandbox."
+            )
+            return
+
         try:
             game_name = self.games_by_id.get(game_id, (None, "Game"))[1]
 

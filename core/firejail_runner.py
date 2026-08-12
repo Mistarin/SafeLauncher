@@ -25,7 +25,96 @@ class FirejailSandboxRunner(ISandboxRunner):
             "wine": shutil.which("wine") is not None,
         }
 
-    def launch(self, game_path: str, executable: str, mode: str) -> subprocess.Popen:
+    @staticmethod
+    def firejail_supported() -> bool:
+        """Return True only when Firejail can actually create a new namespace."""
+        firejail_bin = shutil.which("firejail")
+        if not firejail_bin:
+            return False
+
+        try:
+            result = subprocess.run(
+                [firejail_bin, "--noprofile", "--net=none", "--quiet", "true"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+        if result.returncode == 0:
+            return True
+
+        text = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        blocked_markers = (
+            "no permissions to create a new namespace",
+            "user namespace",
+            "new namespace",
+            "operation not permitted",
+        )
+        return not any(marker in text for marker in blocked_markers)
+
+    @staticmethod
+    def bubblewrap_supported() -> bool:
+        """Return True only when bwrap can create a sandbox namespace."""
+        bwrap_bin = shutil.which("bwrap")
+        if not bwrap_bin:
+            return False
+
+        try:
+            result = subprocess.run(
+                [bwrap_bin, "--unshare-user", "--bind", "/", "/", "/bin/true"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+        if result.returncode == 0:
+            return True
+
+        text = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        blocked_markers = (
+            "no permissions to create a new namespace",
+            "user namespace",
+            "new namespace",
+            "operation not permitted",
+            "cannot create new namespace",
+            "unshare",
+        )
+        return not any(marker in text for marker in blocked_markers)
+
+    @staticmethod
+    def user_namespace_blocked() -> bool:
+        """Return True when the host cannot create unprivileged user namespaces.
+
+        This is the decisive check for UMU. If the kernel or the execution sandbox
+        forbids user namespaces, UMU/bwrap will fail regardless of the selected
+        launch mode, so SafeLauncher must fall back to Wine.
+        """
+        proc_path = "/proc/sys/kernel/unprivileged_userns_clone"
+        if os.path.exists(proc_path):
+            try:
+                with open(proc_path, "r", encoding="utf-8", errors="ignore") as fh:
+                    value = fh.read().strip().lower()
+                if value in {"0", "no", "false"}:
+                    return True
+            except OSError:
+                pass
+
+        return not (FirejailSandboxRunner.firejail_supported() and FirejailSandboxRunner.bubblewrap_supported())
+
+    def build_launch_command(self, game_path: str, executable: str, mode: str,
+                            include_net_none: bool = True,
+                            include_wine_prefix: bool = True) -> str:
+        """Build a safe Firejail/UMU/Wine command without disabling namespace protections.
+
+        Certain kernels reject unprivileged user namespaces; relaxing Firejail with
+        --ignore=noroot/--ignore=seccomp/--ignore=restrict-namespaces breaks the
+        sandbox even before the game starts. Keep the default sandbox protections in
+        place and only whitelist the directories that the runtime genuinely needs.
+        """
         if not game_path or not os.path.exists(game_path):
             raise ValueError(f"Game path does not exist: {game_path}")
 
@@ -33,7 +122,9 @@ class FirejailSandboxRunner(ISandboxRunner):
             raise ValueError(f"Unknown launch mode: {mode!r}. Must be one of {sorted(_VALID_MODES)}")
 
         deps = self.check_dependencies()
-        has_firejail = deps["firejail"]
+        has_firejail = deps["firejail"] and self.firejail_supported()
+        namespace_blocked = self.user_namespace_blocked()
+        umu_works = (deps["umu-run"] and not namespace_blocked) or False
 
         home_dir = os.path.expanduser('~')
         umu_share = os.path.join(home_dir, '.local', 'share', 'umu')
@@ -51,22 +142,34 @@ class FirejailSandboxRunner(ISandboxRunner):
         proton_whitelist = f"--whitelist={shlex.quote(self.proton_path)} " if self.proton_path else ""
 
         if mode in ("umu", "umu_net"):
-            runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
-            if has_firejail:
-                net_flag = "--net=none " if mode == "umu" else ""
-                cmd = (
-                    f"cd {q_path} && exec firejail "
-                    # UMU/Proton uses nested bubblewrap namespaces for the
-                    # Steam runtime. These compatibility overrides are required
-                    # for that runtime to start under Firejail.
-                    f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
-                    f"{net_flag}"
-                    f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
-                    f"{proton_whitelist}{proton_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
-                )
+            if not umu_works:
+                runner_cmd = f"wine {q_exe}" if deps["wine"] else f"umu-run {q_exe}"
+                if deps["wine"]:
+                    if has_firejail:
+                        net_flag = "--net=none --ignore=noroot --ignore=seccomp --ignore=restrict-namespaces" if include_net_none and mode == "umu" else ""
+                        cmd = (
+                            f"cd {q_path} && exec firejail "
+                            f"{net_flag}"
+                            f"--whitelist={q_path} "
+                            f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
+                        )
+                    else:
+                        cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
+                else:
+                    cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
             else:
-                # Direct unsandboxed execution fallback
-                cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
+                runner_cmd = f"umu-run {q_exe}"
+                if has_firejail:
+                    net_flag = "--net=none --ignore=noroot --ignore=seccomp --ignore=restrict-namespaces" if include_net_none and mode == "umu" else ""
+                    cmd = (
+                        f"cd {q_path} && exec firejail "
+                        f"{net_flag}"
+                        f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
+                        f"{proton_whitelist}{proton_env}"
+                        f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
+                    )
+                else:
+                    cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
         elif mode == "linux":
             full_exe_path = os.path.join(game_path, executable)
             if os.path.exists(full_exe_path):
@@ -76,23 +179,28 @@ class FirejailSandboxRunner(ISandboxRunner):
                     except Exception:
                         pass
             if has_firejail:
-                cmd = f"cd {q_path} && exec firejail --net=none --whitelist={q_path} ./{q_exe}"
+                cmd = f"cd {q_path} && exec firejail --whitelist={q_path} ./{q_exe}"
+                if include_net_none:
+                    cmd = f"cd {q_path} && exec firejail --net=none --ignore=noroot --ignore=seccomp --ignore=restrict-namespaces  --whitelist={q_path} ./{q_exe}"
             else:
                 cmd = f"cd {q_path} && ./{q_exe}"
         else:  # "wine"
             runner_cmd = f"wine {q_exe}"
             if has_firejail:
-                cmd = (
-                    f"cd {q_path} && exec firejail --net=none "
-                    f"--whitelist={q_path} "
-                    f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
-                )
+                cmd = f"cd {q_path} && exec firejail --whitelist={q_path} --env=WINEPREFIX={prefix_path} {runner_cmd}"
+                if include_net_none and include_wine_prefix:
+                    cmd = f"cd {q_path} && exec firejail --net=none --ignore=noroot --ignore=seccomp --ignore=restrict-namespaces  --whitelist={q_path} --env=WINEPREFIX={prefix_path} {runner_cmd}"
             else:
                 cmd = f"cd {q_path} && export WINEPREFIX={prefix_path} && {runner_cmd}"
 
+        return cmd
+
+    def launch(self, game_path: str, executable: str, mode: str) -> subprocess.Popen:
+        cmd = self.build_launch_command(game_path, executable, mode)
+
         return subprocess.Popen(
             # Keep the wrapper independent from bash/readline libraries inherited
-            # from Proton/Wine environments.  POSIX sh is sufficient for the
+            # from Proton/Wine environments. POSIX sh is sufficient for the
             # commands above and avoids errors such as bash's
             # "undefined symbol: rl_print_keybinding".
             ["/bin/sh", "-c", cmd],
