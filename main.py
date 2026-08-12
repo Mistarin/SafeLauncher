@@ -117,7 +117,9 @@ def main():
     import threading
     def thread_exception_hook(args):
         logger.error(f"Unhandled exception in background thread '{args.thread.name}': {args.exc_value}")
-        tb_str = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_thread)) if hasattr(args, "exc_thread") else str(args.exc_value)
+        tb_str = "".join(traceback.format_exception(
+            args.exc_type, args.exc_value, args.exc_traceback
+        ))
         log_crash(tb_str, f"Thread: {args.thread.name}")
 
     if hasattr(threading, "excepthook"):
@@ -135,10 +137,20 @@ def main():
         socket.disconnectFromServer()
         sys.exit(0)
 
-    # Clean up stale socket if a previous crash occurred
+    # Do not remove a server socket until we have confirmed it is stale.
     server = QLocalServer()
-    server.removeServer(SERVER_NAME)
-    server.listen(SERVER_NAME)
+    if not server.listen(SERVER_NAME):
+        probe = QLocalSocket()
+        probe.connectToServer(SERVER_NAME)
+        if probe.waitForConnected(1000):
+            probe.write(b"ACTIVATE")
+            probe.waitForBytesWritten(1000)
+            probe.disconnectFromServer()
+            sys.exit(0)
+        server.removeServer(SERVER_NAME)
+        if not server.listen(SERVER_NAME):
+            logger.critical(f"Could not create single-instance server: {server.errorString()}")
+            raise SystemExit(1)
 
     # Initialize core components
     logger.info("Initializing core database and sandbox runners...")

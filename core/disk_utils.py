@@ -12,7 +12,9 @@ def get_dir_size(dir_path: str) -> int:
             return os.path.getsize(dir_path)
         
         seen_inodes = set()
-        for root, _, files in os.walk(dir_path, followlinks=True):
+        # Do not follow game-provided symlink directories. Apart from escaping
+        # the selected game tree, this can create cycles and unbounded scans.
+        for root, _, files in os.walk(dir_path, followlinks=False):
             for f in files:
                 fp = os.path.join(root, f)
                 try:

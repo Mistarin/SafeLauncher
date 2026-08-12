@@ -7,6 +7,7 @@ stdout and a rotating log file in ~/.local/state/safelauncher/safelauncher.log.
 import os
 import sys
 import logging
+import tempfile
 from logging.handlers import RotatingFileHandler
 
 _XDG_STATE_HOME = os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))
@@ -50,7 +51,18 @@ def setup_logging() -> logging.Logger:
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
     except Exception as e:
-        sys.stderr.write(f"[SafeLauncher] Failed to initialize file logger: {e}\n")
+        # Keep crash evidence if the XDG state directory is unavailable.
+        fallback_file = os.path.join(tempfile.gettempdir(), "safelauncher.log")
+        try:
+            file_handler = RotatingFileHandler(
+                fallback_file, maxBytes=5 * 1024 * 1024, backupCount=1, encoding="utf-8"
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+            sys.stderr.write(f"[SafeLauncher] Primary log unavailable; using {fallback_file}: {e}\n")
+        except Exception as fallback_error:
+            sys.stderr.write(f"[SafeLauncher] Failed to initialize file logger: {fallback_error}\n")
 
     _initialized = True
     logger.info("SafeLauncher persistent logging system initialized.")
@@ -67,17 +79,20 @@ def get_logger(name: str = "SafeLauncher") -> logging.Logger:
 
 def log_crash(traceback_str: str, context_info: str = "") -> None:
     """Append unhandled crash traceback to crash.log with system context."""
-    try:
-        os.makedirs(LOG_DIR, mode=0o700, exist_ok=True)
-        import time
-        t_stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        with open(CRASH_FILE, "a", encoding="utf-8") as f:
-            f.write(f"\n{'='*70}\n")
-            f.write(f"CRASH REPORT - {t_stamp}\n")
-            if context_info:
-                f.write(f"CONTEXT: {context_info}\n")
-            f.write(f"{'='*70}\n")
-            f.write(traceback_str)
-            f.write("\n")
-    except Exception as e:
-        sys.stderr.write(f"Failed to record crash log: {e}\n")
+    import time
+    t_stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    context_line = f"CONTEXT: {context_info}\n" if context_info else ""
+    report = (
+        f"\n{'='*70}\nCRASH REPORT - {t_stamp}\n"
+        f"{context_line}"
+        f"{'='*70}\n{traceback_str}\n"
+    )
+    for crash_path in (CRASH_FILE, os.path.join(tempfile.gettempdir(), "safelauncher-crash.log")):
+        try:
+            os.makedirs(os.path.dirname(crash_path), mode=0o700, exist_ok=True)
+            with open(crash_path, "a", encoding="utf-8") as f:
+                f.write(report)
+            return
+        except Exception:
+            continue
+    sys.stderr.write("Failed to record crash log in both primary and fallback locations\n")

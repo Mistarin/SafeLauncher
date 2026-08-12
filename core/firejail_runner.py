@@ -171,10 +171,10 @@ class FirejailSandboxRunner(ISandboxRunner):
             process = subprocess.Popen(
                 ["/bin/sh", "-c", cmd],
                 shell=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
+                # A long-running game must not inherit a pipe that stops
+                # being drained when the launch dialog closes.
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 env=host_process_env(),
             )
             logger.info(f"Process spawned successfully with PID: {process.pid}")

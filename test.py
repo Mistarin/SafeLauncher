@@ -52,6 +52,9 @@ try:
         
         # Test playtime column was auto-migrated
         game_id = games[0][0]
+        db.update_game_steam_id(game_id, "12345")
+        assert db.get_all_games()[0][6] == "12345", "Steam ID update failed"
+        print("✓ Steam ID update works")
         assert db.get_playtime(game_id) == 0, "Initial playtime should be 0"
         print("✓ playtime_seconds column auto-migrated (default 0)")
         
@@ -142,22 +145,24 @@ except Exception as e:
     print(f"✗ Backup manager error: {e}")
     sys.exit(1)
 
-# 5. Test SteamGridDB Client (Steam Store API)
-try:
-    client = SteamGridDBClient()
-    print("✓ SteamGridDBClient initialized")
-    
-    result = client.search_game("Portal 2")
-    assert result.get("found") is True, "Game search failed for Portal 2"
-    assert len(result.get("results", [])) > 0, "No results returned"
-    
-    banner_url = result["primary"]["banner_url"]
-    banner_path = client.download_banner(banner_url)
-    assert banner_path and os.path.exists(banner_path), "Banner download failed"
-    print(f"✓ Banner search & download works! (Downloaded: {os.path.basename(banner_path)})")
-except Exception as e:
-    print(f"✗ SteamGridDB Client error: {e}")
-    sys.exit(1)
+# 5. Optional live Steam metadata test. The default smoke test must work
+# offline and must not fail merely because DNS or Steam is unavailable.
+client = SteamGridDBClient()
+print("✓ SteamGridDBClient initialized")
+if os.environ.get("SAFELAUNCHER_LIVE_TESTS") == "1":
+    try:
+        result = client.search_game("Portal 2")
+        assert result.get("found") is True, "Game search failed for Portal 2"
+        assert len(result.get("results", [])) > 0, "No results returned"
+        banner_url = result["primary"]["banner_url"]
+        banner_path = client.download_banner(banner_url)
+        assert banner_path and os.path.exists(banner_path), "Banner download failed"
+        print(f"✓ Live banner search works! (Downloaded: {os.path.basename(banner_path)})")
+    except Exception as e:
+        print(f"✗ Live Steam metadata test failed: {e}")
+        sys.exit(1)
+else:
+    print("↷ Live Steam metadata test skipped (set SAFELAUNCHER_LIVE_TESTS=1 to enable)")
 
 # 6. Test PyQt UI Instantiation (Headless Offscreen)
 try:

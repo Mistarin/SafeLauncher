@@ -83,7 +83,14 @@ def extract_archive_sandboxed(archive_path: str, dest_dir: str) -> bool:
         return False
 
     try:
-        res = subprocess.run(cmd, shell=False, capture_output=True, text=True, env=host_process_env())
+        res = subprocess.run(
+            cmd,
+            shell=False,
+            capture_output=True,
+            text=True,
+            env=host_process_env(),
+            timeout=120,
+        )
         # Treat only a zero exit status as success. Exit code 1 means the
         # extractor reported an error or warning and must not be silently
         # accepted as a complete installation.

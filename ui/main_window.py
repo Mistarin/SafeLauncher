@@ -3145,6 +3145,7 @@ class MainWindow(QMainWindow):
         self.selected_game = None
         self.banner_widgets = {}
         self.auto_fetchers = []
+        self._auto_fetch_attempted = set()
         self.metadata_fetchers = []
         self.metadata_attempted_builds = set()
         self.metadata_attempted_tags = set()
@@ -3995,7 +3996,8 @@ class MainWindow(QMainWindow):
             widgets.append(widget)
             self.banner_widgets[game_id] = widget
             
-            if banner_url is None:
+            if banner_url is None and game_id not in self._auto_fetch_attempted:
+                self._auto_fetch_attempted.add(game_id)
                 fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client)
                 fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
                 fetcher.finished.connect(lambda f=fetcher: self._cleanup_auto_fetcher(f))
@@ -4505,7 +4507,9 @@ class MainWindow(QMainWindow):
             extractor.quit()
             extractor.wait(7000)
             if extractor.isRunning():
-                extractor.wait()
+                QTimer.singleShot(100, self.close)
+                event.ignore()
+                return
 
         workers = list(self.metadata_fetchers) + list(self.auto_fetchers) + list(self.playtime_trackers)
         for worker in workers:
@@ -4514,12 +4518,12 @@ class MainWindow(QMainWindow):
                 # for the active request to return before Qt destroys QThread.
                 worker.wait(7000)
 
-        # A fetcher may finish just after the first pass and still be present
-        # in one of the lists.  Never leave a running QThread parented to a
-        # window that is about to be destroyed.
-        for worker in workers:
-            if worker.isRunning():
-                worker.wait()
+        # Never destroy a parented QThread while it is running, but also never
+        # freeze the GUI indefinitely. Retry close after the bounded wait.
+        if any(worker.isRunning() for worker in workers):
+            QTimer.singleShot(100, self.close)
+            event.ignore()
+            return
 
         if hasattr(self, "discord_rpc") and self.discord_rpc:
             self.discord_rpc.clear_activity()

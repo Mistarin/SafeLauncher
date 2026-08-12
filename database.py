@@ -72,7 +72,8 @@ class GameDatabase:
     def _connect_with_retry(self):
         """Connect to SQLite database with self-healing restore from .bak on corruption."""
         try:
-            self.conn = sqlite3.connect(self.db_path)
+            self.conn = sqlite3.connect(self.db_path, timeout=5)
+            self.conn.execute("PRAGMA busy_timeout = 5000")
         except sqlite3.DatabaseError as e:
             logger.error(f"Failed to open SQLite database {self.db_path}: {e}")
             bak_path = f"{self.db_path}.bak"
@@ -80,7 +81,8 @@ class GameDatabase:
                 logger.warning(f"Attempting self-healing recovery from backup: {bak_path}")
                 try:
                     shutil.copy2(bak_path, self.db_path)
-                    self.conn = sqlite3.connect(self.db_path)
+                    self.conn = sqlite3.connect(self.db_path, timeout=5)
+                    self.conn.execute("PRAGMA busy_timeout = 5000")
                     logger.info("Successfully restored database from backup.")
                     return
                 except Exception as restore_err:
@@ -220,6 +222,17 @@ class GameDatabase:
                 ''', (banner_url, game_id))
         except Exception as e:
             logger.error(f"Failed to update banner for game {game_id}: {e}")
+
+    def update_game_steam_id(self, game_id: int, steam_id: str) -> None:
+        """Persist the Steam AppID discovered by metadata fetchers."""
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE games SET steam_id = ? WHERE id = ?",
+                    (str(steam_id), game_id),
+                )
+        except Exception as e:
+            logger.error(f"Failed to update Steam ID for game {game_id}: {e}")
 
     def get_all_games(self):
         try:

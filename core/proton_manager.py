@@ -11,6 +11,7 @@ import tarfile
 import requests
 import shutil
 import subprocess
+import inspect
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
@@ -212,7 +213,21 @@ class GEProtonDownloader(SafeQThread):
             logger.info(f"Extracting {tar_filepath} into {self.dest_dir}...")
 
             with tarfile.open(tar_filepath, "r:*") as tar:
-                tar.extractall(path=self.dest_dir)
+                dest_root = os.path.realpath(self.dest_dir)
+                for member in tar.getmembers():
+                    # Reject links and device nodes: they can escape the
+                    # install directory or create unsafe filesystem objects.
+                    if member.issym() or member.islnk() or member.isdev():
+                        raise ValueError(f"unsafe archive member: {member.name}")
+                    target = os.path.realpath(os.path.join(dest_root, member.name))
+                    if target != dest_root and not target.startswith(dest_root + os.sep):
+                        raise ValueError(f"archive path escapes install directory: {member.name}")
+
+                extract_params = inspect.signature(tar.extractall).parameters
+                if "filter" in extract_params:
+                    tar.extractall(path=self.dest_dir, filter="data")
+                else:
+                    tar.extractall(path=self.dest_dir)
 
             if os.path.exists(tar_filepath):
                 os.remove(tar_filepath)
