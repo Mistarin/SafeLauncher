@@ -287,13 +287,25 @@ class GEProtonDownloader(SafeQThread):
             with tarfile.open(tar_filepath, "r:*") as tar:
                 dest_root = os.path.realpath(self.dest_dir)
                 for member in tar.getmembers():
-                    # Reject links and device nodes: they can escape the
-                    # install directory or create unsafe filesystem objects.
-                    if member.issym() or member.islnk() or member.isdev():
+                    # Proton packages legitimately contain internal symlinks
+                    # and hardlinks. Allow them only when their resolved target
+                    # remains inside the destination; reject device nodes.
+                    if member.isdev():
                         raise ValueError(f"unsafe archive member: {member.name}")
                     target = os.path.realpath(os.path.join(dest_root, member.name))
                     if target != dest_root and not target.startswith(dest_root + os.sep):
                         raise ValueError(f"archive path escapes install directory: {member.name}")
+
+                    if member.issym():
+                        link_target = os.path.realpath(os.path.join(
+                            dest_root, os.path.dirname(member.name), member.linkname
+                        ))
+                        if link_target != dest_root and not link_target.startswith(dest_root + os.sep):
+                            raise ValueError(f"unsafe symlink target: {member.name} -> {member.linkname}")
+                    elif member.islnk():
+                        link_target = os.path.realpath(os.path.join(dest_root, member.linkname))
+                        if link_target != dest_root and not link_target.startswith(dest_root + os.sep):
+                            raise ValueError(f"unsafe hardlink target: {member.name} -> {member.linkname}")
 
                 extract_params = inspect.signature(tar.extractall).parameters
                 if "filter" in extract_params:
