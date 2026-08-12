@@ -1029,8 +1029,11 @@ class AddGameDialog(QDialog):
         """Clean up background threads on dialog close"""
         for thread in [self.fetcher_thread, self.downloader_thread, self.extractor_thread]:
             if thread and thread.isRunning():
+                thread.requestInterruption()
                 thread.quit()
-                thread.wait(1000)
+                thread.wait(7000)
+                if thread.isRunning():
+                    thread.wait()
         super().closeEvent(event)
     
     def _scan_and_populate_exes(self, path: str):
@@ -1431,6 +1434,9 @@ class SafeLaunchLogReader(QThread):
                 pass
         if self.isRunning():
             self.wait(3000)
+        if self.isRunning():
+            # Qt aborts if a QThread is destroyed while still running.
+            self.wait()
 
     def run(self):
         if not self.process or not getattr(self.process, 'stdout', None):
@@ -2694,6 +2700,7 @@ class MainWindow(QMainWindow):
         self.metadata_attempted_builds = set()
         self.metadata_attempted_tags = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
+        self.topbar_extractor_thread = None
         self.games_by_id = {}
 
         self.search_query = ""
@@ -3889,6 +3896,14 @@ class MainWindow(QMainWindow):
                 fetcher.requestInterruption()
         for tracker in list(self.playtime_trackers):
             tracker.stop()
+
+        extractor = getattr(self, "topbar_extractor_thread", None)
+        if extractor and extractor.isRunning():
+            extractor.requestInterruption()
+            extractor.quit()
+            extractor.wait(7000)
+            if extractor.isRunning():
+                extractor.wait()
 
         workers = list(self.metadata_fetchers) + list(self.auto_fetchers)
         for worker in workers:
