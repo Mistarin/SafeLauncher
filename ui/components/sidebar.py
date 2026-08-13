@@ -259,24 +259,50 @@ class CustomTitleBar(QFrame):
 
         layout.addStretch()
 
-        # Window Control Buttons (Minimize, Maximize/Restore, Close)
-        btn_min = QPushButton("─")
-        btn_min.setFixedSize(28, 28)
-        btn_min.setStyleSheet("QPushButton { background: transparent; color: #a1a1aa; border-radius: 4px; font-weight: bold; } QPushButton:hover { background: #27272a; color: white; }")
-        btn_min.clicked.connect(self.main_window.showMinimized)
-        layout.addWidget(btn_min)
+        # Use visible button surfaces and ASCII fallbacks. The title bar is
+        # frameless, so transparent glyph-only controls can vanish on systems
+        # whose active font does not provide the decorative Unicode symbols.
+        control_style = """
+            QPushButton {
+                background: #20242c;
+                color: #f4f4f5;
+                border: 1px solid #3b414c;
+                border-radius: 5px;
+                padding: 0;
+                font-family: Sans Serif;
+                font-size: 15px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background: #343b47; border-color: #626b7a; }
+            QPushButton#windowClose:hover { background: #dc2626; border-color: #f87171; }
+        """
 
-        self.btn_max = QPushButton("☐")
-        self.btn_max.setFixedSize(28, 28)
-        self.btn_max.setStyleSheet("QPushButton { background: transparent; color: #a1a1aa; border-radius: 4px; font-weight: bold; } QPushButton:hover { background: #27272a; color: white; }")
+        self.btn_min = QPushButton("-")
+        self.btn_min.setObjectName("windowMinimize")
+        self.btn_min.setFixedSize(32, 32)
+        self.btn_min.setToolTip("Minimize window")
+        self.btn_min.setAccessibleName("Minimize window")
+        self.btn_min.setStyleSheet(control_style)
+        self.btn_min.clicked.connect(self.main_window.showMinimized)
+        layout.addWidget(self.btn_min)
+
+        self.btn_max = QPushButton("[]")
+        self.btn_max.setObjectName("windowMaximize")
+        self.btn_max.setFixedSize(32, 32)
+        self.btn_max.setToolTip("Maximize window")
+        self.btn_max.setAccessibleName("Maximize window")
+        self.btn_max.setStyleSheet(control_style)
         self.btn_max.clicked.connect(self.main_window._toggle_maximize)
         layout.addWidget(self.btn_max)
 
-        btn_close = QPushButton("✕")
-        btn_close.setFixedSize(28, 28)
-        btn_close.setStyleSheet("QPushButton { background: transparent; color: #a1a1aa; border-radius: 4px; font-weight: bold; } QPushButton:hover { background: #dc2626; color: white; }")
-        btn_close.clicked.connect(self.main_window.close)
-        layout.addWidget(btn_close)
+        self.btn_close = QPushButton("X")
+        self.btn_close.setObjectName("windowClose")
+        self.btn_close.setFixedSize(32, 32)
+        self.btn_close.setToolTip("Close window")
+        self.btn_close.setAccessibleName("Close window")
+        self.btn_close.setStyleSheet(control_style)
+        self.btn_close.clicked.connect(self.main_window.close)
+        layout.addWidget(self.btn_close)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

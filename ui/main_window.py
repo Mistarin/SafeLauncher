@@ -848,7 +848,9 @@ class MainWindow(QMainWindow):
         """)
         self.btn_detail_launch.setIconSize(QSize(20, 20))
         self.btn_detail_launch.setMinimumWidth(200)
-        add_soft_shadow(self.btn_detail_launch, blur=22, y=6, alpha=115)
+        # Do not apply a second graphics effect here: the parent inspector
+        # already fades with QGraphicsOpacityEffect. Qt fails to paint this
+        # child reliably when a drop-shadow effect is nested inside it.
         self.btn_detail_launch.clicked.connect(self._on_launch)
         detail_layout.addWidget(self.btn_detail_launch)
         detail_layout.addSpacing(8)
@@ -1204,11 +1206,13 @@ class MainWindow(QMainWindow):
         if self.isMaximized():
             self.showNormal()
             if hasattr(self, 'title_bar'):
-                self.title_bar.btn_max.setIcon(get_app_icon("maximize"))
+                self.title_bar.btn_max.setText("[]")
+                self.title_bar.btn_max.setToolTip("Maximize window")
         else:
             self.showMaximized()
             if hasattr(self, 'title_bar'):
-                self.title_bar.btn_max.setIcon(get_app_icon("restore"))
+                self.title_bar.btn_max.setText("=")
+                self.title_bar.btn_max.setToolTip("Restore window")
 
     def _open_settings(self):
         """Open launcher preferences and persist profile changes."""
