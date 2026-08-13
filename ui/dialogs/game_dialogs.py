@@ -75,6 +75,7 @@ class AddGameDialog(QDialog):
         self.downloader_thread = None
         self.extractor_thread = None
         self.search_results = []
+        self.selected_steam_id = ""
         
         ensure_sandbox_dir()
 
@@ -152,6 +153,16 @@ class AddGameDialog(QDialog):
         self.mode_combo.addItem(get_app_icon("terminal"), "Native Linux", "linux")
         form_layout.addRow("Runner Mode:", self.mode_combo)
 
+        self.version_input = QLineEdit()
+        self.version_input.setPlaceholderText("e.g., V 0.33.7.2")
+        self.version_input.setMinimumHeight(36)
+        form_layout.addRow("Current Version:", self.version_input)
+
+        self.patch_notes_input = QLineEdit()
+        self.patch_notes_input.setPlaceholderText("https://...")
+        self.patch_notes_input.setMinimumHeight(36)
+        form_layout.addRow("Patch Notes URL:", self.patch_notes_input)
+
         left_box.addLayout(form_layout)
 
         # Status Label / Banner
@@ -170,6 +181,7 @@ class AddGameDialog(QDialog):
         self.cancel_install_btn.clicked.connect(self._cancel_extraction)
         left_box.addWidget(self.cancel_install_btn)
 
+        self.left_box = left_box
         left_box.addStretch()
         body_layout.addLayout(left_box, stretch=3)
 
@@ -382,6 +394,7 @@ class AddGameDialog(QDialog):
         """Download and set selected result from popup menu"""
         if 0 <= idx < len(self.search_results):
             result = self.search_results[idx]
+            self.selected_steam_id = str(result.get('appid') or "").strip()
             banner_url = result.get('banner_url')
             if banner_url and self.sgdb_client:
                 if self.downloader_thread and self.downloader_thread.isRunning():
@@ -445,9 +458,18 @@ class AddGameDialog(QDialog):
             self.banner_path
         )
 
+    def get_steam_id(self) -> str:
+        """Return the Steam AppID selected with the cover art, when available."""
+        return self.selected_steam_id
+
+    def get_version_metadata(self) -> tuple[str, str]:
+        return self.version_input.text().strip(), self.patch_notes_input.text().strip()
+
 
 class EditGameDialog(AddGameDialog):
     """Dialog pre-populated with existing game details allowing editing name, path, exe, mode, and cover art."""
+    mark_current_requested = pyqtSignal(int)
+
     def __init__(self, game_data: tuple, parent=None, sgdb_client: SteamGridDBClient = None):
         super().__init__(parent, sgdb_client)
         self.title_bar.title_label.setText("✏️ Edit Game Settings")
@@ -457,6 +479,10 @@ class EditGameDialog(AddGameDialog):
         self.banner_path = banner_url
         
         self.name_input.setText(name or "")
+        if len(game_data) > 15:
+            self.version_input.setText(game_data[15] or "")
+        if len(game_data) > 16:
+            self.patch_notes_input.setText(game_data[16] or "")
         self.path_input.setText(path or "")
         
         if path and os.path.exists(path):
@@ -476,6 +502,16 @@ class EditGameDialog(AddGameDialog):
             
         self.add_btn.setText("Save Changes")
         self.add_btn.setIcon(get_app_icon("export"))
+
+        update_note = QLabel("Steam update tracking only records a build as installed.\nIt does not download or update game files.")
+        update_note.setWordWrap(True)
+        update_note.setStyleSheet("color: #a1a1aa; font-size: 10px; padding-top: 8px;")
+        self.left_box.insertWidget(self.left_box.count() - 1, update_note)
+
+        self.mark_current_btn = QPushButton("Mark Steam Build as Current")
+        self.mark_current_btn.setToolTip("Use only after updating the game manually through Steam or by replacing its files.")
+        self.mark_current_btn.clicked.connect(lambda: self.mark_current_requested.emit(self.game_id))
+        self.left_box.insertWidget(self.left_box.count() - 1, self.mark_current_btn)
 
 
 class LaunchOptionsDialog(QDialog):

@@ -47,6 +47,7 @@ class GameDatabase:
         "id, name, path, executable, mode, banner_url, steam_id, "
         "playtime_seconds, is_favorite, last_played, tags, build_id"
         ", proton_path, collection, install_date"
+        ", version_override, patch_notes_url"
     )
 
     def __init__(self, db_path: str = None):
@@ -132,6 +133,10 @@ class GameDatabase:
                     cursor.execute("ALTER TABLE games ADD COLUMN collection TEXT DEFAULT ''")
                 if "install_date" not in columns:
                     cursor.execute("ALTER TABLE games ADD COLUMN install_date INTEGER DEFAULT 0")
+                if "version_override" not in columns:
+                    cursor.execute("ALTER TABLE games ADD COLUMN version_override TEXT DEFAULT ''")
+                if "patch_notes_url" not in columns:
+                    cursor.execute("ALTER TABLE games ADD COLUMN patch_notes_url TEXT DEFAULT ''")
         except Exception as e:
             logger.error(f"Error initializing database schema: {e}")
 
@@ -142,16 +147,28 @@ class GameDatabase:
         except Exception as e:
             logger.error(f"Error updating build_id for game {game_id}: {e}")
 
+    def update_game_version_metadata(self, game_id: int, version_override: str, patch_notes_url: str) -> None:
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE games SET version_override = ?, patch_notes_url = ? WHERE id = ?",
+                    (version_override or "", patch_notes_url or "", game_id),
+                )
+        except Exception as e:
+            logger.error(f"Failed to update version metadata for game {game_id}: {e}")
+
     def add_game(self, name: str, path: str, executable: str, mode: str, banner_url: str = None, steam_id: str = None):
         try:
             with self.conn:
-                self.conn.execute('''
+                cursor = self.conn.execute('''
                     INSERT INTO games (name, path, executable, mode, banner_url, steam_id, install_date)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (name, path, executable, mode, banner_url, steam_id, int(time.time())))
                 logger.info(f"Added game '{name}' (path: {path}) to database.")
+                return cursor.lastrowid
         except Exception as e:
             logger.error(f"Failed to add game '{name}': {e}")
+            return None
 
     def toggle_favorite(self, game_id: int) -> bool:
         try:

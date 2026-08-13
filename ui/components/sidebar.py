@@ -101,6 +101,11 @@ class LeftSidebarWidget(QFrame):
         """)
         layout.addWidget(self.nav_library)
 
+        self.nav_updates = QPushButton(" Check for Updates")
+        self.nav_updates.setIcon(get_icon("ph.arrows-clockwise", color="#d5d7dc"))
+        self.nav_updates.setToolTip("Check all Steam games for updates")
+        layout.addWidget(self.nav_updates)
+
         self.nav_sandbox = QPushButton(" Open Sandbox")
         self.nav_sandbox.setIcon(get_icon("ph.folder-open", color="#d5d7dc"))
         layout.addWidget(self.nav_sandbox)
@@ -167,6 +172,7 @@ class LeftSidebarWidget(QFrame):
         self._section_labels = (lbl_nav, lbl_tools)
         self._navigation_buttons = (
             (self.nav_library, "My Library"),
+            (self.nav_updates, "Check for Updates"),
             (self.nav_sandbox, "Open Sandbox"),
             (self.nav_install_zip, "Install Archive"),
             (self.nav_sync, "Sync Library"),

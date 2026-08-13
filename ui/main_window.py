@@ -1,12 +1,14 @@
 import os
 import shutil
 import subprocess
+from datetime import datetime
+from html import escape
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
     QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
     QApplication, QSystemTrayIcon, QCheckBox, QGraphicsOpacityEffect, QPlainTextEdit, QProgressBar,
-    QStackedWidget, QSlider, QSplitter, QDialogButtonBox, QInputDialog
+    QStackedWidget, QSlider, QSplitter, QDialogButtonBox, QInputDialog, QSizePolicy
 )
 from PyQt6.QtCore import (
     Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer,
@@ -17,7 +19,7 @@ from core.interfaces import ISandboxRunner, IBackupManager
 from core.steamgriddb_client import SteamGridDBClient
 from core.playtime_tracker import PlaytimeTrackerThread
 from core.steam_tags import SteamTagsFetcher
-from core.steam_build_tracker import SteamBuildFetcher
+from core.steam_build_tracker import SteamBuildFetcher, read_local_steam_build
 from core.disk_utils import get_dir_size, format_size, get_disk_usage
 from core.discord_rpc import DiscordRPC
 from core.host_process import host_process_env
@@ -591,6 +593,9 @@ class MainWindow(QMainWindow):
         self._auto_fetch_attempted = set()
         self.metadata_fetchers = []
         self.metadata_attempted_builds = set()
+        self.update_status_by_game_id = {}
+        self.steam_check_results = {}
+        self.local_version_by_game_id = {}
         self.metadata_attempted_tags = set()
         self._hero_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
@@ -644,6 +649,8 @@ class MainWindow(QMainWindow):
         )
 
         self.nav_library = self.sidebar.nav_library
+        self.nav_updates = self.sidebar.nav_updates
+        self.nav_updates.clicked.connect(self._check_all_steam_updates)
         self.nav_sandbox = self.sidebar.nav_sandbox
         self.nav_sandbox.clicked.connect(self._open_sandbox_dir)
         self.nav_install_zip = self.sidebar.nav_install_zip
@@ -781,21 +788,31 @@ class MainWindow(QMainWindow):
         self.detail_disk_size.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detail_disk_size.setStyleSheet("color: #8f949e; font-size: 11px; font-weight: bold; padding: 4px 0;")
 
-        # Update Available Badge & Sync Build Button
+        # Steam update status and version details
         self.detail_update_widget = QWidget()
-        self.detail_update_layout = QHBoxLayout(self.detail_update_widget)
-        self.detail_update_layout.setContentsMargins(0, 0, 0, 0)
-        self.detail_update_layout.setSpacing(6)
+        self.detail_update_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.detail_update_layout = QVBoxLayout(self.detail_update_widget)
+        self.detail_update_layout.setContentsMargins(4, 2, 4, 2)
+        self.detail_update_layout.setSpacing(5)
         self.detail_update_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_detail_update = QLabel("")
-        self.lbl_detail_update.setStyleSheet("background: #064e3b; color: #34d399; border: 1px solid #059669; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
+        self.lbl_detail_update.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_detail_update.setMinimumHeight(26)
         self.detail_update_layout.addWidget(self.lbl_detail_update)
 
-        self.btn_sync_build = QPushButton("Sync Build #")
-        self.btn_sync_build.setStyleSheet("QPushButton { background: #181818; color: #aaaaaa; border: 1px solid #333333; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold; } QPushButton:hover { background: #252525; color: #ffffff; }")
-        self.btn_sync_build.clicked.connect(self._on_sync_build_id)
-        self.detail_update_layout.addWidget(self.btn_sync_build)
+        self.lbl_detail_versions = QLabel("")
+        self.lbl_detail_versions.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_detail_versions.setWordWrap(True)
+        self.lbl_detail_versions.setOpenExternalLinks(True)
+        self.lbl_detail_versions.setStyleSheet("QLabel { color: #b7bbc3; background: #171a20; border: 1px solid #2b313c; border-radius: 7px; font-size: 10px; padding: 6px 9px; }")
+        self.detail_update_layout.addWidget(self.lbl_detail_versions, 1)
+
+        self.btn_retry_steam = QPushButton("Retry")
+        self.btn_retry_steam.setVisible(False)
+        self.btn_retry_steam.setToolTip("Retry the Steam build check")
+        self.btn_retry_steam.clicked.connect(self._retry_steam_check)
+        self.detail_update_layout.addWidget(self.btn_retry_steam)
 
         self.detail_update_widget.setVisible(False)
         detail_layout.addWidget(self.detail_update_widget)
@@ -1179,6 +1196,7 @@ class MainWindow(QMainWindow):
         self._on_sync_sandbox(quiet=True)
         self._setup_tray_icon()
         self._refresh_library()
+        QTimer.singleShot(300, self._check_all_steam_updates)
 
     def _toggle_maximize(self):
         """Toggle between maximized state and normal window size"""
@@ -1620,6 +1638,7 @@ class MainWindow(QMainWindow):
             game_id, name, path, executable, mode, banner_url, steam_id = g[:7]
             
             widget = GameBannerWidget(game_id, name, banner_url, playtime_seconds or 0)
+            widget.set_update_available(self.update_status_by_game_id.get(game_id, False))
             widget.set_favorite(is_fav)
             widget.set_selected(game_id in self.library_selection.ids)
             widget.clicked.connect(self._select_game_by_id)
@@ -1847,32 +1866,172 @@ class MainWindow(QMainWindow):
             weeks = diff // 604800
             return f"Last played: {weeks} week(s) ago"
 
-    def _on_steam_build_checked(self, game_id: int, latest_build_id: str, is_update_available: bool):
-        """Callback when background SteamBuildFetcher returns build info."""
-        if not self.selected_game or self.selected_game[0] != game_id:
+    @staticmethod
+    def _format_version_date(timestamp: int) -> str:
+        if not timestamp:
+            return "Unknown date"
+        try:
+            return datetime.fromtimestamp(int(timestamp)).strftime("%Y-%m-%d")
+        except (TypeError, ValueError, OSError):
+            return "Unknown date"
+
+    def _check_all_steam_updates(self):
+        """Check every Steam-linked game once, used on startup and from the sidebar."""
+        games = self.db.get_all_games()
+        pending = [0]
+        self.nav_updates.setEnabled(False)
+        self.nav_updates.setText(" Checking Steam…")
+
+        def finished_one():
+            pending[0] -= 1
+            if pending[0] <= 0:
+                self.nav_updates.setEnabled(True)
+                self.nav_updates.setText(" Check for Updates")
+
+        for game in games:
+            game_id, _, path, _, _, _, steam_id = game[:7]
+            if not steam_id or str(steam_id) == "0":
+                continue
+            if any(isinstance(fetcher, SteamBuildFetcher) and fetcher.game_id == game_id for fetcher in self.metadata_fetchers):
+                continue
+
+            self.metadata_attempted_builds.discard(game_id)
+            local_build_id = game[11] if len(game) > 11 and game[11] else ""
+            local_build_date = game[14] if len(game) > 14 and game[14] else 0
+            manifest_build, manifest_date = read_local_steam_build(path, str(steam_id))
+            local_build_id = manifest_build or local_build_id
+            local_build_date = manifest_date or local_build_date
+            if not local_build_date and path and os.path.exists(path):
+                try:
+                    local_build_date = int(os.path.getmtime(path))
+                except OSError:
+                    local_build_date = 0
+            self.local_version_by_game_id[game_id] = (local_build_id, local_build_date)
+
+            fetcher = SteamBuildFetcher(game_id, steam_id, local_build_id, local_build_date, parent=self)
+            fetcher.update_checked.connect(self._on_steam_build_checked)
+            fetcher.check_failed.connect(self._on_steam_check_failed)
+            fetcher.finished.connect(finished_one)
+            self.metadata_fetchers.append(fetcher)
+            self.metadata_attempted_builds.add(game_id)
+            pending[0] += 1
+            fetcher.finished.connect(lambda f=fetcher: self._cleanup_metadata_fetcher(f))
+            fetcher.start()
+
+        if pending[0] == 0:
+            finished_one()
+
+    def _capture_initial_steam_build(self, game_id: int, steam_id: str):
+        """Record the Steam build present when a game is first added."""
+        self.metadata_attempted_builds.add(game_id)
+        fetcher = SteamBuildFetcher(game_id, steam_id, "", 0, parent=self)
+        fetcher.update_checked.connect(self._on_initial_steam_build_checked)
+        fetcher.check_failed.connect(lambda gid, reason: self.metadata_attempted_builds.discard(gid))
+        fetcher.finished.connect(lambda f=fetcher: self._cleanup_metadata_fetcher(f))
+        self.metadata_fetchers.append(fetcher)
+        fetcher.start()
+
+    def _on_initial_steam_build_checked(self, game_id: int, build_id: str, build_date: int, _needs_update: bool):
+        if not build_id:
             return
+        self.db.update_build_id(game_id, build_id)
+        self.local_version_by_game_id[game_id] = (build_id, build_date)
+        self.steam_check_results[game_id] = (build_id, build_date, False, "")
+        self.update_status_by_game_id[game_id] = False
+        self.metadata_attempted_builds.discard(game_id)
+        if game_id in self.banner_widgets:
+            self.banner_widgets[game_id].set_update_available(False)
+
+    def _on_steam_build_checked(self, game_id: int, latest_build_id: str, latest_build_date: int, is_update_available: bool):
+        """Callback when background SteamBuildFetcher returns build info."""
+        self.steam_check_results[game_id] = (latest_build_id, latest_build_date, is_update_available, "")
+        self.update_status_by_game_id[game_id] = bool(is_update_available and latest_build_id)
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_update_available(is_update_available)
+        if not self.selected_game or self.selected_game[0] != game_id:
+            return
 
         if self.selected_game and self.selected_game[0] == game_id:
-            if is_update_available:
-                self.lbl_detail_update.setText(f"🟢 Update Available (Build #{latest_build_id})")
+            if not latest_build_id:
+                local_build_id, local_date = self.local_version_by_game_id.get(game_id, ("", 0))
+                if not local_build_id and len(self.selected_game) > 11:
+                    local_build_id = self.selected_game[11] or ""
+                if not local_date and len(self.selected_game) > 14:
+                    local_date = self.selected_game[14] or 0
+                local_build_id = local_build_id or "Not recorded"
+                self.lbl_detail_update.setText("⚪ Steam check unavailable")
+                self.lbl_detail_update.setStyleSheet("background: #3f3f46; color: #d4d4d8; border: 1px solid #71717a; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
+                self.lbl_detail_versions.setText(
+                    f"Current: {local_build_id} · {self._format_version_date(local_date)}\n"
+                    "Steam: unavailable"
+                )
                 self.detail_update_widget.setVisible(True)
-                self.latest_checked_build_id = latest_build_id
-            else:
-                self.detail_update_widget.setVisible(False)
+                return
+            local_build_id, local_date = self.local_version_by_game_id.get(game_id, ("", 0))
+            if not local_build_id and len(self.selected_game) > 11:
+                local_build_id = self.selected_game[11] or ""
+            if not local_date and len(self.selected_game) > 14:
+                local_date = self.selected_game[14] or 0
+            local_build_id = local_build_id or "Not recorded"
+            version_override = self.selected_game[15] if len(self.selected_game) > 15 and self.selected_game[15] else "Version unavailable"
+            patch_notes_url = self.selected_game[16] if len(self.selected_game) > 16 and self.selected_game[16] else ""
+            patch_link = f"<br><a href='{escape(patch_notes_url, quote=True)}'>Open patch notes</a>" if patch_notes_url else ""
+            status = "Needs update" if is_update_available else "Up to date"
+            status_color = ("#7f1d1d", "#fca5a5", "#991b1b") if is_update_available else ("#064e3b", "#34d399", "#059669")
+            self.lbl_detail_update.setText(("🔴 " if is_update_available else "🟢 ") + status)
+            self.lbl_detail_update.setStyleSheet(
+                f"background: {status_color[0]}; color: {status_color[1]}; border: 1px solid {status_color[2]}; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;"
+            )
+            self.lbl_detail_versions.setText(
+                "<table width='100%' cellspacing='0' cellpadding='3'>"
+                "<tr><td></td><td align='center'><font color='#8f949e'>LOCAL</font></td>"
+                "<td align='center'><font color='#8f949e'>STEAM</font></td></tr>"
+                f"<tr><td><font color='#8f949e'>Version</font></td><td align='center'><b>{escape(str(version_override))}</b></td>"
+                f"<td align='center'><font color='#71717a'>—</font></td></tr>"
+                f"<tr><td><font color='#8f949e'>Build</font></td><td align='center'><b>{escape(str(local_build_id))}</b></td>"
+                f"<td align='center'><b>{escape(str(latest_build_id))}</b></td></tr>"
+                f"<tr><td><font color='#8f949e'>Updated</font></td><td align='center'>{self._format_version_date(local_date)}</td>"
+                f"<td align='center'>{self._format_version_date(latest_build_date)}</td></tr>"
+                f"<tr><td colspan='3' align='center'>{patch_link.replace('<br>', '', 1) if patch_link else ''}</td></tr>"
+                "</table>"
+            )
+            self.detail_update_widget.setVisible(True)
+            self.btn_retry_steam.setVisible(False)
+            self.latest_checked_build_id = latest_build_id
+            self.latest_checked_build_date = latest_build_date
 
-    def _on_sync_build_id(self):
-        """Mark local game build ID as updated to latest online build ID."""
+    def _on_steam_check_failed(self, game_id: int, reason: str):
+        self.steam_check_results[game_id] = ("", 0, False, reason)
+        if self.selected_game and self.selected_game[0] == game_id:
+            self.lbl_detail_update.setText("⚪ Steam check failed")
+            self.lbl_detail_update.setStyleSheet("background: #3f3f46; color: #d4d4d8; border: 1px solid #71717a; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
+            self.lbl_detail_versions.setText(reason)
+            self.lbl_detail_versions.setToolTip(reason)
+            self.detail_update_widget.setVisible(True)
+            self.btn_retry_steam.setVisible(True)
+        self.metadata_attempted_builds.discard(game_id)
+        logger.warning(f"Steam build check failed for game {game_id}: {reason}")
+
+    def _retry_steam_check(self):
         if not self.selected_game:
             return
         game_id = self.selected_game[0]
+        self.metadata_attempted_builds.discard(game_id)
+        self._update_detail_panel()
+
+    def _mark_build_current_from_config(self, game_id: int):
+        """Record a manually installed Steam build from the game settings dialog."""
+        if not self.selected_game or self.selected_game[0] != game_id:
+            return
         latest = getattr(self, 'latest_checked_build_id', "")
-        if latest:
-            self.db.update_build_id(game_id, latest)
-            self._show_toast("✓ Build ID updated to latest!")
-            self._refresh_library()
-            self._select_game_by_id(game_id)
+        if not latest:
+            self._show_toast("Steam has not provided a build to record yet.", is_error=True)
+            return
+        self.db.update_build_id(game_id, latest)
+        self.update_status_by_game_id[game_id] = False
+        self._show_toast("✓ Steam build marked as current. Game files were not changed.")
+        self._refresh_library()
+        self._select_game_by_id(game_id)
 
     def _on_steam_tags_found(self, game_id: int, tags_list: list, steam_app_id: str = ""):
         """Callback when background SteamTagsFetcher returns genres/categories"""
@@ -1974,16 +2133,43 @@ class MainWindow(QMainWindow):
             self.detail_disk_size.setText("💾 Size: --")
 
         local_build_id = game[11] if len(game) > 11 and game[11] else ""
+        local_build_date = game[14] if len(game) > 14 and game[14] else 0
+        manifest_build, manifest_date = read_local_steam_build(path, str(steam_id or ""))
+        local_build_id = manifest_build or local_build_id
+        local_build_date = manifest_date or local_build_date
+        if not local_build_date and path and os.path.exists(path):
+            try:
+                local_build_date = int(os.path.getmtime(path))
+            except OSError:
+                local_build_date = 0
+        self.local_version_by_game_id[game_id] = (local_build_id, local_build_date)
+        self.lbl_detail_update.setText("Checking Steam…")
+        self.lbl_detail_update.setStyleSheet("background: #1f2937; color: #d1d5db; border: 1px solid #4b5563; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
+        self.lbl_detail_versions.setText("Checking current and Steam versions…")
+        self.lbl_detail_versions.setToolTip("")
+        self.btn_retry_steam.setVisible(False)
+        self.latest_checked_build_id = ""
+        self.latest_checked_build_date = 0
         if steam_id and steam_id != "0" and game_id not in self.metadata_attempted_builds and not any(
             isinstance(fetcher, SteamBuildFetcher) and fetcher.game_id == game_id
             for fetcher in self.metadata_fetchers
         ):
-            fetcher = SteamBuildFetcher(game_id, steam_id, local_build_id, parent=self)
+            fetcher = SteamBuildFetcher(game_id, steam_id, local_build_id, local_build_date, parent=self)
             fetcher.update_checked.connect(self._on_steam_build_checked)
+            fetcher.check_failed.connect(self._on_steam_check_failed)
             self._track_metadata_fetcher(fetcher)
             self.metadata_attempted_builds.add(game_id)
         else:
-            self.detail_update_widget.setVisible(False)
+            cached_result = self.steam_check_results.get(game_id)
+            if cached_result:
+                cached_build, cached_date, cached_update, cached_error = cached_result
+                if cached_build:
+                    self._on_steam_build_checked(game_id, cached_build, cached_date, cached_update)
+                else:
+                    self._on_steam_check_failed(game_id, cached_error or "Steam check unavailable")
+            else:
+                self.detail_update_widget.setVisible(False)
+                self.lbl_detail_versions.setText("")
 
         # Steam Tags Display & Auto Fetcher
         if tags_str:
@@ -2220,6 +2406,8 @@ class MainWindow(QMainWindow):
         dialog = AddGameDialog(self, self.sgdb_client)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name, path, exe, mode, banner_path = dialog.get_values()
+            steam_id = dialog.get_steam_id()
+            version_override, patch_notes_url = dialog.get_version_metadata()
             if not name or not path or not exe:
                 QMessageBox.warning(self, "Error", "All fields are required.")
                 return
@@ -2229,8 +2417,12 @@ class MainWindow(QMainWindow):
             
             path = os.path.abspath(os.path.expanduser(path))
             save_sandbox_config(path, exe)
-            self.db.add_game(name, path, exe, mode, banner_path)
+            game_id = self.db.add_game(name, path, exe, mode, banner_path, steam_id or None)
+            if game_id:
+                self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
             self._refresh_library()
+            if game_id and steam_id:
+                self._capture_initial_steam_build(game_id, steam_id)
             self._show_toast(f"✓ Game '{name}' added to library!")
 
     def _on_card_size_changed(self, value: int):
@@ -2251,8 +2443,10 @@ class MainWindow(QMainWindow):
             return
 
         dialog = EditGameDialog(game, self, self.sgdb_client)
+        dialog.mark_current_requested.connect(self._mark_build_current_from_config)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name, path, exe, mode, banner_path = dialog.get_values()
+            version_override, patch_notes_url = dialog.get_version_metadata()
             if not name or not path or not exe:
                 QMessageBox.warning(self, "Error", "All fields are required.")
                 return
@@ -2264,6 +2458,7 @@ class MainWindow(QMainWindow):
             path = os.path.abspath(os.path.expanduser(path))
             save_sandbox_config(path, exe)
             self.db.update_game(game_id, name, path, exe, mode, banner_path)
+            self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
             self._refresh_library()
             self._show_toast(f"✓ Updated settings for '{name}'.")
     
