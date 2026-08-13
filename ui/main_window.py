@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
     QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
     QApplication, QSystemTrayIcon, QCheckBox, QGraphicsOpacityEffect, QPlainTextEdit, QProgressBar,
-    QGraphicsDropShadowEffect, QStackedWidget, QSlider, QSplitter, QDialogButtonBox
+    QGraphicsDropShadowEffect, QStackedWidget, QSlider, QSplitter, QDialogButtonBox, QInputDialog
 )
 from PyQt6.QtCore import Qt, QSize, QPoint, QThread, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QEvent, QAbstractAnimation, QUrl, QSettings
 from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QPen, QRadialGradient, QLinearGradient, QMovie, QDesktopServices
@@ -30,6 +30,8 @@ from database import GameDatabase, _APP_DATA_DIR
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
 from core.launch_diagnostics import persist_diagnostics
+from core.library_state import LibrarySelectionModel
+from ui.library_list import LibraryListView
 from ui.icons import get_app_icon, get_icon
 from ui.maintenance_dialogs import RuntimeInventoryDialog, PrefixMaintenanceDialog
 
@@ -1342,7 +1344,13 @@ class AddGameDialog(QDialog):
                 exes.insert(0, cfg_exe)
                 
         if exes:
-            self.exe_combo.addItems(exes)
+            candidates = {candidate.relative_path: candidate for candidate in ArchiveInstaller().candidates(path)}
+            for relative in exes:
+                candidate = candidates.get(relative)
+                size = format_size(candidate.size_bytes) if candidate else "unknown size"
+                kind = candidate.kind if candidate else "Executable"
+                icon = get_icon("ph.terminal-window-bold") if relative.lower().endswith(".sh") else get_app_icon("wine")
+                self.exe_combo.addItem(icon, f"{relative}  ·  {kind}  ·  {size}", relative)
             self.exe_combo.setCurrentIndex(0)
     
     def _browse_path(self):
@@ -1552,7 +1560,7 @@ class AddGameDialog(QDialog):
         return (
             self.name_input.text().strip(),
             self.path_input.text().strip(),
-            self.exe_combo.currentText().strip(),
+            (self.exe_combo.currentData() or self.exe_combo.currentText()).strip(),
             mode,
             self.banner_path
         )
@@ -3286,14 +3294,17 @@ class MainWindow(QMainWindow):
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
         self.topbar_extractor_thread = None
         self.games_by_id = {}
+        self.library_selection = LibrarySelectionModel()
 
         self.search_query = ""
         self.settings = QSettings("SafeLauncher", "SafeLauncher")
+        self.library_view_mode = self.settings.value("library_view_mode", "grid", type=str)
         self.user_name = self.settings.value("user_name", "Martin", type=str).strip() or "Martin"
         self.proton_path = self.settings.value("proton_path", "", type=str).strip()
         if hasattr(self.runner, "set_proton_path"):
             self.runner.set_proton_path(self.proton_path)
         self.current_filter = "all"
+        self.collection_filter = ""
         self.current_sort = 0  # 0: A-Z, 1: Playtime, 2: Recently Added
 
         self.setWindowTitle("🎮 SafeLauncher - Game Sandbox Manager")
@@ -3597,6 +3608,11 @@ class MainWindow(QMainWindow):
         
         header_layout.addStretch()
 
+        self.btn_view_toggle = QPushButton("☷ List" if self.library_view_mode == "grid" else "▦ Grid")
+        self.btn_view_toggle.setToolTip("Toggle grid/list library view")
+        self.btn_view_toggle.clicked.connect(self._toggle_library_view)
+        header_layout.addWidget(self.btn_view_toggle)
+
         # Sleek Segmented Filter Bar Container
         filter_container = QFrame()
         filter_container.setStyleSheet("""
@@ -3668,12 +3684,18 @@ class MainWindow(QMainWindow):
         self.btn_filter_attention.setStyleSheet(filter_btn_style)
         self.btn_filter_attention.clicked.connect(lambda: self._set_filter("attention"))
 
+        self.btn_filter_collection = QPushButton("Collection")
+        self.btn_filter_collection.setIcon(get_icon("ph.folder-simple-bold"))
+        self.btn_filter_collection.setStyleSheet(filter_btn_style)
+        self.btn_filter_collection.clicked.connect(self._choose_collection_filter)
+
         fc_layout.addWidget(self.btn_filter_all)
         fc_layout.addWidget(self.btn_filter_installed)
         fc_layout.addWidget(self.btn_filter_missing)
         fc_layout.addWidget(self.btn_filter_fav)
         fc_layout.addWidget(self.btn_filter_recent)
         fc_layout.addWidget(self.btn_filter_attention)
+        fc_layout.addWidget(self.btn_filter_collection)
 
         header_layout.addWidget(filter_container)
 
@@ -3711,7 +3733,14 @@ class MainWindow(QMainWindow):
         # Dynamic Responsive Grid Container (2:3 portrait cards, default width 200px)
         self.grid_container = ResponsiveGridContainer(card_width=200, spacing=15)
         self.grid_container.setStyleSheet("background: transparent;")
-        scroll_area.setWidget(self.grid_container)
+        self.list_view = LibraryListView()
+        self.list_view.game_clicked.connect(self._select_game_by_id)
+        self.list_view.game_double_clicked.connect(self._on_double_click_game)
+        self.library_view_stack = QStackedWidget()
+        self.library_view_stack.addWidget(self.grid_container)
+        self.library_view_stack.addWidget(self.list_view)
+        self.library_view_stack.setCurrentIndex(1 if self.library_view_mode == "list" else 0)
+        scroll_area.setWidget(self.library_view_stack)
         right_layout.addWidget(scroll_area)
 
         # Action Buttons Layout (Add Game on bottom-left, Card Size Slider, Launch on bottom-right)
@@ -3725,6 +3754,19 @@ class MainWindow(QMainWindow):
         self.btn_add.setMinimumHeight(42)
         self.btn_add.setStyleSheet("QPushButton { background: #272730; color: #ffffff; font-weight: bold; border-radius: 6px; border: 1px solid #3f3f46; padding: 10px 20px; } QPushButton:hover { background: #3f3f4e; border-color: #52525b; }")
         action_layout.addWidget(self.btn_add)
+
+        self.btn_select_all = QPushButton("Select all")
+        self.btn_select_all.clicked.connect(self._select_all_visible)
+        action_layout.addWidget(self.btn_select_all)
+        self.btn_clear_selection = QPushButton("Clear")
+        self.btn_clear_selection.clicked.connect(self._clear_library_selection)
+        action_layout.addWidget(self.btn_clear_selection)
+        self.btn_collection = QPushButton("Collection…")
+        self.btn_collection.clicked.connect(self._assign_selected_collection)
+        action_layout.addWidget(self.btn_collection)
+        self.btn_favorite_selected = QPushButton("★ Selected")
+        self.btn_favorite_selected.clicked.connect(self._favorite_selected)
+        action_layout.addWidget(self.btn_favorite_selected)
 
         # Card Size Zoom Slider
         zoom_layout = QHBoxLayout()
@@ -4068,6 +4110,16 @@ class MainWindow(QMainWindow):
         self.btn_filter_attention.setChecked(filter_mode == "attention")
         self._refresh_library()
 
+    def _choose_collection_filter(self):
+        collections = sorted({str(game[13]).strip() for game in self.games if len(game) > 13 and str(game[13]).strip()})
+        choices = ["All collections"] + collections
+        choice, accepted = QInputDialog.getItem(self, "Filter collection", "Collection:", choices, 0, False)
+        if not accepted:
+            return
+        self.collection_filter = "" if choice == "All collections" else choice
+        self.btn_filter_collection.setText(self.collection_filter or "Collection")
+        self._refresh_library()
+
     def _on_sort_changed(self, idx: int):
         """Sort games list by title, activity, install date, size, or runner."""
         self.current_sort = idx
@@ -4076,6 +4128,48 @@ class MainWindow(QMainWindow):
     def _on_search_query_changed(self, query: str):
         """Filter games real-time as user types in top search box"""
         self.search_query = query.strip().lower()
+        self._refresh_library()
+
+    def _toggle_library_view(self):
+        self.library_view_mode = "list" if self.library_view_mode == "grid" else "grid"
+        self.settings.setValue("library_view_mode", self.library_view_mode)
+        self.library_view_stack.setCurrentIndex(1 if self.library_view_mode == "list" else 0)
+        self.btn_view_toggle.setText("▦ Grid" if self.library_view_mode == "list" else "☷ List")
+
+    def _visible_library_ids(self) -> set[int]:
+        if self.library_view_mode == "list":
+            return {int(self.list_view.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.list_view.count())}
+        return set(self.banner_widgets.keys())
+
+    def _select_all_visible(self):
+        self.library_selection.replace(self._visible_library_ids())
+        self._refresh_library()
+
+    def _clear_library_selection(self):
+        self.library_selection.clear()
+        self._refresh_library()
+
+    def _assign_selected_collection(self):
+        selected = self.library_selection.ids
+        if not selected:
+            self._show_toast("Select one or more games first.", is_error=True)
+            return
+        collection, accepted = QInputDialog.getText(self, "Assign collection", "Collection name (empty removes it):")
+        if not accepted:
+            return
+        for game_id in selected:
+            self.db.update_game_collection(game_id, collection.strip())
+        self._refresh_library()
+
+    def _favorite_selected(self):
+        selected = self.library_selection.ids
+        if not selected:
+            self._show_toast("Select one or more games first.", is_error=True)
+            return
+        for game_id in selected:
+            # The database toggle is intentionally used only for the batch action;
+            # it preserves each game's existing state and avoids a new UI model.
+            self.db.toggle_favorite(game_id)
         self._refresh_library()
 
     def _on_toggle_favorite(self):
@@ -4100,6 +4194,7 @@ class MainWindow(QMainWindow):
         
         self.games = self.db.get_all_games()
         self.games_by_id = {game[0]: game for game in self.games}
+        self.library_selection.replace(self.library_selection.ids.intersection(self.games_by_id))
         self.stat_label.setText(f"{len(self.games)} Game(s) Total")
 
         if not self.games:
@@ -4138,6 +4233,8 @@ class MainWindow(QMainWindow):
                 continue
             elif self.current_filter == "attention" and not (is_missing or not steam_id or (mode.startswith("umu") and not (len(g) > 12 and g[12]))):
                 continue
+            if self.collection_filter and (len(g) <= 13 or str(g[13]).strip() != self.collection_filter):
+                continue
 
             processed.append((g, is_missing, playtime, is_fav))
 
@@ -4147,7 +4244,7 @@ class MainWindow(QMainWindow):
         elif self.current_sort == 1:  # Most Played
             processed.sort(key=lambda x: x[2], reverse=True)
         elif self.current_sort == 2:  # Recently Added (id desc)
-            processed.sort(key=lambda x: x[0][0], reverse=True)
+            processed.sort(key=lambda x: x[0][14] if len(x[0]) > 14 and x[0][14] else x[0][0], reverse=True)
         elif self.current_sort == 3:  # Disk size
             processed.sort(key=lambda x: get_dir_size(x[0][2]), reverse=True)
         elif self.current_sort == 4:  # Runner
@@ -4167,6 +4264,7 @@ class MainWindow(QMainWindow):
             
             widget = GameBannerWidget(game_id, name, banner_url, playtime_seconds or 0)
             widget.set_favorite(is_fav)
+            widget.set_selected(game_id in self.library_selection.ids)
             widget.clicked.connect(self._select_game_by_id)
             widget.doubleClicked.connect(self._on_double_click_game)
             
@@ -4182,6 +4280,7 @@ class MainWindow(QMainWindow):
                 self.auto_fetchers.append(fetcher)
             
         self.grid_container.set_banner_widgets(widgets)
+        self.list_view.set_games([item[0] for item in processed], self.library_selection.ids)
         self._check_games_on_drive()
         self._update_tray_menu()
 
@@ -4238,10 +4337,12 @@ class MainWindow(QMainWindow):
 
     def _select_game_by_id(self, game_id: int):
         """Select a game card visually and update the left detail panel"""
+        additive = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier)
+        self.library_selection.click(game_id, additive=additive)
         if not self.selected_game or self.selected_game[0] != game_id:
             self._cancel_metadata_fetchers()
         for widget in self.banner_widgets.values():
-            widget.set_selected(False)
+            widget.set_selected(widget.game_id in self.library_selection.ids)
         for game in self.games:
             if game[0] == game_id:
                 self.selected_game = game
