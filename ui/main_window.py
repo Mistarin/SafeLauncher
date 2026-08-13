@@ -641,17 +641,20 @@ class UserSettingsDialog(QDialog):
         layout.addWidget(title)
 
         btn_ge_manager = QPushButton("📦 Open GE-Proton Manager (GitHub Downloader)…")
-        btn_ge_manager.setStyleSheet("QPushButton { background: #065f46; color: #34d399; border: 1px solid #059669; } QPushButton:hover { background: #047857; }")
+        btn_ge_manager.setStyleSheet("QPushButton { background: #174735; color: #86efac; border: none; border-radius: 8px; padding: 10px 14px; } QPushButton:hover { background: #174735; }")
+        add_soft_shadow(btn_ge_manager, blur=16, y=4, alpha=90)
         btn_ge_manager.clicked.connect(self._open_proton_manager)
         layout.addWidget(btn_ge_manager)
 
         runtime_manager = QPushButton("Open UMU Runtime Manager…")
-        runtime_manager.setStyleSheet("QPushButton { background: #1e293b; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
+        runtime_manager.setStyleSheet("QPushButton { background: #24272d; border: none; border-radius: 8px; padding: 10px 14px; } QPushButton:hover { background: #24272d; }")
+        add_soft_shadow(runtime_manager, blur=16, y=4, alpha=80)
         runtime_manager.clicked.connect(self._open_runtime_manager)
         layout.addWidget(runtime_manager)
 
         inventory_button = QPushButton("Inspect installed runtimes…")
-        inventory_button.setStyleSheet("QPushButton { background: #24262b; border: none; } QPushButton:hover { background: #3b3f46; }")
+        inventory_button.setStyleSheet("QPushButton { background: #24262b; border: none; border-radius: 8px; padding: 10px 14px; } QPushButton:hover { background: #24262b; }")
+        add_soft_shadow(inventory_button, blur=16, y=4, alpha=80)
         inventory_button.clicked.connect(self._open_runtime_inventory)
         layout.addWidget(inventory_button)
 
@@ -2894,7 +2897,8 @@ class DiskManagerDialog(QDialog):
         total_drive, used_drive, free_drive = get_disk_usage(sandbox_dir)
 
         stats_card = QFrame()
-        stats_card.setStyleSheet("QFrame { background: #181818; border: 1px solid #2a2a2a; border-radius: 8px; padding: 12px; }")
+        stats_card.setStyleSheet("QFrame { background: #181818; border: none; border-radius: 10px; padding: 12px; }")
+        add_soft_shadow(stats_card, blur=20, y=5, alpha=90)
         sc_layout = QVBoxLayout(stats_card)
         sc_layout.setSpacing(6)
 
@@ -2915,7 +2919,7 @@ class DiskManagerDialog(QDialog):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: #121212; border: 1px solid #2a2a2a; border-radius: 6px; }")
+        scroll.setStyleSheet("QScrollArea { background: #121212; border: none; border-radius: 8px; }")
 
         list_widget = QWidget()
         list_layout = QVBoxLayout(list_widget)
@@ -2933,7 +2937,8 @@ class DiskManagerDialog(QDialog):
 
         for name, path, sz in game_sizes:
             row_frame = QFrame()
-            row_frame.setStyleSheet("QFrame { background: #1a1a1a; border: 1px solid #282828; border-radius: 6px; }")
+            row_frame.setStyleSheet("QFrame { background: #1a1a1a; border: none; border-radius: 8px; }")
+            add_soft_shadow(row_frame, blur=12, y=3, alpha=60)
             r_layout = QHBoxLayout(row_frame)
             r_layout.setContentsMargins(10, 8, 10, 8)
 
@@ -2948,7 +2953,8 @@ class DiskManagerDialog(QDialog):
             r_layout.addWidget(size_badge)
 
             btn_folder = QPushButton("📂 Open Folder")
-            btn_folder.setStyleSheet("QPushButton { background: #222222; color: #aaaaaa; border: 1px solid #333333; border-radius: 4px; padding: 4px 8px; font-weight: bold; font-size: 11px; } QPushButton:hover { background: #333333; color: #ffffff; }")
+            btn_folder.setStyleSheet("QPushButton { background: #222222; color: #aaaaaa; border: none; border-radius: 6px; padding: 5px 9px; font-weight: bold; font-size: 11px; } QPushButton:hover { background: #222222; color: #aaaaaa; }")
+            add_soft_shadow(btn_folder, blur=10, y=2, alpha=60)
             btn_folder.clicked.connect(lambda _, p=path: self._open_path(p))
             r_layout.addWidget(btn_folder)
 
@@ -3195,6 +3201,20 @@ class LeftSidebarWidget(QFrame):
         self.nav_library.setIcon(get_icon("ph.books", color="#d5d7dc"))
         self.nav_library.setCheckable(True)
         self.nav_library.setChecked(True)
+        self.nav_library.setStyleSheet("""
+            QPushButton {
+                background: #25282e;
+                color: #ffffff;
+                border: none;
+                border-radius: 8px;
+                padding: 11px 14px;
+                text-align: left;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton:hover { background: #25282e; }
+            QPushButton:checked { background: #25282e; color: #ffffff; border: none; }
+        """)
         layout.addWidget(self.nav_library)
 
         self.nav_sandbox = QPushButton(" Open Sandbox")
@@ -3660,10 +3680,11 @@ class MainWindow(QMainWindow):
         # Big Launch Game Button
         detail_layout.addSpacing(8)
         self.btn_detail_launch = QPushButton("Launch Game")
+        self.btn_detail_launch.setObjectName("detailLaunch")
         self.btn_detail_launch.setIcon(get_icon("ph.play", color="#ffffff"))
         self.btn_detail_launch.setMinimumHeight(50)
         self.btn_detail_launch.setStyleSheet("""
-            QPushButton {
+            QPushButton#detailLaunch {
                 background: #2f8f63;
                 color: #ffffff;
                 font-weight: bold;
@@ -3672,10 +3693,10 @@ class MainWindow(QMainWindow):
                 border-radius: 10px;
                 padding: 10px 14px;
             }
-            QPushButton:hover {
+            QPushButton#detailLaunch:hover {
                 background: #3eaa77;
             }
-            QPushButton:disabled {
+            QPushButton#detailLaunch:disabled {
                 background: #1b2029;
                 color: #52525b;
                 border-color: transparent;
@@ -3942,10 +3963,11 @@ class MainWindow(QMainWindow):
         action_layout.setSpacing(15)
         
         self.btn_add = QPushButton("Add Game")
+        self.btn_add.setObjectName("addGameButton")
         self.btn_add.setIcon(get_app_icon("add"))
         self.btn_add.clicked.connect(self._on_add)
         self.btn_add.setMinimumHeight(40)
-        self.btn_add.setStyleSheet("QPushButton { background: #2f8f63; color: #ffffff; font-weight: bold; border-radius: 8px; border: none; padding: 10px 20px; } QPushButton:hover { background: #3eaa77; }")
+        self.btn_add.setStyleSheet("QPushButton#addGameButton { background: #2f8f63; color: #ffffff; font-weight: bold; border-radius: 8px; border: none; padding: 10px 20px; } QPushButton#addGameButton:hover { background: #3eaa77; }")
         self.btn_add.setIconSize(QSize(19, 19))
         add_soft_shadow(self.btn_add, blur=20, y=5, alpha=105)
         action_layout.addWidget(self.btn_add)
@@ -4858,6 +4880,8 @@ class MainWindow(QMainWindow):
         self.btn_detail_fav.setToolTip("Remove from Favorites" if is_fav else "Add to Favorites")
 
         self.btn_detail_launch.setEnabled(True)
+        self.btn_detail_launch.setVisible(True)
+        self.btn_detail_launch.raise_()
         self.btn_detail_edit.setEnabled(True)
         self.btn_detail_screenshots.setEnabled(True)
         self.btn_detail_export.setEnabled(True)
