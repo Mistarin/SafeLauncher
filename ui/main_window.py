@@ -3095,7 +3095,7 @@ class LeftSidebarWidget(QFrame):
         self.btn_collapse.setFixedSize(188, 30)
         self.btn_collapse.setToolTip("Collapse sidebar")
         self.btn_collapse.setStyleSheet("""
-            QPushButton { background: #08090b; color: #c9ccd2; border: none; border-radius: 8px; padding: 0 10px; font-size: 11px; font-weight: bold; }
+            QPushButton { background: #08090b; color: #c9ccd2; border: none; border-radius: 8px; padding: 0; text-align: center; font-size: 11px; font-weight: bold; }
             QPushButton:hover { background: #17191e; color: #ffffff; }
         """)
         self.btn_collapse.clicked.connect(self.toggle_compact)
