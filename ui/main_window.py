@@ -3058,7 +3058,7 @@ class LeftSidebarWidget(QFrame):
         self.setStyleSheet("""
             QFrame {
                 background: #111318;
-                border-right: 1px solid #242832;
+                border-right: 1px solid #15171c;
             }
             QPushButton {
                 background: transparent;
@@ -3087,13 +3087,12 @@ class LeftSidebarWidget(QFrame):
 
         # Sidebar controls
         brand_row = QHBoxLayout()
-        brand_row.addStretch()
 
         self.btn_collapse = QPushButton()
         self.btn_collapse.setText("Hide panel")
         self.btn_collapse.setIcon(get_icon("ph.caret-double-left", color="#a1a1aa"))
         self.btn_collapse.setIconSize(QSize(16, 16))
-        self.btn_collapse.setFixedSize(104, 30)
+        self.btn_collapse.setFixedSize(188, 30)
         self.btn_collapse.setToolTip("Collapse sidebar")
         self.btn_collapse.setStyleSheet("""
             QPushButton { background: #08090b; color: #c9ccd2; border: none; border-radius: 8px; padding: 0 10px; font-size: 11px; font-weight: bold; }
@@ -3217,7 +3216,7 @@ class LeftSidebarWidget(QFrame):
             """ if self.compact else "")
 
         self.btn_collapse.setText("" if self.compact else "Hide panel")
-        self.btn_collapse.setFixedSize(26 if self.compact else 104, 26 if self.compact else 30)
+        self.btn_collapse.setFixedSize(44 if self.compact else 188, 26 if self.compact else 30)
         self.btn_collapse.setIcon(get_icon(
             "ph.caret-double-right" if self.compact else "ph.caret-double-left",
             color="#a1a1aa",
@@ -3419,11 +3418,11 @@ class MainWindow(QMainWindow):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setStyleSheet("""
             QSplitter::handle {
-                background-color: rgba(255, 255, 255, 0.1);
-                width: 3px;
+                background-color: #15171c;
+                width: 1px;
             }
             QSplitter::handle:hover {
-                background-color: #737780;
+                background-color: #3b3f46;
             }
         """)
         body_layout.addWidget(self.splitter)
@@ -3437,7 +3436,7 @@ class MainWindow(QMainWindow):
         self.detail_panel.setStyleSheet("""
             QFrame {
                 background: #111318;
-                border-left: 1px solid #242832;
+                border-left: 1px solid #15171c;
             }
             QLabel {
                 color: #ffffff;
