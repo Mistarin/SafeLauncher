@@ -514,6 +514,7 @@ class ResponsiveGridContainer(QWidget):
         self._apply_reflow(self._pending_columns)
         self._last_columns = self._pending_columns
         self.grid_layout.activate()
+        self.grid_layout.setEnabled(False)
 
         self._reflow_slide = QParallelAnimationGroup(self)
         for widget in self._reflow_cards:
@@ -531,10 +532,10 @@ class ResponsiveGridContainer(QWidget):
         self._reflow_slide.start()
 
     def _finish_reflow_animation(self):
-        self._apply_reflow(self._last_columns)
+        self.grid_layout.setEnabled(True)
+        self.grid_layout.activate()
         self._reflow_cards = []
         self._reflow_animating = False
-        self.reflow()
 
 class DialogTitleBar(QFrame):
     """Custom top drag bar for modal dialogs with title and close button."""
