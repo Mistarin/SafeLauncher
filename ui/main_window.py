@@ -458,6 +458,10 @@ class SafeLaunchDialog(QDialog):
             reason = f"Proton/UMU exited with code {return_code}."
 
         lower_details = details.lower()
+        steam_api_failure = any(token in lower_details for token in (
+            "steam_api64.dll", "steam_api.dll", "steamapi_", "steam api",
+            "steamapps_v", "steamapps", "unimplemented function steam",
+        ))
         if self.diagnostics:
             self.diagnostics.return_code = return_code
             self.diagnostics.output = list(self.log_lines)
@@ -471,13 +475,19 @@ class SafeLaunchDialog(QDialog):
             "could not find steamrt4",
             "an internet connection is required to setup umu",
         ))
-        if "libcrypto.so" in lower_details or "openssl_" in lower_details:
+        if steam_api_failure:
+            # Keep the Steam/API disclaimer as the primary explanation even
+            # when Wine also emitted generic library or exit-code warnings.
+            reason = self.diagnostics.actionable_explanation() if self.diagnostics else (
+                "Disclaimer: the sandbox initialized, but the game requires a Steam API/client unavailable in this launch mode."
+            )
+        elif "libcrypto.so" in lower_details or "openssl_" in lower_details:
             reason += " A packaged launcher library was loaded by a host runtime tool. Restart using the updated SafeLauncher build."
         elif "no such file" in lower_details or "cannot open" in lower_details:
             reason += " Check that the selected executable path is correct."
         elif "no permissions to create a new namespace" in lower_details or "unprivileged_userns_clone" in lower_details:
             reason += " The kernel has disabled unprivileged user namespaces; enable kernel.unprivileged_userns_clone=1 or use a compatible kernel/container configuration."
-        elif "proton" in lower_details or "umu" in lower_details:
+        elif ("proton" in lower_details or "umu" in lower_details) and not any(token in lower_details for token in ("steam_api64.dll", "steam_api.dll", "steamapi_", "steam api")):
             reason += " Check the Proton/UMU runtime and the game prefix."
 
         self.error_summary.setText(reason)

@@ -49,6 +49,18 @@ class LaunchDiagnostics:
 
     def actionable_explanation(self) -> str:
         text = self.output_text.lower()
+        if any(token in text for token in (
+            "steam_api64.dll", "steam_api.dll", "steamapi_", "steam api",
+            "steamapps_v", "steamapps", "unimplemented function steam",
+        )):
+            return (
+                "Disclaimer: SafeLauncher and the Proton sandbox initialized, "
+                "but the game exited because it requires a Steam API/client "
+                "that is unavailable in this launch mode. This is a game "
+                "compatibility or distribution issue, not a sandbox failure. "
+                "Use a Steam-managed launch with Steam active, or a legitimate "
+                "standalone build that does not require Steam API services."
+            )
         if not self.dependencies.get("umu-run", True) and self.mode.startswith("umu"):
             return "umu-run is not installed. Install the UMU launcher or choose a native Wine/Linux runner."
         if not self.dependencies.get("firejail", True) and not self.unsafe:
