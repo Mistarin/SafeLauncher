@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasi
 from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QMovie, QDesktopServices
 
 from core.steamgriddb_client import SteamGridDBClient
+from core.archive_extractor import executable_sort_key
 from core.launch_diagnostics import persist_diagnostics
 from ui.icons import get_app_icon, get_icon, LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap
 from ui.threads import BannerFetcher, BannerDownloader, ArchiveExtractorThread, SafeLaunchLogReader
@@ -40,8 +41,8 @@ def find_executables(dir_path: str) -> list[str]:
                 rel_path = os.path.relpath(full_path, start=dir_path)
                 exes.append(rel_path)
                 
-    # Sort executables: .exe first, then .sh, then shortest relative path
-    exes.sort(key=lambda x: (not x.lower().endswith('.exe'), not x.lower().endswith('.sh'), len(x), x))
+    # Prefer the actual game binary over installers and redistributables.
+    exes.sort(key=executable_sort_key)
     return exes
 
 
@@ -131,8 +132,15 @@ class AddGameDialog(QDialog):
         # Executable
         self.exe_combo = QComboBox()
         self.exe_combo.setEditable(True)
+        self._exe_user_edited = False
         self.exe_combo.setPlaceholderText("e.g., game.exe, bin/game.exe, start.sh")
         self.exe_combo.setMinimumHeight(36)
+        # An editable combo keeps the previously selected item's userData
+        # after the user types a different executable.  Clear the selection
+        # on manual edits so get_values() cannot silently save the stale path.
+        self.exe_combo.lineEdit().textEdited.connect(
+            self._on_executable_edited
+        )
         
         exe_browse_btn = QPushButton(" Browse...")
         exe_browse_btn.setIcon(get_app_icon("sandbox"))
@@ -324,10 +332,18 @@ class AddGameDialog(QDialog):
         if path:
             if game_path and path.startswith(game_path):
                 rel = os.path.relpath(path, start=game_path)
+                self._exe_user_edited = True
+                self.exe_combo.setCurrentIndex(-1)
                 self.exe_combo.setEditText(rel)
             else:
                 filename = os.path.basename(path)
+                self._exe_user_edited = True
+                self.exe_combo.setCurrentIndex(-1)
                 self.exe_combo.setEditText(filename)
+
+    def _on_executable_edited(self, _text: str):
+        self._exe_user_edited = True
+        self.exe_combo.setCurrentIndex(-1)
     
     def _fetch_banner(self):
         game_name = self.name_input.text().strip()
@@ -449,11 +465,23 @@ class AddGameDialog(QDialog):
     
     def get_values(self):
         """Extract entered form values cleanly."""
-        mode = self.mode_combo.currentData() or self.mode_combo.currentText()
+        mode = self.mode_combo.currentData()
+        if mode not in ("umu", "umu_net", "wine", "linux"):
+            mode = {
+                "UMU – Offline": "umu",
+                "UMU – Network Enabled": "umu_net",
+                "Wine – Legacy": "wine",
+                "Native Linux": "linux",
+            }.get(self.mode_combo.currentText().strip(), "umu")
+        executable = (
+            self.exe_combo.currentText()
+            if self._exe_user_edited or self.exe_combo.currentIndex() < 0
+            else self.exe_combo.currentData()
+        )
         return (
             self.name_input.text().strip(),
             self.path_input.text().strip(),
-            (self.exe_combo.currentData() or self.exe_combo.currentText()).strip(),
+            (executable or "").strip(),
             mode,
             self.banner_path
         )
@@ -488,8 +516,20 @@ class EditGameDialog(AddGameDialog):
         if path and os.path.exists(path):
             self._scan_and_populate_exes(path)
             
-        if exe:
-            self.exe_combo.setEditText(exe)
+        # The database value is the user's current setting.  The sidecar file
+        # is only a compatibility export; using it here could resurrect an
+        # older auto-detected installer and overwrite a newer database value.
+        effective_exe = exe
+        if effective_exe:
+            # Select the existing item by its userData when possible.  Using
+            # setEditText() alone leaves currentData() pointing at the first
+            # auto-detected executable (often Redist/DXWebSetup.exe).
+            exe_idx = self.exe_combo.findData(effective_exe)
+            if exe_idx >= 0:
+                self.exe_combo.setCurrentIndex(exe_idx)
+            else:
+                self.exe_combo.setCurrentIndex(-1)
+                self.exe_combo.setEditText(effective_exe)
             
         mode_idx = self.mode_combo.findData(mode)
         if mode_idx < 0:

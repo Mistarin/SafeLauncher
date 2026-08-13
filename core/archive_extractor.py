@@ -7,6 +7,20 @@ from core.host_process import host_process_env
 DEFAULT_SANDBOX_DIR = os.path.expanduser("~/Games/Sandbox")
 CONFIG_FILE = ".sandbox-config"
 
+
+def executable_sort_key(relative_path: str) -> tuple:
+    """Rank likely game binaries ahead of installers and helper programs."""
+    lower = relative_path.lower().replace("\\", "/")
+    name = os.path.basename(lower)
+    excluded_terms = (
+        "redist/", "redistributable", "directx", "dxwebsetup",
+        "vcredist", "physx", "crashhandler", "crashsender",
+        "uninstall", "setup.exe",
+    )
+    penalty = 1 if any(term in lower or term in name for term in excluded_terms) else 0
+    extension_penalty = 0 if name.endswith(".exe") else 1
+    return (penalty, extension_penalty, len(relative_path.split(os.sep)), len(relative_path), lower)
+
 def ensure_sandbox_dir(path: str = DEFAULT_SANDBOX_DIR) -> str:
     """Ensure base sandbox directory exists and setup ignore files for media crawlers."""
     os.makedirs(path, exist_ok=True)
@@ -122,6 +136,11 @@ def find_executables(game_dir: str) -> List[str]:
         return exes
 
     for root, _, files in os.walk(game_dir):
+        # A Wine prefix contains hundreds of helper .exe files.  They are
+        # never valid game launch candidates and can otherwise outrank the
+        # real binary during auto-detection.
+        if "prefix" in root.split(os.sep):
+            continue
         for f in files:
             ext = os.path.splitext(f)[1].lower()
             if ext in [".exe", ".bat", ".sh"]:
@@ -129,7 +148,7 @@ def find_executables(game_dir: str) -> List[str]:
                 rel_path = os.path.relpath(full_path, start=game_dir)
                 exes.append(rel_path)
 
-    exes.sort()
+    exes.sort(key=executable_sort_key)
     return exes
 
 def scan_sandbox_games(sandbox_dir: str = DEFAULT_SANDBOX_DIR) -> List[Dict]:

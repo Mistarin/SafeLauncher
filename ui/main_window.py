@@ -1458,7 +1458,12 @@ class MainWindow(QMainWindow):
         dialog.path_input.setText(dest_dir)
         dialog._scan_and_populate_exes(dest_dir)
         if default_exe:
-            dialog.exe_combo.setEditText(default_exe)
+            default_idx = dialog.exe_combo.findData(default_exe)
+            if default_idx >= 0:
+                dialog.exe_combo.setCurrentIndex(default_idx)
+            else:
+                dialog.exe_combo.setCurrentIndex(-1)
+                dialog.exe_combo.setEditText(default_exe)
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name, path, exe, mode, banner_path = dialog.get_values()
@@ -2456,8 +2461,16 @@ class MainWindow(QMainWindow):
 
             game_id = game[0]
             path = os.path.abspath(os.path.expanduser(path))
+            if mode not in ("umu", "umu_net", "wine", "linux"):
+                logger.warning(f"Invalid runner mode '{mode}' for game {game_id}; keeping existing mode.")
+                mode = game[4] if game[4] in ("umu", "umu_net", "wine", "linux") else "umu"
             save_sandbox_config(path, exe)
             self.db.update_game(game_id, name, path, exe, mode, banner_path)
+            # Keep this explicit as well as part of update_game(): it makes
+            # mode persistence robust for databases migrated from older
+            # schemas and provides a single-mode update path for diagnostics.
+            self.db.update_game_mode(game_id, mode)
+            logger.info(f"Saved game settings for {game_id}: executable='{exe}', mode='{mode}'")
             self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
             self._refresh_library()
             self._show_toast(f"✓ Updated settings for '{name}'.")

@@ -109,10 +109,15 @@ class FirejailSandboxRunner(ISandboxRunner):
             working_dir = game_path
             exe_filename = executable
 
-        # An empty setting is intentional: let UMU use its system/default
-        # Proton resolution. Do not silently replace that choice with the
-        # first GE-Proton directory found under ~/.local/share/umu.
+        # If the user has not selected a Proton tool explicitly, reuse UMU's
+        # installed runtime when available. Leaving this implicit makes UMU
+        # download and unpack Proton again inside every sandbox launch.
         active_proton = self.proton_path
+        if not active_proton and mode in ("umu", "umu_net"):
+            cached_umu = os.path.join(umu_share, "compatibilitytools", "UMU-Latest")
+            if os.path.isfile(os.path.join(cached_umu, "toolmanifest.vdf")):
+                active_proton = cached_umu
+                logger.info(f"Reusing cached UMU Proton runtime: {active_proton}")
         if active_proton and not os.path.exists(os.path.join(active_proton, "toolmanifest.vdf")):
             logger.warning(f"Configured Proton path '{active_proton}' missing toolmanifest.vdf. Falling back to system/UMU default.")
             active_proton = ""
@@ -140,6 +145,10 @@ class FirejailSandboxRunner(ISandboxRunner):
         # the actual Proton game to exit immediately. Keep --nodbus for the
         # direct Wine/Linux modes where it is safe to do so.
         security_flags = f"{common_security_flags} --nodbus"
+        # Firejail's generic profile includes noinput/novideo. Those are
+        # appropriate for ordinary desktop tools but can prevent Unity and
+        # other game runtimes from initializing their window/input backend.
+        game_compat_flags = "--ignore=noinput --ignore=novideo"
 
         if mode in ("umu", "umu_net"):
             runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
@@ -159,7 +168,7 @@ class FirejailSandboxRunner(ISandboxRunner):
                 cmd = (
                     f"cd {q_work_dir} && exec firejail "
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
-                    f"{net_flag}{common_security_flags} "
+                    f"{net_flag}{common_security_flags} {game_compat_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
                     f"{proton_whitelist}{proton_env}{game_id_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
