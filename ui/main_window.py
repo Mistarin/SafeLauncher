@@ -1565,6 +1565,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_library(self):
         """Clear and reload game banners into dynamic responsive grid based on search, status filter, and sorting."""
+        selected_game_id = self.selected_game[0] if self.selected_game else None
         # Explicitly hide and destroy old child widgets
         for old_w in list(self.banner_widgets.values()):
             old_w.hide()
@@ -1574,6 +1575,11 @@ class MainWindow(QMainWindow):
         
         self.games = self.db.get_all_games()
         self.games_by_id = {game[0]: game for game in self.games}
+        # Replace the cached tuple after every database refresh.  Keeping the
+        # old tuple here made saved executable/runner changes appear to fail
+        # until the application was restarted.
+        if selected_game_id is not None:
+            self.selected_game = self.games_by_id.get(selected_game_id)
         self.library_selection.replace(self.library_selection.ids.intersection(self.games_by_id))
         self.stat_label.setText(f"{len(self.games)} Game(s) Total")
 
