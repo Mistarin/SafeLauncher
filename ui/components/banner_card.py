@@ -1,5 +1,5 @@
 import os
-from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter
 
@@ -11,6 +11,7 @@ class GameBannerWidget(QFrame):
     clicked = pyqtSignal(int)
     doubleClicked = pyqtSignal(int)
     rightClicked = pyqtSignal(int, QPoint)
+    favoriteClicked = pyqtSignal(int)
 
     def __init__(self, game_id: int, name: str, banner_path: str = None, playtime_seconds: int = 0, parent=None):
         super().__init__(parent)
@@ -46,6 +47,32 @@ class GameBannerWidget(QFrame):
         self.image_label.setFixedSize(QSize(self.card_width, self.card_height))
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.image_label)
+
+        # Favorite belongs to the library card itself. Keep it as a real
+        # button instead of painting a non-interactive star into the artwork.
+        self.favorite_button = QPushButton(self)
+        self.favorite_button.setFixedSize(30, 30)
+        self.favorite_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.favorite_button.setCheckable(True)
+        self.favorite_button.setIconSize(QSize(17, 17))
+        self.favorite_button.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #d4d4d8;
+                border: none;
+                border-radius: 8px;
+                padding: 0;
+            }
+            QPushButton:hover { background: transparent; color: #ffffff; }
+            QPushButton:checked {
+                background: transparent;
+                color: #facc15;
+                border: none;
+            }
+        """)
+        self.favorite_button.clicked.connect(lambda: self.favoriteClicked.emit(self.game_id))
+        self.favorite_button.hide()
+        self._position_favorite_button()
         
         # Game name label using clean sans-serif typography
         self.name_label = QLabel(name)
@@ -85,6 +112,13 @@ class GameBannerWidget(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.game_id)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # A child can be re-shown when its parent card is shown. Re-apply the
+        # hover-only state after the card enters the widget hierarchy.
+        if not self.underMouse():
+            self.favorite_button.hide()
+
     def mouseDoubleClickEvent(self, event):
         super().mouseDoubleClickEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
@@ -92,6 +126,8 @@ class GameBannerWidget(QFrame):
             
     def enterEvent(self, event):
         super().enterEvent(event)
+        self.favorite_button.show()
+        self.favorite_button.raise_()
         if not self.is_missing:
             self.anim.stop()
             self.anim.setStartValue(self._hover_progress)
@@ -100,6 +136,7 @@ class GameBannerWidget(QFrame):
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
+        self.favorite_button.hide()
         if not self.is_missing:
             self.anim.stop()
             self.anim.setStartValue(self._hover_progress)
@@ -150,30 +187,20 @@ class GameBannerWidget(QFrame):
 
     def set_favorite(self, is_favorite: bool):
         self.is_favorite = is_favorite
+        self.favorite_button.setChecked(is_favorite)
+        icon = get_icon("ph.star-fill" if is_favorite else "ph.star", color="#facc15" if is_favorite else "#d4d4d8")
+        self.favorite_button.setIcon(icon)
+        self.favorite_button.setText("" if not icon.isNull() else "★")
+        self.favorite_button.setToolTip("Remove from Favorites" if is_favorite else "Add to Favorites")
         self.render_frame(self._hover_progress)
+
+    def _position_favorite_button(self):
+        self.favorite_button.move(self.card_width - self.favorite_button.width() - 8, 8)
+        self.favorite_button.raise_()
 
     def set_update_available(self, is_available: bool):
         self.is_update_available = is_available
         self.render_frame(self._hover_progress)
-
-    def _overlay_favorite_badge(self, pixmap: QPixmap) -> QPixmap:
-        """Overlay gold star badge in top-right corner of card if game is favorited."""
-        if not self.is_favorite:
-            return pixmap
-        res = QPixmap(pixmap)
-        painter = QPainter(res)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        bx, by = res.width() - 32, 8
-        painter.setBrush(QColor(18, 18, 18, 220))
-        painter.setPen(QColor(234, 179, 8, 220))
-        painter.drawEllipse(bx, by, 24, 24)
-
-        painter.setPen(QColor(234, 179, 8))
-        painter.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        painter.drawText(bx, by, 24, 24, Qt.AlignmentFlag.AlignCenter, "★")
-        painter.end()
-        return res
 
     def _overlay_update_badge(self, pixmap: QPixmap) -> QPixmap:
         """Overlay green '🟢 Update' badge in top-left corner of card if update is available."""
@@ -200,6 +227,7 @@ class GameBannerWidget(QFrame):
         self.card_height = int(width * 1.5)
         self.setFixedSize(QSize(self.card_width, self.card_height + 55))
         self.image_label.setFixedSize(QSize(self.card_width, self.card_height))
+        self._position_favorite_button()
         self.render_frame(self._hover_progress)
 
     def render_frame(self, progress: float):
@@ -227,7 +255,7 @@ class GameBannerWidget(QFrame):
                     painter.fillRect(greyed.rect(), QColor(20, 20, 20, 175))
                     painter.end()
                     
-                    self.image_label.setPixmap(self._overlay_favorite_badge(greyed))
+                    self.image_label.setPixmap(greyed)
                     self.image_label.setText("")
                     return
             
@@ -265,7 +293,7 @@ class GameBannerWidget(QFrame):
                     p.end()
                     cropped = darkened
 
-                self.image_label.setPixmap(self._overlay_update_badge(self._overlay_favorite_badge(cropped)))
+                self.image_label.setPixmap(self._overlay_update_badge(cropped))
                 self.image_label.setText("")
                 return
 
@@ -277,4 +305,4 @@ class GameBannerWidget(QFrame):
         painter.setFont(QFont("Monospace", 12, QFont.Weight.Bold))
         painter.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, self.name)
         painter.end()
-        self.image_label.setPixmap(self._overlay_update_badge(self._overlay_favorite_badge(placeholder)))
+        self.image_label.setPixmap(self._overlay_update_badge(placeholder))

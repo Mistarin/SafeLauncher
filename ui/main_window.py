@@ -729,12 +729,14 @@ class MainWindow(QMainWindow):
         self.detail_cover.setStyleSheet("border: 1px solid #2b313c; border-radius: 10px; background: #171a20;")
         
         cover_row = QHBoxLayout()
+        cover_row.setContentsMargins(0, 0, 0, 0)
+        cover_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cover_row.addWidget(self.detail_cover)
         detail_layout.addLayout(cover_row)
 
-        # Selected Game Title Header Row (Title + Star Favorite Icon)
+        # Selected Game Title Header Row
         title_row = QHBoxLayout()
-        title_row.setSpacing(8)
+        title_row.setContentsMargins(0, 0, 0, 0)
 
         self.detail_title = QLabel("Select a Game")
         self.detail_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
@@ -743,29 +745,6 @@ class MainWindow(QMainWindow):
         self.detail_title.setStyleSheet("color: #ffffff; background: transparent;")
         title_row.addWidget(self.detail_title, 1)
 
-        self.btn_detail_fav = QPushButton()
-        self.btn_detail_fav.setFixedSize(QSize(32, 32))
-        self.btn_detail_fav.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_detail_fav.setCheckable(True)
-        self.btn_detail_fav.setToolTip("Add to Favorites")
-        self.btn_detail_fav.setIcon(get_icon("ph.star", color="#c9ccd2"))
-        self.btn_detail_fav.setIconSize(QSize(18, 18))
-        self.btn_detail_fav.setStyleSheet("""
-            QPushButton {
-                background: #171a20;
-                border: none;
-                border-radius: 8px;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: #30343c;
-            }
-            QPushButton:checked {
-                background: #332b1b;
-            }
-        """)
-        self.btn_detail_fav.clicked.connect(self._on_toggle_favorite)
-        title_row.addWidget(self.btn_detail_fav)
         detail_layout.addLayout(title_row)
 
         # Steam Tags Badge Container (Grey rounded boxes)
@@ -1206,12 +1185,16 @@ class MainWindow(QMainWindow):
         if self.isMaximized():
             self.showNormal()
             if hasattr(self, 'title_bar'):
-                self.title_bar.btn_max.setText("[]")
+                restore_icon = get_app_icon("maximize", color="#f4f4f5")
+                self.title_bar.btn_max.setIcon(restore_icon)
+                self.title_bar.btn_max.setText("[]" if restore_icon.isNull() else "")
                 self.title_bar.btn_max.setToolTip("Maximize window")
         else:
             self.showMaximized()
             if hasattr(self, 'title_bar'):
-                self.title_bar.btn_max.setText("=")
+                restore_icon = get_app_icon("restore", color="#f4f4f5")
+                self.title_bar.btn_max.setIcon(restore_icon)
+                self.title_bar.btn_max.setText("=" if restore_icon.isNull() else "")
                 self.title_bar.btn_max.setToolTip("Restore window")
 
     def _open_settings(self):
@@ -1551,6 +1534,12 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         self._select_game_by_id(game_id)
 
+    def _on_card_favorite_clicked(self, game_id: int):
+        """Toggle a game's favorite directly from its library card."""
+        new_fav = self.db.toggle_favorite(game_id)
+        self._show_toast("⭐ Added to Favorites!" if new_fav else "Removed from Favorites")
+        self._refresh_library()
+
     def _refresh_library(self):
         """Clear and reload game banners into dynamic responsive grid based on search, status filter, and sorting."""
         # Explicitly hide and destroy old child widgets
@@ -1635,6 +1624,7 @@ class MainWindow(QMainWindow):
             widget.set_selected(game_id in self.library_selection.ids)
             widget.clicked.connect(self._select_game_by_id)
             widget.doubleClicked.connect(self._on_double_click_game)
+            widget.favoriteClicked.connect(self._on_card_favorite_clicked)
             
             widgets.append(widget)
             self.banner_widgets[game_id] = widget
@@ -2022,10 +2012,6 @@ class MainWindow(QMainWindow):
             and os.path.splitext(filename)[1].lower() in image_extensions
         ) if os.path.exists(shots_dir) else 0
         self.btn_detail_screenshots.setText(f" Screenshots ({count})")
-
-        self.btn_detail_fav.setChecked(is_fav)
-        self.btn_detail_fav.setIcon(get_icon("ph.star-fill", color="#d9a441") if is_fav else get_icon("ph.star", color="#c9ccd2"))
-        self.btn_detail_fav.setToolTip("Remove from Favorites" if is_fav else "Add to Favorites")
 
         self.btn_detail_launch.setEnabled(True)
         self.btn_detail_launch.setVisible(True)

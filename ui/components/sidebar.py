@@ -259,9 +259,9 @@ class CustomTitleBar(QFrame):
 
         layout.addStretch()
 
-        # Use visible button surfaces and ASCII fallbacks. The title bar is
-        # frameless, so transparent glyph-only controls can vanish on systems
-        # whose active font does not provide the decorative Unicode symbols.
+        # Keep the title-bar controls visible while using the app's vector
+        # icons. Text remains as a fallback when the optional icon provider is
+        # unavailable in a packaged build.
         control_style = """
             QPushButton {
                 background: #20242c;
@@ -269,16 +269,18 @@ class CustomTitleBar(QFrame):
                 border: 1px solid #3b414c;
                 border-radius: 5px;
                 padding: 0;
-                font-family: Sans Serif;
-                font-size: 15px;
                 font-weight: bold;
             }
             QPushButton:hover { background: #343b47; border-color: #626b7a; }
             QPushButton#windowClose:hover { background: #dc2626; border-color: #f87171; }
         """
 
-        self.btn_min = QPushButton("-")
+        self.btn_min = QPushButton()
         self.btn_min.setObjectName("windowMinimize")
+        self.btn_min.setIcon(get_app_icon("minimize", color="#f4f4f5"))
+        self.btn_min.setIconSize(QSize(14, 14))
+        if self.btn_min.icon().isNull():
+            self.btn_min.setText("-")
         self.btn_min.setFixedSize(32, 32)
         self.btn_min.setToolTip("Minimize window")
         self.btn_min.setAccessibleName("Minimize window")
@@ -286,8 +288,12 @@ class CustomTitleBar(QFrame):
         self.btn_min.clicked.connect(self.main_window.showMinimized)
         layout.addWidget(self.btn_min)
 
-        self.btn_max = QPushButton("[]")
+        self.btn_max = QPushButton()
         self.btn_max.setObjectName("windowMaximize")
+        self.btn_max.setIcon(get_app_icon("maximize", color="#f4f4f5"))
+        self.btn_max.setIconSize(QSize(14, 14))
+        if self.btn_max.icon().isNull():
+            self.btn_max.setText("[]")
         self.btn_max.setFixedSize(32, 32)
         self.btn_max.setToolTip("Maximize window")
         self.btn_max.setAccessibleName("Maximize window")
@@ -295,8 +301,12 @@ class CustomTitleBar(QFrame):
         self.btn_max.clicked.connect(self.main_window._toggle_maximize)
         layout.addWidget(self.btn_max)
 
-        self.btn_close = QPushButton("X")
+        self.btn_close = QPushButton()
         self.btn_close.setObjectName("windowClose")
+        self.btn_close.setIcon(get_app_icon("close", color="#f4f4f5"))
+        self.btn_close.setIconSize(QSize(14, 14))
+        if self.btn_close.icon().isNull():
+            self.btn_close.setText("X")
         self.btn_close.setFixedSize(32, 32)
         self.btn_close.setToolTip("Close window")
         self.btn_close.setAccessibleName("Close window")
