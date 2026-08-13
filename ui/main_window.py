@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QApplication, QSystemTrayIcon, QCheckBox, QGraphicsOpacityEffect, QPlainTextEdit, QProgressBar,
     QGraphicsDropShadowEffect, QStackedWidget, QSlider, QSplitter, QDialogButtonBox, QInputDialog
 )
-from PyQt6.QtCore import Qt, QSize, QPoint, QThread, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QEvent, QAbstractAnimation, QUrl, QSettings
+from PyQt6.QtCore import Qt, QSize, QPoint, QThread, pyqtSignal, QVariantAnimation, QPropertyAnimation, QEasingCurve, QTimer, QEvent, QAbstractAnimation, QUrl, QSettings, QParallelAnimationGroup
 from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QPen, QRadialGradient, QLinearGradient, QMovie, QDesktopServices
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.steamgriddb_client import SteamGridDBClient
@@ -431,6 +431,13 @@ class ResponsiveGridContainer(QWidget):
         self.card_width = card_width
         self.spacing = spacing
         self.widgets = []
+        self._last_columns = None
+        self._reflow_animating = False
+        self._reflow_cards = []
+        self._reflow_debounce = QTimer(self)
+        self._reflow_debounce.setSingleShot(True)
+        self._reflow_debounce.setInterval(110)
+        self._reflow_debounce.timeout.connect(self.reflow)
         self.grid_layout = QGridLayout(self)
         self.grid_layout.setContentsMargins(15, 15, 15, 15)
         self.grid_layout.setSpacing(spacing)
@@ -442,7 +449,7 @@ class ResponsiveGridContainer(QWidget):
         for w in self.widgets:
             if hasattr(w, 'set_card_size'):
                 w.set_card_size(new_width)
-        self.reflow()
+        self._schedule_reflow()
 
     def set_banner_widgets(self, widgets: list):
         # Hide and destroy previous widgets that are no longer active
@@ -456,23 +463,78 @@ class ResponsiveGridContainer(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.reflow()
+        self._schedule_reflow()
+
+    def _schedule_reflow(self):
+        """Coalesce rapid splitter/slider geometry updates into one reflow."""
+        self._reflow_debounce.start()
 
     def reflow(self):
+        # Let the current slide finish; the final resize is reapplied afterward.
+        if self._reflow_animating:
+            return
+        if not self.widgets:
+            self._last_columns = None
+            return
+
+        available_width = max(1, self.width() - 20)
+        cols = max(1, available_width // (self.card_width + self.spacing))
+
+        # Only animate the meaningful layout change: cards crossing a column boundary.
+        if self._last_columns is not None and cols != self._last_columns and not self._reflow_animating:
+            self._animate_reflow(cols)
+            return
+
+        self._last_columns = cols
+        self._apply_reflow(cols)
+
+    def _apply_reflow(self, cols: int):
+        """Apply the grid positions without triggering another transition."""
         # Clear layout items without double-destroying child widgets
         while self.grid_layout.count() > 0:
             item = self.grid_layout.takeAt(0)
-        
-        if not self.widgets:
-            return
-            
-        available_width = max(1, self.width() - 20)
-        cols = max(1, available_width // (self.card_width + self.spacing))
-        
+
         for index, widget in enumerate(self.widgets):
             row = index // cols
             col = index % cols
             self.grid_layout.addWidget(widget, row, col)
+
+    def _animate_reflow(self, cols: int):
+        """Slide only cards whose row/column position changes into place."""
+        self._reflow_animating = True
+        self._pending_columns = cols
+        self._reflow_cards = [
+            widget for index, widget in enumerate(self.widgets)
+            if (index // self._last_columns, index % self._last_columns)
+            != (index // cols, index % cols)
+        ]
+        old_positions = {widget: widget.pos() for widget in self._reflow_cards}
+        # Prevent QGridLayout from painting the intermediate destination frame.
+        self.setUpdatesEnabled(False)
+        self._apply_reflow(self._pending_columns)
+        self._last_columns = self._pending_columns
+        self.grid_layout.activate()
+
+        self._reflow_slide = QParallelAnimationGroup(self)
+        for widget in self._reflow_cards:
+            new_position = widget.pos()
+            widget.move(old_positions[widget])
+            animation = QPropertyAnimation(widget, b"pos", self._reflow_slide)
+            animation.setDuration(520)
+            animation.setStartValue(old_positions[widget])
+            animation.setEndValue(new_position)
+            animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+            self._reflow_slide.addAnimation(animation)
+        self.setUpdatesEnabled(True)
+        self.update()
+        self._reflow_slide.finished.connect(self._finish_reflow_animation)
+        self._reflow_slide.start()
+
+    def _finish_reflow_animation(self):
+        self._apply_reflow(self._last_columns)
+        self._reflow_cards = []
+        self._reflow_animating = False
+        self.reflow()
 
 class DialogTitleBar(QFrame):
     """Custom top drag bar for modal dialogs with title and close button."""
