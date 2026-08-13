@@ -3082,36 +3082,29 @@ class LeftSidebarWidget(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 18, 14, 18)
+        layout.setContentsMargins(14, 10, 14, 18)
         layout.setSpacing(5)
 
-        # Brand Logo Header
+        # Sidebar controls
         brand_row = QHBoxLayout()
-        if os.path.exists(LOGO_PATH):
-            logo_label = QLabel()
-            logo_pix = QPixmap(LOGO_PATH).scaled(24, 24, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            logo_label.setPixmap(logo_pix)
-            brand_row.addWidget(logo_label)
-        
-        brand_title = QLabel("SafeLauncher")
-        brand_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        brand_title.setStyleSheet("color: #ffffff; background: transparent;")
-        brand_row.addWidget(brand_title)
         brand_row.addStretch()
 
         self.btn_collapse = QPushButton()
-        self.btn_collapse.setIcon(get_icon("ph.caret-double-left-bold", color="#a1a1aa"))
-        self.btn_collapse.setFixedSize(32, 32)
+        self.btn_collapse.setText("Hide panel")
+        self.btn_collapse.setIcon(get_icon("ph.caret-double-left", color="#a1a1aa"))
+        self.btn_collapse.setIconSize(QSize(16, 16))
+        self.btn_collapse.setFixedSize(104, 30)
         self.btn_collapse.setToolTip("Collapse sidebar")
         self.btn_collapse.setStyleSheet("""
-            QPushButton { background: transparent; border: 1px solid transparent; border-radius: 7px; padding: 0; }
-            QPushButton:hover { background: #252b35; border-color: #344052; }
+            QPushButton { background: #08090b; color: #c9ccd2; border: none; border-radius: 8px; padding: 0 10px; font-size: 11px; font-weight: bold; }
+            QPushButton:hover { background: #17191e; color: #ffffff; }
         """)
         self.btn_collapse.clicked.connect(self.toggle_compact)
+        add_soft_shadow(self.btn_collapse, blur=16, y=3, alpha=100)
         brand_row.addWidget(self.btn_collapse)
         layout.addLayout(brand_row)
 
-        layout.addSpacing(20)
+        layout.addSpacing(5)
 
         # Navigation Header Label
         lbl_nav = QLabel("NAVIGATION")
@@ -3120,32 +3113,32 @@ class LeftSidebarWidget(QFrame):
 
         # Vertical Navigation Stack
         self.nav_library = QPushButton(" My Library")
-        self.nav_library.setIcon(get_app_icon("library"))
+        self.nav_library.setIcon(get_icon("ph.books", color="#d5d7dc"))
         self.nav_library.setCheckable(True)
         self.nav_library.setChecked(True)
         layout.addWidget(self.nav_library)
 
         self.nav_sandbox = QPushButton(" Open Sandbox")
-        self.nav_sandbox.setIcon(get_app_icon("sandbox"))
+        self.nav_sandbox.setIcon(get_icon("ph.folder-open", color="#d5d7dc"))
         layout.addWidget(self.nav_sandbox)
 
         self.nav_install_zip = QPushButton(" Install Archive")
-        self.nav_install_zip.setIcon(get_icon("ph.archive-bold"))
+        self.nav_install_zip.setIcon(get_icon("ph.archive", color="#d5d7dc"))
         self.nav_install_zip.setToolTip("Install a game from a ZIP, 7z, TAR, TAR.GZ, or TGZ archive")
         layout.addWidget(self.nav_install_zip)
 
         self.nav_sync = QPushButton(" Sync Library")
-        self.nav_sync.setIcon(get_app_icon("sync"))
+        self.nav_sync.setIcon(get_icon("ph.arrows-clockwise", color="#d5d7dc"))
         self.nav_sync.setToolTip("Sync Sandbox Library")
         layout.addWidget(self.nav_sync)
 
         self.nav_disk = QPushButton(" Disk Manager")
-        self.nav_disk.setIcon(get_app_icon("search"))
+        self.nav_disk.setIcon(get_icon("ph.magnifying-glass", color="#d5d7dc"))
         self.nav_disk.setToolTip("Inspect sandbox storage and game sizes")
         layout.addWidget(self.nav_disk)
 
         self.btn_saves = QPushButton(" Saves Manager")
-        self.btn_saves.setIcon(get_app_icon("export"))
+        self.btn_saves.setIcon(get_icon("ph.floppy-disk", color="#d5d7dc"))
         
         saves_menu = QMenu(self)
         saves_menu.setStyleSheet("""
@@ -3172,13 +3165,13 @@ class LeftSidebarWidget(QFrame):
         self.btn_saves.setMenu(saves_menu)
         layout.addWidget(self.btn_saves)
 
-        layout.addSpacing(20)
+        layout.addSpacing(14)
         lbl_tools = QLabel("PREFERENCES")
         lbl_tools.setStyleSheet("color: #52525b; font-size: 10px; font-weight: bold; padding-left: 4px; background: transparent;")
         layout.addWidget(lbl_tools)
 
         self.btn_settings = QPushButton(" Settings")
-        self.btn_settings.setIcon(get_icon("ph.gear-bold", color="#aaaaaa"))
+        self.btn_settings.setIcon(get_icon("ph.gear", color="#d5d7dc"))
         layout.addWidget(self.btn_settings)
 
         layout.addStretch()
@@ -3188,7 +3181,6 @@ class LeftSidebarWidget(QFrame):
         self.stat_label.setStyleSheet("color: #71717a; font-size: 11px; font-weight: bold; padding: 6px; background: transparent;")
         layout.addWidget(self.stat_label)
 
-        self._brand_title = brand_title
         self._section_labels = (lbl_nav, lbl_tools)
         self._navigation_buttons = (
             (self.nav_library, "My Library"),
@@ -3210,7 +3202,6 @@ class LeftSidebarWidget(QFrame):
         """Switch between the full navigation and an icon-only rail."""
         self.compact = bool(compact)
         self.setFixedWidth(72 if self.compact else 216)
-        self._brand_title.setVisible(not self.compact)
         for label in self._section_labels:
             label.setVisible(not self.compact)
         self.stat_label.setVisible(not self.compact)
@@ -3225,8 +3216,10 @@ class LeftSidebarWidget(QFrame):
                 QPushButton:checked { background: #263247; color: #ffffff; border: 1px solid #344b70; }
             """ if self.compact else "")
 
+        self.btn_collapse.setText("" if self.compact else "Hide panel")
+        self.btn_collapse.setFixedSize(26 if self.compact else 104, 26 if self.compact else 30)
         self.btn_collapse.setIcon(get_icon(
-            "ph.caret-double-right-bold" if self.compact else "ph.caret-double-left-bold",
+            "ph.caret-double-right" if self.compact else "ph.caret-double-left",
             color="#a1a1aa",
         ))
         self.btn_collapse.setToolTip("Expand sidebar" if self.compact else "Collapse sidebar")
@@ -3720,44 +3713,44 @@ class MainWindow(QMainWindow):
         """
 
         self.btn_filter_all = QPushButton("All")
-        self.btn_filter_all.setIcon(get_app_icon("library"))
+        self.btn_filter_all.setIcon(get_icon("ph.squares-four", color="#d5d7dc"))
         self.btn_filter_all.setCheckable(True)
         self.btn_filter_all.setChecked(True)
         self.btn_filter_all.setStyleSheet(filter_btn_style)
         self.btn_filter_all.clicked.connect(lambda: self._set_filter("all"))
 
         self.btn_filter_installed = QPushButton("Installed")
-        self.btn_filter_installed.setIcon(get_app_icon("sandbox"))
+        self.btn_filter_installed.setIcon(get_icon("ph.check-circle", color="#d5d7dc"))
         self.btn_filter_installed.setCheckable(True)
         self.btn_filter_installed.setStyleSheet(filter_btn_style)
         self.btn_filter_installed.clicked.connect(lambda: self._set_filter("installed"))
 
         self.btn_filter_missing = QPushButton("Missing")
-        self.btn_filter_missing.setIcon(get_icon("ph.warning-circle-bold"))
+        self.btn_filter_missing.setIcon(get_icon("ph.warning-circle", color="#d5d7dc"))
         self.btn_filter_missing.setCheckable(True)
         self.btn_filter_missing.setStyleSheet(filter_btn_style)
         self.btn_filter_missing.clicked.connect(lambda: self._set_filter("missing"))
 
         self.btn_filter_fav = QPushButton("Favorites")
-        self.btn_filter_fav.setIcon(get_icon("ph.star-fill"))
+        self.btn_filter_fav.setIcon(get_icon("ph.star", color="#d5d7dc"))
         self.btn_filter_fav.setCheckable(True)
         self.btn_filter_fav.setStyleSheet(filter_btn_style)
         self.btn_filter_fav.clicked.connect(lambda: self._set_filter("favorites"))
 
         self.btn_filter_recent = QPushButton("Recent")
-        self.btn_filter_recent.setIcon(get_icon("ph.clock-bold"))
+        self.btn_filter_recent.setIcon(get_icon("ph.clock", color="#d5d7dc"))
         self.btn_filter_recent.setCheckable(True)
         self.btn_filter_recent.setStyleSheet(filter_btn_style)
         self.btn_filter_recent.clicked.connect(lambda: self._set_filter("recent"))
 
         self.btn_filter_attention = QPushButton("Needs attention")
-        self.btn_filter_attention.setIcon(get_icon("ph.warning-bold"))
+        self.btn_filter_attention.setIcon(get_icon("ph.warning-octagon", color="#d5d7dc"))
         self.btn_filter_attention.setCheckable(True)
         self.btn_filter_attention.setStyleSheet(filter_btn_style)
         self.btn_filter_attention.clicked.connect(lambda: self._set_filter("attention"))
 
         self.btn_filter_collection = QPushButton("Collection")
-        self.btn_filter_collection.setIcon(get_icon("ph.folder-simple-bold"))
+        self.btn_filter_collection.setIcon(get_icon("ph.folder-simple", color="#d5d7dc"))
         self.btn_filter_collection.setStyleSheet(filter_btn_style)
         self.btn_filter_collection.clicked.connect(self._choose_collection_filter)
 
