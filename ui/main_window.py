@@ -3659,8 +3659,8 @@ class MainWindow(QMainWindow):
 
         # Big Launch Game Button
         detail_layout.addSpacing(8)
-        self.btn_detail_launch = QPushButton(" Launch Game")
-        self.btn_detail_launch.setIcon(get_app_icon("launch"))
+        self.btn_detail_launch = QPushButton("Launch Game")
+        self.btn_detail_launch.setIcon(get_icon("ph.play", color="#ffffff"))
         self.btn_detail_launch.setMinimumHeight(50)
         self.btn_detail_launch.setStyleSheet("""
             QPushButton {
@@ -3682,6 +3682,7 @@ class MainWindow(QMainWindow):
             }
         """)
         self.btn_detail_launch.setIconSize(QSize(20, 20))
+        self.btn_detail_launch.setMinimumWidth(200)
         add_soft_shadow(self.btn_detail_launch, blur=22, y=6, alpha=115)
         self.btn_detail_launch.clicked.connect(self._on_launch)
         detail_layout.addWidget(self.btn_detail_launch)
@@ -3940,11 +3941,11 @@ class MainWindow(QMainWindow):
         action_layout.setContentsMargins(0, 5, 0, 0)
         action_layout.setSpacing(15)
         
-        self.btn_add = QPushButton(" Add Game")
+        self.btn_add = QPushButton("Add Game")
         self.btn_add.setIcon(get_app_icon("add"))
         self.btn_add.clicked.connect(self._on_add)
         self.btn_add.setMinimumHeight(40)
-        self.btn_add.setStyleSheet("QPushButton { background: #d7d9dd; color: #17191d; font-weight: bold; border-radius: 8px; border: none; padding: 10px 20px; } QPushButton:hover { background: #ffffff; }")
+        self.btn_add.setStyleSheet("QPushButton { background: #2f8f63; color: #ffffff; font-weight: bold; border-radius: 8px; border: none; padding: 10px 20px; } QPushButton:hover { background: #3eaa77; }")
         self.btn_add.setIconSize(QSize(19, 19))
         add_soft_shadow(self.btn_add, blur=20, y=5, alpha=105)
         action_layout.addWidget(self.btn_add)
