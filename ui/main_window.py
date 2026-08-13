@@ -463,11 +463,28 @@ class ResponsiveGridContainer(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._cancel_reflow_animation()
         self._schedule_reflow()
 
     def _schedule_reflow(self):
         """Coalesce rapid splitter/slider geometry updates into one reflow."""
         self._reflow_debounce.start()
+
+    def _cancel_reflow_animation(self):
+        """Snap back to layout ownership when the grid boundary itself changes."""
+        if not self._reflow_animating:
+            return
+        for animation_name in ("_reflow_slide",):
+            animation = getattr(self, animation_name, None)
+            if animation is not None:
+                animation.stop()
+        self.grid_layout.setEnabled(True)
+        self._reflow_animating = False
+        self._reflow_cards = []
+        available_width = max(1, self.width() - 20)
+        cols = max(1, available_width // (self.card_width + self.spacing))
+        self._last_columns = cols
+        self._apply_reflow(cols)
 
     def reflow(self):
         # Let the current slide finish; the final resize is reapplied afterward.
@@ -3538,12 +3555,12 @@ class MainWindow(QMainWindow):
 
         detail_layout = QVBoxLayout(self.detail_panel)
         detail_layout.setContentsMargins(18, 18, 18, 18)
-        detail_layout.setSpacing(12)
+        detail_layout.setSpacing(9)
         detail_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Selected Game Cover Art Preview
         self.detail_cover = QLabel()
-        self.detail_cover.setFixedSize(QSize(220, 330))
+        self.detail_cover.setFixedSize(QSize(180, 270))
         self.detail_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detail_cover.setStyleSheet("border: 1px solid #2b313c; border-radius: 10px; background: #171a20;")
         
@@ -3558,6 +3575,7 @@ class MainWindow(QMainWindow):
         self.detail_title = QLabel("Select a Game")
         self.detail_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         self.detail_title.setWordWrap(True)
+        self.detail_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detail_title.setStyleSheet("color: #ffffff; background: transparent;")
         title_row.addWidget(self.detail_title, 1)
 
@@ -3566,19 +3584,20 @@ class MainWindow(QMainWindow):
         self.btn_detail_fav.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_detail_fav.setCheckable(True)
         self.btn_detail_fav.setToolTip("Add to Favorites")
-        self.btn_detail_fav.setIcon(get_icon("ph.star-bold", color="#a1a1aa"))
+        self.btn_detail_fav.setIcon(get_icon("ph.star", color="#c9ccd2"))
+        self.btn_detail_fav.setIconSize(QSize(18, 18))
         self.btn_detail_fav.setStyleSheet("""
             QPushButton {
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
+                background: #171a20;
+                border: none;
+                border-radius: 8px;
+                padding: 0;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
+                background: #30343c;
             }
             QPushButton:checked {
-                background: rgba(234, 179, 8, 0.18);
-                border: 1px solid #eab308;
+                background: #332b1b;
             }
         """)
         self.btn_detail_fav.clicked.connect(self._on_toggle_favorite)
@@ -3602,14 +3621,22 @@ class MainWindow(QMainWindow):
         # Selected Game Last Played
         self.detail_last_played = QLabel("")
         self.detail_last_played.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_last_played.setStyleSheet("color: #777777; font-size: 10px; font-weight: bold;")
+        self.detail_last_played.setStyleSheet("""
+            QLabel {
+                color: #b7bbc3;
+                background: #171a20;
+                border-radius: 8px;
+                padding: 8px 10px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+        """)
         detail_layout.addWidget(self.detail_last_played)
 
         # Selected Game Disk Size
         self.detail_disk_size = QLabel("")
         self.detail_disk_size.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_disk_size.setStyleSheet("color: #a1a1aa; font-size: 10px; font-weight: bold;")
-        detail_layout.addWidget(self.detail_disk_size)
+        self.detail_disk_size.setStyleSheet("color: #8f949e; font-size: 11px; font-weight: bold; padding: 4px 0;")
 
         # Update Available Badge & Sync Build Button
         self.detail_update_widget = QWidget()
@@ -3631,63 +3658,73 @@ class MainWindow(QMainWindow):
         detail_layout.addWidget(self.detail_update_widget)
 
         # Big Launch Game Button
+        detail_layout.addSpacing(8)
         self.btn_detail_launch = QPushButton(" Launch Game")
         self.btn_detail_launch.setIcon(get_app_icon("launch"))
-        self.btn_detail_launch.setMinimumHeight(42)
+        self.btn_detail_launch.setMinimumHeight(50)
         self.btn_detail_launch.setStyleSheet("""
             QPushButton {
-                background: #d7d9dd;
-                color: #17191d;
+                background: #2f8f63;
+                color: #ffffff;
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 14px;
                 border: none;
-                border-radius: 8px;
+                border-radius: 10px;
+                padding: 10px 14px;
             }
             QPushButton:hover {
-                background: #ffffff;
+                background: #3eaa77;
             }
             QPushButton:disabled {
                 background: #1b2029;
                 color: #52525b;
-                border-color: #272730;
+                border-color: transparent;
             }
         """)
         self.btn_detail_launch.setIconSize(QSize(20, 20))
         add_soft_shadow(self.btn_detail_launch, blur=22, y=6, alpha=115)
         self.btn_detail_launch.clicked.connect(self._on_launch)
         detail_layout.addWidget(self.btn_detail_launch)
+        detail_layout.addSpacing(8)
 
         # Action Buttons
         self.btn_detail_edit = QPushButton(" Edit Settings")
         self.btn_detail_edit.setIcon(get_app_icon("edit"))
+        self.btn_detail_edit.setMinimumHeight(32)
         self.btn_detail_edit.clicked.connect(self._on_edit)
         detail_layout.addWidget(self.btn_detail_edit)
 
         self.btn_detail_screenshots = QPushButton(" Screenshots")
         self.btn_detail_screenshots.setIcon(get_icon("ph.camera-bold"))
+        self.btn_detail_screenshots.setMinimumHeight(32)
         self.btn_detail_screenshots.clicked.connect(self._open_screenshot_gallery)
         detail_layout.addWidget(self.btn_detail_screenshots)
 
         self.btn_detail_export = QPushButton(" Export Save")
         self.btn_detail_export.setIcon(get_app_icon("export"))
+        self.btn_detail_export.setMinimumHeight(32)
         self.btn_detail_export.clicked.connect(self._on_export)
         detail_layout.addWidget(self.btn_detail_export)
 
         self.btn_detail_import = QPushButton(" Import Save")
         self.btn_detail_import.setIcon(get_app_icon("import"))
+        self.btn_detail_import.setMinimumHeight(32)
         self.btn_detail_import.clicked.connect(self._on_import)
         detail_layout.addWidget(self.btn_detail_import)
 
         self.btn_detail_prefix = QPushButton(" Prefix Maintenance")
+        self.btn_detail_prefix.setMinimumHeight(32)
         self.btn_detail_prefix.clicked.connect(self._open_prefix_maintenance)
         detail_layout.addWidget(self.btn_detail_prefix)
 
         self.btn_detail_runtime = QPushButton(" Set per-game Proton")
+        self.btn_detail_runtime.setMinimumHeight(32)
         self.btn_detail_runtime.clicked.connect(self._set_game_runtime)
         detail_layout.addWidget(self.btn_detail_runtime)
 
         self.btn_detail_remove = QPushButton(" Remove Game")
         self.btn_detail_remove.setIcon(get_app_icon("remove"))
+        self.btn_detail_remove.setMinimumHeight(32)
         self.btn_detail_remove.setStyleSheet("""
             QPushButton {
                 background: #2a1212;
@@ -3708,6 +3745,7 @@ class MainWindow(QMainWindow):
         detail_layout.addWidget(self.btn_detail_remove)
 
         detail_layout.addStretch()
+        detail_layout.addWidget(self.detail_disk_size)
 
         # -------------------------------------------------------------
         # Center Main Content Panel (Game Library Grid)
@@ -3853,7 +3891,30 @@ class MainWindow(QMainWindow):
         """)
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         header_layout.addWidget(self.sort_combo)
+
+        self.btn_reveal_detail = QPushButton(" Details")
+        self.btn_reveal_detail.setIcon(get_icon("ph.caret-double-left", color="#c9ccd2"))
+        self.btn_reveal_detail.setIconSize(QSize(16, 16))
+        self.btn_reveal_detail.setToolTip("Show game details panel")
+        self.btn_reveal_detail.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_reveal_detail.setStyleSheet("""
+            QPushButton {
+                background: #08090b;
+                color: #c9ccd2;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background: #17191e; color: #ffffff; }
+        """)
+        self.btn_reveal_detail.clicked.connect(lambda: self._animate_left_panel(True))
+        add_soft_shadow(self.btn_reveal_detail, blur=16, y=3, alpha=90)
+        self.btn_reveal_detail.setParent(right_panel)
+        self.btn_reveal_detail.raise_()
         right_layout.addLayout(header_layout)
+        self._reposition_reveal_button()
         right_layout.addWidget(filter_container)
 
         # Games Grid in Scroll Area
@@ -4500,6 +4561,21 @@ class MainWindow(QMainWindow):
         sizes = self.splitter.sizes()
         if len(sizes) > 1 and sizes[1] > 150:
             self.settings.setValue("right_inspector_width", sizes[1])
+        self._reposition_reveal_button()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reposition_reveal_button()
+
+    def _reposition_reveal_button(self):
+        """Keep the hidden-inspector affordance floating over the library edge."""
+        button = getattr(self, "btn_reveal_detail", None)
+        if button is None or not hasattr(button, "parentWidget") or button.parentWidget() is None:
+            return
+        host = button.parentWidget()
+        button.adjustSize()
+        button.move(max(12, host.width() - button.width() - 16), 14)
+        button.raise_()
 
     def _on_panel_anim_step(self, val: float):
         saved_w = self.settings.value("right_inspector_width", 300, type=int)
@@ -4518,14 +4594,17 @@ class MainWindow(QMainWindow):
     def _on_panel_anim_finished(self):
         if not self._panel_expanding:
             self.detail_panel.setVisible(False)
+            self.btn_reveal_detail.setVisible(True)
         else:
             self.detail_panel.setContentsMargins(18, 18, 18, 18)
+            self.btn_reveal_detail.setVisible(False)
 
     def _animate_left_panel(self, expand: bool):
         """Smoothly swipe and fade in/out the right detail inspector panel from the right edge."""
         if expand:
             if not self.detail_panel.isVisible() or self.panel_anim.state() == QAbstractAnimation.State.Running:
                 self._panel_expanding = True
+                self.btn_reveal_detail.setVisible(False)
                 self.detail_panel.setVisible(True)
                 self.panel_anim.stop()
                 self.panel_anim.setDuration(280)
@@ -4774,7 +4853,7 @@ class MainWindow(QMainWindow):
         self.btn_detail_screenshots.setText(f" Screenshots ({count})")
 
         self.btn_detail_fav.setChecked(is_fav)
-        self.btn_detail_fav.setIcon(get_icon("ph.star-fill", color="#facc15") if is_fav else get_icon("ph.star-bold", color="#a1a1aa"))
+        self.btn_detail_fav.setIcon(get_icon("ph.star-fill", color="#d9a441") if is_fav else get_icon("ph.star", color="#c9ccd2"))
         self.btn_detail_fav.setToolTip("Remove from Favorites" if is_fav else "Add to Favorites")
 
         self.btn_detail_launch.setEnabled(True)
