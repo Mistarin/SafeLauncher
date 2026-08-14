@@ -145,6 +145,34 @@ class FirejailSandboxRunner(ISandboxRunner):
         if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:
             game_id_export = f"export GAMEID=umu-{int(steam_id)} && "
 
+        # Keep the complete runtime state in the same persistent launch log.
+        # These diagnostics are intentionally verbose while investigating
+        # compatibility problems and include child-process/syscall evidence.
+        proton_log_dir = shlex.quote(os.path.realpath(game_path))
+        debug_exports = (
+            f"export PROTON_LOG=1 VKD3D_DEBUG=warn "
+            f"WINEDEBUG=+seh,+loaddll PROTON_LOG_DIR={proton_log_dir} && "
+        )
+        diagnostic_header = (
+            "echo '===== SAFELAUNCHER DIAGNOSTICS ====='; "
+            "echo '--- complete launch environment ---'; env | sort; "
+            "echo '--- initial process tree ---'; ps -ef --forest; "
+            f"echo '--- runtime={shlex.quote(active_proton or 'system/default')} "
+            f"prefix={prefix_path} game={q_path} ---'; "
+        )
+        strace_path = shutil.which("strace")
+        if strace_path:
+            trace_prefix = (
+                f"{shlex.quote(strace_path)} -f -tt -yy -s 256 "
+                "-o /proc/self/fd/1 "
+            )
+            logger.info("strace found; recursive syscall tracing enabled for game launch")
+        else:
+            trace_prefix = ""
+            logger.warning("strace is not installed; syscall tracing unavailable for game launch")
+        firejail_prefix = "" if trace_prefix else "exec "
+        firejail_audit = "--tracelog "
+
         # Build Firejail security hardening options
         blacklist_flags = " ".join(f"--blacklist={shlex.quote(os.path.expanduser(p))}" for p in _SECURITY_BLACKLISTS)
         common_security_flags = f"--private-tmp {blacklist_flags}"
@@ -174,30 +202,30 @@ class FirejailSandboxRunner(ISandboxRunner):
                         "provide a usable offline/loopback network namespace."
                     )
                 cmd = (
-                    f"cd {q_work_dir} && exec firejail "
+                    f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{trace_prefix}{firejail_prefix}firejail "
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
-                    f"{net_flag}{common_security_flags} {game_compat_flags} "
+                    f"{net_flag}{firejail_audit}{common_security_flags} {game_compat_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
                     f"--whitelist={q_steam_compat} "
                     f"{proton_whitelist}{proton_env}{game_id_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
-                cmd = f"cd {q_work_dir} && {game_id_export}export WINEPREFIX={prefix_path} && {runner_cmd}"
+                cmd = f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{game_id_export}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
         elif mode == "linux":
             if has_firejail:
-                cmd = f"cd {q_work_dir} && exec firejail --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail --tracelog --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
             else:
-                cmd = f"cd {q_work_dir} && ./{q_exe}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}./{q_exe}"
         else:  # "wine"
             runner_cmd = f"wine {q_exe}"
             if has_firejail:
                 cmd = (
-                    f"cd {q_work_dir} && exec firejail --net=none {security_flags} "
+                    f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail --tracelog --net=none {security_flags} "
                     f"--whitelist={q_path} "
                     f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
-                cmd = f"cd {q_work_dir} && export WINEPREFIX={prefix_path} && {runner_cmd}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{debug_exports}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
 
         logger.info(f"Spawning process in mode '{mode}' (Firejail: {has_firejail}, Proton: '{active_proton}'): {cmd}")
 
@@ -226,6 +254,10 @@ class FirejailSandboxRunner(ISandboxRunner):
             log_handle.close()
             log_handle = None
             process.safelauncher_log_path = process_log_path
+            if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:
+                process.safelauncher_extra_log_paths = [
+                    os.path.join(game_path, f"steam-{int(steam_id)}.log")
+                ]
             process.safelauncher_diagnostics = LaunchDiagnostics(
                 game_path=game_path,
                 executable=executable,

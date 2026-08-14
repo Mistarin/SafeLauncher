@@ -333,6 +333,7 @@ class SafeLaunchDialog(QDialog):
         # Start log reader thread if process is piped
         self.process_log_path = getattr(self.process, "safelauncher_log_path", None)
         self._process_log_offset = 0
+        self._extra_log_offsets = {}
         if self.process_log_path:
             self.log_poll_timer = QTimer(self)
             self.log_poll_timer.setInterval(250)
@@ -395,18 +396,33 @@ class SafeLaunchDialog(QDialog):
     def _poll_process_log(self):
         """Append newly written game-process diagnostics without using a pipe."""
         path = getattr(self, "process_log_path", None)
-        if not path or not os.path.exists(path):
-            return
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace") as stream:
-                stream.seek(self._process_log_offset)
-                new_text = stream.read()
-                self._process_log_offset = stream.tell()
-            if new_text:
-                for line in new_text.splitlines():
-                    self.append_log(line)
-        except OSError:
-            return
+        paths = []
+        if path:
+            paths.append((path, ""))
+        for extra_path in getattr(self.process, "safelauncher_extra_log_paths", []):
+            paths.append((extra_path, f"[PROTON LOG] {extra_path}"))
+
+        for log_path, marker in paths:
+            if not os.path.exists(log_path):
+                continue
+            try:
+                if marker and log_path not in self._extra_log_offsets:
+                    self._extra_log_offsets[log_path] = 0
+                    self.append_log(marker)
+                offset = self._process_log_offset if not marker else self._extra_log_offsets[log_path]
+                with open(log_path, "r", encoding="utf-8", errors="replace") as stream:
+                    stream.seek(offset)
+                    new_text = stream.read()
+                    new_offset = stream.tell()
+                if marker:
+                    self._extra_log_offsets[log_path] = new_offset
+                else:
+                    self._process_log_offset = new_offset
+                if new_text:
+                    for line in new_text.splitlines():
+                        self.append_log(line)
+            except OSError:
+                continue
 
     def _goto_confirmation_stage(self):
         """Phase 3: Transition to Confirmation Screen ('Enjoy your time, Martin! ✨')."""
