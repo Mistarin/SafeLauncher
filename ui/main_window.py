@@ -14,7 +14,7 @@ from PyQt6.QtCore import (
     Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer,
     QUrl, QSettings, QAbstractAnimation,
 )
-from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices
+from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices, QTextCursor
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.steamgriddb_client import SteamGridDBClient
 from core.playtime_tracker import PlaytimeTrackerThread
@@ -78,6 +78,8 @@ class SafeLaunchDialog(QDialog):
         if self.diagnostics:
             self.diagnostics.game_name = game_name
         self.log_lines = []
+        self._last_live_log_line = None
+        self._last_live_log_count = 0
         self.launch_finished = False
         self.handoff_shown = False
         self.requires_proton_setup = False
@@ -207,6 +209,10 @@ class SafeLaunchDialog(QDialog):
         # Terminal Console View
         self.console = QPlainTextEdit()
         self.console.setReadOnly(True)
+        # Keep the live widget responsive even when Wine/Proton emits a very
+        # large diagnostic burst. The complete output remains in the backing
+        # log file and is still persisted in diagnostics.
+        self.console.document().setMaximumBlockCount(4000)
         self.console.setStyleSheet("""
             QPlainTextEdit {
                 background-color: #09090b;
@@ -242,6 +248,7 @@ class SafeLaunchDialog(QDialog):
 
         self.error_details = QPlainTextEdit()
         self.error_details.setReadOnly(True)
+        self.error_details.document().setMaximumBlockCount(4000)
         self.error_details.setStyleSheet("""
             QPlainTextEdit {
                 background: #09090b; color: #fca5a5; border: 1px solid #7f1d1d;
@@ -379,7 +386,15 @@ class SafeLaunchDialog(QDialog):
             self.log_lines.append(text)
             if self.diagnostics:
                 self.diagnostics.output.append(text)
-            self.console.appendPlainText(text)
+            if text == self._last_live_log_line and self.console.document().blockCount() > 0:
+                self._last_live_log_count += 1
+                cursor = QTextCursor(self.console.document().lastBlock())
+                cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
+                cursor.insertText(f"{text}  [x{self._last_live_log_count}]")
+            else:
+                self._last_live_log_line = text
+                self._last_live_log_count = 1
+                self.console.appendPlainText(text)
             if hasattr(self, "error_details") and self.stack.currentWidget() is self.page_error:
                 self.error_details.appendPlainText(text)
             sb = self.console.verticalScrollBar()
@@ -419,7 +434,20 @@ class SafeLaunchDialog(QDialog):
                 else:
                     self._process_log_offset = new_offset
                 if new_text:
-                    for line in new_text.splitlines():
+                    lines = new_text.splitlines()
+                    live_limit = 250
+                    if len(lines) > live_limit:
+                        omitted = len(lines) - live_limit
+                        omitted_lines = lines[:omitted]
+                        self.log_lines.extend(omitted_lines)
+                        if self.diagnostics:
+                            self.diagnostics.output.extend(omitted_lines)
+                        self.append_log(
+                            f"[diagnostics] {omitted} lines kept in the file log; "
+                            "live display was throttled to keep the window responsive."
+                        )
+                        lines = lines[-live_limit:]
+                    for line in lines:
                         self.append_log(line)
             except OSError:
                 continue

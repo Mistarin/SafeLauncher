@@ -171,7 +171,11 @@ class FirejailSandboxRunner(ISandboxRunner):
             trace_prefix = ""
             logger.warning("strace is not installed; syscall tracing unavailable for game launch")
         firejail_prefix = "" if trace_prefix else "exec "
-        firejail_audit = "--tracelog "
+        # Firejail installations may disable tracelog globally; passing the
+        # option in that state makes Firejail exit before UMU starts. Keep
+        # syscall tracing in the launch log and leave Firejail audit logging
+        # to the host configuration when it is enabled there.
+        firejail_audit = ""
 
         # Build Firejail security hardening options
         blacklist_flags = " ".join(f"--blacklist={shlex.quote(os.path.expanduser(p))}" for p in _SECURITY_BLACKLISTS)
@@ -213,14 +217,14 @@ class FirejailSandboxRunner(ISandboxRunner):
                 cmd = f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{game_id_export}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
         elif mode == "linux":
             if has_firejail:
-                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail --tracelog --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
             else:
                 cmd = f"cd {q_work_dir} && {diagnostic_header}./{q_exe}"
         else:  # "wine"
             runner_cmd = f"wine {q_exe}"
             if has_firejail:
                 cmd = (
-                    f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail --tracelog --net=none {security_flags} "
+                    f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail --net=none {security_flags} "
                     f"--whitelist={q_path} "
                     f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
