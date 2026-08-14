@@ -14,7 +14,7 @@ from PyQt6.QtCore import (
     Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer,
     QUrl, QSettings, QAbstractAnimation,
 )
-from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices, QTextCursor
+from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.steamgriddb_client import SteamGridDBClient
 from core.playtime_tracker import PlaytimeTrackerThread
@@ -78,8 +78,6 @@ class SafeLaunchDialog(QDialog):
         if self.diagnostics:
             self.diagnostics.game_name = game_name
         self.log_lines = []
-        self._last_live_log_line = None
-        self._last_live_log_count = 0
         self.launch_finished = False
         self.handoff_shown = False
         self.requires_proton_setup = False
@@ -386,15 +384,7 @@ class SafeLaunchDialog(QDialog):
             self.log_lines.append(text)
             if self.diagnostics:
                 self.diagnostics.output.append(text)
-            if text == self._last_live_log_line and self.console.document().blockCount() > 0:
-                self._last_live_log_count += 1
-                cursor = QTextCursor(self.console.document().lastBlock())
-                cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
-                cursor.insertText(f"{text}  [x{self._last_live_log_count}]")
-            else:
-                self._last_live_log_line = text
-                self._last_live_log_count = 1
-                self.console.appendPlainText(text)
+            self.console.appendPlainText(text)
             if hasattr(self, "error_details") and self.stack.currentWidget() is self.page_error:
                 self.error_details.appendPlainText(text)
             sb = self.console.verticalScrollBar()

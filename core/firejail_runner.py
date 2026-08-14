@@ -148,10 +148,18 @@ class FirejailSandboxRunner(ISandboxRunner):
         # Keep the complete runtime state in the same persistent launch log.
         # These diagnostics are intentionally verbose while investigating
         # compatibility problems and include child-process/syscall evidence.
-        proton_log_dir = shlex.quote(os.path.realpath(game_path))
+        proton_log_dir_path = tempfile.mkdtemp(
+            prefix=".safelauncher-proton-",
+            dir=os.path.realpath(game_path),
+        )
+        proton_log_dir = shlex.quote(proton_log_dir_path)
+        # +seh,+loaddll can generate gigabytes of repeated Wine backtraces
+        # before a UE5 game even creates its window. Keep Proton/VKD3D
+        # diagnostics enabled, but make the pathological Wine trace opt-in.
+        wine_debug = os.environ.get("SAFELAUNCHER_WINEDEBUG", "-all").strip() or "-all"
         debug_exports = (
             f"export PROTON_LOG=1 VKD3D_DEBUG=warn "
-            f"WINEDEBUG=+seh,+loaddll PROTON_LOG_DIR={proton_log_dir} && "
+            f"WINEDEBUG={shlex.quote(wine_debug)} PROTON_LOG_DIR={proton_log_dir} && "
         )
         diagnostic_header = (
             "echo '===== SAFELAUNCHER DIAGNOSTICS ====='; "
@@ -260,7 +268,7 @@ class FirejailSandboxRunner(ISandboxRunner):
             process.safelauncher_log_path = process_log_path
             if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:
                 process.safelauncher_extra_log_paths = [
-                    os.path.join(game_path, f"steam-{int(steam_id)}.log")
+                    os.path.join(proton_log_dir_path, f"steam-{int(steam_id)}.log")
                 ]
             process.safelauncher_diagnostics = LaunchDiagnostics(
                 game_path=game_path,
