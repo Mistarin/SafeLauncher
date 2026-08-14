@@ -68,6 +68,13 @@ class FirejailSandboxRunner(ISandboxRunner):
         home_dir = os.path.expanduser('~')
         umu_share = os.path.join(home_dir, '.local', 'share', 'umu')
         umu_cache = os.path.join(home_dir, '.cache', 'umu')
+        # UMU currently installs downloaded Proton builds in Steam's
+        # compatibilitytools.d directory, not only under ~/.local/share/umu.
+        # If this directory is hidden by Firejail, UMU believes Proton is
+        # missing and downloads/extracts it on every launch.
+        steam_compat_dir = os.path.join(
+            home_dir, '.local', 'share', 'Steam', 'compatibilitytools.d'
+        )
 
         os.makedirs(umu_share, exist_ok=True)
         os.makedirs(umu_cache, exist_ok=True)
@@ -127,6 +134,7 @@ class FirejailSandboxRunner(ISandboxRunner):
         q_exe = shlex.quote(exe_filename)
         q_umu_share = shlex.quote(umu_share)
         q_umu_cache = shlex.quote(umu_cache)
+        q_steam_compat = shlex.quote(steam_compat_dir)
         prefix_path = shlex.quote(os.path.join(game_path, 'prefix'))
         proton_env = f"--env=PROTONPATH={shlex.quote(active_proton)} " if active_proton else ""
         proton_whitelist = f"--whitelist={shlex.quote(active_proton)} " if active_proton else ""
@@ -170,6 +178,7 @@ class FirejailSandboxRunner(ISandboxRunner):
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
                     f"{net_flag}{common_security_flags} {game_compat_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
+                    f"--whitelist={q_steam_compat} "
                     f"{proton_whitelist}{proton_env}{game_id_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
