@@ -64,7 +64,7 @@ class SafeLaunchDialog(QDialog):
     Page 0: Animated Pudgy Penguin GIF intro (/home/martin/Stažené/penguin-pudgy.gif)
     Page 1: Clean 'Preparing Virtual Environment' header + progress bar + terminal console log
     Page 2: Confirmation screen ('Enjoy your time, Martin! ✨') with animated GIF (/home/martin/Stažené/smict.gif)
-    Stage 4: Smooth 500ms opacity fade out & auto-close.
+    The diagnostic window remains open until the user closes it manually.
     """
     retry_requested = pyqtSignal(str)
     unsafe_launch_requested = pyqtSignal()
@@ -85,8 +85,9 @@ class SafeLaunchDialog(QDialog):
         self.startup_started_at = time.monotonic()
         self.startup_grace_seconds = 15.0
 
-        self.setWindowTitle(f"Safe Launch - {game_name}")
-        self.setFixedSize(760, 600)
+        self.setWindowTitle(f"Safe Launch Log - {game_name}")
+        self.setMinimumSize(620, 440)
+        self.resize(760, 600)
 
         # Center over parent window if available
         if parent:
@@ -96,8 +97,10 @@ class SafeLaunchDialog(QDialog):
                 p_geo.y() + (p_geo.height() - self.height()) // 2
             )
 
-        # Frameless dialog (No system titlebar, solid painted window frame)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        # Use a real top-level window so the log can be moved and resized
+        # independently of the main launcher. Keep it above SafeLauncher while
+        # still allowing the user to interact with the game window.
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
         root_layout = QVBoxLayout(self)
@@ -115,6 +118,18 @@ class SafeLaunchDialog(QDialog):
         # Main Stacked Widget for Page Transitions (Zero Layout Jumping!)
         self.stack = QStackedWidget()
         root_layout.addWidget(self.stack)
+
+        self.close_log_button = QPushButton("Close log window")
+        self.close_log_button.setMinimumHeight(34)
+        self.close_log_button.setStyleSheet("""
+            QPushButton {
+                background: #27272a; color: #e4e4e7; border: 1px solid #52525b;
+                border-radius: 6px; font-weight: bold; padding: 6px 14px;
+            }
+            QPushButton:hover { background: #3f3f46; color: #ffffff; }
+        """)
+        self.close_log_button.clicked.connect(self.reject)
+        root_layout.addWidget(self.close_log_button)
 
         # ---------------------------------------------------------------------
         # PAGE 0: Pudgy Penguin GIF Intro Stage
@@ -410,17 +425,12 @@ class SafeLaunchDialog(QDialog):
         self.append_log(f"[{t_str}] ✔️ [SUCCESS] Sandbox container initialized cleanly.")
         self.append_log(f"[{t_str}] ✨ [STATUS] Handing off control to {self.game_name}. Have fun!")
 
-        # Transition to the confirmation page. Use the widget reference because
-        # the failure page is intentionally kept in the same stack.
-        self.stack.setCurrentWidget(self.page_confirm)
-
-        # Hold confirmation screen for 2.5s, then fade out entire dialog
-        self.close_timer = QTimer(self)
-        self.close_timer.setSingleShot(True)
-        self.close_timer.timeout.connect(self._fade_out_dialog)
-        # Keep the watchdog alive through the common Proton startup window.
-        # If the game is still alive, the popup closes normally at the end.
-        self.close_timer.start(int(self.startup_grace_seconds * 1000))
+        # Keep the console visible indefinitely so the user can inspect the
+        # complete launch/runtime output while the game is running.
+        self.header_title.setText("Game running — launch log")
+        self.header_sub.setText(f"'{self.game_name}' is running in the sandbox container")
+        self.progress_bar.setValue(100)
+        self.stack.setCurrentWidget(self.page_console)
 
     def _check_process_state(self):
         """Show actionable diagnostics when the runtime exits during startup."""
