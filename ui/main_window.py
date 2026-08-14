@@ -609,6 +609,7 @@ class MainWindow(QMainWindow):
         self.metadata_attempted_tags = set()
         self._hero_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
+        self.running_game_ids = set()
         self.topbar_extractor_thread = None
         self.games_by_id = {}
         self.library_selection = LibrarySelectionModel()
@@ -2220,7 +2221,7 @@ class MainWindow(QMainWindow):
         ) if os.path.exists(shots_dir) else 0
         self.btn_detail_screenshots.setText(f" Screenshots ({count})")
 
-        self.btn_detail_launch.setEnabled(True)
+        self._update_detail_launch_button(game_id)
         self.btn_detail_launch.setVisible(True)
         self.btn_detail_launch.raise_()
         self.btn_detail_edit.setEnabled(True)
@@ -2253,7 +2254,33 @@ class MainWindow(QMainWindow):
         painter.end()
         self.detail_cover.setPixmap(placeholder)
 
-
+    def _update_detail_launch_button(self, game_id: int):
+        """Show a blue non-actionable Running state while the container lives."""
+        if game_id in self.running_game_ids:
+            self.btn_detail_launch.setText("Running")
+            self.btn_detail_launch.setIcon(get_icon("ph.spinner", color="#ffffff"))
+            self.btn_detail_launch.setEnabled(False)
+            self.btn_detail_launch.setStyleSheet("""
+                QPushButton#detailLaunch {
+                    background: #2563eb; color: #ffffff;
+                    border: 1px solid #60a5fa; border-radius: 8px;
+                    font-weight: bold; padding: 10px 20px;
+                }
+                QPushButton#detailLaunch:hover { background: #2563eb; }
+                QPushButton#detailLaunch:disabled { background: #2563eb; color: #ffffff; }
+            """)
+        else:
+            self.btn_detail_launch.setText("Launch Game")
+            self.btn_detail_launch.setIcon(get_icon("ph.play", color="#ffffff"))
+            self.btn_detail_launch.setEnabled(True)
+            self.btn_detail_launch.setStyleSheet("""
+                QPushButton#detailLaunch {
+                    background: #2f8f63; color: #ffffff; border: none;
+                    border-radius: 8px; font-weight: bold; padding: 10px 20px;
+                }
+                QPushButton#detailLaunch:hover { background: #3eaa77; }
+                QPushButton#detailLaunch:disabled { background: #4b5563; color: #9ca3af; }
+            """)
 
     def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True):
         """Helper to launch a game directly with the chosen mode"""
@@ -2282,6 +2309,9 @@ class MainWindow(QMainWindow):
             process = self.runner.launch(path, exe, selected_mode, steam_id, sandbox=sandbox)
             if process:
                 logger.info(f"Successfully launched '{game_name}' (PID: {process.pid})")
+                self.running_game_ids.add(game_id)
+                if self.selected_game and self.selected_game[0] == game_id:
+                    self._update_detail_launch_button(game_id)
                 # Update Discord Rich Presence
                 if hasattr(self, 'discord_rpc') and self.discord_rpc:
                     import time
@@ -2381,6 +2411,9 @@ class MainWindow(QMainWindow):
         """Remove finished tracker from the list so it can be garbage collected."""
         if tracker in self.playtime_trackers:
             self.playtime_trackers.remove(tracker)
+        self.running_game_ids.discard(tracker.game_id)
+        if self.selected_game and self.selected_game[0] == tracker.game_id:
+            self._update_detail_launch_button(tracker.game_id)
         if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
             self.discord_rpc.clear_activity()
 
