@@ -27,6 +27,14 @@ _SECURITY_BLACKLISTS = [
     "~/Downloads",
 ]
 
+_GPU_CACHE_PATHS = [
+    "~/.nv",
+    "~/.cache/nvidia",
+    "~/.cache/mesa_shader_cache",
+    "~/.cache/vkd3d_shader_cache",
+    "~/.cache/dxvk-cache",
+]
+
 
 class FirejailSandboxRunner(ISandboxRunner):
     def __init__(self):
