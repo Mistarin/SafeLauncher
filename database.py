@@ -42,6 +42,53 @@ def _create_database_backup(db_path: str) -> None:
         logger.warning(f"Could not create database backup: {e}")
 
 
+from dataclasses import dataclass
+from typing import Optional, List
+
+
+@dataclass
+class GameRecord:
+    id: int
+    name: str
+    path: str
+    executable: str
+    mode: str
+    banner_url: Optional[str] = ""
+    steam_id: Optional[str] = ""
+    playtime_seconds: int = 0
+    is_favorite: int = 0
+    last_played: int = 0
+    tags: str = ""
+    build_id: str = ""
+    proton_path: str = ""
+    collection: str = ""
+    install_date: int = 0
+    version_override: str = ""
+    patch_notes_url: str = ""
+
+    def __getitem__(self, idx):
+        fields = (
+            self.id, self.name, self.path, self.executable, self.mode,
+            self.banner_url or "", self.steam_id or "", self.playtime_seconds,
+            self.is_favorite, self.last_played, self.tags, self.build_id,
+            self.proton_path, self.collection, self.install_date,
+            self.version_override, self.patch_notes_url
+        )
+        return fields[idx]
+
+    def __len__(self):
+        return 17
+
+    def __iter__(self):
+        return iter((
+            self.id, self.name, self.path, self.executable, self.mode,
+            self.banner_url or "", self.steam_id or "", self.playtime_seconds,
+            self.is_favorite, self.last_played, self.tags, self.build_id,
+            self.proton_path, self.collection, self.install_date,
+            self.version_override, self.patch_notes_url
+        ))
+
+
 class GameDatabase:
     GAME_COLUMNS = (
         "id, name, path, executable, mode, banner_url, steam_id, "
@@ -273,11 +320,21 @@ class GameDatabase:
         except Exception as e:
             logger.error(f"Failed to update collection for game {game_id}: {e}")
 
-    def get_all_games(self):
+    def get_all_games(self) -> List[GameRecord]:
         try:
             cursor = self.conn.cursor()
             cursor.execute(f'SELECT {self.GAME_COLUMNS} FROM games')
-            return cursor.fetchall()
+            rows = cursor.fetchall()
+            return [
+                GameRecord(
+                    id=r[0], name=r[1], path=r[2], executable=r[3], mode=r[4],
+                    banner_url=r[5] or "", steam_id=r[6] or "", playtime_seconds=r[7] or 0,
+                    is_favorite=r[8] or 0, last_played=r[9] or 0, tags=r[10] or "",
+                    build_id=r[11] or "", proton_path=r[12] or "", collection=r[13] or "",
+                    install_date=r[14] or 0, version_override=r[15] or "", patch_notes_url=r[16] or ""
+                )
+                for r in rows
+            ]
         except Exception as e:
             logger.error(f"Failed to fetch games list: {e}")
             return []

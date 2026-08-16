@@ -66,8 +66,12 @@ class ArchiveInstaller:
             full = os.path.join(directory, relative)
             try:
                 size = os.path.getsize(full)
-            except OSError:
-                size = 0
-            kind = "Linux script" if relative.lower().endswith((".sh", ".bat")) else "Windows executable"
+            lower_rel = relative.lower()
+            if lower_rel.endswith(".sh"):
+                kind = "Linux script"
+            elif lower_rel.endswith(".bat"):
+                kind = "Windows batch script"
+            else:
+                kind = "Windows executable"
             result.append(ExecutableCandidate(relative, size, kind))
         return result

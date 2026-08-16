@@ -82,11 +82,12 @@ class SteamBuildFetcher(SafeQThread):
                     latest_build_date = 0
 
                 if latest_build_id:
-                    is_update = (
-                        latest_build_id != self.local_build_id
-                        if self.local_build_id
-                        else (latest_build_date > self.local_build_date if self.local_build_date else True)
-                    )
+                    if self.local_build_id:
+                        is_update = (latest_build_id != self.local_build_id)
+                    elif self.local_build_date > 0:
+                        is_update = (latest_build_date > self.local_build_date)
+                    else:
+                        is_update = False
                     logger.info(f"Steam Build check for game {self.game_id} (AppID {self.steam_id}): latest={latest_build_id}, update={is_update}")
                     if self.isInterruptionRequested():
                         return

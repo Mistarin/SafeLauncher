@@ -683,14 +683,14 @@ class LaunchOptionsDialog(QDialog):
 
 
 class SafeLaunchDialog(QDialog):
-    """Sleek, zero-jump animated dark card popup"""
+    """Sleek, non-blocking animated dark card diagnostic popup for game launches."""
     retry_requested = pyqtSignal(str)
     unsafe_launch_requested = pyqtSignal()
 
-    def __init__(self, game_name: str, user_name: str = "Martin", process=None, parent=None):
+    def __init__(self, game_name: str, user_name: str = None, process=None, parent=None):
         super().__init__(parent)
         self.game_name = game_name
-        self.user_name = user_name
+        self.user_name = user_name or getpass.getuser().capitalize()
         self.process = process
         self.diagnostics = getattr(process, "safelauncher_diagnostics", None)
         if self.diagnostics:
@@ -703,8 +703,9 @@ class SafeLaunchDialog(QDialog):
         self.startup_started_at = time.monotonic()
         self.startup_grace_seconds = 15.0
 
-        self.setWindowTitle(f"Safe Launch - {game_name}")
-        self.setFixedSize(760, 600)
+        self.setWindowTitle(f"Safe Launch Log - {game_name}")
+        self.setMinimumSize(620, 440)
+        self.resize(760, 600)
 
         if parent:
             p_geo = parent.geometry()
@@ -713,7 +714,7 @@ class SafeLaunchDialog(QDialog):
                 p_geo.y() + (p_geo.height() - self.height()) // 2
             )
 
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
         root_layout = QVBoxLayout(self)
@@ -730,6 +731,18 @@ class SafeLaunchDialog(QDialog):
 
         self.stack = QStackedWidget()
         root_layout.addWidget(self.stack)
+
+        self.close_log_button = QPushButton("Close log window")
+        self.close_log_button.setMinimumHeight(34)
+        self.close_log_button.setStyleSheet("""
+            QPushButton {
+                background: #27272a; color: #e4e4e7; border: 1px solid #52525b;
+                border-radius: 6px; font-weight: bold; padding: 6px 14px;
+            }
+            QPushButton:hover { background: #3f3f46; color: #ffffff; }
+        """)
+        self.close_log_button.clicked.connect(self.reject)
+        root_layout.addWidget(self.close_log_button)
 
         # PAGE 0: Pudgy Penguin GIF Intro Stage
         self.page_gif = QWidget()
@@ -800,6 +813,7 @@ class SafeLaunchDialog(QDialog):
 
         self.console = QPlainTextEdit()
         self.console.setReadOnly(True)
+        self.console.document().setMaximumBlockCount(4000)
         self.console.setStyleSheet("""
             QPlainTextEdit {
                 background-color: #09090b;
@@ -833,6 +847,7 @@ class SafeLaunchDialog(QDialog):
 
         self.error_details = QPlainTextEdit()
         self.error_details.setReadOnly(True)
+        self.error_details.document().setMaximumBlockCount(4000)
         self.error_details.setStyleSheet("""
             QPlainTextEdit {
                 background: #09090b; color: #fca5a5; border: 1px solid #7f1d1d;
@@ -919,6 +934,7 @@ class SafeLaunchDialog(QDialog):
 
         self.process_log_path = getattr(self.process, "safelauncher_log_path", None)
         self._process_log_offset = 0
+        self._extra_log_offsets = {}
         if self.process_log_path:
             self.log_poll_timer = QTimer(self)
             self.log_poll_timer.setInterval(250)
@@ -969,18 +985,46 @@ class SafeLaunchDialog(QDialog):
 
     def _poll_process_log(self):
         path = getattr(self, "process_log_path", None)
-        if not path or not os.path.exists(path):
-            return
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace") as stream:
-                stream.seek(self._process_log_offset)
-                new_text = stream.read()
-                self._process_log_offset = stream.tell()
-            if new_text:
-                for line in new_text.splitlines():
-                    self.append_log(line)
-        except OSError:
-            return
+        paths = []
+        if path:
+            paths.append((path, ""))
+        for extra_path in getattr(self.process, "safelauncher_extra_log_paths", []):
+            paths.append((extra_path, f"[PROTON LOG] {extra_path}"))
+
+        for log_path, marker in paths:
+            if not os.path.exists(log_path):
+                continue
+            try:
+                if marker and log_path not in self._extra_log_offsets:
+                    self._extra_log_offsets[log_path] = 0
+                    self.append_log(marker)
+                offset = self._process_log_offset if not marker else self._extra_log_offsets[log_path]
+                with open(log_path, "r", encoding="utf-8", errors="replace") as stream:
+                    stream.seek(offset)
+                    new_text = stream.read()
+                    new_offset = stream.tell()
+                if marker:
+                    self._extra_log_offsets[log_path] = new_offset
+                else:
+                    self._process_log_offset = new_offset
+                if new_text:
+                    lines = new_text.splitlines()
+                    live_limit = 250
+                    if len(lines) > live_limit:
+                        omitted = len(lines) - live_limit
+                        omitted_lines = lines[:omitted]
+                        self.log_lines.extend(omitted_lines)
+                        if self.diagnostics:
+                            self.diagnostics.output.extend(omitted_lines)
+                        self.append_log(
+                            f"[diagnostics] {omitted} lines kept in the file log; "
+                            "live display was throttled to keep the window responsive."
+                        )
+                        lines = lines[-live_limit:]
+                    for line in lines:
+                        self.append_log(line)
+            except OSError:
+                continue
 
     def _goto_confirmation_stage(self):
         if self.launch_finished:
@@ -994,12 +1038,10 @@ class SafeLaunchDialog(QDialog):
         self.append_log(f"[{t_str}] ✔️ [SUCCESS] Sandbox container initialized cleanly.")
         self.append_log(f"[{t_str}] ✨ [STATUS] Handing off control to {self.game_name}. Have fun!")
 
-        self.stack.setCurrentWidget(self.page_confirm)
-
-        self.close_timer = QTimer(self)
-        self.close_timer.setSingleShot(True)
-        self.close_timer.timeout.connect(self._fade_out_dialog)
-        self.close_timer.start(int(self.startup_grace_seconds * 1000))
+        self.header_title.setText("Game running — launch log")
+        self.header_sub.setText(f"'{self.game_name}' is running in the sandbox container")
+        self.progress_bar.setValue(100)
+        self.stack.setCurrentWidget(self.page_console)
 
     def _check_process_state(self):
         if not self.process or self.launch_finished:

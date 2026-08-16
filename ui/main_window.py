@@ -59,550 +59,8 @@ from ui.dialogs.game_dialogs import (
 from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDialog, DiskManagerDialog
 
 
-class SafeLaunchDialog(QDialog):
-    """Sleek, zero-jump animated dark card popup:
-    Page 0: Animated Pudgy Penguin GIF intro (/home/martin/Stažené/penguin-pudgy.gif)
-    Page 1: Clean 'Preparing Virtual Environment' header + progress bar + terminal console log
-    Page 2: Confirmation screen ('Enjoy your time, Martin! ✨') with animated GIF (/home/martin/Stažené/smict.gif)
-    The diagnostic window remains open until the user closes it manually.
-    """
-    retry_requested = pyqtSignal(str)
-    unsafe_launch_requested = pyqtSignal()
-
-    def __init__(self, game_name: str, user_name: str = "Martin", process=None, parent=None):
-        super().__init__(parent)
-        self.game_name = game_name
-        self.user_name = user_name
-        self.process = process
-        self.diagnostics = getattr(process, "safelauncher_diagnostics", None)
-        if self.diagnostics:
-            self.diagnostics.game_name = game_name
-        self.log_lines = []
-        self.launch_finished = False
-        self.handoff_shown = False
-        self.requires_proton_setup = False
-        import time
-        self.startup_started_at = time.monotonic()
-        self.startup_grace_seconds = 15.0
-
-        self.setWindowTitle(f"Safe Launch Log - {game_name}")
-        self.setMinimumSize(620, 440)
-        self.resize(760, 600)
-
-        # Center over parent window if available
-        if parent:
-            p_geo = parent.geometry()
-            self.move(
-                p_geo.x() + (p_geo.width() - self.width()) // 2,
-                p_geo.y() + (p_geo.height() - self.height()) // 2
-            )
-
-        # Use a real top-level window so the log can be moved and resized
-        # independently of the main launcher. Keep it above SafeLauncher while
-        # still allowing the user to interact with the game window.
-        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(20, 20, 20, 20)
-        root_layout.setSpacing(0)
-
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #121215;
-                border: 2px solid #27272a;
-                border-radius: 16px;
-            }
-        """)
-
-        # Main Stacked Widget for Page Transitions (Zero Layout Jumping!)
-        self.stack = QStackedWidget()
-        root_layout.addWidget(self.stack)
-
-        self.close_log_button = QPushButton("Close log window")
-        self.close_log_button.setMinimumHeight(34)
-        self.close_log_button.setStyleSheet("""
-            QPushButton {
-                background: #27272a; color: #e4e4e7; border: 1px solid #52525b;
-                border-radius: 6px; font-weight: bold; padding: 6px 14px;
-            }
-            QPushButton:hover { background: #3f3f46; color: #ffffff; }
-        """)
-        self.close_log_button.clicked.connect(self.reject)
-        root_layout.addWidget(self.close_log_button)
-
-        # ---------------------------------------------------------------------
-        # PAGE 0: Pudgy Penguin GIF Intro Stage
-        # ---------------------------------------------------------------------
-        self.page_gif = QWidget()
-        gif_layout = QVBoxLayout(self.page_gif)
-        gif_layout.setContentsMargins(0, 0, 0, 0)
-        gif_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        gif_layout.addStretch(1)
-
-        self.gif_label = QLabel()
-        self.gif_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        if os.path.exists(GIF_PATH):
-            self.movie = QMovie(GIF_PATH)
-            self.movie.setScaledSize(QSize(120, 120))
-            self.gif_label.setMovie(self.movie)
-            self.movie.start()
-        else:
-            self.gif_label.setPixmap(draw_custom_lock_pixmap(80, is_ready=False))
-
-        gif_layout.addWidget(self.gif_label, 0, Qt.AlignmentFlag.AlignCenter)
-
-        gif_title = QLabel("Securing Game Launch...")
-        gif_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        gif_title.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold; margin-top: 10px;")
-        gif_layout.addWidget(gif_title, 0, Qt.AlignmentFlag.AlignCenter)
-
-        gif_sub = QLabel(f"Preparing isolated Firejail container for '{game_name}'")
-        gif_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        gif_sub.setStyleSheet("color: #a1a1aa; font-size: 12px; margin-top: 4px;")
-        gif_layout.addWidget(gif_sub, 0, Qt.AlignmentFlag.AlignCenter)
-
-        gif_layout.addStretch(1)
-        self.stack.addWidget(self.page_gif)
-
-        # ---------------------------------------------------------------------
-        # PAGE 1: Virtual Environment Console & Progress Stage
-        # ---------------------------------------------------------------------
-        self.page_console = QWidget()
-        console_layout = QVBoxLayout(self.page_console)
-        console_layout.setContentsMargins(0, 0, 0, 0)
-        console_layout.setSpacing(10)
-
-        # Clean Header
-        self.header_title = QLabel("Preparing Virtual Environment...")
-        self.header_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.header_title.setStyleSheet("color: #ffffff; font-size: 17px; font-weight: bold;")
-        console_layout.addWidget(self.header_title)
-
-        self.header_sub = QLabel(f"Initializing Firejail & UMU sandbox for '{game_name}'")
-        self.header_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.header_sub.setStyleSheet("color: #a1a1aa; font-size: 11px;")
-        console_layout.addWidget(self.header_sub)
-
-        # Progress Bar (Green Accent)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(5)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                background: #1c1c22;
-                border: none;
-                border-radius: 2.5px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #15803d, stop:1 #22c55e);
-                border-radius: 2.5px;
-            }
-        """)
-        console_layout.addWidget(self.progress_bar)
-
-        # Terminal Console View
-        self.console = QPlainTextEdit()
-        self.console.setReadOnly(True)
-        # Keep the live widget responsive even when Wine/Proton emits a very
-        # large diagnostic burst. The complete output remains in the backing
-        # log file and is still persisted in diagnostics.
-        self.console.document().setMaximumBlockCount(4000)
-        self.console.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: #09090b;
-                color: #34d399;
-                border: 1px solid #27272a;
-                border-radius: 8px;
-                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 11px;
-                padding: 8px;
-            }
-        """)
-        console_layout.addWidget(self.console)
-        self.stack.addWidget(self.page_console)
-
-        # ---------------------------------------------------------------------
-        # PAGE 3: Launch failure screen
-        # ---------------------------------------------------------------------
-        self.page_error = QWidget()
-        error_layout = QVBoxLayout(self.page_error)
-        error_layout.setContentsMargins(10, 16, 10, 10)
-        error_layout.setSpacing(12)
-
-        self.error_title = QLabel("Game launch failed")
-        self.error_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.error_title.setStyleSheet("color: #fca5a5; font-size: 19px; font-weight: bold;")
-        error_layout.addWidget(self.error_title)
-
-        self.error_summary = QLabel()
-        self.error_summary.setWordWrap(True)
-        self.error_summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.error_summary.setStyleSheet("color: #d4d4d8; font-size: 12px;")
-        error_layout.addWidget(self.error_summary)
-
-        self.error_details = QPlainTextEdit()
-        self.error_details.setReadOnly(True)
-        self.error_details.document().setMaximumBlockCount(4000)
-        self.error_details.setStyleSheet("""
-            QPlainTextEdit {
-                background: #09090b; color: #fca5a5; border: 1px solid #7f1d1d;
-                border-radius: 8px; font-family: monospace; font-size: 10px; padding: 8px;
-            }
-        """)
-        error_layout.addWidget(self.error_details)
-
-        diagnostics_buttons = QHBoxLayout()
-        copy_diagnostics = QPushButton("Copy diagnostics")
-        copy_diagnostics.clicked.connect(self._copy_diagnostics)
-        diagnostics_buttons.addWidget(copy_diagnostics)
-        open_logs = QPushButton("Open log folder")
-        open_logs.clicked.connect(self._open_log_folder)
-        diagnostics_buttons.addWidget(open_logs)
-        diagnostics_buttons.addStretch()
-        error_layout.addLayout(diagnostics_buttons)
-
-        recovery_buttons = QHBoxLayout()
-        retry_safe = QPushButton("Retry with safe fallback")
-        retry_safe.setToolTip("Retry using the sandboxed Wine fallback.")
-        retry_safe.clicked.connect(lambda: self._request_retry("wine"))
-        recovery_buttons.addWidget(retry_safe)
-        unsafe = QPushButton("⚠ Launch without sandbox (UNSAFE)")
-        unsafe.setStyleSheet("QPushButton { background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444; font-weight: bold; }")
-        unsafe.clicked.connect(self._request_unsafe_launch)
-        recovery_buttons.addWidget(unsafe)
-        error_layout.addLayout(recovery_buttons)
-
-        close_error = QPushButton("Close")
-        close_error.setMinimumHeight(36)
-        close_error.setStyleSheet("QPushButton { background: #991b1b; color: #ffffff; border-radius: 6px; font-weight: bold; } QPushButton:hover { background: #b91c1c; }")
-        close_error.clicked.connect(self.reject)
-        error_layout.addWidget(close_error)
-        self.stack.addWidget(self.page_error)
-
-        # ---------------------------------------------------------------------
-        # PAGE 2: Confirmation Greeting Screen with smict.gif Animation
-        # ---------------------------------------------------------------------
-        self.page_confirm = QWidget()
-        confirm_layout = QVBoxLayout(self.page_confirm)
-        confirm_layout.setContentsMargins(0, 0, 0, 0)
-        confirm_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        confirm_layout.addStretch(1)
-
-        self.confirm_label = QLabel()
-        self.confirm_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        if os.path.exists(CONFIRM_GIF_PATH):
-            self.confirm_movie = QMovie(CONFIRM_GIF_PATH)
-            self.confirm_movie.setScaledSize(QSize(100, 100))
-            self.confirm_label.setMovie(self.confirm_movie)
-            self.confirm_movie.start()
-        else:
-            self.confirm_label.setPixmap(draw_custom_lock_pixmap(80, is_ready=True))
-
-        confirm_layout.addWidget(self.confirm_label, 0, Qt.AlignmentFlag.AlignCenter)
-
-        self.confirm_title = QLabel(f"Enjoy your time, {self.user_name}!")
-        self.confirm_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.confirm_title.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold; margin-top: 12px;")
-        confirm_layout.addWidget(self.confirm_title, 0, Qt.AlignmentFlag.AlignCenter)
-
-        self.confirm_sub = QLabel(f"'{game_name}' is running safely in Firejail sandbox")
-        self.confirm_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.confirm_sub.setStyleSheet("color: #a1a1aa; font-size: 13px; margin-top: 6px;")
-        confirm_layout.addWidget(self.confirm_sub, 0, Qt.AlignmentFlag.AlignCenter)
-
-        confirm_layout.addStretch(1)
-        self.stack.addWidget(self.page_confirm)
-
-        # Overall Dialog Opacity Effect
-        self.dialog_opacity = QGraphicsOpacityEffect(self)
-        self.setGraphicsEffect(self.dialog_opacity)
-        self.dialog_opacity.setOpacity(1.0)
-
-        # Append initial security logs
-        import time, shutil
-        t_str = time.strftime("%H:%M:%S")
-        if shutil.which("firejail"):
-            self.append_log(f"[{t_str}] 🛡️ [SECURITY] Initializing Firejail namespace isolation...")
-            self.append_log(f"[{t_str}] 🔒 [SECURITY] Applying filesystem whitelist & Firejail isolation...")
-        else:
-            self.append_log(f"[{t_str}] ⚠️ [WARNING] Firejail is not installed on this system.")
-            self.append_log(f"[{t_str}] ⚡ [FALLBACK] Running game in direct unsandboxed execution mode.")
-        self.append_log(f"[{t_str}] 🍷 [RUNNER] Loading Proton / Wine runtime container...")
-        self.append_log(f"[{t_str}] 🚀 [EXEC] Launching process for '{game_name}'...")
-
-        # Start log reader thread if process is piped
-        self.process_log_path = getattr(self.process, "safelauncher_log_path", None)
-        self._process_log_offset = 0
-        self._extra_log_offsets = {}
-        if self.process_log_path:
-            self.log_poll_timer = QTimer(self)
-            self.log_poll_timer.setInterval(250)
-            self.log_poll_timer.timeout.connect(self._poll_process_log)
-            self.log_poll_timer.start()
-        elif self.process and getattr(self.process, 'stdout', None):
-            self.reader_thread = SafeLaunchLogReader(self.process, self)
-            self.reader_thread.log_line.connect(self.append_log)
-            self.reader_thread.start()
-
-        # Watch the actual child process. A fixed animation must not report
-        # success after Proton/UMU has already exited.
-        self.process_timer = QTimer(self)
-        self.process_timer.setInterval(200)
-        self.process_timer.timeout.connect(self._check_process_state)
-        self.process_timer.start()
-
-        # Start on Page 0 (GIF Intro)
-        self.stack.setCurrentIndex(0)
-
-        # Phase 1 -> Phase 2 Timer (Pudgy Penguin GIF plays for 2.2s then transitions to Console)
-        self.gif_timer = QTimer(self)
-        self.gif_timer.setSingleShot(True)
-        self.gif_timer.timeout.connect(self._goto_console_stage)
-        self.gif_timer.start(2200)
-
-    def _goto_console_stage(self):
-        """Phase 2: Transition to Console View & animate progress bar."""
-        self.stack.setCurrentIndex(1)
-
-        # Progress bar animation (0% -> 100% over 3.5 seconds)
-        self.progress_anim = QVariantAnimation(self)
-        self.progress_anim.setStartValue(0)
-        self.progress_anim.setEndValue(100)
-        self.progress_anim.setDuration(3500)
-        self.progress_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
-        self.progress_anim.valueChanged.connect(self.progress_bar.setValue)
-        self.progress_anim.finished.connect(self._goto_confirmation_stage)
-        self.progress_anim.start()
-
-    def append_log(self, text: str):
-        if text:
-            self.log_lines.append(text)
-            if self.diagnostics:
-                self.diagnostics.output.append(text)
-            self.console.appendPlainText(text)
-            if hasattr(self, "error_details") and self.stack.currentWidget() is self.page_error:
-                self.error_details.appendPlainText(text)
-            sb = self.console.verticalScrollBar()
-            if sb:
-                sb.setValue(sb.maximum())
-
-            # UMU can print a clean-looking exit (including exit code 0) when
-            # Proton never manages to keep the game alive. Treat this marker
-            # as an early-startup failure and let the process watcher collect
-            # the final exit code and remaining output.
-            if "parent is shutting down" in text.lower() and not self.launch_finished:
-                QTimer.singleShot(350, self._check_process_state)
-
-    def _poll_process_log(self):
-        """Append newly written game-process diagnostics without using a pipe."""
-        path = getattr(self, "process_log_path", None)
-        paths = []
-        if path:
-            paths.append((path, ""))
-        for extra_path in getattr(self.process, "safelauncher_extra_log_paths", []):
-            paths.append((extra_path, f"[PROTON LOG] {extra_path}"))
-
-        for log_path, marker in paths:
-            if not os.path.exists(log_path):
-                continue
-            try:
-                if marker and log_path not in self._extra_log_offsets:
-                    self._extra_log_offsets[log_path] = 0
-                    self.append_log(marker)
-                offset = self._process_log_offset if not marker else self._extra_log_offsets[log_path]
-                with open(log_path, "r", encoding="utf-8", errors="replace") as stream:
-                    stream.seek(offset)
-                    new_text = stream.read()
-                    new_offset = stream.tell()
-                if marker:
-                    self._extra_log_offsets[log_path] = new_offset
-                else:
-                    self._process_log_offset = new_offset
-                if new_text:
-                    lines = new_text.splitlines()
-                    live_limit = 250
-                    if len(lines) > live_limit:
-                        omitted = len(lines) - live_limit
-                        omitted_lines = lines[:omitted]
-                        self.log_lines.extend(omitted_lines)
-                        if self.diagnostics:
-                            self.diagnostics.output.extend(omitted_lines)
-                        self.append_log(
-                            f"[diagnostics] {omitted} lines kept in the file log; "
-                            "live display was throttled to keep the window responsive."
-                        )
-                        lines = lines[-live_limit:]
-                    for line in lines:
-                        self.append_log(line)
-            except OSError:
-                continue
-
-    def _goto_confirmation_stage(self):
-        """Phase 3: Transition to Confirmation Screen ('Enjoy your time, Martin! ✨')."""
-        if self.launch_finished:
-            return
-        # Do not transition to the success page if the child has already
-        # exited but the polling timer has not delivered its last tick yet.
-        if self.process and self.process.poll() is not None:
-            self._check_process_state()
-            return
-        # This is only a visual handoff. Keep watching the process because
-        # Proton/UMU may shut down immediately afterwards.
-        self.handoff_shown = True
-        import time
-        t_str = time.strftime("%H:%M:%S")
-        self.append_log(f"[{t_str}] ✔️ [SUCCESS] Sandbox container initialized cleanly.")
-        self.append_log(f"[{t_str}] ✨ [STATUS] Handing off control to {self.game_name}. Have fun!")
-
-        # Keep the console visible indefinitely so the user can inspect the
-        # complete launch/runtime output while the game is running.
-        self.header_title.setText("Game running — launch log")
-        self.header_sub.setText(f"'{self.game_name}' is running in the sandbox container")
-        self.progress_bar.setValue(100)
-        self.stack.setCurrentWidget(self.page_console)
-
-    def _check_process_state(self):
-        """Show actionable diagnostics when the runtime exits during startup."""
-        if not self.process or self.launch_finished:
-            return
-
-        return_code = self.process.poll()
-        if return_code is None:
-            return
-
-        import time
-        startup_elapsed = time.monotonic() - self.startup_started_at
-        if startup_elapsed > self.startup_grace_seconds:
-            self.launch_finished = True
-            self.process_timer.stop()
-            return
-
-        self.launch_finished = True
-        self.process_timer.stop()
-        if hasattr(self, "progress_anim"):
-            self.progress_anim.stop()
-        if hasattr(self, "gif_timer"):
-            self.gif_timer.stop()
-
-        # Drain the persistent file once more so diagnostics include the final
-        # Proton/UMU lines written just before process exit.
-        if getattr(self, "process_log_path", None):
-            self._poll_process_log()
-        details = "\n".join(self.log_lines)
-        if return_code < 0:
-            reason = f"The launcher was terminated by signal {-return_code}."
-        elif return_code == 0:
-            reason = "Proton/UMU exited before the game reached the running state."
-        else:
-            reason = f"Proton/UMU exited with code {return_code}."
-
-        lower_details = details.lower()
-        steam_api_failure = any(token in lower_details for token in (
-            "steam_api64.dll", "steam_api.dll", "steamapi_", "steam api",
-            "steamapps_v", "steamapps", "unimplemented function steam",
-        ))
-        if self.diagnostics:
-            self.diagnostics.return_code = return_code
-            self.diagnostics.output = list(self.log_lines)
-            persist_diagnostics(self.diagnostics)
-            reason = self.diagnostics.actionable_explanation()
-        self.requires_proton_setup = any(marker in lower_details for marker in (
-            "protonpath",
-            "proton not found",
-            "umu has not been setup",
-            "steamrt4 validation failed",
-            "could not find steamrt4",
-            "an internet connection is required to setup umu",
-        ))
-        if steam_api_failure:
-            # Keep the Steam/API disclaimer as the primary explanation even
-            # when Wine also emitted generic library or exit-code warnings.
-            reason = self.diagnostics.actionable_explanation() if self.diagnostics else (
-                "Disclaimer: the sandbox initialized, but the game requires a Steam API/client unavailable in this launch mode."
-            )
-        elif "libcrypto.so" in lower_details or "openssl_" in lower_details:
-            reason += " A packaged launcher library was loaded by a host runtime tool. Restart using the updated SafeLauncher build."
-        elif "no such file" in lower_details or "cannot open" in lower_details:
-            reason += " Check that the selected executable path is correct."
-        elif "no permissions to create a new namespace" in lower_details or "unprivileged_userns_clone" in lower_details:
-            reason += " The kernel has disabled unprivileged user namespaces; enable kernel.unprivileged_userns_clone=1 or use a compatible kernel/container configuration."
-        elif ("proton" in lower_details or "umu" in lower_details) and not any(token in lower_details for token in ("steam_api64.dll", "steam_api.dll", "steamapi_", "steam api")):
-            reason += " Check the Proton/UMU runtime and the game prefix."
-
-        self.error_summary.setText(reason)
-        self.error_details.setPlainText(self.diagnostics.as_text() if self.diagnostics else (details or "No diagnostic output was produced."))
-        self.stack.setCurrentWidget(self.page_error)
-
-    def _copy_diagnostics(self):
-        text = self.diagnostics.as_text() if self.diagnostics else self.error_details.toPlainText()
-        QApplication.clipboard().setText(text)
-
-    def _open_log_folder(self):
-        path = getattr(self.diagnostics, "log_path", "") if self.diagnostics else ""
-        folder = os.path.dirname(path) if path else os.path.expanduser("~/.local/state/safelauncher/diagnostics")
-        os.makedirs(folder, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
-
-    def _request_retry(self, mode: str):
-        self.retry_requested.emit(mode)
-        self.accept()
-
-    def _request_unsafe_launch(self):
-        self.unsafe_launch_requested.emit()
-        self.accept()
-
-    def _fade_out_dialog(self):
-        """Phase 4: Smooth opacity fade out of entire dialog before closing."""
-        if self.process and self.process.poll() is not None and not self.launch_finished:
-            self._check_process_state()
-            if self.stack.currentWidget() is self.page_error:
-                return
-        fade_dialog = QVariantAnimation(self)
-        fade_dialog.setStartValue(1.0)
-        fade_dialog.setEndValue(0.0)
-        fade_dialog.setDuration(500)
-        fade_dialog.setEasingCurve(QEasingCurve.Type.OutCubic)
-        fade_dialog.valueChanged.connect(self.dialog_opacity.setOpacity)
-        fade_dialog.finished.connect(self.accept)
-        fade_dialog.start()
-        self._fade_dialog = fade_dialog
-
-    def _cleanup_resources(self):
-        """Stop all background timers, animations, and stdout reader thread safely."""
-        for timer_name in ("gif_timer", "process_timer", "close_timer"):
-            timer = getattr(self, timer_name, None)
-            if timer:
-                timer.stop()
-        log_poll_timer = getattr(self, "log_poll_timer", None)
-        if log_poll_timer:
-            log_poll_timer.stop()
-        progress_anim = getattr(self, "progress_anim", None)
-        if progress_anim:
-            progress_anim.stop()
-        fade_anim = getattr(self, "_fade_dialog", None)
-        if fade_anim:
-            fade_anim.stop()
-        reader = getattr(self, "reader_thread", None)
-        if reader and reader.isRunning():
-            reader.stop()
-
-    def accept(self):
-        self._cleanup_resources()
-        super().accept()
-
-    def reject(self):
-        self._cleanup_resources()
-        super().reject()
-
-    def closeEvent(self, event):
-        """Stop timers and stdout reader before Qt destroys the dialog."""
-        self._cleanup_resources()
-        super().closeEvent(event)
+import getpass
+from core.playtime_tracker import PlaytimeTrackerThread, _shutdown_firejail_sandbox
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -661,7 +119,8 @@ class MainWindow(QMainWindow):
         self.search_query = ""
         self.settings = QSettings("SafeLauncher", "SafeLauncher")
         self.library_view_mode = self.settings.value("library_view_mode", "grid", type=str)
-        self.user_name = self.settings.value("user_name", "Martin", type=str).strip() or "Martin"
+        default_user = getpass.getuser().capitalize()
+        self.user_name = self.settings.value("user_name", default_user, type=str).strip() or default_user
         self.proton_path = self.settings.value("proton_path", "", type=str).strip()
         if hasattr(self.runner, "set_proton_path"):
             self.runner.set_proton_path(self.proton_path)
@@ -2299,19 +1758,19 @@ class MainWindow(QMainWindow):
         self.detail_cover.setPixmap(placeholder)
 
     def _update_detail_launch_button(self, game_id: int):
-        """Show a blue non-actionable Running state while the container lives."""
+        """Show a red actionable Stop Game button while running, or green Launch Game button."""
         if game_id in self.running_game_ids:
-            self.btn_detail_launch.setText("Running")
-            self.btn_detail_launch.setIcon(get_icon("ph.spinner", color="#ffffff"))
-            self.btn_detail_launch.setEnabled(False)
+            self.btn_detail_launch.setText("Stop Game")
+            self.btn_detail_launch.setIcon(get_icon("ph.stop-circle", color="#ffffff"))
+            self.btn_detail_launch.setEnabled(True)
             self.btn_detail_launch.setStyleSheet("""
                 QPushButton#detailLaunch {
-                    background: #2563eb; color: #ffffff;
-                    border: 1px solid #60a5fa; border-radius: 8px;
+                    background: #991b1b; color: #ffffff;
+                    border: 1px solid #ef4444; border-radius: 8px;
                     font-weight: bold; padding: 10px 20px;
                 }
-                QPushButton#detailLaunch:hover { background: #2563eb; }
-                QPushButton#detailLaunch:disabled { background: #2563eb; color: #ffffff; }
+                QPushButton#detailLaunch:hover { background: #b91c1c; }
+                QPushButton#detailLaunch:disabled { background: #4b5563; color: #9ca3af; }
             """)
         else:
             self.btn_detail_launch.setText("Launch Game")
@@ -2325,6 +1784,27 @@ class MainWindow(QMainWindow):
                 QPushButton#detailLaunch:hover { background: #3eaa77; }
                 QPushButton#detailLaunch:disabled { background: #4b5563; color: #9ca3af; }
             """)
+
+    def _stop_game(self, game_id: int):
+        """Terminate the active game process and its sandbox container."""
+        stopped = False
+        for tracker in list(self.playtime_trackers):
+            if tracker.game_id == game_id:
+                if tracker.process and tracker.process.poll() is None:
+                    try:
+                        tracker.process.terminate()
+                        stopped = True
+                    except Exception as e:
+                        logger.warning(f"Error terminating game process {game_id}: {e}")
+                if hasattr(tracker, "sandbox_name") and tracker.sandbox_name:
+                    _shutdown_firejail_sandbox(sandbox_name=tracker.sandbox_name)
+                    stopped = True
+        if stopped:
+            self._show_toast("Stopping game container...")
+            logger.info(f"Stop signal sent to Game ID {game_id}")
+        else:
+            self.running_game_ids.discard(game_id)
+            self._update_detail_launch_button(game_id)
 
     def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True):
         """Helper to launch a game directly with the chosen mode"""
@@ -2367,7 +1847,7 @@ class MainWindow(QMainWindow):
                 tracker.start()
                 self.playtime_trackers.append(tracker)
 
-                # Show animated Safe Launch Popup with console log stream & greeting to Martin
+                # Show animated Safe Launch Popup with console log stream & greeting (non-blocking)
                 popup = SafeLaunchDialog(game_name, user_name=self.user_name, process=process, parent=self)
                 popup.retry_requested.connect(
                     lambda retry_mode: self._launch_mode(game_id, path, exe, retry_mode, sandbox=True)
@@ -2376,21 +1856,6 @@ class MainWindow(QMainWindow):
                     lambda: self._launch_mode(game_id, path, exe, selected_mode, sandbox=False)
                 )
                 popup.show()
-                QApplication.processEvents()
-                popup.exec()
-                if popup.requires_proton_setup:
-                    logger.info("Proton setup requested by launch popup.")
-                    wizard = ProtonSetupWizard(self.proton_path, self)
-                    if wizard.exec() == QDialog.DialogCode.Accepted:
-                        proton_path = wizard.get_path()
-                        if proton_path:
-                            self.proton_path = proton_path
-                            self.settings.setValue("proton_path", proton_path)
-                            if hasattr(self.runner, "set_proton_path"):
-                                self.runner.set_proton_path(proton_path)
-                        retry_mode = "umu_net" if wizard.retry_with_network else selected_mode
-                        self._show_toast("Retrying Proton setup…")
-                        self._launch_mode(game_id, path, exe, retry_mode)
         except Exception as e:
             logger.error(f"Failed to launch game ID {game_id}: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Failed to launch game: {str(e)}")
@@ -2417,13 +1882,18 @@ class MainWindow(QMainWindow):
             self._select_game_by_id(game[0])
 
     def _on_launch(self):
-        """Launch selected game directly using default mode, or open LaunchOptionsDialog if Shift is held down or unconfigured."""
+        """Launch selected game directly using default mode, or stop if already running."""
         game = self._get_selected_game()
         if not game:
             self._show_toast("Please select a game to launch.", is_error=True)
             return
-        
+
         game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game, 0)
+
+        if game_id in self.running_game_ids:
+            self._stop_game(game_id)
+            return
+
         if not path or not os.path.exists(path):
             self._show_toast(f"Cannot launch '{name}'. Directory does not exist on disk.", is_error=True)
             return
@@ -2440,6 +1910,28 @@ class MainWindow(QMainWindow):
                     self.db.update_game_mode(game_id, dialog.selected_mode)
                     self._refresh_library()
                 self._launch_mode(game_id, path, exe, dialog.selected_mode)
+
+    def keyPressEvent(self, event):
+        """Global keyboard shortcuts for library navigation."""
+        key = event.key()
+        modifiers = event.modifiers()
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.selected_game:
+                self._on_launch()
+                event.accept()
+                return
+        elif key == Qt.Key.Key_Delete:
+            if self.selected_game:
+                self._on_remove()
+                event.accept()
+                return
+        elif key == Qt.Key.Key_F and (modifiers & Qt.KeyboardModifier.ControlModifier):
+            if hasattr(self, "title_bar") and hasattr(self.title_bar, "search_input"):
+                self.title_bar.search_input.setFocus()
+                self.title_bar.search_input.selectAll()
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def _on_playtime_recorded(self, game_id: int, elapsed_seconds: int):
         """Called (on main thread) when a game exits — persists and displays playtime and last_played timestamp."""

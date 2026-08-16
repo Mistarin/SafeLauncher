@@ -8,14 +8,17 @@ from core.logger import get_logger
 logger = get_logger("PlaytimeTracker")
 
 
-def _shutdown_firejail_sandbox(pid: int):
+def _shutdown_firejail_sandbox(sandbox_name: str = None, pid: int = None):
     """Forcefully terminate any background processes/miners left in the Firejail container."""
-    if not pid or not shutil.which("firejail"):
+    if not shutil.which("firejail"):
         return
     try:
-        logger.info(f"[SECURITY] Issuing firejail --shutdown={pid} to clean up background processes.")
+        target = sandbox_name if sandbox_name else (str(pid) if pid else None)
+        if not target:
+            return
+        logger.info(f"[SECURITY] Issuing firejail --shutdown={target} to clean up sandbox container.")
         subprocess.run(
-            ["firejail", f"--shutdown={pid}"],
+            ["firejail", f"--shutdown={target}"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=5,
@@ -34,6 +37,7 @@ class PlaytimeTrackerThread(SafeQThread):
         super().__init__(parent)
         self.game_id = game_id
         self.process = process
+        self.sandbox_name = getattr(process, "safelauncher_sandbox_name", None)
 
     def stop(self):
         """Interrupt monitoring without terminating the game process."""
@@ -43,24 +47,9 @@ class PlaytimeTrackerThread(SafeQThread):
 
     def safe_run(self):
         """Block until the game process exits, then emit elapsed time and clean up sandbox."""
-        logger.info(f"Started monitoring game PID {self.process.pid} (Game ID: {self.game_id})")
-        deadline = time.monotonic() + 10.0
-        while True:
-            if self.isInterruptionRequested():
-                logger.info(f"Playtime monitoring interrupted for game {self.game_id}")
-                return
-            if self.process.poll() is not None:
-                logger.info(f"Game process {self.game_id} exited before timing deadline.")
-                _shutdown_firejail_sandbox(self.process.pid)
-                return
-            if time.monotonic() >= deadline:
-                logger.warning(f"Process {self.game_id} startup check timed out after 10s.")
-                return
-            time.sleep(0.25)
-            if self.process.poll() is None:
-                break
-
+        logger.info(f"Started monitoring game PID {self.process.pid} (Game ID: {self.game_id}, Sandbox: {self.sandbox_name})")
         start = time.monotonic()
+
         while self.process.poll() is None:
             if self.isInterruptionRequested():
                 logger.info(f"Playtime monitoring interrupted for game {self.game_id}")
@@ -71,7 +60,8 @@ class PlaytimeTrackerThread(SafeQThread):
         logger.info(f"Game ID {self.game_id} closed after {elapsed}s of playtime.")
 
         # [SECURITY] Hard shutdown any remaining background miner processes inside Firejail container
-        _shutdown_firejail_sandbox(self.process.pid)
+        _shutdown_firejail_sandbox(sandbox_name=self.sandbox_name, pid=self.process.pid)
 
         if elapsed > 0:
             self.playtime_recorded.emit(self.game_id, elapsed)
+

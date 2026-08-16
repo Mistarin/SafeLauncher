@@ -168,22 +168,29 @@ class FirejailSandboxRunner(ISandboxRunner):
             f"echo '--- runtime={shlex.quote(active_proton or 'system/default')} "
             f"prefix={prefix_path} game={q_path} ---'; "
         )
-        strace_path = shutil.which("strace")
+        enable_strace = os.environ.get("SAFELAUNCHER_STRACE", "0").strip() == "1"
+        strace_path = shutil.which("strace") if enable_strace else None
         if strace_path:
             trace_prefix = (
                 f"{shlex.quote(strace_path)} -f -tt -yy -s 256 "
                 "-o /proc/self/fd/1 "
             )
-            logger.info("strace found; recursive syscall tracing enabled for game launch")
+            logger.info("strace enabled via SAFELAUNCHER_STRACE=1; recursive syscall tracing enabled for game launch")
         else:
             trace_prefix = ""
-            logger.warning("strace is not installed; syscall tracing unavailable for game launch")
+            if enable_strace:
+                logger.warning("SAFELAUNCHER_STRACE=1 requested but strace is not installed.")
         firejail_prefix = "" if trace_prefix else "exec "
         # Firejail installations may disable tracelog globally; passing the
         # option in that state makes Firejail exit before UMU starts. Keep
         # syscall tracing in the launch log and leave Firejail audit logging
         # to the host configuration when it is enabled there.
         firejail_audit = ""
+
+        # Sandbox name for reliable container discovery & termination
+        sandbox_id = f"safelauncher-{os.path.basename(os.path.normpath(game_path)).lower()}"
+        sandbox_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in sandbox_id)[:32]
+        sandbox_name_flag = f"--name={sandbox_id} " if has_firejail else ""
 
         # Build Firejail security hardening options
         blacklist_flags = " ".join(f"--blacklist={shlex.quote(os.path.expanduser(p))}" for p in _SECURITY_BLACKLISTS)
@@ -214,7 +221,7 @@ class FirejailSandboxRunner(ISandboxRunner):
                         "provide a usable offline/loopback network namespace."
                     )
                 cmd = (
-                    f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{trace_prefix}{firejail_prefix}firejail "
+                    f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}"
                     f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
                     f"{net_flag}{firejail_audit}{common_security_flags} {game_compat_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
@@ -225,14 +232,14 @@ class FirejailSandboxRunner(ISandboxRunner):
                 cmd = f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{game_id_export}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
         elif mode == "linux":
             if has_firejail:
-                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail --net=none {security_flags} --whitelist={q_path} ./{q_exe}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--net=none {security_flags} --whitelist={q_path} ./{q_exe}"
             else:
                 cmd = f"cd {q_work_dir} && {diagnostic_header}./{q_exe}"
         else:  # "wine"
             runner_cmd = f"wine {q_exe}"
             if has_firejail:
                 cmd = (
-                    f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail --net=none {security_flags} "
+                    f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--net=none {security_flags} "
                     f"--whitelist={q_path} "
                     f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
@@ -266,6 +273,7 @@ class FirejailSandboxRunner(ISandboxRunner):
             log_handle.close()
             log_handle = None
             process.safelauncher_log_path = process_log_path
+            process.safelauncher_sandbox_name = sandbox_id if has_firejail else None
             if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:
                 process.safelauncher_extra_log_paths = [
                     os.path.join(proton_log_dir_path, f"steam-{int(steam_id)}.log")

@@ -42,6 +42,18 @@ def sanitize_wine_prefix(game_path: str) -> bool:
 
     sanitized_count = 0
     try:
+        # Sanitize dosdevices/z: (symlink to / root filesystem in Wine)
+        dosdevices_dir = os.path.join(prefix_dir, "dosdevices")
+        if os.path.isdir(dosdevices_dir):
+            z_drive = os.path.join(dosdevices_dir, "z:")
+            if os.path.islink(z_drive):
+                try:
+                    os.unlink(z_drive)
+                    logger.info(f"[SECURITY] Removed host root mapping dosdevices/z: in {prefix_dir}")
+                    sanitized_count += 1
+                except Exception as e:
+                    logger.debug(f"Could not remove dosdevices/z: symlink: {e}")
+
         user_entries = os.listdir(users_dir)
         for user_folder in user_entries:
             user_path = os.path.join(users_dir, user_folder)

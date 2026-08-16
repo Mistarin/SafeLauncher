@@ -179,4 +179,72 @@ except Exception as e:
     print(f"✗ UI Instantiation error: {e}")
     sys.exit(1)
 
+# 7. Test GameRecord dataclass and backwards compatibility
+try:
+    from database import GameRecord
+    rec = GameRecord(
+        id=1, name="Hades", path="/games/hades", executable="Hades.exe", mode="umu",
+        banner_url="https://example.com/banner.png", steam_id="1145360"
+    )
+    assert rec.id == 1 and rec.name == "Hades"
+    assert rec[0] == 1 and rec[1] == "Hades" and rec[5] == "https://example.com/banner.png"
+    assert len(rec) == 17
+    unpacked_id, unpacked_name, *rest = rec
+    assert unpacked_id == 1 and unpacked_name == "Hades"
+    print("✓ GameRecord dataclass attribute & index access verified")
+except Exception as e:
+    print(f"✗ GameRecord test error: {e}")
+    sys.exit(1)
+
+# 8. Test ArchiveInstaller executable classification
+try:
+    from core.archive_installer import ArchiveInstaller
+    with tempfile.TemporaryDirectory() as tmp_archive_dir:
+        os.makedirs(os.path.join(tmp_archive_dir, "bin"), exist_ok=True)
+        sh_path = os.path.join(tmp_archive_dir, "start.sh")
+        bat_path = os.path.join(tmp_archive_dir, "start.bat")
+        exe_path = os.path.join(tmp_archive_dir, "game.exe")
+        for p in (sh_path, bat_path, exe_path):
+            with open(p, "w") as f:
+                f.write("content")
+        installer = ArchiveInstaller()
+        cands = {c.relative_path: c.kind for c in installer.candidates(tmp_archive_dir)}
+        assert cands.get("start.sh") == "Linux script", f"start.sh misclassified as {cands.get('start.sh')}"
+        assert cands.get("start.bat") == "Windows batch script", f"start.bat misclassified as {cands.get('start.bat')}"
+        assert cands.get("game.exe") == "Windows executable", f"game.exe misclassified as {cands.get('game.exe')}"
+        print("✓ ArchiveInstaller .sh / .bat / .exe classification verified")
+except Exception as e:
+    print(f"✗ ArchiveInstaller error: {e}")
+    sys.exit(1)
+
+# 9. Test Prefix Sanitizer dosdevices/z: and user symlink removal
+try:
+    from core.prefix_sanitizer import sanitize_wine_prefix
+    with tempfile.TemporaryDirectory() as tmp_prefix_dir:
+        prefix_path = os.path.join(tmp_prefix_dir, "prefix")
+        dosdevices = os.path.join(prefix_path, "dosdevices")
+        users_dir = os.path.join(prefix_path, "drive_c", "users", "steamuser")
+        os.makedirs(dosdevices, exist_ok=True)
+        os.makedirs(users_dir, exist_ok=True)
+
+        # Create dummy z: link pointing to /
+        z_link = os.path.join(dosdevices, "z:")
+        os.symlink("/", z_link)
+        # Create dummy Documents link
+        doc_link = os.path.join(users_dir, "Documents")
+        os.symlink("/tmp", doc_link)
+
+        assert os.path.islink(z_link)
+        assert os.path.islink(doc_link)
+
+        res = sanitize_wine_prefix(tmp_prefix_dir)
+        assert res is True, "Sanitizer failed to run on valid prefix"
+        assert not os.path.exists(z_link), "z: symlink was not removed"
+        assert not os.path.islink(doc_link), "Documents symlink was not replaced"
+        assert os.path.isdir(doc_link), "Documents was not replaced with an isolated folder"
+        print("✓ PrefixSanitizer isolated user folders and removed dosdevices/z: host link")
+except Exception as e:
+    print(f"✗ PrefixSanitizer test error: {e}")
+    sys.exit(1)
+
 print("\n✅ All SafeLauncher components tested and working cleanly!")
