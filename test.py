@@ -247,4 +247,14 @@ except Exception as e:
     print(f"✗ PrefixSanitizer test error: {e}")
     sys.exit(1)
 
+# 10. Test Desktop Integration
+try:
+    from core.desktop_integration import get_desktop_file_path, is_desktop_entry_installed
+    path = get_desktop_file_path()
+    assert path.endswith("safelauncher.desktop")
+    print("✓ Desktop integration module loaded cleanly")
+except Exception as e:
+    print(f"✗ Desktop integration error: {e}")
+    sys.exit(1)
+
 print("\n✅ All SafeLauncher components tested and working cleanly!")

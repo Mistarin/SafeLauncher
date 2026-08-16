@@ -66,6 +66,8 @@ class ArchiveInstaller:
             full = os.path.join(directory, relative)
             try:
                 size = os.path.getsize(full)
+            except OSError:
+                size = 0
             lower_rel = relative.lower()
             if lower_rel.endswith(".sh"):
                 kind = "Linux script"

@@ -11,6 +11,7 @@ from core.logger import LOG_DIR
 from core.disk_utils import get_dir_size, get_disk_usage, format_size
 from core.host_process import host_process_env
 from database import GameDatabase, _APP_DATA_DIR
+from core.desktop_integration import install_safelauncher_desktop_entry, is_desktop_entry_installed
 from ui.icons import LOGO_PATH, get_app_icon
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.maintenance_dialogs import RuntimeInventoryDialog
@@ -66,6 +67,31 @@ class UserSettingsDialog(QDialog):
         inventory_button.clicked.connect(self._open_runtime_inventory)
         layout.addWidget(inventory_button)
 
+        # Desktop / Start Screen Integration Button
+        is_installed = is_desktop_entry_installed()
+        btn_start_screen = QPushButton(
+            "✓ Added to Start Screen (Click to Re-install)" if is_installed else "➕ Add SafeLauncher to Start Screen & App Menu"
+        )
+        if is_installed:
+            btn_start_screen.setStyleSheet("""
+                QPushButton {
+                    background: #14532d; color: #86efac; border: 1px solid #22c55e;
+                    border-radius: 8px; padding: 10px 14px; font-weight: bold;
+                }
+                QPushButton:hover { background: #166534; color: #bbf7d0; }
+            """)
+        else:
+            btn_start_screen.setStyleSheet("""
+                QPushButton {
+                    background: #1e293b; color: #38bdf8; border: 1px solid #0284c7;
+                    border-radius: 8px; padding: 10px 14px; font-weight: bold;
+                }
+                QPushButton:hover { background: #0369a1; color: #ffffff; }
+            """)
+        add_soft_shadow(btn_start_screen, blur=16, y=4, alpha=80)
+        btn_start_screen.clicked.connect(lambda: self._add_to_start_screen(btn_start_screen))
+        layout.addWidget(btn_start_screen)
+
         form = QFormLayout()
         self.name_input = QLineEdit(user_name)
         self.name_input.setPlaceholderText("Your name")
@@ -85,6 +111,26 @@ class UserSettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self._save)
         layout.addWidget(buttons)
+
+    def _add_to_start_screen(self, button: QPushButton):
+        success, msg = install_safelauncher_desktop_entry()
+        if success:
+            button.setText("✓ Added to Start Screen & App Menu!")
+            button.setStyleSheet("""
+                QPushButton {
+                    background: #14532d; color: #86efac; border: 1px solid #22c55e;
+                    border-radius: 8px; padding: 10px 14px; font-weight: bold;
+                }
+                QPushButton:hover { background: #166534; color: #bbf7d0; }
+            """)
+        else:
+            button.setText(f"⚠ {msg}")
+            button.setStyleSheet("""
+                QPushButton {
+                    background: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444;
+                    border-radius: 8px; padding: 10px 14px; font-weight: bold;
+                }
+            """)
 
     def _save(self):
         if self.name_input.text().strip():
