@@ -68,6 +68,11 @@ from ui.dialogs.game_dialogs import (
 )
 from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDialog, DiskManagerDialog
 from ui.dialogs.game_properties_dialog import GamePropertiesDialog
+from ui.theme import (
+    get_application_stylesheet, btn_primary_style, btn_secondary_style,
+    btn_tertiary_style, btn_destructive_style, BG_APP, SURFACE, SURFACE_ELEVATED,
+    BORDER, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, ACCENT_PRIMARY
+)
 
 
 import getpass
@@ -219,11 +224,11 @@ class MainWindow(QMainWindow):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setStyleSheet("""
             QSplitter::handle {
-                background-color: #15171c;
+                background-color: #252A33;
                 width: 1px;
             }
             QSplitter::handle:hover {
-                background-color: #3b3f46;
+                background-color: #3B9FE8;
             }
         """)
         body_layout.addWidget(self.splitter)
@@ -236,28 +241,11 @@ class MainWindow(QMainWindow):
         self.detail_panel.setMaximumWidth(550)
         self.detail_panel.setStyleSheet("""
             QFrame {
-                background: #111318;
-                border-left: 1px solid #15171c;
+                background: #14171D;
+                border-left: 1px solid #252A33;
             }
             QLabel {
-                color: #ffffff;
-            }
-            QPushButton {
-                background: rgba(24, 24, 31, 0.85);
-                color: #ffffff;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 12px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: #30343c;
-            }
-            QPushButton:disabled {
-                background: rgba(18, 18, 21, 0.6);
-                color: #52525b;
-                border-color: transparent;
+                color: #F5F7FA;
             }
         """)
 
@@ -279,27 +267,40 @@ class MainWindow(QMainWindow):
         detail_layout.setSpacing(8)
         detail_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # Top Bar with Close button (no overlapping)
+        # Top Bar with Close button
         top_bar = QHBoxLayout()
         top_bar.setContentsMargins(0, 0, 0, 4)
         top_bar.addStretch()
 
         self.btn_hide_detail = QPushButton("✕")
-        self.btn_hide_detail.setFixedSize(26, 26)
+        self.btn_hide_detail.setFixedSize(24, 24)
         self.btn_hide_detail.setToolTip("Close details panel")
         self.btn_hide_detail.setStyleSheet("""
-            QPushButton { background: transparent; color: #94a3b8; font-size: 13px; font-weight: bold; border: none; padding: 0; text-align: center; }
-            QPushButton:hover { color: #ffffff; background: #1e293b; border-radius: 4px; }
+            QPushButton {
+                background: transparent;
+                color: #6F7682;
+                font-size: 11px;
+                font-weight: bold;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                padding: 0;
+                text-align: center;
+            }
+            QPushButton:hover {
+                color: #F5F7FA;
+                background: #1A1E26;
+                border-color: #252A33;
+            }
         """)
         self.btn_hide_detail.clicked.connect(lambda: self._animate_left_panel(False))
         top_bar.addWidget(self.btn_hide_detail)
         detail_layout.addLayout(top_bar)
 
-        # Selected Game Cover Art Preview (pushed down cleanly)
+        # Selected Game Cover Art Preview
         self.detail_cover = QLabel()
         self.detail_cover.setFixedSize(QSize(180, 270))
         self.detail_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_cover.setStyleSheet("border: 1px solid #2b313c; border-radius: 10px; background: #171a20;")
+        self.detail_cover.setStyleSheet("border: 1px solid #252A33; border-radius: 8px; background: #14171D;")
         
         cover_row = QHBoxLayout()
         cover_row.setContentsMargins(0, 0, 0, 0)
@@ -312,15 +313,15 @@ class MainWindow(QMainWindow):
         title_row.setContentsMargins(0, 0, 0, 0)
 
         self.detail_title = QLabel("Select a Game")
-        self.detail_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        self.detail_title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
         self.detail_title.setWordWrap(True)
         self.detail_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_title.setStyleSheet("color: #ffffff; background: transparent;")
+        self.detail_title.setStyleSheet("color: #F5F7FA; background: transparent;")
         title_row.addWidget(self.detail_title, 1)
 
         detail_layout.addLayout(title_row)
 
-        # Steam Tags Badge Container (Grey rounded boxes)
+        # Steam Tags Badge Container
         self.tags_widget = QWidget()
         self.tags_layout = QHBoxLayout(self.tags_widget)
         self.tags_layout.setContentsMargins(0, 0, 0, 0)
@@ -331,7 +332,7 @@ class MainWindow(QMainWindow):
         # Selected Game Playtime
         self.detail_playtime = QLabel("")
         self.detail_playtime.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_playtime.setStyleSheet("color: #aaaaaa; font-size: 11px; font-weight: bold;")
+        self.detail_playtime.setStyleSheet("color: #A7ADB8; font-size: 11px; font-weight: 500;")
         detail_layout.addWidget(self.detail_playtime)
 
         # Selected Game Last Played
@@ -339,12 +340,13 @@ class MainWindow(QMainWindow):
         self.detail_last_played.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detail_last_played.setStyleSheet("""
             QLabel {
-                color: #b7bbc3;
-                background: #171a20;
-                border-radius: 8px;
-                padding: 6px 10px;
+                color: #A7ADB8;
+                background: #1A1E26;
+                border: 1px solid #252A33;
+                border-radius: 6px;
+                padding: 4px 8px;
                 font-size: 11px;
-                font-weight: bold;
+                font-weight: 500;
             }
         """)
         detail_layout.addWidget(self.detail_last_played)
@@ -352,7 +354,7 @@ class MainWindow(QMainWindow):
         # Selected Game Disk Size
         self.detail_disk_size = QLabel("")
         self.detail_disk_size.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_disk_size.setStyleSheet("color: #8f949e; font-size: 11px; font-weight: bold; padding: 2px 0;")
+        self.detail_disk_size.setStyleSheet("color: #6F7682; font-size: 11px; font-weight: 500; padding: 2px 0;")
 
         # Steam update status and version details
         self.detail_update_widget = QWidget()
@@ -371,7 +373,7 @@ class MainWindow(QMainWindow):
         self.lbl_detail_versions.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_detail_versions.setWordWrap(True)
         self.lbl_detail_versions.setOpenExternalLinks(True)
-        self.lbl_detail_versions.setStyleSheet("QLabel { color: #b7bbc3; background: #171a20; border: 1px solid #2b313c; border-radius: 6px; font-size: 10px; padding: 2px 6px; }")
+        self.lbl_detail_versions.setStyleSheet("QLabel { color: #A7ADB8; background: #1A1E26; border: 1px solid #252A33; border-radius: 6px; font-size: 10px; padding: 3px 8px; }")
         self.detail_update_layout.addWidget(self.lbl_detail_versions)
 
         self.btn_retry_steam = QPushButton("Retry")
@@ -383,26 +385,31 @@ class MainWindow(QMainWindow):
         self.detail_update_widget.setVisible(False)
         detail_layout.addWidget(self.detail_update_widget)
 
-        # Big Launch Game Button
-        detail_layout.addSpacing(8)
+        # Primary Launch Game Button
+        detail_layout.addSpacing(6)
         self.btn_detail_launch = QPushButton("Launch Game")
         self.btn_detail_launch.setObjectName("detailLaunch")
-        self.btn_detail_launch.setIcon(get_icon("ph.play-bold", color="#ffffff"))
-        self.btn_detail_launch.setIconSize(QSize(16, 16))
-        self.btn_detail_launch.setFixedHeight(44)
+        self.btn_detail_launch.setIcon(get_icon("ph.play-bold", color="#FFFFFF"))
+        self.btn_detail_launch.setIconSize(QSize(15, 15))
+        self.btn_detail_launch.setFixedHeight(40)
         self.btn_detail_launch.setStyleSheet("""
             QPushButton#detailLaunch {
-                background: #2f8f63;
-                color: #ffffff;
-                font-weight: bold;
-                font-size: 13px;
-                border: none;
-                border-radius: 8px;
-                padding: 0 18px;
+                background-color: #3B9FE8;
+                color: #FFFFFF;
+                font-weight: 600;
+                font-size: 12px;
+                border: 1px solid #3B9FE8;
+                border-radius: 6px;
+                padding: 0 16px;
                 text-align: center;
+                letter-spacing: 0.2px;
             }
             QPushButton#detailLaunch:hover {
-                background: #3eaa77;
+                background-color: #55ACED;
+                border-color: #55ACED;
+            }
+            QPushButton#detailLaunch:pressed {
+                background-color: #2789D0;
             }
         """)
         self.btn_detail_launch.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -411,64 +418,71 @@ class MainWindow(QMainWindow):
 
         sec_btn_style = """
             QPushButton {
-                background: #151821;
-                color: #e2e8f0;
-                border: none;
+                background-color: #1A1E26;
+                color: #F5F7FA;
+                border: 1px solid #252A33;
                 border-radius: 6px;
                 padding: 0 14px;
-                font-weight: bold;
+                font-weight: 500;
                 font-size: 12px;
                 text-align: center;
             }
             QPushButton:hover {
-                background: #1e2433;
-                color: #ffffff;
+                background-color: #252A33;
+                border-color: #6F7682;
+            }
+            QPushButton:pressed {
+                background-color: #14171D;
             }
         """
 
         # Secondary Action Buttons
         self.btn_detail_edit = QPushButton("Edit Game")
-        self.btn_detail_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#38bdf8"))
-        self.btn_detail_edit.setIconSize(QSize(16, 16))
-        self.btn_detail_edit.setFixedHeight(34)
+        self.btn_detail_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#3B9FE8"))
+        self.btn_detail_edit.setIconSize(QSize(15, 15))
+        self.btn_detail_edit.setFixedHeight(32)
         self.btn_detail_edit.setStyleSheet(sec_btn_style)
         self.btn_detail_edit.clicked.connect(self._on_edit)
         detail_layout.addWidget(self.btn_detail_edit)
 
         self.btn_detail_screenshots = QPushButton("Screenshots")
-        self.btn_detail_screenshots.setIcon(get_icon("ph.image-bold", color="#a855f7"))
-        self.btn_detail_screenshots.setIconSize(QSize(16, 16))
-        self.btn_detail_screenshots.setFixedHeight(34)
+        self.btn_detail_screenshots.setIcon(get_icon("ph.image-bold", color="#A7ADB8"))
+        self.btn_detail_screenshots.setIconSize(QSize(15, 15))
+        self.btn_detail_screenshots.setFixedHeight(32)
         self.btn_detail_screenshots.setStyleSheet(sec_btn_style)
         self.btn_detail_screenshots.clicked.connect(self._open_screenshot_gallery)
         detail_layout.addWidget(self.btn_detail_screenshots)
 
         self.btn_detail_properties = QPushButton("Properties")
-        self.btn_detail_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#94a3b8"))
-        self.btn_detail_properties.setIconSize(QSize(16, 16))
-        self.btn_detail_properties.setFixedHeight(34)
+        self.btn_detail_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#A7ADB8"))
+        self.btn_detail_properties.setIconSize(QSize(15, 15))
+        self.btn_detail_properties.setFixedHeight(32)
         self.btn_detail_properties.setStyleSheet(sec_btn_style)
         self.btn_detail_properties.clicked.connect(self._open_game_properties)
         detail_layout.addWidget(self.btn_detail_properties)
 
         self.btn_detail_remove = QPushButton("Remove Game")
-        self.btn_detail_remove.setIcon(get_icon("ph.trash-bold", color="#f87171"))
-        self.btn_detail_remove.setIconSize(QSize(16, 16))
-        self.btn_detail_remove.setFixedHeight(34)
+        self.btn_detail_remove.setIcon(get_icon("ph.trash-bold", color="#F05D6C"))
+        self.btn_detail_remove.setIconSize(QSize(15, 15))
+        self.btn_detail_remove.setFixedHeight(32)
         self.btn_detail_remove.setStyleSheet("""
             QPushButton {
-                background: #2a1215;
-                color: #f87171;
-                border: none;
+                background-color: rgba(240, 93, 108, 0.08);
+                color: #F05D6C;
+                border: 1px solid rgba(240, 93, 108, 0.25);
                 border-radius: 6px;
                 padding: 0 14px;
-                font-weight: bold;
+                font-weight: 500;
                 font-size: 12px;
                 text-align: center;
             }
             QPushButton:hover {
-                background: #450a0a;
-                color: #ffffff;
+                background-color: rgba(240, 93, 108, 0.16);
+                border-color: #F05D6C;
+                color: #FFFFFF;
+            }
+            QPushButton:pressed {
+                background-color: rgba(240, 93, 108, 0.24);
             }
         """)
         self.btn_detail_remove.clicked.connect(self._on_remove)
@@ -496,32 +510,40 @@ class MainWindow(QMainWindow):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
         
+        # Header Title with Sorting, View Toggle, and Inspector Reveal Button
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(10)
+        
         header_title = QLabel("Game Library")
-        header_title.setFont(QFont("Arial", 18, QFont.Weight.Bold))
-        header_title.setStyleSheet("color: #ffffff; background: transparent;")
+        header_title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        header_title.setStyleSheet(f"color: {TEXT_PRIMARY}; background: transparent;")
         header_layout.addWidget(header_title)
         header_layout.addStretch()
 
         # Sorting ComboBox
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(["Sort: A–Z Title", "Sort: Most Played", "Sort: Recently Added", "Sort: Disk Size", "Sort: Runner"])
-        self.sort_combo.setFixedHeight(32)
-        self.sort_combo.setStyleSheet("""
-            QComboBox {
-                background: #11141d;
-                color: #ffffff;
-                border: none;
+        self.sort_combo.setFixedHeight(30)
+        self.sort_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {SURFACE};
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER};
                 border-radius: 6px;
                 padding: 0 10px;
                 font-size: 11px;
-                font-weight: bold;
-            }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView {
-                background: #11141d;
-                color: #ffffff;
-                selection-background-color: #1e293b;
-            }
+                font-weight: 500;
+            }}
+            QComboBox:hover {{
+                border-color: {TEXT_MUTED};
+            }}
+            QComboBox::drop-down {{ border: none; }}
+            QComboBox QAbstractItemView {{
+                background-color: {SURFACE_ELEVATED};
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER};
+                selection-background-color: {BORDER};
+            }}
         """)
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         header_layout.addWidget(self.sort_combo)
@@ -529,91 +551,86 @@ class MainWindow(QMainWindow):
         self.btn_view_toggle = QPushButton("☷ List" if self.library_view_mode == "grid" else "▦ Grid")
         self.btn_view_toggle.setToolTip("Toggle grid/list library view")
         self.btn_view_toggle.clicked.connect(self._toggle_library_view)
-        self.btn_view_toggle.setFixedHeight(32)
-        self.btn_view_toggle.setStyleSheet("""
-            QPushButton {
-                background: #11141d;
-                color: #ffffff;
-                border: none;
-                border-radius: 6px;
-                padding: 0 14px;
-                font-size: 12px;
-                font-weight: bold;
-                text-align: center;
-            }
-            QPushButton:hover { background: #1e293b; }
-        """)
+        self.btn_view_toggle.setFixedHeight(30)
+        self.btn_view_toggle.setStyleSheet(btn_secondary_style())
         header_layout.addWidget(self.btn_view_toggle)
         right_layout.addLayout(header_layout)
 
         # ── Rich Collection Header Banner (Shown when inside a Collection) ──
         self.collection_banner = QFrame(self.right_panel)
         self.collection_banner.setVisible(False)
-        self.collection_banner.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0c2b45, stop:1 #111827);
-                border: none;
-                border-radius: 10px;
-            }
+        self.collection_banner.setStyleSheet(f"""
+            QFrame {{
+                background: {SURFACE};
+                border: 1px solid {BORDER};
+                border-radius: 8px;
+            }}
         """)
         cb_layout = QHBoxLayout(self.collection_banner)
         cb_layout.setContentsMargins(14, 10, 14, 10)
         cb_layout.setSpacing(14)
 
         col_icon_lbl = QLabel()
-        col_icon_lbl.setPixmap(get_icon("ph.folder-open-bold", color="#38bdf8").pixmap(28, 28))
+        col_icon_lbl.setPixmap(get_icon("ph.folder-open-bold", color=ACCENT_PRIMARY).pixmap(24, 24))
         cb_layout.addWidget(col_icon_lbl)
 
         col_text_layout = QVBoxLayout()
         col_text_layout.setSpacing(2)
         self.lbl_col_banner_title = QLabel("Collection")
-        self.lbl_col_banner_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        self.lbl_col_banner_title.setStyleSheet("color: #ffffff; background: transparent;")
+        self.lbl_col_banner_title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
+        self.lbl_col_banner_title.setStyleSheet(f"color: {TEXT_PRIMARY}; background: transparent;")
         col_text_layout.addWidget(self.lbl_col_banner_title)
 
         self.lbl_col_banner_stats = QLabel("0 Games  •  0.0 hrs Total Playtime")
-        self.lbl_col_banner_stats.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 500; background: transparent;")
+        self.lbl_col_banner_stats.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px; font-weight: 500; background: transparent;")
         col_text_layout.addWidget(self.lbl_col_banner_stats)
         cb_layout.addLayout(col_text_layout)
 
         cb_layout.addStretch()
 
         btn_col_manage = QPushButton("Manage Games")
-        btn_col_manage.setIcon(get_icon("ph.plus-bold", color="#ffffff"))
+        btn_col_manage.setIcon(get_icon("ph.plus-bold", color="#FFFFFF"))
         btn_col_manage.setIconSize(QSize(13, 13))
-        btn_col_manage.setStyleSheet("""
-            QPushButton { background: #0284c7; color: white; border: none; padding: 0 14px; height: 28px; border-radius: 6px; font-size: 11px; font-weight: bold; text-align: center; }
-            QPushButton:hover { background: #0369a1; }
-        """)
+        btn_col_manage.setFixedHeight(28)
+        btn_col_manage.setStyleSheet(btn_primary_style())
         btn_col_manage.clicked.connect(self._manage_current_collection_games)
         cb_layout.addWidget(btn_col_manage)
 
         btn_col_rename = QPushButton("Rename")
-        btn_col_rename.setIcon(get_icon("ph.pencil-simple-bold", color="#cbd5e1"))
+        btn_col_rename.setIcon(get_icon("ph.pencil-simple-bold", color=TEXT_SECONDARY))
         btn_col_rename.setIconSize(QSize(13, 13))
-        btn_col_rename.setStyleSheet("""
-            QPushButton { background: #1e293b; color: #cbd5e1; border: none; padding: 0 14px; height: 28px; border-radius: 6px; font-size: 11px; font-weight: bold; text-align: center; }
-            QPushButton:hover { background: #334155; color: #fff; }
-        """)
+        btn_col_rename.setFixedHeight(28)
+        btn_col_rename.setStyleSheet(btn_secondary_style())
         btn_col_rename.clicked.connect(self._rename_current_collection)
         cb_layout.addWidget(btn_col_rename)
 
         btn_col_delete = QPushButton("Delete")
-        btn_col_delete.setIcon(get_icon("ph.trash-bold", color="#f87171"))
+        btn_col_delete.setIcon(get_icon("ph.trash-bold", color="#F05D6C"))
         btn_col_delete.setIconSize(QSize(13, 13))
-        btn_col_delete.setStyleSheet("""
-            QPushButton { background: #450a0a; color: #f87171; border: none; padding: 0 14px; height: 28px; border-radius: 6px; font-size: 11px; font-weight: bold; text-align: center; }
-            QPushButton:hover { background: #7f1d1d; color: #fff; }
-        """)
+        btn_col_delete.setFixedHeight(28)
+        btn_col_delete.setStyleSheet(btn_destructive_style())
         btn_col_delete.clicked.connect(self._delete_current_collection)
         cb_layout.addWidget(btn_col_delete)
 
         btn_col_close = QPushButton("✕")
-        btn_col_close.setFixedSize(26, 26)
+        btn_col_close.setFixedSize(24, 24)
         btn_col_close.setToolTip("Exit collection view")
-        btn_col_close.setStyleSheet("""
-            QPushButton { background: transparent; color: #94a3b8; border: none; font-size: 13px; font-weight: bold; padding: 0; text-align: center; }
-            QPushButton:hover { color: #fff; background: #1e293b; border-radius: 4px; }
+        btn_col_close.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {TEXT_MUTED};
+                border: 1px solid transparent;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+                padding: 0;
+                text-align: center;
+            }}
+            QPushButton:hover {{
+                color: {TEXT_PRIMARY};
+                background: {SURFACE_ELEVATED};
+                border-color: {BORDER};
+            }}
         """)
         btn_col_close.clicked.connect(lambda: self._set_collection_filter(""))
         cb_layout.addWidget(btn_col_close)
@@ -642,74 +659,33 @@ class MainWindow(QMainWindow):
         # Action Buttons Layout (Add Game on bottom-left)
         action_layout = QHBoxLayout()
         action_layout.setContentsMargins(0, 4, 0, 0)
-        action_layout.setSpacing(14)
+        action_layout.setSpacing(12)
         
         self.btn_add = QPushButton("Add Game")
         self.btn_add.setObjectName("addGameButton")
         self.btn_add.setIcon(get_app_icon("add"))
         self.btn_add.clicked.connect(self._on_add)
-        self.btn_add.setFixedHeight(38)
-        self.btn_add.setStyleSheet("""
-            QPushButton#addGameButton {
-                background: #2f8f63; color: #ffffff; font-weight: bold; border-radius: 8px; border: none; padding: 0 18px; font-size: 12px; text-align: center;
-            }
-            QPushButton#addGameButton:hover { background: #3eaa77; }
-        """)
-        self.btn_add.setIconSize(QSize(18, 18))
-        add_soft_shadow(self.btn_add, blur=18, y=4, alpha=90)
+        self.btn_add.setFixedHeight(34)
+        self.btn_add.setStyleSheet(btn_primary_style())
+        self.btn_add.setIconSize(QSize(15, 15))
         action_layout.addWidget(self.btn_add)
 
         action_layout.addStretch()
 
         # Details Button for opening the right panel (placed down in bottom bar)
         self.btn_reveal_detail = QPushButton(" Details")
-        self.btn_reveal_detail.setIcon(get_icon("ph.caret-double-left-bold", color="#94a3b8"))
-        self.btn_reveal_detail.setIconSize(QSize(16, 16))
+        self.btn_reveal_detail.setIcon(get_icon("ph.caret-double-left-bold", color=TEXT_SECONDARY))
+        self.btn_reveal_detail.setIconSize(QSize(14, 14))
         self.btn_reveal_detail.setToolTip("Open game details panel")
         self.btn_reveal_detail.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_reveal_detail.setFixedHeight(38)
-        self.btn_reveal_detail.setStyleSheet("""
-            QPushButton {
-                background: #141720;
-                color: #cbd5e1;
-                border: 1px solid #222a38;
-                border-radius: 8px;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: bold;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background: #1e2433;
-                color: #ffffff;
-                border-color: #38bdf8;
-            }
-        """)
+        self.btn_reveal_detail.setFixedHeight(34)
+        self.btn_reveal_detail.setStyleSheet(btn_secondary_style())
         self.btn_reveal_detail.clicked.connect(lambda: self._animate_left_panel(True))
         action_layout.addWidget(self.btn_reveal_detail)
 
         right_layout.addLayout(action_layout)
         
-        self.setStyleSheet("""
-            QMainWindow { background: #0b0d10; }
-            QPushButton { 
-                background: #1a1e25;
-                color: #ffffff; 
-                border: none;
-                padding: 8px 15px;
-                border-radius: 8px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover { 
-                background: #252b35;
-            }
-            QLabel { color: #fff; }
-            QScrollBar:vertical { background: transparent; width: 10px; margin: 4px 0; }
-            QScrollBar::handle:vertical { background: #303846; border-radius: 5px; min-height: 40px; }
-            QScrollBar::handle:vertical:hover { background: #46556b; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-        """)
+        self.setStyleSheet(get_application_stylesheet())
         
         # 5-minute periodic drive check timer (300,000 ms)
         self.drive_check_timer = QTimer(self)
@@ -1865,20 +1841,20 @@ class MainWindow(QMainWindow):
             patch_notes_url = self.selected_game[16] if len(self.selected_game) > 16 and self.selected_game[16] else ""
             patch_link = f"<br><a href='{escape(patch_notes_url, quote=True)}'>Open patch notes</a>" if patch_notes_url else ""
             status = "Needs update" if is_update_available else "Up to date"
-            status_color = ("#7f1d1d", "#fca5a5", "#991b1b") if is_update_available else ("#064e3b", "#34d399", "#059669")
+            status_color = ("rgba(229, 169, 61, 0.12)", "#E5A93D", "rgba(229, 169, 61, 0.3)") if is_update_available else ("rgba(53, 201, 138, 0.12)", "#35C98A", "rgba(53, 201, 138, 0.3)")
             self.lbl_detail_update.setText(status)
             self.lbl_detail_update.setStyleSheet(
-                f"background: {status_color[0]}; color: {status_color[1]}; border: 1px solid {status_color[2]}; border-radius: 6px; padding: 2px 8px; font-size: 10px; font-weight: bold;"
+                f"background: {status_color[0]}; color: {status_color[1]}; border: 1px solid {status_color[2]}; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 600;"
             )
             self.lbl_detail_versions.setText(
                 "<table width='100%' cellspacing='0' cellpadding='1' style='margin:0; padding:0; border-collapse:collapse;'>"
-                "<tr><td></td><td align='center'><font color='#8f949e'>LOCAL</font></td>"
-                "<td align='center'><font color='#8f949e'>STEAM</font></td></tr>"
-                f"<tr><td><font color='#8f949e'>Version</font></td><td align='center'><b>{escape(str(version_override))}</b></td>"
-                f"<td align='center'><font color='#71717a'>—</font></td></tr>"
-                f"<tr><td><font color='#8f949e'>Build</font></td><td align='center'><b>{escape(str(local_build_id))}</b></td>"
+                "<tr><td></td><td align='center'><font color='#6F7682'>LOCAL</font></td>"
+                "<td align='center'><font color='#6F7682'>STEAM</font></td></tr>"
+                f"<tr><td><font color='#A7ADB8'>Version</font></td><td align='center'><b>{escape(str(version_override))}</b></td>"
+                f"<td align='center'><font color='#6F7682'>—</font></td></tr>"
+                f"<tr><td><font color='#A7ADB8'>Build</font></td><td align='center'><b>{escape(str(local_build_id))}</b></td>"
                 f"<td align='center'><b>{escape(str(latest_build_id))}</b></td></tr>"
-                f"<tr><td><font color='#8f949e'>Updated</font></td><td align='center'>{self._format_version_date(local_date)}</td>"
+                f"<tr><td><font color='#A7ADB8'>Updated</font></td><td align='center'>{self._format_version_date(local_date)}</td>"
                 f"<td align='center'>{self._format_version_date(latest_build_date)}</td></tr>"
                 f"<tr><td colspan='3' align='center'>{patch_link.replace('<br>', '', 1) if patch_link else ''}</td></tr>"
                 "</table>"
@@ -1891,8 +1867,8 @@ class MainWindow(QMainWindow):
     def _on_steam_check_failed(self, game_id: int, reason: str):
         self.steam_check_results[game_id] = ("", 0, False, reason)
         if self.selected_game and self.selected_game[0] == game_id:
-            self.lbl_detail_update.setText("⚪ Steam check failed")
-            self.lbl_detail_update.setStyleSheet("background: #3f3f46; color: #d4d4d8; border: 1px solid #71717a; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
+            self.lbl_detail_update.setText("Steam check failed")
+            self.lbl_detail_update.setStyleSheet("background: #1A1E26; color: #A7ADB8; border: 1px solid #252A33; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 500;")
             self.lbl_detail_versions.setText(reason)
             self.lbl_detail_versions.setToolTip(reason)
             self.detail_update_widget.setVisible(True)
@@ -1940,13 +1916,6 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         self._select_game_by_id(game_id)
 
-    def _retry_steam_check(self):
-        if not self.selected_game:
-            return
-        game_id = self.selected_game[0]
-        self.metadata_attempted_builds.discard(game_id)
-        self._update_detail_panel()
-
     def _on_steam_tags_found(self, game_id: int, tags_list: list, steam_app_id: str = ""):
         """Callback when background SteamTagsFetcher returns genres/categories"""
         if steam_app_id and steam_app_id.isdigit() and int(steam_app_id) > 0:
@@ -1971,13 +1940,13 @@ class MainWindow(QMainWindow):
             badge = QLabel(tag)
             badge.setStyleSheet("""
                 QLabel {
-                    background: #1e1b4b;
-                    color: #c7d2fe;
-                    border: none;
-                    border-radius: 6px;
-                    padding: 3px 9px;
+                    background: #1A1E26;
+                    color: #A7ADB8;
+                    border: 1px solid #252A33;
+                    border-radius: 4px;
+                    padding: 2px 8px;
                     font-size: 10px;
-                    font-weight: bold;
+                    font-weight: 500;
                 }
             """)
             self.tags_layout.addWidget(badge)
@@ -2153,15 +2122,24 @@ class MainWindow(QMainWindow):
 
         if is_archived:
             self.btn_detail_launch.setText("Restore to Library")
-            self.btn_detail_launch.setIcon(get_icon("ph.arrow-counter-clockwise-bold", color="#ffffff"))
-            self.btn_detail_launch.setIconSize(QSize(16, 16))
+            self.btn_detail_launch.setIcon(get_icon("ph.arrow-counter-clockwise-bold", color="#FFFFFF"))
+            self.btn_detail_launch.setIconSize(QSize(15, 15))
             self.btn_detail_launch.setEnabled(True)
             self.btn_detail_launch.setStyleSheet("""
                 QPushButton#detailLaunch {
-                    background: #0284c7; color: #ffffff; border: none;
-                    border-radius: 8px; font-weight: bold; padding: 0 20px; font-size: 13px; text-align: center;
+                    background-color: #3B9FE8;
+                    color: #FFFFFF;
+                    border: 1px solid #3B9FE8;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    padding: 0 16px;
+                    font-size: 12px;
+                    text-align: center;
                 }
-                QPushButton#detailLaunch:hover { background: #0369a1; }
+                QPushButton#detailLaunch:hover {
+                    background-color: #55ACED;
+                    border-color: #55ACED;
+                }
             """)
             self.btn_detail_remove.setText("Permanently Delete")
             return
@@ -2169,30 +2147,58 @@ class MainWindow(QMainWindow):
         self.btn_detail_remove.setText("Remove Game")
         if game_id in self.running_game_ids:
             self.btn_detail_launch.setText("Stop Game")
-            self.btn_detail_launch.setIcon(get_icon("ph.stop-circle-bold", color="#ffffff"))
-            self.btn_detail_launch.setIconSize(QSize(16, 16))
+            self.btn_detail_launch.setIcon(get_icon("ph.stop-circle-bold", color="#FFFFFF"))
+            self.btn_detail_launch.setIconSize(QSize(15, 15))
             self.btn_detail_launch.setEnabled(True)
             self.btn_detail_launch.setStyleSheet("""
                 QPushButton#detailLaunch {
-                    background: #dc2626; color: #ffffff;
-                    border: none; border-radius: 8px;
-                    font-weight: bold; padding: 0 20px; font-size: 13px; text-align: center;
+                    background-color: #F05D6C;
+                    color: #FFFFFF;
+                    border: 1px solid #F05D6C;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    padding: 0 16px;
+                    font-size: 12px;
+                    text-align: center;
                 }
-                QPushButton#detailLaunch:hover { background: #ef4444; }
-                QPushButton#detailLaunch:disabled { background: #4b5563; color: #9ca3af; }
+                QPushButton#detailLaunch:hover {
+                    background-color: #F87171;
+                    border-color: #F87171;
+                }
+                QPushButton#detailLaunch:disabled {
+                    background-color: #1A1E26;
+                    color: #6F7682;
+                    border-color: #252A33;
+                }
             """)
         else:
             self.btn_detail_launch.setText("Launch Game")
-            self.btn_detail_launch.setIcon(get_icon("ph.play-bold", color="#ffffff"))
-            self.btn_detail_launch.setIconSize(QSize(16, 16))
+            self.btn_detail_launch.setIcon(get_icon("ph.play-bold", color="#FFFFFF"))
+            self.btn_detail_launch.setIconSize(QSize(15, 15))
             self.btn_detail_launch.setEnabled(True)
             self.btn_detail_launch.setStyleSheet("""
                 QPushButton#detailLaunch {
-                    background: #16a34a; color: #ffffff; border: none;
-                    border-radius: 8px; font-weight: bold; padding: 0 20px; font-size: 13px; text-align: center;
+                    background-color: #3B9FE8;
+                    color: #FFFFFF;
+                    border: 1px solid #3B9FE8;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    padding: 0 16px;
+                    font-size: 12px;
+                    text-align: center;
                 }
-                QPushButton#detailLaunch:hover { background: #22c55e; }
-                QPushButton#detailLaunch:disabled { background: #4b5563; color: #9ca3af; }
+                QPushButton#detailLaunch:hover {
+                    background-color: #55ACED;
+                    border-color: #55ACED;
+                }
+                QPushButton#detailLaunch:pressed {
+                    background-color: #2789D0;
+                }
+                QPushButton#detailLaunch:disabled {
+                    background-color: #1A1E26;
+                    color: #6F7682;
+                    border-color: #252A33;
+                }
             """)
 
     def _stop_game(self, game_id: int):

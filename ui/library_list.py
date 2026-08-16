@@ -68,8 +68,8 @@ class LibraryListItemWidget(QWidget):
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.icon_label.setStyleSheet("""
             QLabel {
-                background: #111318;
-                border: 1px solid #1e222d;
+                background: #14171D;
+                border: 1px solid #252A33;
                 border-radius: 8px;
             }
         """)
@@ -86,11 +86,11 @@ class LibraryListItemWidget(QWidget):
         top_line.setSpacing(8)
 
         title_lbl = QLabel(self.name)
-        title_lbl.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        title_lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         if self.is_missing:
-            title_lbl.setStyleSheet("color: #64748b; font-weight: bold; background: transparent;")
+            title_lbl.setStyleSheet("color: #6F7682; font-weight: 600; background: transparent;")
         else:
-            title_lbl.setStyleSheet("color: #f8fafc; font-weight: bold; background: transparent;")
+            title_lbl.setStyleSheet("color: #F5F7FA; font-weight: 600; background: transparent;")
         top_line.addWidget(title_lbl)
 
         if self.version:
@@ -98,9 +98,9 @@ class LibraryListItemWidget(QWidget):
             ver_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
             ver_badge.setStyleSheet("""
                 QLabel {
-                    background: rgba(30, 41, 59, 0.9);
-                    color: #94a3b8;
-                    border: 1px solid #334155;
+                    background: #1A1E26;
+                    color: #A7ADB8;
+                    border: 1px solid #252A33;
                     border-radius: 4px;
                     padding: 1px 6px;
                 }
@@ -109,7 +109,7 @@ class LibraryListItemWidget(QWidget):
 
         if self.is_favorite:
             fav_lbl = QLabel("★")
-            fav_lbl.setStyleSheet("color: #facc15; font-size: 13px; font-weight: bold; background: transparent;")
+            fav_lbl.setStyleSheet("color: #F5C451; font-size: 13px; font-weight: bold; background: transparent;")
             fav_lbl.setToolTip("Favorite")
             top_line.addWidget(fav_lbl)
 
@@ -118,9 +118,9 @@ class LibraryListItemWidget(QWidget):
             upd_lbl.setFont(QFont("Arial", 8, QFont.Weight.Bold))
             upd_lbl.setStyleSheet("""
                 QLabel {
-                    background: rgba(6, 78, 59, 0.8);
-                    color: #34d399;
-                    border: 1px solid #059669;
+                    background: rgba(53, 201, 138, 0.12);
+                    color: #35C98A;
+                    border: 1px solid rgba(53, 201, 138, 0.3);
                     border-radius: 4px;
                     padding: 1px 6px;
                 }
@@ -130,23 +130,24 @@ class LibraryListItemWidget(QWidget):
         top_line.addStretch()
 
         playtime_lbl = QLabel(_format_playtime_str(self.playtime_seconds))
-        playtime_lbl.setFont(QFont("Arial", 10))
-        playtime_lbl.setStyleSheet("color: #94a3b8; background: transparent;")
+        playtime_lbl.setFont(QFont("Arial", 9))
+        playtime_lbl.setStyleSheet("color: #A7ADB8; background: transparent;")
         top_line.addWidget(playtime_lbl)
 
         info_layout.addLayout(top_line)
 
         # Bottom line: Runner mode + Size + Executable / AppID / Tags
         bottom_line = QHBoxLayout()
-        bottom_line.setSpacing(10)
+        bottom_line.setSpacing(8)
 
         mode_lbl = QLabel(self.mode.upper() if self.mode else "SANDBOX")
         mode_lbl.setFont(QFont("Arial", 8, QFont.Weight.Bold))
         mode_lbl.setStyleSheet("""
             QLabel {
-                background: #1e2433;
-                color: #38bdf8;
-                border-radius: 3px;
+                background: #0D2A40;
+                color: #3B9FE8;
+                border: 1px solid rgba(59, 159, 232, 0.25);
+                border-radius: 4px;
                 padding: 1px 6px;
             }
         """)
@@ -163,7 +164,7 @@ class LibraryListItemWidget(QWidget):
 
         meta_lbl = QLabel("  •  ".join(meta_items))
         meta_lbl.setFont(QFont("Arial", 9))
-        meta_lbl.setStyleSheet("color: #64748b; background: transparent;")
+        meta_lbl.setStyleSheet("color: #6F7682; background: transparent;")
         bottom_line.addWidget(meta_lbl)
         bottom_line.addStretch()
 
@@ -172,22 +173,26 @@ class LibraryListItemWidget(QWidget):
 
         # ── 3. Quick-Launch Action Button on Far-Right ──
         if not self.is_missing:
-            self.btn_row_launch = QPushButton("▶ Launch")
-            self.btn_row_launch.setFixedHeight(32)
+            self.btn_row_launch = QPushButton("Launch")
+            self.btn_row_launch.setFixedHeight(30)
             self.btn_row_launch.setCursor(Qt.CursorShape.PointingHandCursor)
             self.btn_row_launch.setStyleSheet("""
                 QPushButton {
-                    background: #16a34a;
-                    color: #ffffff;
-                    border: none;
+                    background-color: #3B9FE8;
+                    color: #FFFFFF;
+                    border: 1px solid #3B9FE8;
                     border-radius: 6px;
-                    padding: 0 16px;
+                    padding: 0 14px;
                     font-size: 11px;
-                    font-weight: bold;
+                    font-weight: 600;
                     text-align: center;
                 }
                 QPushButton:hover {
-                    background: #22c55e;
+                    background-color: #55ACED;
+                    border-color: #55ACED;
+                }
+                QPushButton:pressed {
+                    background-color: #2789D0;
                 }
             """)
             self.btn_row_launch.clicked.connect(lambda: self.launch_requested.emit(self.game_id))
@@ -274,24 +279,24 @@ class LibraryListView(QListWidget):
         self.setStyleSheet("""
             QListWidget {
                 background: transparent;
-                color: #f4f4f5;
+                color: #F5F7FA;
                 border: none;
                 padding: 4px;
             }
             QListWidget::item {
-                background: #0d1017;
-                border: 1px solid #181d28;
+                background: #14171D;
+                border: 1px solid #252A33;
                 border-radius: 8px;
-                margin-bottom: 3px;
+                margin-bottom: 4px;
                 padding: 0;
             }
             QListWidget::item:hover {
-                background: #151a26;
-                border: 1px solid #283248;
+                background: #1A1E26;
+                border: 1px solid #6F7682;
             }
             QListWidget::item:selected {
-                background: #172554;
-                border: 1px solid #2563eb;
+                background: #0D2A40;
+                border: 1px solid #3B9FE8;
             }
         """)
         self.itemClicked.connect(self._on_item_clicked)

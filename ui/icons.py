@@ -34,26 +34,28 @@ def get_icon(name: str, color: str = "#ffffff", active_color: Optional[str] = No
         return QIcon()
 
 
-# Pre-defined Icon Key Mappings for SafeLauncher
+# Pre-defined Icon Key Mappings for SafeLauncher matching Modern Dark SaaS palette
 ICONS = {
-    "library": ("ph.game-controller-bold", "#ffffff"),
-    "sandbox": ("ph.folder-open-bold", "#ffffff"),
-    "sync": ("ph.arrows-clockwise-bold", "#64b5f6"),
-    "launch": ("fa5s.play", "#ffffff"),
-    "add": ("ph.plus-bold", "#ffffff"),
-    "edit": ("ph.pencil-bold", "#ffffff"),
-    "remove": ("ph.trash-bold", "#ffffff"),
-    "export": ("ph.floppy-disk-bold", "#ffffff"),
-    "import": ("ph.download-bold", "#ffffff"),
-    "minimize": ("fa5s.minus", "#aaaaaa"),
-    "maximize": ("fa5s.square", "#aaaaaa"),
-    "restore": ("fa5s.clone", "#aaaaaa"),
-    "close": ("fa5s.times", "#aaaaaa"),
-    "search": ("ph.magnifying-glass-bold", "#ffffff"),
-    "shield": ("fa5s.shield-alt", "#ffffff"),
-    "globe": ("fa5s.globe", "#ffffff"),
-    "wine": ("fa5s.wine-glass", "#ffffff"),
-    "terminal": ("fa5s.terminal", "#ffffff"),
+    "library": ("ph.game-controller-bold", "#F5F7FA"),
+    "sandbox": ("ph.folder-open-bold", "#A7ADB8"),
+    "sync": ("ph.arrows-clockwise-bold", "#3B9FE8"),
+    "launch": ("fa5s.play", "#F5F7FA"),
+    "add": ("ph.plus-bold", "#F5F7FA"),
+    "edit": ("ph.pencil-bold", "#A7ADB8"),
+    "remove": ("ph.trash-bold", "#F05D6C"),
+    "export": ("ph.floppy-disk-bold", "#A7ADB8"),
+    "import": ("ph.download-bold", "#A7ADB8"),
+    "minimize": ("fa5s.minus", "#6F7682"),
+    "maximize": ("fa5s.square", "#6F7682"),
+    "restore": ("fa5s.clone", "#6F7682"),
+    "close": ("fa5s.times", "#6F7682"),
+    "search": ("ph.magnifying-glass-bold", "#6F7682"),
+    "shield": ("fa5s.shield-alt", "#35C98A"),
+    "globe": ("fa5s.globe", "#3B9FE8"),
+    "wine": ("fa5s.wine-glass", "#A7ADB8"),
+    "terminal": ("fa5s.terminal", "#A7ADB8"),
+    "favorite": ("ph.star-fill", "#F5C451"),
+    "favorite_outline": ("ph.star-bold", "#6F7682"),
 }
 
 

@@ -107,24 +107,22 @@ class GameBannerWidget(QFrame):
         self.update_indicator.hide()
 
         # Favorite belongs to the library card itself
+        # Favorite button
         self.favorite_button = QPushButton(self)
-        self.favorite_button.setFixedSize(30, 30)
+        self.favorite_button.setFixedSize(28, 28)
         self.favorite_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.favorite_button.setCheckable(True)
-        self.favorite_button.setIconSize(QSize(17, 17))
+        self.favorite_button.setIconSize(QSize(16, 16))
         self.favorite_button.setStyleSheet("""
             QPushButton {
-                background: transparent;
-                color: #d4d4d8;
-                border: none;
-                border-radius: 8px;
+                background: rgba(20, 23, 29, 0.75);
+                border: 1px solid #252A33;
+                border-radius: 6px;
                 padding: 0;
             }
-            QPushButton:hover { background: transparent; color: #ffffff; }
-            QPushButton:checked {
-                background: transparent;
-                color: #facc15;
-                border: none;
+            QPushButton:hover {
+                background: #1A1E26;
+                border-color: #6F7682;
             }
         """)
         self.favorite_button.clicked.connect(lambda: self.favoriteClicked.emit(self.game_id))
@@ -133,21 +131,25 @@ class GameBannerWidget(QFrame):
 
         # Quick-Launch Play button overlay (prominently centered on hover)
         self.btn_card_play = QPushButton(self)
-        self.btn_card_play.setFixedSize(48, 48)
+        self.btn_card_play.setFixedSize(44, 44)
         self.btn_card_play.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_card_play.setIcon(get_icon("ph.play-fill", color="#ffffff"))
-        self.btn_card_play.setIconSize(QSize(22, 22))
+        self.btn_card_play.setIcon(get_icon("ph.play-fill", color="#FFFFFF"))
+        self.btn_card_play.setIconSize(QSize(18, 18))
         self.btn_card_play.setToolTip(f"Launch {self.name}")
         self.btn_card_play.setStyleSheet("""
             QPushButton {
-                background: #16a34a;
-                color: #ffffff;
-                border: none;
-                border-radius: 24px;
+                background: #3B9FE8;
+                color: #FFFFFF;
+                border: 1px solid #3B9FE8;
+                border-radius: 22px;
                 padding: 0;
             }
             QPushButton:hover {
-                background: #22c55e;
+                background: #55ACED;
+                border-color: #55ACED;
+            }
+            QPushButton:pressed {
+                background: #2789D0;
             }
         """)
         self.btn_card_play.clicked.connect(lambda: self.launchClicked.emit(self.game_id))
@@ -159,13 +161,13 @@ class GameBannerWidget(QFrame):
         self.version_badge.setFont(QFont("Arial", 9, QFont.Weight.Bold))
         self.version_badge.setStyleSheet("""
             QLabel {
-                background: rgba(15, 15, 18, 0.82);
-                color: #ffffff;
-                font-weight: bold;
+                background: rgba(20, 23, 29, 0.88);
+                color: #A7ADB8;
+                font-weight: 600;
                 font-size: 10px;
                 border-radius: 4px;
                 padding: 2px 6px;
-                border: 1px solid rgba(255, 255, 255, 0.12);
+                border: 1px solid #252A33;
             }
         """)
         self.version_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -185,14 +187,14 @@ class GameBannerWidget(QFrame):
         self.name_label.setWordWrap(True)
         self.name_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.name_label.setStyleSheet("background: transparent;")
+        self.name_label.setStyleSheet("color: #F5F7FA; background: transparent;")
         footer_layout.addWidget(self.name_label)
 
-        # Playtime label — small, dimmed, centered below the title
+        # Playtime label — small, muted, centered below the title
         self.playtime_label = QLabel(self._format_playtime(playtime_seconds))
         self.playtime_label.setFont(QFont("Arial", 9))
         self.playtime_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.playtime_label.setStyleSheet("color: #a1a1aa; background: transparent;")
+        self.playtime_label.setStyleSheet("color: #A7ADB8; background: transparent;")
         footer_layout.addWidget(self.playtime_label)
 
         layout.addWidget(self.footer_widget)
@@ -309,16 +311,16 @@ class GameBannerWidget(QFrame):
         
         if self.is_missing:
             self.name_label.setText(self.name)
-            self.name_label.setStyleSheet("padding: 4px; color: #64748b; font-weight: bold;")
-            self.image_label.setStyleSheet("background: #111318; border: none; border-radius: 8px;")
+            self.name_label.setStyleSheet("padding: 4px; color: #6F7682; font-weight: 600;")
+            self.image_label.setStyleSheet("background: #14171D; border: 1px solid #252A33; border-radius: 8px;")
         elif self.selected:
             self.name_label.setText(self.name)
-            self.name_label.setStyleSheet("padding: 4px; background: #3b3f46; color: #ffffff; font-weight: bold; border-radius: 4px;")
-            self.image_label.setStyleSheet("background: #18181f; border: 2px solid #38bdf8; border-radius: 8px;")
+            self.name_label.setStyleSheet("padding: 4px; background: #0D2A40; color: #3B9FE8; font-weight: 600; border-radius: 4px;")
+            self.image_label.setStyleSheet("background: #14171D; border: 2px solid #3B9FE8; border-radius: 8px;")
         else:
             self.name_label.setText(self.name)
-            self.name_label.setStyleSheet("padding: 4px; color: #f4f4f5; font-weight: bold;")
-            self.image_label.setStyleSheet("background: #18181f; border: none; border-radius: 8px;")
+            self.name_label.setStyleSheet("padding: 4px; color: #F5F7FA; font-weight: 600;")
+            self.image_label.setStyleSheet("background: #14171D; border: 1px solid #252A33; border-radius: 8px;")
 
         self.render_frame(self._hover_progress)
 
@@ -326,7 +328,7 @@ class GameBannerWidget(QFrame):
         self.is_favorite = is_favorite
         try:
             self.favorite_button.setChecked(is_favorite)
-            icon = get_icon("ph.star-fill" if is_favorite else "ph.star", color="#facc15" if is_favorite else "#d4d4d8")
+            icon = get_icon("ph.star-fill" if is_favorite else "ph.star-bold", color="#F5C451" if is_favorite else "#6F7682")
             self.favorite_button.setIcon(icon)
             self.favorite_button.setText("" if not icon.isNull() else "*")
             self.favorite_button.setToolTip("Remove from Favorites" if is_favorite else "Add to Favorites")
