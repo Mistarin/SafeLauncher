@@ -1,136 +1,706 @@
 import os
+import shutil
 import subprocess
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
-    QFileDialog, QDialogButtonBox, QWidget, QScrollArea, QGridLayout, QFrame
+    QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
+    QProgressBar, QSizeGrip, QCheckBox, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon, QPixmap
+from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
+from PyQt6.QtWidgets import QKeySequenceEdit
 
-from core.logger import LOG_DIR
 from core.disk_utils import get_dir_size, get_disk_usage, format_size
 from core.host_process import host_process_env
-from database import GameDatabase, _APP_DATA_DIR
+from database import _APP_DATA_DIR
 from core.desktop_integration import install_safelauncher_desktop_entry, is_desktop_entry_installed
-from ui.icons import LOGO_PATH, get_app_icon
-from ui.components.sidebar import DialogTitleBar, add_soft_shadow
+from core.security_diagnostics import inspect_security_health, run_live_sandbox_verification
+from core.launch_diagnostics import diagnostics_directory
+from core.screenshot_capture import capture_desktop_screenshot, get_available_screens
+from core.plugins.gpu_screen_recorder import (
+    GpuRecorderService, GpuRecorderConfig,
+    WlScreenrecService, WlScreenrecConfig,
+    DEFAULT_RECORDINGS_DIR
+)
+from ui.icons import get_icon, get_app_icon
+from typing import Optional
+from ui.icons import LOGO_PATH
+from ui.components.sidebar import DialogTitleBar
 from ui.maintenance_dialogs import RuntimeInventoryDialog
 from ui.dialogs.game_dialogs import ensure_sandbox_dir
 
 
 class UserSettingsDialog(QDialog):
-    """Small settings popup for launcher-wide profile preferences."""
+    """Clean, resizable settings, plugins and security diagnostics center."""
     runtime_manager_requested = pyqtSignal()
     proton_manager_requested = pyqtSignal()
 
-    def __init__(self, user_name: str, proton_path: str = "", parent=None):
+    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("SafeLauncher Settings")
+        self.user_name = user_name
+        self.proton_path = proton_path
+        self.show_welcome_wizard = show_welcome_wizard
+        self.gpu_config = gpu_config or GpuRecorderConfig()
+        self.screenshot_screen = screenshot_screen or "current"
+        self.screenshot_hotkey = screenshot_hotkey or "F12"
+
+        self.setWindowTitle("Settings")
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
-        self.setMinimumWidth(420)
+        self.setMinimumSize(700, 540)
+        self.setSizeGripEnabled(True)
+
         self.setStyleSheet("""
-            QDialog { background: #141414; color: #ffffff; }
-            QLabel { color: #d4d4d8; font-weight: bold; }
-            QLineEdit {
-                background: #0d0d0d; color: #ffffff; border: 1px solid #333333;
-                border-radius: 5px; padding: 8px;
+            QDialog {
+                background: #121214;
+                color: #ffffff;
             }
-            QLineEdit:focus { border-color: #737780; }
+            QLabel {
+                color: #e4e4e7;
+            }
+            QLineEdit, QComboBox {
+                background: #1c1c20;
+                color: #ffffff;
+                border: 1px solid #333338;
+                border-radius: 4px;
+                padding: 7px 10px;
+                font-size: 12px;
+            }
+            QLineEdit:focus, QComboBox:focus {
+                border: 1px solid #52525b;
+                background: #222227;
+            }
             QPushButton {
-                background: #52565e; color: #ffffff; border: none;
-                border-radius: 5px; padding: 8px 18px; font-weight: bold;
+                background: #27272a;
+                color: #ffffff;
+                border: 1px solid #3f3f46;
+                border-radius: 4px;
+                padding: 7px 14px;
+                font-size: 12px;
+                font-weight: 600;
             }
-            QPushButton:hover { background: #6b707a; }
+            QPushButton:hover {
+                background: #3f3f46;
+            }
         """)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 20, 22, 18)
-        title = QLabel("Profile & Proton Settings")
-        title.setFont(QFont("Arial", 15, QFont.Weight.Bold))
-        layout.addWidget(title)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        btn_ge_manager = QPushButton("📦 Open GE-Proton Manager (GitHub Downloader)…")
-        btn_ge_manager.setStyleSheet("QPushButton { background: #174735; color: #86efac; border: none; border-radius: 8px; padding: 10px 14px; } QPushButton:hover { background: #174735; }")
-        add_soft_shadow(btn_ge_manager, blur=16, y=4, alpha=90)
-        btn_ge_manager.clicked.connect(self._open_proton_manager)
-        layout.addWidget(btn_ge_manager)
+        # Title bar
+        self.title_bar = DialogTitleBar(self, "Settings")
+        root_layout.addWidget(self.title_bar)
 
-        runtime_manager = QPushButton("Open UMU Runtime Manager…")
-        runtime_manager.setStyleSheet("QPushButton { background: #24272d; border: none; border-radius: 8px; padding: 10px 14px; } QPushButton:hover { background: #24272d; }")
-        add_soft_shadow(runtime_manager, blur=16, y=4, alpha=80)
-        runtime_manager.clicked.connect(self._open_runtime_manager)
-        layout.addWidget(runtime_manager)
+        # Body container
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(18, 14, 18, 14)
+        body_layout.setSpacing(12)
 
-        inventory_button = QPushButton("Inspect installed runtimes…")
-        inventory_button.setStyleSheet("QPushButton { background: #24262b; border: none; border-radius: 8px; padding: 10px 14px; } QPushButton:hover { background: #24262b; }")
-        add_soft_shadow(inventory_button, blur=16, y=4, alpha=80)
-        inventory_button.clicked.connect(self._open_runtime_inventory)
-        layout.addWidget(inventory_button)
+        # Navigation Bar
+        nav_bar = QHBoxLayout()
+        nav_bar.setSpacing(6)
 
-        # Desktop / Start Screen Integration Button
+        self.tab_buttons = []
+        tabs = [
+            ("General & Profile", 0),
+            ("Container Security", 1),
+            ("Storage & Logs", 2),
+            ("Plugins & Addons", 3),
+        ]
+
+        for title, idx in tabs:
+            btn = QPushButton(title)
+            btn.setCheckable(True)
+            btn.setMinimumHeight(32)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    color: #a1a1aa;
+                    border: 1px solid transparent;
+                    border-bottom: 2px solid transparent;
+                    border-radius: 0px;
+                    padding: 6px 14px;
+                    font-size: 13px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    color: #ffffff;
+                }
+                QPushButton:checked {
+                    background: transparent;
+                    color: #ffffff;
+                    border-bottom: 2px solid #3b82f6;
+                }
+            """)
+            btn.clicked.connect(lambda _, i=idx: self._switch_tab(i))
+            nav_bar.addWidget(btn)
+            self.tab_buttons.append(btn)
+
+        nav_bar.addStretch()
+        self.tab_buttons[0].setChecked(True)
+        body_layout.addLayout(nav_bar)
+
+        # Stacked Pages
+        self.stack = QStackedWidget()
+        self.page_general = self._create_general_page()
+        self.page_security = self._create_security_page()
+        self.page_storage = self._create_storage_page()
+        self.page_plugins = self._create_plugins_page()
+
+        self.stack.addWidget(self.page_general)
+        self.stack.addWidget(self.page_security)
+        self.stack.addWidget(self.page_storage)
+        self.stack.addWidget(self.page_plugins)
+
+        body_layout.addWidget(self.stack, 1)
+
+        # Bottom Bar
+        bottom_bar = QHBoxLayout()
+        bottom_bar.setSpacing(8)
+        bottom_bar.addStretch()
+
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        bottom_bar.addWidget(btn_cancel)
+
+        btn_save = QPushButton("Save")
+        btn_save.setStyleSheet("""
+            QPushButton {
+                background: #2563eb; color: #ffffff; border: none;
+                border-radius: 4px; padding: 7px 18px; font-weight: bold;
+            }
+            QPushButton:hover { background: #1d4ed8; }
+        """)
+        btn_save.clicked.connect(self._save)
+        bottom_bar.addWidget(btn_save)
+
+        # Size grip for window resizing
+        size_grip = QSizeGrip(self)
+        bottom_bar.addWidget(size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+
+        body_layout.addLayout(bottom_bar)
+        root_layout.addWidget(body)
+
+    def _switch_tab(self, index: int):
+        for i, btn in enumerate(self.tab_buttons):
+            btn.setChecked(i == index)
+        self.stack.setCurrentIndex(index)
+
+    # -------------------------------------------------------------
+    # TAB 1: General & Profile
+    # -------------------------------------------------------------
+    def _create_general_page(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(14)
+
+        sec_profile = QLabel("Profile & Paths")
+        sec_profile.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_profile.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
+        layout.addWidget(sec_profile)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self.name_input = QLineEdit(self.user_name)
+        self.name_input.setPlaceholderText("Enter display name")
+        form.addRow("Display Name:", self.name_input)
+
+        proton_row = QHBoxLayout()
+        self.proton_input = QLineEdit(self.proton_path)
+        self.proton_input.setPlaceholderText("Leave blank for automatic detection (~/.local/share/umu/...)")
+        proton_row.addWidget(self.proton_input)
+
+        browse_btn = QPushButton("Browse")
+        browse_btn.clicked.connect(self._browse_proton)
+        proton_row.addWidget(browse_btn)
+
+        form.addRow("Proton Path:", proton_row)
+        layout.addLayout(form)
+
+        sec_desktop = QLabel("Desktop & Menu Integration")
+        sec_desktop.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_desktop.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        layout.addWidget(sec_desktop)
+
         is_installed = is_desktop_entry_installed()
         btn_start_screen = QPushButton(
-            "✓ Added to Start Screen (Click to Re-install)" if is_installed else "➕ Add SafeLauncher to Start Screen & App Menu"
+            "Installed in Start Screen & App Menu" if is_installed else "Add to Start Screen & App Menu"
         )
+        btn_start_screen.setEnabled(not is_installed)
         if is_installed:
             btn_start_screen.setStyleSheet("""
                 QPushButton {
-                    background: #14532d; color: #86efac; border: 1px solid #22c55e;
-                    border-radius: 8px; padding: 10px 14px; font-weight: bold;
+                    background: #14532d; color: #86efac; border: 1px solid #166534;
+                    border-radius: 4px; padding: 8px 12px; font-weight: bold;
                 }
-                QPushButton:hover { background: #166534; color: #bbf7d0; }
             """)
         else:
             btn_start_screen.setStyleSheet("""
                 QPushButton {
                     background: #1e293b; color: #38bdf8; border: 1px solid #0284c7;
-                    border-radius: 8px; padding: 10px 14px; font-weight: bold;
+                    border-radius: 4px; padding: 8px 12px; font-weight: bold;
                 }
                 QPushButton:hover { background: #0369a1; color: #ffffff; }
             """)
-        add_soft_shadow(btn_start_screen, blur=16, y=4, alpha=80)
         btn_start_screen.clicked.connect(lambda: self._add_to_start_screen(btn_start_screen))
         layout.addWidget(btn_start_screen)
 
-        form = QFormLayout()
-        self.name_input = QLineEdit(user_name)
-        self.name_input.setPlaceholderText("Your name")
-        self.name_input.selectAll()
-        form.addRow("Display name:", self.name_input)
-        proton_row = QHBoxLayout()
-        self.proton_input = QLineEdit(proton_path)
-        self.proton_input.setPlaceholderText("Leave blank for UMU automatic detection")
-        proton_row.addWidget(self.proton_input)
-        browse = QPushButton("Browse…")
-        browse.clicked.connect(self._browse_proton)
-        proton_row.addWidget(browse)
-        form.addRow("Proton path:", proton_row)
-        layout.addLayout(form)
+        sec_startup = QLabel("Startup Preferences")
+        sec_startup.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_startup.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        layout.addWidget(sec_startup)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self._save)
-        layout.addWidget(buttons)
+        self.chk_welcome = QCheckBox("Show introduction wizard on startup")
+        self.chk_welcome.setChecked(self.show_welcome_wizard)
+        layout.addWidget(self.chk_welcome)
+
+        layout.addStretch()
+
+        scroll.setWidget(page)
+        return scroll
+
+    # -------------------------------------------------------------
+    # TAB 2: Container Security (Clean flat header & diagnostics)
+    # -------------------------------------------------------------
+    def _create_security_page(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(12)
+
+        report = inspect_security_health()
+
+        # Clean, flat status banner with white text and solid colored background (no borders/corners)
+        if report.overall_status == "healthy":
+            bg_color = "#166534"  # Solid dark green
+            status_text = "Container Isolation Active: System and personal files are protected inside sandbox."
+        elif report.overall_status == "warning":
+            bg_color = "#9a3412"  # Solid dark orange
+            status_text = f"Container Warning: {report.summary}"
+        else:
+            bg_color = "#991b1b"  # Solid dark red
+            status_text = "Container Critical: Firejail sandbox is missing. Games will run unconfined."
+
+        header_banner = QLabel(status_text)
+        header_banner.setWordWrap(True)
+        header_banner.setStyleSheet(f"""
+            QLabel {{
+                background-color: {bg_color};
+                color: #ffffff;
+                padding: 12px 14px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+        """)
+        layout.addWidget(header_banner)
+
+        # Status Table
+        sec_subsys = QLabel("Subsystem Inspection")
+        sec_subsys.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_subsys.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 4px;")
+        layout.addWidget(sec_subsys)
+
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        grid.setContentsMargins(0, 4, 0, 4)
+
+        fj_status = f"Active ({report.firejail_version})" if report.firejail_installed else "Missing"
+        grid.addWidget(QLabel("Firejail Sandbox:"), 0, 0)
+        grid.addWidget(QLabel(fj_status), 0, 1)
+
+        grid.addWidget(QLabel("Kernel Namespaces:"), 1, 0)
+        grid.addWidget(QLabel(report.userns_detail), 1, 1)
+
+        bw_status = f"Available ({report.bwrap_version})" if report.bwrap_installed else "Missing"
+        grid.addWidget(QLabel("Bubblewrap:"), 2, 0)
+        grid.addWidget(QLabel(bw_status), 2, 1)
+
+        grid.addWidget(QLabel("Prefix Isolation:"), 3, 0)
+        grid.addWidget(QLabel("Active (Z: host drive removed, user folders isolated)"), 3, 1)
+
+        layout.addLayout(grid)
+
+        # GPU Caches
+        sec_gpu = QLabel("GPU Shader Cache Whitelists")
+        sec_gpu.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_gpu.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 6px;")
+        layout.addWidget(sec_gpu)
+
+        gpu_grid = QGridLayout()
+        gpu_grid.setSpacing(6)
+        gpu_grid.setContentsMargins(0, 4, 0, 4)
+
+        for i, cache in enumerate(report.gpu_caches):
+            gpu_grid.addWidget(QLabel(f"{cache['name']} ({cache['path']}):"), i, 0)
+            status_str = f"Available ({cache['size_formatted']})" if cache['exists'] else "Not created yet"
+            gpu_grid.addWidget(QLabel(status_str), i, 1)
+
+        layout.addLayout(gpu_grid)
+
+        # Live probe test
+        sec_probe = QLabel("Sandbox Verification")
+        sec_probe.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_probe.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 6px;")
+        layout.addWidget(sec_probe)
+
+        btn_run_test = QPushButton("Run Sandbox Isolation Test")
+        btn_run_test.setFixedWidth(220)
+        btn_run_test.clicked.connect(lambda: self._execute_live_probe(btn_run_test))
+        layout.addWidget(btn_run_test)
+
+        self.probe_output_lbl = QLabel("")
+        self.probe_output_lbl.setWordWrap(True)
+        self.probe_output_lbl.setStyleSheet("font-size: 11px; padding: 4px 0px;")
+        layout.addWidget(self.probe_output_lbl)
+
+        layout.addStretch()
+        scroll.setWidget(page)
+        return scroll
+
+    def _execute_live_probe(self, button: QPushButton):
+        button.setEnabled(False)
+        button.setText("Testing isolation…")
+        res = run_live_sandbox_verification()
+        button.setEnabled(True)
+        button.setText("Run Sandbox Isolation Test")
+
+        if res["success"]:
+            self.probe_output_lbl.setStyleSheet("color: #4ade80; font-weight: bold;")
+            self.probe_output_lbl.setText(f"Pass: {res['message']}")
+        else:
+            self.probe_output_lbl.setStyleSheet("color: #f87171; font-weight: bold;")
+            self.probe_output_lbl.setText(f"Fail: {res['message']}")
+
+    # -------------------------------------------------------------
+    # TAB 3: Storage & Logs
+    # -------------------------------------------------------------
+    def _create_storage_page(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(14)
+
+        sec_disk = QLabel("Storage Usage")
+        sec_disk.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_disk.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
+        layout.addWidget(sec_disk)
+
+        sandbox_dir = ensure_sandbox_dir()
+        total_sandbox_bytes = get_dir_size(sandbox_dir)
+        total_drive, used_drive, free_drive = get_disk_usage(sandbox_dir)
+
+        form_disk = QFormLayout()
+        form_disk.setSpacing(8)
+        form_disk.addRow("Sandbox Games Directory:", QLabel(f"{format_size(total_sandbox_bytes)} ({sandbox_dir})"))
+        form_disk.addRow("Drive Available Space:", QLabel(f"{format_size(free_drive)} free out of {format_size(total_drive)}"))
+
+        self.combo_screenshot_screen = QComboBox()
+        screens = get_available_screens()
+        selected_ss_idx = 0
+        for i, (s_val, s_lbl) in enumerate(screens):
+            self.combo_screenshot_screen.addItem(s_lbl, s_val)
+            if s_val == self.screenshot_screen:
+                selected_ss_idx = i
+        self.combo_screenshot_screen.setCurrentIndex(selected_ss_idx)
+        form_disk.addRow("Screenshot Monitor / Display:", self.combo_screenshot_screen)
+
+        layout.addLayout(form_disk)
+
+        sec_logs = QLabel("Logs & Diagnostics")
+        sec_logs.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_logs.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        layout.addWidget(sec_logs)
+
+        diag_dir = diagnostics_directory()
+        diag_size = get_dir_size(diag_dir) if os.path.exists(diag_dir) else 0
+        diag_count = len(os.listdir(diag_dir)) if os.path.exists(diag_dir) else 0
+
+        self.lbl_diag_info = QLabel(f"{diag_count} saved launch reports ({format_size(diag_size)})")
+        layout.addWidget(self.lbl_diag_info)
+
+        log_btns = QHBoxLayout()
+        log_btns.setSpacing(8)
+
+        btn_open_diag = QPushButton("Open Logs Directory")
+        btn_open_diag.clicked.connect(lambda: self._open_folder(diag_dir))
+        log_btns.addWidget(btn_open_diag)
+
+        btn_clear_diag = QPushButton("Clear Saved Reports")
+        btn_clear_diag.clicked.connect(self._clear_diagnostics)
+        log_btns.addWidget(btn_clear_diag)
+
+        btn_open_shots = QPushButton("Open Screenshots")
+        shots_dir = os.path.join(_APP_DATA_DIR, "screenshots")
+        btn_open_shots.clicked.connect(lambda: self._open_folder(shots_dir))
+        log_btns.addWidget(btn_open_shots)
+
+        layout.addLayout(log_btns)
+        layout.addStretch()
+
+        scroll.setWidget(page)
+        return scroll
+
+    # -------------------------------------------------------------
+    # TAB 4: Plugins & Addons (wl-screenrec)
+    # -------------------------------------------------------------
+    def _create_plugins_page(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(14)
+
+        sec_title = QLabel("Hardware Accelerated Video Recording")
+        sec_title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_title.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
+        layout.addWidget(sec_title)
+
+        desc = QLabel(
+            "GPU Screen Recorder is a high-performance, shadowplay-like hardware screen recorder for Linux (NVIDIA NVENC, AMD VAAPI, Intel QuickSync) with zero gameplay FPS loss and instant replay buffer clipping."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #a1a1aa; font-size: 11px;")
+        layout.addWidget(desc)
+
+        # Main Plugin Toggle (Default: False)
+        self.chk_plugin_enabled = QCheckBox("Enable GPU Screen Recorder Addon")
+        self.chk_plugin_enabled.setChecked(self.gpu_config.enabled)
+        self.chk_plugin_enabled.setStyleSheet("font-weight: bold; font-size: 13px; color: #ffffff;")
+        layout.addWidget(self.chk_plugin_enabled)
+
+        # Status Banner
+        backend = WlScreenrecService.get_backend_type()
+        if backend == "gpu-screen-recorder":
+            bg_col = "#166534"
+            status_text = f"Installed & Ready: GPU Screen Recorder ({WlScreenrecService.get_executable_path()})"
+        elif backend == "wl-screenrec":
+            bg_col = "#166534"
+            status_text = f"Installed & Ready: wl-screenrec ({WlScreenrecService.get_executable_path()})"
+        elif backend == "ffmpeg":
+            bg_col = "#1e3a8a"
+            status_text = f"Active: Built-in Universal ffmpeg fallback ({WlScreenrecService.get_executable_path()})"
+        else:
+            bg_col = "#9a3412"
+            status_text = "No recorder backend found. Install gpu-screen-recorder via paru to enable hardware NVENC recording."
+
+        banner = QLabel(status_text)
+        banner.setWordWrap(True)
+        banner.setStyleSheet(f"background-color: {bg_col}; color: #ffffff; padding: 10px 12px; font-weight: 600; font-size: 11px;")
+        layout.addWidget(banner)
+
+        # Installation Helper (if gpu-screen-recorder not installed)
+        if backend != "gpu-screen-recorder":
+            install_row = QHBoxLayout()
+            self.install_cmd_box = QLineEdit("paru -S gpu-screen-recorder")
+            self.install_cmd_box.setReadOnly(True)
+            install_row.addWidget(self.install_cmd_box)
+
+            btn_copy_cmd = QPushButton("Copy Command")
+            btn_copy_cmd.clicked.connect(self._copy_install_command)
+            install_row.addWidget(btn_copy_cmd)
+
+            btn_install_now = QPushButton("Install via Helper")
+            btn_install_now.setStyleSheet("QPushButton { background: #2563eb; color: #ffffff; border: none; } QPushButton:hover { background: #1d4ed8; }")
+            btn_install_now.clicked.connect(self._open_install_notice)
+            install_row.addWidget(btn_install_now)
+
+            layout.addLayout(install_row)
+
+        # Configuration Form
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self.combo_mode = QComboBox()
+        self.combo_mode.addItem("Manual (Record on Hotkey / Button)", "manual")
+        self.combo_mode.addItem("Automatic (Record While Playing)", "auto_game")
+        self.combo_mode.addItem("Instant Replay Buffer (Shadowplay)", "replay_buffer")
+        idx_m = self.combo_mode.findData(self.gpu_config.mode)
+        if idx_m >= 0:
+            self.combo_mode.setCurrentIndex(idx_m)
+        form.addRow("Recording Mode:", self.combo_mode)
+
+        self.combo_recording_monitor = QComboBox()
+        monitors = GpuRecorderService.get_available_monitors()
+        selected_rm_idx = 0
+        cur_target_screen = getattr(self.gpu_config, "target_screen", "screen") or "screen"
+        for i, (m_val, m_lbl) in enumerate(monitors):
+            self.combo_recording_monitor.addItem(m_lbl, m_val)
+            if m_val == cur_target_screen:
+                selected_rm_idx = i
+        self.combo_recording_monitor.setCurrentIndex(selected_rm_idx)
+        form.addRow("Recording Screen / Display:", self.combo_recording_monitor)
+
+        self.combo_replay = QComboBox()
+        self.combo_replay.addItem("30 Seconds", 30)
+        self.combo_replay.addItem("60 Seconds (Default)", 60)
+        self.combo_replay.addItem("120 Seconds (2 min)", 120)
+        self.combo_replay.addItem("300 Seconds (5 min)", 300)
+        idx_r = self.combo_replay.findData(self.gpu_config.history_seconds)
+        if idx_r >= 0:
+            self.combo_replay.setCurrentIndex(idx_r)
+        form.addRow("Replay Buffer Size:", self.combo_replay)
+
+        self.combo_bitrate = QComboBox()
+        self.combo_bitrate.addItem("8 Mbps (Compact 1080p)", "8M")
+        self.combo_bitrate.addItem("12 Mbps (Standard 1080p 60fps)", "12M")
+        self.combo_bitrate.addItem("20 Mbps (High Quality 1440p)", "20M")
+        self.combo_bitrate.addItem("30 Mbps (Ultra 4K)", "30M")
+        idx_b = self.combo_bitrate.findData(self.gpu_config.bitrate)
+        if idx_b >= 0:
+            self.combo_bitrate.setCurrentIndex(idx_b)
+        form.addRow("Video Bitrate:", self.combo_bitrate)
+
+        self.combo_codec = QComboBox()
+        self.combo_codec.addItem("Auto (Hardware Detect)", "auto")
+        self.combo_codec.addItem("H.264 / AVC (Broadest Compatibility)", "avc")
+        self.combo_codec.addItem("HEVC / H.265 (Efficient)", "hevc")
+        self.combo_codec.addItem("AV1 (Next-Gen GPU)", "av1")
+        idx_c = self.combo_codec.findData(self.gpu_config.codec)
+        if idx_c >= 0:
+            self.combo_codec.setCurrentIndex(idx_c)
+        form.addRow("Video Codec:", self.combo_codec)
+
+        # Audio Configuration & Dual Devices (Output + Input)
+        self.chk_audio = QCheckBox("Record Audio")
+        self.chk_audio.setChecked(self.gpu_config.audio)
+        form.addRow("Audio Master:", self.chk_audio)
+
+        self.combo_audio_output = QComboBox()
+        out_devices = GpuRecorderService.get_audio_output_devices()
+        selected_out_idx = 0
+        current_out = getattr(self.gpu_config, "audio_device", "default") or "default"
+        for i, (dev_name, dev_label) in enumerate(out_devices):
+            self.combo_audio_output.addItem(dev_label, dev_name)
+            if dev_name == current_out:
+                selected_out_idx = i
+        self.combo_audio_output.setCurrentIndex(selected_out_idx)
+        form.addRow("Audio Output (Game / Desktop):", self.combo_audio_output)
+
+        self.combo_audio_input = QComboBox()
+        in_devices = GpuRecorderService.get_audio_input_devices()
+        selected_in_idx = 0
+        current_in = getattr(self.gpu_config, "microphone_device", "") or ""
+        for i, (dev_name, dev_label) in enumerate(in_devices):
+            self.combo_audio_input.addItem(dev_label, dev_name)
+            if dev_name == current_in:
+                selected_in_idx = i
+        self.combo_audio_input.setCurrentIndex(selected_in_idx)
+        form.addRow("Audio Input (Microphone):", self.combo_audio_input)
+
+        # ── Hotkeys (custom key sequence) ──────────────────────────────────
+        capture_hint = QLabel("Click a field and press the key combination you want to bind")
+        capture_hint.setStyleSheet("color: #71717a; font-size: 10px; margin-bottom: 2px;")
+        form.addRow("", capture_hint)
+
+        self.edit_hotkey = QKeySequenceEdit()
+        self.edit_hotkey.setKeySequence(QKeySequence(self.gpu_config.capture_hotkey or "F9"))
+        self.edit_hotkey.setStyleSheet(
+            "QKeySequenceEdit { background: #1c1c20; color: #ffffff; border: 1px solid #333338;"
+            " border-radius: 4px; padding: 7px 10px; font-size: 12px; }"
+        )
+        capture_mode_hint = QLabel()
+        if self.gpu_config.mode == "replay_buffer":
+            capture_mode_hint.setText("Saves an instant replay clip of the last buffered minutes")
+        else:
+            capture_mode_hint.setText("Starts / stops manual video recording")
+        capture_mode_hint.setStyleSheet("color: #71717a; font-size: 10px;")
+        capture_vbox = QVBoxLayout()
+        capture_vbox.setSpacing(3)
+        capture_vbox.addWidget(self.edit_hotkey)
+        capture_vbox.addWidget(capture_mode_hint)
+        form.addRow("Record / Clip Hotkey:", capture_vbox)
+
+        self.edit_screenshot_hotkey = QKeySequenceEdit()
+        self.edit_screenshot_hotkey.setKeySequence(QKeySequence(self.screenshot_hotkey or "F12"))
+        self.edit_screenshot_hotkey.setStyleSheet(
+            "QKeySequenceEdit { background: #1c1c20; color: #ffffff; border: 1px solid #333338;"
+            " border-radius: 4px; padding: 7px 10px; font-size: 12px; }"
+        )
+        form.addRow("Screenshot Hotkey:", self.edit_screenshot_hotkey)
+
+        self.chk_overlay = QCheckBox("Show In-Game Notification Overlay (Floating HUD)")
+        self.chk_overlay.setChecked(getattr(self.gpu_config, "in_game_overlay", True))
+        form.addRow("In-Game Overlay:", self.chk_overlay)
+
+        out_row = QHBoxLayout()
+        self.output_dir_input = QLineEdit(self.gpu_config.output_dir or DEFAULT_RECORDINGS_DIR)
+        out_row.addWidget(self.output_dir_input)
+        browse_out = QPushButton("Browse")
+        browse_out.clicked.connect(self._browse_recordings_dir)
+        out_row.addWidget(browse_out)
+        form.addRow("Recordings Folder:", out_row)
+
+        layout.addLayout(form)
+        layout.addStretch()
+
+        scroll.setWidget(page)
+        return scroll
+
+    def _open_install_notice(self):
+        dlg = PluginInstallNoticeDialog(self)
+        dlg.exec()
+
+    def _copy_install_command(self):
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText("paru -S gpu-screen-recorder")
+
+    def _browse_recordings_dir(self):
+        path = QFileDialog.getExistingDirectory(self, "Select Recordings Directory", os.path.expanduser("~/Videos"))
+        if path:
+            self.output_dir_input.setText(path)
+
+    def _open_folder(self, path: str):
+        if path and os.path.exists(path):
+            try:
+                subprocess.Popen(["xdg-open", path], env=host_process_env())
+            except Exception:
+                pass
+
+    def _clear_diagnostics(self):
+        diag_dir = diagnostics_directory()
+        if os.path.exists(diag_dir):
+            for f in os.listdir(diag_dir):
+                fp = os.path.join(diag_dir, f)
+                try:
+                    if os.path.isfile(fp):
+                        os.remove(fp)
+                except Exception:
+                    pass
+            self.lbl_diag_info.setText("0 saved launch reports (0 B)")
 
     def _add_to_start_screen(self, button: QPushButton):
         success, msg = install_safelauncher_desktop_entry()
         if success:
-            button.setText("✓ Added to Start Screen & App Menu!")
+            button.setText("Installed in Start Screen & App Menu")
+            button.setEnabled(False)
             button.setStyleSheet("""
                 QPushButton {
-                    background: #14532d; color: #86efac; border: 1px solid #22c55e;
-                    border-radius: 8px; padding: 10px 14px; font-weight: bold;
+                    background: #14532d; color: #86efac; border: 1px solid #166534;
+                    border-radius: 4px; padding: 8px 12px; font-weight: bold;
                 }
-                QPushButton:hover { background: #166534; color: #bbf7d0; }
             """)
         else:
-            button.setText(f"⚠ {msg}")
-            button.setStyleSheet("""
-                QPushButton {
-                    background: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444;
-                    border-radius: 8px; padding: 10px 14px; font-weight: bold;
-                }
-            """)
+            button.setText(f"Error: {msg}")
 
     def _save(self):
         if self.name_input.text().strip():
@@ -158,41 +728,307 @@ class UserSettingsDialog(QDialog):
     def get_proton_path(self) -> str:
         return self.proton_input.text().strip()
 
+    def get_show_welcome_wizard(self) -> bool:
+        return self.chk_welcome.isChecked()
+
+    @staticmethod
+    def _normalise_hotkey(ks: QKeySequence) -> str:
+        """Convert a QKeySequence to a plain string the global hotkey listener can parse.
+        E.g. QKeySequence(Qt.Key.Key_F9) -> 'F9', QKeySequence('Ctrl+F9') -> 'Ctrl+F9'."""
+        txt = ks.toString(QKeySequence.SequenceFormat.PortableText).strip()
+        return txt if txt else "None"
+
+    def get_screenshot_hotkey(self) -> str:
+        return self._normalise_hotkey(self.edit_screenshot_hotkey.keySequence()) or "F12"
+
+    def get_gpu_recorder_config(self) -> GpuRecorderConfig:
+        cap_hk = self._normalise_hotkey(self.edit_hotkey.keySequence())
+        return GpuRecorderConfig(
+            enabled=self.chk_plugin_enabled.isChecked(),
+            mode=self.combo_mode.currentData() or "manual",
+            codec=self.combo_codec.currentData() or "auto",
+            bitrate=self.combo_bitrate.currentData() or "12M",
+            target_screen=self.combo_recording_monitor.currentData() or "screen",
+            audio=self.chk_audio.isChecked(),
+            audio_device=self.combo_audio_output.currentData() or "default_output",
+            microphone_device=self.combo_audio_input.currentData() or "",
+            history_seconds=int(self.combo_replay.currentData() or 60),
+            output_dir=self.output_dir_input.text().strip() or DEFAULT_RECORDINGS_DIR,
+            capture_hotkey=cap_hk or "F9",
+            replay_hotkey=cap_hk or "F9",
+            in_game_overlay=self.chk_overlay.isChecked(),
+        )
+
+    get_wl_screenrec_config = get_gpu_recorder_config
+
+    def get_screenshot_target_screen(self) -> str:
+        return self.combo_screenshot_screen.currentData() or "current"
+
+
+class PluginInstallNoticeDialog(QDialog):
+    """Notice dialog explaining why root/sudo privileges are required for AUR package installation."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Install GPU Screen Recorder")
+        self.setMinimumSize(540, 320)
+        self.setSizeGripEnabled(True)
+        self.setStyleSheet("""
+            QDialog { background: #121214; color: #ffffff; }
+            QLabel { color: #d4d4d8; font-size: 12px; }
+            QLineEdit { background: #1c1c20; color: #38bdf8; border: 1px solid #333338; border-radius: 4px; padding: 6px; }
+            QPushButton {
+                background: #27272a; color: #ffffff; border: 1px solid #3f3f46;
+                border-radius: 4px; padding: 8px 16px; font-weight: bold; font-size: 12px;
+            }
+            QPushButton:hover { background: #3f3f46; }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        title = QLabel("Install Hardware Recorder (gpu-screen-recorder)")
+        title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        title.setStyleSheet("color: #ffffff;")
+        layout.addWidget(title)
+
+        notice_text = (
+            "To enable zero-overhead hardware NVENC / VAAPI recording and shadowplay instant replay "
+            "on KDE Plasma Wayland, SafeLauncher uses the open-source 'gpu-screen-recorder' package.\n\n"
+            "Why privileges are required:\n"
+            "Building and installing places the compiled binary and capture capabilities into /usr/bin/gpu-screen-recorder, "
+            "which requires administrator (sudo) privileges on your system.\n\n"
+            "You can choose to install automatically via your terminal AUR helper (paru), "
+            "or copy the command and install it manually."
+        )
+        msg = QLabel(notice_text)
+        msg.setWordWrap(True)
+        msg.setStyleSheet("color: #a1a1aa;")
+        layout.addWidget(msg)
+
+        cmd_box = QLineEdit("paru -S gpu-screen-recorder")
+        cmd_box.setReadOnly(True)
+        layout.addWidget(cmd_box)
+
+        layout.addStretch()
+
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(8)
+
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(btn_cancel)
+
+        btn_copy = QPushButton("Copy Command & Close")
+        btn_copy.clicked.connect(self._copy_and_close)
+        btn_box.addWidget(btn_copy)
+
+        btn_install = QPushButton("Install via Terminal (paru)")
+        btn_install.setStyleSheet("QPushButton { background: #2563eb; color: #ffffff; border: none; } QPushButton:hover { background: #1d4ed8; }")
+        btn_install.clicked.connect(self._launch_install)
+        btn_box.addWidget(btn_install)
+
+        layout.addLayout(btn_box)
+
+    def _copy_and_close(self):
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText("paru -S gpu-screen-recorder")
+        self.accept()
+
+    def _launch_install(self):
+        WlScreenrecService.launch_terminal_installer(self)
+        self.accept()
+
+
+class ScreenshotLightboxDialog(QDialog):
+    """Clean, high-resolution 16:9 lightbox modal with navigation and folder opening."""
+
+    def __init__(self, filepaths: list, current_index: int = 0, parent=None):
+        super().__init__(parent)
+        self.filepaths = [f for f in filepaths if os.path.exists(f)]
+        self.current_index = max(0, min(current_index, len(self.filepaths) - 1)) if self.filepaths else 0
+        self.gallery_parent = parent
+
+        self.setWindowTitle("Screenshot Preview")
+        self.setMinimumSize(850, 580)
+        self.resize(1000, 680)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # Header bar
+        header = QWidget()
+        header.setStyleSheet("background: #18181b; border-bottom: 1px solid #27272a;")
+        h_layout = QHBoxLayout(header)
+        h_layout.setContentsMargins(16, 10, 16, 10)
+        h_layout.setSpacing(12)
+
+        self.lbl_info = QLabel("")
+        self.lbl_info.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        self.lbl_info.setStyleSheet("color: #ffffff;")
+        h_layout.addWidget(self.lbl_info)
+        h_layout.addStretch()
+
+        btn_open_folder = QPushButton(" Open Folder")
+        btn_open_folder.setIcon(get_icon("ph.folder-open-bold"))
+        btn_open_folder.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 6px 12px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
+        btn_open_folder.clicked.connect(self._open_current_folder)
+        h_layout.addWidget(btn_open_folder)
+
+        btn_delete = QPushButton(" Delete")
+        btn_delete.setIcon(get_icon("ph.trash-bold", color="#ef4444"))
+        btn_delete.setStyleSheet("QPushButton { background: #2a1212; color: #ef4444; border: 1px solid #7f1d1d; border-radius: 4px; padding: 6px 12px; font-weight: 600; } QPushButton:hover { background: #7f1d1d; color: #ffffff; }")
+        btn_delete.clicked.connect(self._delete_current)
+        h_layout.addWidget(btn_delete)
+
+        btn_close = QPushButton("✕ Close")
+        btn_close.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 6px 12px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
+        btn_close.clicked.connect(self.accept)
+        h_layout.addWidget(btn_close)
+
+        root.addWidget(header)
+
+        # Center Preview Area with 16:9 canvas
+        body = QWidget()
+        body.setStyleSheet("background: #0d0d0f;")
+        b_layout = QHBoxLayout(body)
+        b_layout.setContentsMargins(14, 14, 14, 14)
+        b_layout.setSpacing(10)
+
+        self.btn_prev = QPushButton("◀")
+        self.btn_prev.setFixedSize(44, 80)
+        self.btn_prev.setStyleSheet("QPushButton { background: rgba(39, 39, 42, 0.6); color: #ffffff; border: 1px solid #3f3f46; border-radius: 6px; font-size: 16px; font-weight: bold; } QPushButton:hover { background: rgba(63, 63, 70, 0.9); }")
+        self.btn_prev.clicked.connect(self._prev_image)
+        b_layout.addWidget(self.btn_prev)
+
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setStyleSheet("background: transparent;")
+        b_layout.addWidget(self.image_label, 1)
+
+        self.btn_next = QPushButton("▶")
+        self.btn_next.setFixedSize(44, 80)
+        self.btn_next.setStyleSheet("QPushButton { background: rgba(39, 39, 42, 0.6); color: #ffffff; border: 1px solid #3f3f46; border-radius: 6px; font-size: 16px; font-weight: bold; } QPushButton:hover { background: rgba(63, 63, 70, 0.9); }")
+        self.btn_next.clicked.connect(self._next_image)
+        b_layout.addWidget(self.btn_next)
+
+        root.addWidget(body, 1)
+        self.setStyleSheet("QDialog { background: #0d0d0f; color: #ffffff; }")
+        self._update_display()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_display()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Left:
+            self._prev_image()
+        elif event.key() == Qt.Key.Key_Right:
+            self._next_image()
+        elif event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Return):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def _prev_image(self):
+        if self.filepaths and self.current_index > 0:
+            self.current_index -= 1
+            self._update_display()
+
+    def _next_image(self):
+        if self.filepaths and self.current_index < len(self.filepaths) - 1:
+            self.current_index += 1
+            self._update_display()
+
+    def _update_display(self):
+        if not self.filepaths:
+            self.lbl_info.setText("No screenshots available")
+            self.image_label.setText("No screenshot selected")
+            self.btn_prev.setEnabled(False)
+            self.btn_next.setEnabled(False)
+            return
+
+        cur_path = self.filepaths[self.current_index]
+        filename = os.path.basename(cur_path)
+        total = len(self.filepaths)
+        self.lbl_info.setText(f"{filename}  ·  ({self.current_index + 1} of {total})")
+
+        pix = QPixmap(cur_path)
+        if not pix.isNull():
+            lbl_w = max(200, self.image_label.width() - 10)
+            lbl_h = max(150, self.image_label.height() - 10)
+            scaled = pix.scaled(lbl_w, lbl_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.image_label.setPixmap(scaled)
+        else:
+            self.image_label.setText("Failed to load image")
+
+        self.btn_prev.setEnabled(self.current_index > 0)
+        self.btn_next.setEnabled(self.current_index < len(self.filepaths) - 1)
+
+    def _open_current_folder(self):
+        if self.filepaths:
+            cur_path = self.filepaths[self.current_index]
+            folder = os.path.dirname(cur_path)
+            try:
+                subprocess.Popen(["xdg-open", folder], env=host_process_env())
+            except Exception:
+                pass
+
+    def _delete_current(self):
+        if not self.filepaths:
+            return
+        cur_path = self.filepaths[self.current_index]
+        try:
+            if os.path.exists(cur_path):
+                os.remove(cur_path)
+            self.filepaths.pop(self.current_index)
+            if self.current_index >= len(self.filepaths) and self.filepaths:
+                self.current_index = len(self.filepaths) - 1
+            self._update_display()
+            if self.gallery_parent and hasattr(self.gallery_parent, "load_screenshots"):
+                self.gallery_parent.load_screenshots()
+            if not self.filepaths:
+                self.accept()
+        except Exception as e:
+            logger.warning(f"Failed to delete screenshot: {e}")
+
 
 class ScreenshotGalleryDialog(QDialog):
-    """Custom dark modal dialog for browsing and managing in-game screenshots."""
+    """Custom dark modal dialog for browsing in-game screenshots with 16:9 ratio and Lightbox."""
     def __init__(self, game_id: int, game_name: str, parent=None):
         super().__init__(parent)
         self.game_id = game_id
         self.game_name = game_name
 
         self.setWindowTitle(f"Screenshots - {game_name}")
-        self.setMinimumSize(680, 500)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setMinimumSize(780, 520)
+        self.resize(840, 560)
+        self.setSizeGripEnabled(True)
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
         # Title bar
-        self.title_bar = DialogTitleBar(self, f"📸 Screenshots - {game_name}")
+        self.title_bar = DialogTitleBar(self, f"Screenshots - {game_name}")
         root_layout.addWidget(self.title_bar)
 
         # Body container
         body = QWidget()
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(20, 16, 20, 20)
-        body_layout.setSpacing(15)
+        body_layout.setContentsMargins(18, 14, 18, 14)
+        body_layout.setSpacing(12)
 
         # Grid scroll area for screenshots
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("QScrollArea { background: #121212; border: 1px solid #2a2a2a; border-radius: 6px; }")
+        scroll_area.setStyleSheet("QScrollArea { background: #121214; border: 1px solid #27272a; }")
 
         self.grid_widget = QWidget()
         self.grid_layout = QGridLayout(self.grid_widget)
-        self.grid_layout.setContentsMargins(15, 15, 15, 15)
-        self.grid_layout.setSpacing(15)
+        self.grid_layout.setContentsMargins(14, 14, 14, 14)
+        self.grid_layout.setSpacing(14)
 
         scroll_area.setWidget(self.grid_widget)
         body_layout.addWidget(scroll_area)
@@ -200,35 +1036,37 @@ class ScreenshotGalleryDialog(QDialog):
         # Bottom Action Bar
         action_layout = QHBoxLayout()
         
-        btn_open_folder = QPushButton("📂 Open Folder")
-        btn_open_folder.setStyleSheet("""
-            QPushButton {
-                background: #1c1c1c; color: #fff; border: 1px solid #333; padding: 8px 16px; border-radius: 5px; font-weight: bold;
-            }
-            QPushButton:hover { background: #282828; }
-        """)
+        btn_capture = QPushButton("Capture Screen")
+        btn_capture.setIcon(get_icon("ph.camera-bold"))
+        btn_capture.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
+        btn_capture.clicked.connect(self._capture_screen)
+        action_layout.addWidget(btn_capture)
+
+        btn_open_folder = QPushButton("Open Directory")
+        btn_open_folder.setIcon(get_icon("ph.folder-open-bold"))
+        btn_open_folder.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
         btn_open_folder.clicked.connect(self._open_folder)
         action_layout.addWidget(btn_open_folder)
 
         action_layout.addStretch()
 
         btn_close = QPushButton("Close")
-        btn_close.setStyleSheet("""
-            QPushButton {
-                background: #52565e; color: #fff; border: none; padding: 8px 20px; border-radius: 5px; font-weight: bold;
-            }
-            QPushButton:hover { background: #6b707a; }
-        """)
+        btn_close.setMinimumWidth(80)
+        btn_close.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 7px 16px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
         btn_close.clicked.connect(self.accept)
         action_layout.addWidget(btn_close)
+
+        size_grip = QSizeGrip(self)
+        action_layout.addWidget(size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
 
         body_layout.addLayout(action_layout)
         root_layout.addWidget(body)
 
-        self.setStyleSheet("QDialog { background-color: #121212; border: 1px solid #2a2a2a; border-radius: 8px; }")
+        self.setStyleSheet("QDialog { background-color: #121214; color: #ffffff; }")
 
         self.screenshots_dir = os.path.join(_APP_DATA_DIR, "screenshots", str(game_id))
         os.makedirs(self.screenshots_dir, exist_ok=True)
+        self.files = []
         self.load_screenshots()
 
     def load_screenshots(self):
@@ -237,47 +1075,81 @@ class ScreenshotGalleryDialog(QDialog):
             if item.widget():
                 item.widget().deleteLater()
 
-        files = sorted(
+        self.files = sorted(
             [os.path.join(self.screenshots_dir, f) for f in os.listdir(self.screenshots_dir) if f.lower().endswith((".png", ".jpg", ".jpeg"))],
             reverse=True
         )
 
-        if not files:
-            empty_label = QLabel("📷 No screenshots captured yet.\nPress F12 while playing to take a screenshot!")
+        if not self.files:
+            empty_label = QLabel("No screenshots captured yet.\nPress your screenshot hotkey in-game to capture.")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_label.setStyleSheet("color: #777777; font-size: 13px; padding: 40px;")
+            empty_label.setStyleSheet("color: #71717a; font-size: 13px; padding: 40px;")
             self.grid_layout.addWidget(empty_label, 0, 0)
             return
 
         cols = 3
-        for idx, filepath in enumerate(files):
+        card_w, card_h = 224, 126  # Exact 16:9 aspect ratio
+
+        for idx, filepath in enumerate(self.files):
             card = QFrame()
-            card.setStyleSheet("QFrame { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; }")
+            card.setStyleSheet("""
+                QFrame {
+                    background: #18181b;
+                    border: 1px solid #27272a;
+                    border-radius: 6px;
+                }
+                QFrame:hover {
+                    border: 1px solid #52525b;
+                }
+            """)
             c_layout = QVBoxLayout(card)
             c_layout.setContentsMargins(6, 6, 6, 6)
             c_layout.setSpacing(6)
 
             thumb_label = QLabel()
-            thumb_label.setFixedSize(180, 115)
-            thumb_label.setScaledContents(True)
+            thumb_label.setFixedSize(card_w, card_h)
+            thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            thumb_label.setCursor(Qt.CursorShape.PointingHandCursor)
+            thumb_label.setToolTip("Click to view in full Lightbox")
+
             pixmap = QPixmap(filepath)
             if not pixmap.isNull():
-                thumb_label.setPixmap(pixmap.scaled(180, 115, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
+                thumb_label.setPixmap(pixmap.scaled(card_w, card_h, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
+
+            # Make thumbnail clickable to open Lightbox
+            thumb_label.mousePressEvent = lambda event, i=idx: self._open_lightbox(i)
             c_layout.addWidget(thumb_label)
 
-            btn_del = QPushButton("🗑️ Delete")
-            btn_del.setStyleSheet("QPushButton { background: #2a1212; color: #ef4444; border: 1px solid #7f1d1d; font-size: 11px; padding: 3px; border-radius: 4px; } QPushButton:hover { background: #7f1d1d; color: white; }")
+            # Card info row
+            fn_label = QLabel(os.path.basename(filepath))
+            fn_label.setStyleSheet("color: #a1a1aa; font-size: 10px; background: transparent;")
+            fn_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            c_layout.addWidget(fn_label)
+
+            btn_del = QPushButton("Delete")
+            btn_del.setStyleSheet("QPushButton { background: #2a1212; color: #ef4444; border: 1px solid #7f1d1d; border-radius: 4px; font-size: 11px; padding: 4px; } QPushButton:hover { background: #7f1d1d; color: white; }")
             btn_del.clicked.connect(lambda _, p=filepath: self._delete_screenshot(p))
             c_layout.addWidget(btn_del)
 
             row, col = divmod(idx, cols)
             self.grid_layout.addWidget(card, row, col)
 
+    def _open_lightbox(self, index: int):
+        dlg = ScreenshotLightboxDialog(self.files, index, parent=self)
+        dlg.exec()
+
     def _delete_screenshot(self, filepath: str):
         try:
             if os.path.exists(filepath):
                 os.remove(filepath)
                 self.load_screenshots()
+        except Exception:
+            pass
+
+    def _capture_screen(self):
+        try:
+            capture_desktop_screenshot(self.game_id)
+            self.load_screenshots()
         except Exception:
             pass
 
@@ -289,69 +1161,57 @@ class ScreenshotGalleryDialog(QDialog):
 
 
 class DiskManagerDialog(QDialog):
-    """Custom dark dialog for analyzing sandbox disk space consumption and largest installed games."""
+    """Clean dark dialog for analyzing sandbox disk space consumption."""
     def __init__(self, games: list, parent=None):
         super().__init__(parent)
         self.games = games
 
         self.setWindowTitle("Disk Space Manager")
-        self.setWindowIcon(get_app_icon("search"))
-        self.setMinimumSize(620, 480)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setMinimumSize(660, 480)
+        self.setSizeGripEnabled(True)
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
         # Title bar
-        self.title_bar = DialogTitleBar(self, "🔍 Disk Space Manager")
+        self.title_bar = DialogTitleBar(self, "Sandbox Disk Space Manager")
         root_layout.addWidget(self.title_bar)
 
         # Body container
         body = QWidget()
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(20, 16, 20, 20)
-        body_layout.setSpacing(14)
+        body_layout.setContentsMargins(18, 14, 18, 14)
+        body_layout.setSpacing(12)
 
-        # Overview Stats Card
         sandbox_dir = ensure_sandbox_dir()
         total_sandbox_bytes = get_dir_size(sandbox_dir)
         total_drive, used_drive, free_drive = get_disk_usage(sandbox_dir)
 
-        stats_card = QFrame()
-        stats_card.setStyleSheet("QFrame { background: #181818; border: none; border-radius: 10px; padding: 12px; }")
-        add_soft_shadow(stats_card, blur=20, y=5, alpha=90)
-        sc_layout = QVBoxLayout(stats_card)
-        sc_layout.setSpacing(6)
+        form_top = QFormLayout()
+        form_top.addRow("Total Sandbox Storage:", QLabel(f"{format_size(total_sandbox_bytes)}"))
+        form_top.addRow("Drive Available Space:", QLabel(f"{format_size(free_drive)} free out of {format_size(total_drive)}"))
+        body_layout.addLayout(form_top)
 
-        lbl_sandbox = QLabel(f"📁 Total Sandbox Storage: {format_size(total_sandbox_bytes)}")
-        lbl_sandbox.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold;")
-        sc_layout.addWidget(lbl_sandbox)
-
-        lbl_drive = QLabel(f"💽 Drive Free Space: {format_size(free_drive)} available out of {format_size(total_drive)}")
-        lbl_drive.setStyleSheet("color: #aaaaaa; font-size: 12px; font-weight: bold;")
-        sc_layout.addWidget(lbl_drive)
-
-        body_layout.addWidget(stats_card)
-
-        # List of Games ranked by size
         lbl_rank = QLabel("Installed Games by Size:")
-        lbl_rank.setStyleSheet("color: #cccccc; font-size: 12px; font-weight: bold;")
+        lbl_rank.setStyleSheet("color: #ffffff; font-weight: bold; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 4px;")
         body_layout.addWidget(lbl_rank)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: #121212; border: none; border-radius: 8px; }")
+        scroll.setStyleSheet("QScrollArea { background: #121214; border: 1px solid #27272a; }")
 
         list_widget = QWidget()
         list_layout = QVBoxLayout(list_widget)
-        list_layout.setContentsMargins(10, 10, 10, 10)
-        list_layout.setSpacing(8)
+        list_layout.setContentsMargins(8, 8, 8, 8)
+        list_layout.setSpacing(6)
 
-        # Calculate sizes and sort descending
         game_sizes = []
         for g in games:
-            game_id, name, path = g[0], g[1], g[2]
+            if hasattr(g, 'id'):
+                game_id, name, path = g.id, g.name, g.path
+            else:
+                game_id, name, path = g[0], g[1], g[2]
             sz = get_dir_size(path) if path and os.path.exists(path) else 0
             game_sizes.append((name, path, sz))
 
@@ -359,8 +1219,7 @@ class DiskManagerDialog(QDialog):
 
         for name, path, sz in game_sizes:
             row_frame = QFrame()
-            row_frame.setStyleSheet("QFrame { background: #1a1a1a; border: none; border-radius: 8px; }")
-            add_soft_shadow(row_frame, blur=12, y=3, alpha=60)
+            row_frame.setStyleSheet("QFrame { background: #18181b; border: 1px solid #27272a; }")
             r_layout = QHBoxLayout(row_frame)
             r_layout.setContentsMargins(10, 8, 10, 8)
 
@@ -371,12 +1230,10 @@ class DiskManagerDialog(QDialog):
             r_layout.addStretch()
 
             size_badge = QLabel(format_size(sz))
-            size_badge.setStyleSheet("background: #24262b; color: #c4c7cc; border: none; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: bold;")
+            size_badge.setStyleSheet("color: #a1a1aa; font-size: 11px; padding: 2px 6px;")
             r_layout.addWidget(size_badge)
 
-            btn_folder = QPushButton("📂 Open Folder")
-            btn_folder.setStyleSheet("QPushButton { background: #222222; color: #aaaaaa; border: none; border-radius: 6px; padding: 5px 9px; font-weight: bold; font-size: 11px; } QPushButton:hover { background: #222222; color: #aaaaaa; }")
-            add_soft_shadow(btn_folder, blur=10, y=2, alpha=60)
+            btn_folder = QPushButton("Open Directory")
             btn_folder.clicked.connect(lambda _, p=path: self._open_path(p))
             r_layout.addWidget(btn_folder)
 
@@ -387,15 +1244,17 @@ class DiskManagerDialog(QDialog):
 
         # Close button
         btn_close = QPushButton("Close")
-        btn_close.setStyleSheet("QPushButton { background: #52565e; color: #fff; border: none; padding: 8px 24px; border-radius: 5px; font-weight: bold; } QPushButton:hover { background: #6b707a; }")
         btn_close.clicked.connect(self.accept)
         
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         btn_row.addWidget(btn_close)
+        size_grip = QSizeGrip(self)
+        btn_row.addWidget(size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
         body_layout.addLayout(btn_row)
 
         root_layout.addWidget(body)
+        self.setStyleSheet("QDialog { background-color: #121214; color: #ffffff; }")
 
     def _open_path(self, path: str):
         try:

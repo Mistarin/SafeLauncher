@@ -47,6 +47,15 @@ from ui.threads import (
     GitHubReleasesFetcherThread, UmuBootstrapWorker, SafeLaunchLogReader,
     DiskSizeFetcherThread, HeroFetcherThread
 )
+from core.archive_installer import find_executables
+from core.host_process import host_process_env
+from core.plugins.gpu_screen_recorder import (
+    GpuRecorderService, GpuRecorderConfig,
+    WlScreenrecService, WlScreenrecConfig,
+    DEFAULT_RECORDINGS_DIR
+)
+from core.global_hotkeys import GlobalHotkeyListener
+from ui.components.overlay_hud import show_ingame_notification
 from ui.components.banner_card import GameBannerWidget
 from ui.components.responsive_grid import ResponsiveGridContainer
 from ui.components.hero_background import HeroBackgroundWidget
@@ -57,6 +66,7 @@ from ui.dialogs.game_dialogs import (
     MissingDependencyDialog, ToastNotification, CustomRemoveDialog
 )
 from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDialog, DiskManagerDialog
+from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 
 
 import getpass
@@ -128,7 +138,34 @@ class MainWindow(QMainWindow):
         self.collection_filter = ""
         self.current_sort = 0  # 0: A-Z, 1: Playtime, 2: Recently Added
 
-        self.setWindowTitle("🎮 SafeLauncher - Game Sandbox Manager")
+        # Load Screenshot and GPU Recorder configuration
+        self.screenshot_screen = self.settings.value("screenshot_target_screen", "current", type=str)
+        self.screenshot_hotkey = self.settings.value("screenshot_hotkey", "F12", type=str)
+        self.gpu_recorder_config = GpuRecorderConfig(
+            enabled=self.settings.value("gpu_recorder_enabled", self.settings.value("wl_screenrec_enabled", False, type=bool), type=bool),
+            mode=self.settings.value("gpu_recorder_mode", self.settings.value("wl_screenrec_mode", "manual", type=str), type=str),
+            codec=self.settings.value("gpu_recorder_codec", self.settings.value("wl_screenrec_codec", "auto", type=str), type=str),
+            bitrate=self.settings.value("gpu_recorder_bitrate", self.settings.value("wl_screenrec_bitrate", "12M", type=str), type=str),
+            target_screen=self.settings.value("gpu_recorder_target_screen", "screen", type=str),
+            audio=self.settings.value("gpu_recorder_audio", self.settings.value("wl_screenrec_audio", True, type=bool), type=bool),
+            audio_device=self.settings.value("gpu_recorder_audio_device", self.settings.value("wl_screenrec_audio_device", "default_output", type=str), type=str),
+            microphone_device=self.settings.value("gpu_recorder_microphone_device", "", type=str),
+            history_seconds=self.settings.value("gpu_recorder_history", self.settings.value("wl_screenrec_history", 60, type=int), type=int),
+            output_dir=self.settings.value("gpu_recorder_output_dir", self.settings.value("wl_screenrec_output_dir", DEFAULT_RECORDINGS_DIR, type=str), type=str),
+            capture_hotkey=self.settings.value("gpu_recorder_capture_hotkey", self.settings.value("wl_screenrec_capture_hotkey", "F9", type=str), type=str),
+            replay_hotkey=self.settings.value("gpu_recorder_capture_hotkey", self.settings.value("wl_screenrec_capture_hotkey", "F9", type=str), type=str),
+            in_game_overlay=self.settings.value("gpu_recorder_in_game_overlay", self.settings.value("wl_screenrec_in_game_overlay", True, type=bool), type=bool),
+        )
+        self.wl_recorder_config = self.gpu_recorder_config
+        GpuRecorderService.instance().config = self.gpu_recorder_config
+
+        # Initialize background global hotkey daemon for in-game shortcuts
+        self.global_hotkeys = GlobalHotkeyListener(self)
+        self._update_global_hotkeys()
+        self.global_hotkeys.hotkey_triggered.connect(self._on_global_hotkey)
+        self.global_hotkeys.start()
+
+        self.setWindowTitle("SafeLauncher - Game Sandbox Manager")
         self.resize(1180, 750)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         
@@ -378,27 +415,11 @@ class MainWindow(QMainWindow):
         self.btn_detail_screenshots.clicked.connect(self._open_screenshot_gallery)
         detail_layout.addWidget(self.btn_detail_screenshots)
 
-        self.btn_detail_export = QPushButton(" Export Save")
-        self.btn_detail_export.setIcon(get_app_icon("export"))
-        self.btn_detail_export.setMinimumHeight(32)
-        self.btn_detail_export.clicked.connect(self._on_export)
-        detail_layout.addWidget(self.btn_detail_export)
-
-        self.btn_detail_import = QPushButton(" Import Save")
-        self.btn_detail_import.setIcon(get_app_icon("import"))
-        self.btn_detail_import.setMinimumHeight(32)
-        self.btn_detail_import.clicked.connect(self._on_import)
-        detail_layout.addWidget(self.btn_detail_import)
-
-        self.btn_detail_prefix = QPushButton(" Prefix Maintenance")
-        self.btn_detail_prefix.setMinimumHeight(32)
-        self.btn_detail_prefix.clicked.connect(self._open_prefix_maintenance)
-        detail_layout.addWidget(self.btn_detail_prefix)
-
-        self.btn_detail_runtime = QPushButton(" Set per-game Proton")
-        self.btn_detail_runtime.setMinimumHeight(32)
-        self.btn_detail_runtime.clicked.connect(self._set_game_runtime)
-        detail_layout.addWidget(self.btn_detail_runtime)
+        self.btn_detail_properties = QPushButton(" Game Properties")
+        self.btn_detail_properties.setIcon(get_icon("ph.gear-six-bold"))
+        self.btn_detail_properties.setMinimumHeight(32)
+        self.btn_detail_properties.clicked.connect(self._open_game_properties)
+        detail_layout.addWidget(self.btn_detail_properties)
 
         self.btn_detail_remove = QPushButton(" Remove Game")
         self.btn_detail_remove.setIcon(get_app_icon("remove"))
@@ -637,15 +658,15 @@ class MainWindow(QMainWindow):
         self.btn_collection = QPushButton("Collection…")
         self.btn_collection.clicked.connect(self._assign_selected_collection)
         action_layout.addWidget(self.btn_collection)
-        self.btn_favorite_selected = QPushButton("★ Selected")
+        self.btn_favorite_selected = QPushButton("Favorite Selected")
         self.btn_favorite_selected.clicked.connect(self._favorite_selected)
         action_layout.addWidget(self.btn_favorite_selected)
 
         # Card Size Zoom Slider
         zoom_layout = QHBoxLayout()
         zoom_layout.setSpacing(8)
-        zoom_label = QLabel("🔍 Size:")
-        zoom_label.setStyleSheet("color: #a1a1aa; font-weight: bold; font-size: 12px;")
+        zoom_label = QLabel("Card Size:")
+        zoom_label.setStyleSheet("color: #a1a1aa; font-size: 11px; font-weight: bold;")
         zoom_layout.addWidget(zoom_label)
 
         self.size_slider = QSlider(Qt.Orientation.Horizontal)
@@ -673,6 +694,7 @@ class MainWindow(QMainWindow):
         """)
         self.size_slider.valueChanged.connect(self._on_card_size_changed)
         zoom_layout.addWidget(self.size_slider)
+
         action_layout.addLayout(zoom_layout)
 
         action_layout.addStretch()
@@ -712,6 +734,22 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         QTimer.singleShot(300, self._check_all_steam_updates)
 
+        show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
+        if show_wizard:
+            QTimer.singleShot(150, self._show_welcome_wizard)
+
+    def _show_welcome_wizard(self):
+        from ui.dialogs.welcome_wizard import WelcomeWizardDialog
+        wizard = WelcomeWizardDialog(self.user_name, self.proton_path, self)
+        if wizard.exec() == QDialog.DialogCode.Accepted:
+            self.user_name = wizard.get_user_name()
+            self.proton_path = wizard.get_proton_path()
+            self.settings.setValue("user_name", self.user_name)
+            self.settings.setValue("proton_path", self.proton_path)
+            self.settings.setValue("show_welcome_wizard", wizard.should_show_on_startup())
+            if hasattr(self.runner, "set_proton_path"):
+                self.runner.set_proton_path(self.proton_path)
+
     def _toggle_maximize(self):
         """Toggle between maximized state and normal window size"""
         if self.isMaximized():
@@ -731,7 +769,16 @@ class MainWindow(QMainWindow):
 
     def _open_settings(self):
         """Open launcher preferences and persist profile changes."""
-        dialog = UserSettingsDialog(self.user_name, self.proton_path, self)
+        show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
+        dialog = UserSettingsDialog(
+            self.user_name,
+            self.proton_path,
+            show_welcome_wizard=show_wizard,
+            gpu_config=self.gpu_recorder_config,
+            screenshot_screen=self.screenshot_screen,
+            screenshot_hotkey=self.screenshot_hotkey,
+            parent=self
+        )
         dialog.runtime_manager_requested.connect(self._open_runtime_manager)
         dialog.proton_manager_requested.connect(self._open_proton_manager)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -739,9 +786,37 @@ class MainWindow(QMainWindow):
             self.proton_path = dialog.get_proton_path()
             self.settings.setValue("user_name", self.user_name)
             self.settings.setValue("proton_path", self.proton_path)
+            self.settings.setValue("show_welcome_wizard", dialog.get_show_welcome_wizard())
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(self.proton_path)
-            self._show_toast(f"✓ Display name changed to {self.user_name}.")
+
+            self.screenshot_screen = dialog.get_screenshot_target_screen()
+            self.settings.setValue("screenshot_target_screen", self.screenshot_screen)
+
+            self.screenshot_hotkey = dialog.get_screenshot_hotkey()
+            self.settings.setValue("screenshot_hotkey", self.screenshot_hotkey)
+
+            # Save GPU screen recorder addon preferences
+            self.gpu_recorder_config = dialog.get_gpu_recorder_config()
+            self.wl_recorder_config = self.gpu_recorder_config
+            self.settings.setValue("gpu_recorder_enabled", self.gpu_recorder_config.enabled)
+            self.settings.setValue("gpu_recorder_mode", self.gpu_recorder_config.mode)
+            self.settings.setValue("gpu_recorder_codec", self.gpu_recorder_config.codec)
+            self.settings.setValue("gpu_recorder_bitrate", self.gpu_recorder_config.bitrate)
+            self.settings.setValue("gpu_recorder_target_screen", self.gpu_recorder_config.target_screen)
+            self.settings.setValue("gpu_recorder_audio", self.gpu_recorder_config.audio)
+            self.settings.setValue("gpu_recorder_audio_device", self.gpu_recorder_config.audio_device)
+            self.settings.setValue("gpu_recorder_microphone_device", self.gpu_recorder_config.microphone_device)
+            self.settings.setValue("gpu_recorder_history", self.gpu_recorder_config.history_seconds)
+            self.settings.setValue("gpu_recorder_output_dir", self.gpu_recorder_config.output_dir)
+            self.settings.setValue("gpu_recorder_capture_hotkey", self.gpu_recorder_config.capture_hotkey)
+            self.settings.setValue("gpu_recorder_replay_hotkey", self.gpu_recorder_config.replay_hotkey)
+            self.settings.setValue("gpu_recorder_in_game_overlay", self.gpu_recorder_config.in_game_overlay)
+            GpuRecorderService.instance().config = self.gpu_recorder_config
+            self._update_global_hotkeys()
+            self._refresh_record_button_state()
+
+            self._show_toast(f"Display name changed to {self.user_name}.")
 
     def _open_proton_manager(self):
         if isinstance(self.selected_game, tuple):
@@ -758,22 +833,19 @@ class MainWindow(QMainWindow):
         manager.exec()
 
     def _set_global_proton_path(self, proton_path: str):
-        self.proton_path = proton_path.strip()
+        self.proton_path = proton_path
         self.settings.setValue("proton_path", self.proton_path)
         if hasattr(self.runner, "set_proton_path"):
             self.runner.set_proton_path(self.proton_path)
-        display_name = os.path.basename(self.proton_path) if self.proton_path else "System / UMU Default"
-        self._show_toast(f"✓ Global default Proton set to: {display_name}")
+        display_name = os.path.basename(proton_path) if proton_path else "UMU Auto"
+        self._show_toast(f"Global default Proton set to: {display_name}")
 
     def _apply_proton_to_selected_game(self, proton_path: str):
         if not self.selected_game:
-            self._set_global_proton_path(proton_path)
             return
-        self.proton_path = proton_path
-        self.settings.setValue("proton_path", proton_path)
-        if hasattr(self.runner, "set_proton_path"):
-            self.runner.set_proton_path(proton_path)
-        self._show_toast(f"✓ Applied {os.path.basename(proton_path)} to '{self.selected_game.name}'!")
+        game_id = self.selected_game.id if hasattr(self.selected_game, 'id') else self.selected_game[0]
+        self.db.set_game_runtime(game_id, proton_path)
+        self._show_toast(f"Applied {os.path.basename(proton_path)} to '{self.selected_game.name}'.")
 
     def _open_runtime_manager(self):
         manager = UmuRuntimeManagerDialog(self.proton_path, self)
@@ -861,7 +933,7 @@ class MainWindow(QMainWindow):
             self.tray_menu.addSeparator()
 
         # Disk Manager option
-        act_disk = self.tray_menu.addAction(get_app_icon("search"), "🔍 Disk Space Manager")
+        act_disk = self.tray_menu.addAction(get_app_icon("search"), "Disk Space Manager")
         act_disk.triggered.connect(self._open_disk_manager)
 
         self.tray_menu.addSeparator()
@@ -963,7 +1035,7 @@ class MainWindow(QMainWindow):
             self._show_toast(f"Failed to extract '{game_name}'.", is_error=True)
             return
 
-        self._show_toast(f"✓ Extracted '{game_name}' successfully!")
+        self._show_toast(f"Extracted '{game_name}' successfully.")
         exes = find_executables(dest_dir)
         default_exe = exes[0] if exes else ""
 
@@ -985,7 +1057,7 @@ class MainWindow(QMainWindow):
                 save_sandbox_config(path, exe)
                 self.db.add_game(name, path, exe, mode, banner_path)
                 self._refresh_library()
-                self._show_toast(f"✓ Game '{name}' added to library!")
+                self._show_toast(f"Game '{name}' added to library.")
 
     def _set_filter(self, filter_mode: str):
         """Set active filter mode (all, installed, missing, favorites) and refresh view"""
@@ -1098,7 +1170,7 @@ class MainWindow(QMainWindow):
         self.stat_label.setText(f"{len(self.games)} Game(s) Total")
 
         if not self.games:
-            label = QLabel("🎮 No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started!")
+            label = QLabel("No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started.")
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setStyleSheet("color: #999; font-size: 14px; padding: 40px;")
             self.grid_container.set_banner_widgets([label])
@@ -1152,7 +1224,7 @@ class MainWindow(QMainWindow):
 
         if not processed:
             msg = f"No games matching '{self.search_query}'" if self.search_query else "No games matching selected filter."
-            label = QLabel(f"🔍 {msg}")
+            label = QLabel(msg)
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setStyleSheet("color: #777777; font-size: 14px; padding: 40px;")
             self.grid_container.set_banner_widgets([label])
@@ -1161,8 +1233,9 @@ class MainWindow(QMainWindow):
         widgets = []
         for g, is_missing, playtime_seconds, is_fav in processed:
             game_id, name, path, executable, mode, banner_url, steam_id = g[:7]
+            version_override = g[15] if len(g) > 15 and g[15] else ""
             
-            widget = GameBannerWidget(game_id, name, banner_url, playtime_seconds or 0)
+            widget = GameBannerWidget(game_id, name, banner_url, playtime_seconds or 0, version=version_override)
             widget.set_update_available(self.update_status_by_game_id.get(game_id, False))
             widget.set_favorite(is_fav)
             widget.set_selected(game_id in self.library_selection.ids)
@@ -1332,28 +1405,73 @@ class MainWindow(QMainWindow):
         if event.key() == Qt.Key.Key_F12:
             self._take_screenshot()
 
-    def _take_screenshot(self):
-        """Capture screenshot of primary screen and save to current game's gallery."""
-        game = self.selected_game
-        if not game:
-            self._show_toast("Select a game first to save screenshots.", is_error=True)
+        # Check hotkeys for wl-screenrec addon
+        if getattr(self, "wl_recorder_config", None) and self.wl_recorder_config.enabled:
+            key_name = ""
+            if event.key() == Qt.Key.Key_F9:
+                key_name = "F9"
+            elif event.key() == Qt.Key.Key_F10:
+                key_name = "F10"
+            elif event.key() == Qt.Key.Key_F11:
+                key_name = "F11"
+            elif event.key() == Qt.Key.Key_F12:
+                key_name = "F12"
+
+            if key_name:
+                if key_name == self.wl_recorder_config.capture_hotkey:
+                    self._toggle_game_recording()
+                elif key_name == self.wl_recorder_config.replay_hotkey:
+                    self._trigger_replay_save()
+
+    def _update_global_hotkeys(self):
+        """Refresh registered global hotkeys in background listener."""
+        if not hasattr(self, "global_hotkeys"):
             return
+        self.global_hotkeys.clear_bindings()
+        self.global_hotkeys.register_hotkey(self.screenshot_hotkey or "F12", "screenshot")
+        self.global_hotkeys.register_hotkey(self.gpu_recorder_config.capture_hotkey or "F9", "toggle_recording")
 
-        game_id = game[0]
-        shots_dir = os.path.join(_APP_DATA_DIR, "screenshots", str(game_id))
-        os.makedirs(shots_dir, exist_ok=True)
+    def _on_global_hotkey(self, action: str):
+        """Dispatch global hotkey action emitted from background listener."""
+        if action == "screenshot":
+            self._take_screenshot()
+        elif action == "toggle_recording":
+            # In replay buffer mode the capture hotkey saves a clip
+            if self.gpu_recorder_config.mode == "replay_buffer":
+                self._trigger_replay_save()
+            else:
+                self._toggle_game_recording()
+        elif action == "save_replay":
+            self._trigger_replay_save()
 
-        import time
-        filename = f"screenshot_{int(time.time())}.png"
-        filepath = os.path.join(shots_dir, filename)
+    def _take_screenshot(self):
+        """Capture screenshot of designated screen, display in-game HUD overlay and save to gallery."""
+        game_id = 0
+        game_name = "unknown"
+        if self.selected_game:
+            game_id = self.selected_game[0] if isinstance(self.selected_game, tuple) else getattr(self.selected_game, 'id', 0)
+            game_name = self.selected_game[1] if isinstance(self.selected_game, tuple) else getattr(self.selected_game, 'name', 'unknown')
+        elif self.games:
+            game_id = self.games[0][0] if isinstance(self.games[0], tuple) else getattr(self.games[0], 'id', 0)
+            game_name = self.games[0][1] if isinstance(self.games[0], tuple) else getattr(self.games[0], 'name', 'unknown')
 
         try:
-            screen = QApplication.primaryScreen()
-            if screen:
-                pixmap = screen.grabWindow(0)
-                pixmap.save(filepath, "PNG")
-                self._show_toast("📸 Screenshot saved to gallery!")
+            from core.screenshot_capture import capture_desktop_screenshot
+            target_path = capture_desktop_screenshot(game_id, target_screen=self.screenshot_screen, game_name=game_name)
+            if target_path:
+                self._show_toast("Screenshot saved to gallery.")
+                show_ingame_notification(
+                    "Screenshot Captured",
+                    os.path.basename(target_path),
+                    icon_type="screenshot",
+                    enabled=self.gpu_recorder_config.in_game_overlay,
+                    play_sound=True,
+                    target_screen=self.screenshot_screen
+                )
                 self._update_detail_panel()
+            else:
+                self._show_toast("Failed to capture screenshot.", is_error=True)
+                show_ingame_notification("Screenshot Failed", "Could not capture screen", icon_type="warning", enabled=self.gpu_recorder_config.in_game_overlay, target_screen=self.screenshot_screen)
         except Exception as e:
             self._show_toast(f"Failed to capture screenshot: {e}", is_error=True)
 
@@ -1365,6 +1483,103 @@ class MainWindow(QMainWindow):
         dialog = ScreenshotGalleryDialog(game[0], game[1], self)
         dialog.exec()
         self._update_detail_panel()
+
+    def _open_game_properties(self):
+        """Open consolidated GamePropertiesDialog for the selected game."""
+        game = self.selected_game
+        if not game:
+            return
+        dialog = GamePropertiesDialog(game, self)
+        dialog.exec()
+        self._update_detail_panel()
+
+    def _refresh_record_button_state(self):
+        """No-op kept for backwards compatibility."""
+        pass
+
+    def _toggle_game_recording(self):
+        """Handle manual recording start/stop or instant replay buffer capture."""
+        rec_svc = GpuRecorderService.instance()
+        game_name = "unknown"
+        if self.selected_game:
+            game_name = self.selected_game[1] if isinstance(self.selected_game, tuple) else getattr(self.selected_game, 'name', 'unknown')
+
+        if self.gpu_recorder_config.mode == "replay_buffer":
+            # In replay buffer mode this button always means SAVE CLIP — never stop
+            if not rec_svc.is_running():
+                # Buffer hasn't started yet — start it silently
+                if rec_svc.start_recording(game_name, is_replay=True):
+                    self._show_toast("Replay buffer started. It will keep running until the game is closed.")
+                    show_ingame_notification(
+                        "Replay Buffer Active",
+                        f"{self.gpu_recorder_config.replay_hotkey} → save clip",
+                        icon_type="replay",
+                        enabled=self.gpu_recorder_config.in_game_overlay,
+                        play_sound=True,
+                    )
+                else:
+                    self._show_toast("Failed to start replay buffer.", is_error=True)
+                    show_ingame_notification("Replay Buffer Failed", "Could not start recorder", icon_type="warning", enabled=self.gpu_recorder_config.in_game_overlay)
+            else:
+                # Buffer is running — save a clip
+                if rec_svc.save_replay_clip():
+                    self._show_toast("Saved replay clip to videos folder.")
+                    show_ingame_notification("Replay Clip Saved", "Clip written to Videos", icon_type="replay", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True)
+                else:
+                    self._show_toast("Failed to save replay clip.", is_error=True)
+        else:
+            if rec_svc.is_running():
+                saved_path = rec_svc.stop_recording()
+                self.btn_detail_record.setText(" Record Video")
+                self.btn_detail_record.setIcon(get_icon("ph.video-camera-bold"))
+                fn = os.path.basename(saved_path) if saved_path else "video.mp4"
+                self._show_toast(f"Recording saved: {fn}")
+                show_ingame_notification("Recording Saved", fn, icon_type="info", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True)
+            else:
+                if rec_svc.start_recording(game_name, is_replay=False):
+                    self.btn_detail_record.setText(" Stop Recording")
+                    self._show_toast(f"Recording started for '{game_name}'...")
+                    show_ingame_notification(
+                        "Recording Started",
+                        f"{self.gpu_recorder_config.capture_hotkey} → stop",
+                        icon_type="recording",
+                        enabled=self.gpu_recorder_config.in_game_overlay,
+                        play_sound=True,
+                    )
+                else:
+                    self._show_toast("Failed to start recording.", is_error=True)
+                    show_ingame_notification("Recording Failed", "Check GPU recorder in Settings", icon_type="warning", enabled=self.gpu_recorder_config.in_game_overlay)
+
+    def _trigger_replay_save(self):
+        """Dedicated action to capture instant replay clip."""
+        rec_svc = GpuRecorderService.instance()
+        if not rec_svc.is_installed():
+            self._show_toast("Recorder engine not installed.", is_error=True)
+            return
+
+        game_name = "unknown"
+        if self.selected_game:
+            game_name = self.selected_game[1] if isinstance(self.selected_game, tuple) else getattr(self.selected_game, 'name', 'unknown')
+
+        if not rec_svc.is_running():
+            if rec_svc.start_recording(game_name, is_replay=True):
+                self._show_toast("Started replay buffer. Press hotkey again to save clip.")
+                self.btn_detail_record.setText(" Save Replay Clip")
+                show_ingame_notification(
+                    "Replay Buffer Active",
+                    f"Press {self.gpu_recorder_config.replay_hotkey} to save clip",
+                    icon_type="replay",
+                    enabled=self.gpu_recorder_config.in_game_overlay,
+                    play_sound=True,
+                )
+            else:
+                self._show_toast("Failed to start replay buffer.", is_error=True)
+        else:
+            if rec_svc.save_replay_clip():
+                self._show_toast("Saved replay clip to videos folder.")
+                show_ingame_notification("Replay Clip Saved", "Clip written to Videos", icon_type="replay", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True)
+            else:
+                self._show_toast("Failed to save replay clip.", is_error=True)
 
     @staticmethod
     def _format_last_played(timestamp: int) -> str:
@@ -1503,7 +1718,7 @@ class MainWindow(QMainWindow):
             patch_link = f"<br><a href='{escape(patch_notes_url, quote=True)}'>Open patch notes</a>" if patch_notes_url else ""
             status = "Needs update" if is_update_available else "Up to date"
             status_color = ("#7f1d1d", "#fca5a5", "#991b1b") if is_update_available else ("#064e3b", "#34d399", "#059669")
-            self.lbl_detail_update.setText(("🔴 " if is_update_available else "🟢 ") + status)
+            self.lbl_detail_update.setText(status)
             self.lbl_detail_update.setStyleSheet(
                 f"background: {status_color[0]}; color: {status_color[1]}; border: 1px solid {status_color[2]}; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;"
             )
@@ -1554,7 +1769,7 @@ class MainWindow(QMainWindow):
             return
         self.db.update_build_id(game_id, latest)
         self.update_status_by_game_id[game_id] = False
-        self._show_toast("✓ Steam build marked as current. Game files were not changed.")
+        self._show_toast("Steam build marked as current. Game files were not changed.")
         self._refresh_library()
         self._select_game_by_id(game_id)
 
@@ -1729,8 +1944,7 @@ class MainWindow(QMainWindow):
         self.btn_detail_launch.raise_()
         self.btn_detail_edit.setEnabled(True)
         self.btn_detail_screenshots.setEnabled(True)
-        self.btn_detail_export.setEnabled(True)
-        self.btn_detail_import.setEnabled(True)
+        self.btn_detail_properties.setEnabled(True)
         self.btn_detail_remove.setEnabled(True)
 
         if banner_url and banner_url != "none" and os.path.exists(banner_url):
@@ -1847,6 +2061,22 @@ class MainWindow(QMainWindow):
                 tracker.start()
                 self.playtime_trackers.append(tracker)
 
+                # Auto-start GPU recorder / replay buffer on game launch if configured
+                if getattr(self, "gpu_recorder_config", None) and self.gpu_recorder_config.enabled:
+                    if self.gpu_recorder_config.mode in ("replay_buffer", "auto_game"):
+                        rec_svc = GpuRecorderService.instance()
+                        if not rec_svc.is_running():
+                            is_rep = (self.gpu_recorder_config.mode == "replay_buffer")
+                            rec_svc.start_recording(game_name, is_replay=is_rep)
+                            if is_rep:
+                                show_ingame_notification(
+                                    "Replay Buffer Active",
+                                    f"{self.gpu_recorder_config.capture_hotkey} → save clip",
+                                    icon_type="replay",
+                                    enabled=self.gpu_recorder_config.in_game_overlay,
+                                    target_screen=self.gpu_recorder_config.target_screen
+                                )
+
                 # Show animated Safe Launch Popup with console log stream & greeting (non-blocking)
                 popup = SafeLaunchDialog(game_name, user_name=self.user_name, process=process, parent=self)
                 popup.retry_requested.connect(
@@ -1953,6 +2183,15 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
             self.discord_rpc.clear_activity()
 
+        # Standby: if no games are running, stop automatic recorder so launcher stays idle
+        if not self.running_game_ids:
+            if getattr(self, "gpu_recorder_config", None) and self.gpu_recorder_config.enabled:
+                if self.gpu_recorder_config.mode in ("replay_buffer", "auto_game"):
+                    rec_svc = GpuRecorderService.instance()
+                    if rec_svc.is_running():
+                        rec_svc.stop_recording()
+                        logger.info("GPU recorder put on standby (all games closed)")
+
     def closeEvent(self, event):
         """Stop all background workers before destroying the main window."""
         for fetcher in list(self.metadata_fetchers):
@@ -2013,7 +2252,7 @@ class MainWindow(QMainWindow):
             self._refresh_library()
             if game_id and steam_id:
                 self._capture_initial_steam_build(game_id, steam_id)
-            self._show_toast(f"✓ Game '{name}' added to library!")
+            self._show_toast(f"Game '{name}' added to library.")
 
     def _on_card_size_changed(self, value: int):
         """Update card banner size dynamically when user moves bottom size slider."""
@@ -2051,14 +2290,11 @@ class MainWindow(QMainWindow):
                 mode = game[4] if game[4] in ("umu", "umu_net", "wine", "linux") else "umu"
             save_sandbox_config(path, exe)
             self.db.update_game(game_id, name, path, exe, mode, banner_path)
-            # Keep this explicit as well as part of update_game(): it makes
-            # mode persistence robust for databases migrated from older
-            # schemas and provides a single-mode update path for diagnostics.
             self.db.update_game_mode(game_id, mode)
             logger.info(f"Saved game settings for {game_id}: executable='{exe}', mode='{mode}'")
             self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
             self._refresh_library()
-            self._show_toast(f"✓ Updated settings for '{name}'.")
+            self._show_toast(f"Updated settings for '{name}'.")
     
 
     def _on_sync_sandbox(self, quiet: bool = False):
@@ -2073,7 +2309,6 @@ class MainWindow(QMainWindow):
             norm_path = os.path.realpath(game['path'])
             folder_clean = game['name'].lower().replace('-', ' ').replace('_', ' ').strip()
             
-            # Prevent duplicate if exact path exists or clean name matches existing entry
             is_path_known = norm_path in existing_paths
             is_name_known = any(
                 folder_clean in db_name or db_name in folder_clean
@@ -2089,10 +2324,10 @@ class MainWindow(QMainWindow):
         if added_count > 0:
             self._refresh_library()
             if not quiet:
-                self._show_toast(f"✓ Found and added {added_count} new game(s) from sandbox!")
+                self._show_toast(f"Found and added {added_count} new game(s) from sandbox.")
         else:
             if not quiet:
-                self._show_toast("✓ Sandbox synced (no new games found).")
+                self._show_toast("Sandbox synced (no new games found).")
 
     def _on_remove(self):
         game = self._get_selected_game()
@@ -2122,13 +2357,13 @@ class MainWindow(QMainWindow):
                 if os.path.exists(resolved_path):
                     try:
                         shutil.rmtree(resolved_path)
-                        self._show_toast(f"✓ Removed '{game[1]}' and deleted files.")
+                        self._show_toast(f"Removed '{game[1]}' and deleted files.")
                     except Exception as e:
                         self._show_toast(f"Failed to delete files: {e}", is_error=True)
                 else:
-                    self._show_toast(f"✓ Removed '{game[1]}' from library.")
+                    self._show_toast(f"Removed '{game[1]}' from library.")
             else:
-                self._show_toast(f"✓ Removed '{game[1]}' (files preserved).")
+                self._show_toast(f"Removed '{game[1]}' (files preserved).")
                 
             self._refresh_library()
             self.selected_game = None
@@ -2154,7 +2389,7 @@ class MainWindow(QMainWindow):
         
         if export_path:
             if self.backup.export_save(save_path, export_path):
-                self._show_toast("✓ Save exported successfully.")
+                self._show_toast("Save exported successfully.")
             else:
                 self._show_toast("Failed to export save.", is_error=True)
     
@@ -2176,6 +2411,6 @@ class MainWindow(QMainWindow):
             os.makedirs(dest_path, exist_ok=True)
             
             if self.backup.import_save(import_path, dest_path):
-                self._show_toast("✓ Save imported successfully.")
+                self._show_toast("Save imported successfully.")
             else:
                 self._show_toast("Failed to import save.", is_error=True)

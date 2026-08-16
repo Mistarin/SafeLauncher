@@ -66,7 +66,9 @@ class AddGameDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Add Game")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-        self.setFixedSize(860, 680)
+        self.setMinimumSize(780, 560)
+        self.resize(860, 680)
+        self.setSizeGripEnabled(True)
         if os.path.exists(LOGO_PATH):
             self.setWindowIcon(QIcon(LOGO_PATH))
             
@@ -86,7 +88,7 @@ class AddGameDialog(QDialog):
         root_layout.setSpacing(0)
 
         # Custom Draggable Title Bar
-        self.title_bar = DialogTitleBar(self, "➕ Add Game")
+        self.title_bar = DialogTitleBar(self, "Add Game")
         root_layout.addWidget(self.title_bar)
 
         # Main Body Widget (2-Column Grid Layout)
@@ -444,7 +446,7 @@ class AddGameDialog(QDialog):
     def _reset_fetch_button(self):
         """Re-enable fetch button"""
         self.fetch_btn.setEnabled(True)
-        self.fetch_btn.setText("🔍 Search for Cover Art (Steam Store)")
+        self.fetch_btn.setText("Search for Cover Art (Steam Store)")
     
     def _skip_banner(self):
         """Clear cover art preview and mark as explicitly cleared."""
@@ -461,7 +463,7 @@ class AddGameDialog(QDialog):
     def _cancel_extraction(self):
         if self.extractor_thread and self.extractor_thread.isRunning():
             self.extractor_thread.requestInterruption()
-            self.status_label.setText("⏹ Cancelling extraction…")
+            self.status_label.setText("Cancelling extraction…")
     
     def get_values(self):
         """Extract entered form values cleanly."""
@@ -500,7 +502,7 @@ class EditGameDialog(AddGameDialog):
 
     def __init__(self, game_data: tuple, parent=None, sgdb_client: SteamGridDBClient = None):
         super().__init__(parent, sgdb_client)
-        self.title_bar.title_label.setText("✏️ Edit Game Settings")
+        self.title_bar.title_label.setText("Edit Game Settings")
         
         game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game_data, 0)
         self.game_id = game_id
@@ -706,6 +708,7 @@ class SafeLaunchDialog(QDialog):
         self.setWindowTitle(f"Safe Launch Log - {game_name}")
         self.setMinimumSize(620, 440)
         self.resize(760, 600)
+        self.setSizeGripEnabled(True)
 
         if parent:
             p_geo = parent.geometry()
@@ -817,7 +820,7 @@ class SafeLaunchDialog(QDialog):
         self.console.setStyleSheet("""
             QPlainTextEdit {
                 background-color: #09090b;
-                color: #34d399;
+                color: #f4f4f5;
                 border: 1px solid #27272a;
                 border-radius: 8px;
                 font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -871,7 +874,7 @@ class SafeLaunchDialog(QDialog):
         retry_safe.setToolTip("Retry using the sandboxed Wine fallback.")
         retry_safe.clicked.connect(lambda: self._request_retry("wine"))
         recovery_buttons.addWidget(retry_safe)
-        unsafe = QPushButton("⚠ Launch without sandbox (UNSAFE)")
+        unsafe = QPushButton("Launch without sandbox (UNSAFE)")
         unsafe.setStyleSheet("QPushButton { background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444; font-weight: bold; }")
         unsafe.clicked.connect(self._request_unsafe_launch)
         recovery_buttons.addWidget(unsafe)
@@ -924,13 +927,13 @@ class SafeLaunchDialog(QDialog):
         import time, shutil
         t_str = time.strftime("%H:%M:%S")
         if shutil.which("firejail"):
-            self.append_log(f"[{t_str}] 🛡️ [SECURITY] Initializing Firejail namespace isolation...")
-            self.append_log(f"[{t_str}] 🔒 [SECURITY] Applying filesystem whitelist & Firejail isolation...")
+            self.append_log(f"[{t_str}] [SECURITY] Initializing Firejail namespace isolation...")
+            self.append_log(f"[{t_str}] [SECURITY] Applying filesystem whitelist & Firejail isolation...")
         else:
-            self.append_log(f"[{t_str}] ⚠️ [WARNING] Firejail is not installed on this system.")
-            self.append_log(f"[{t_str}] ⚡ [FALLBACK] Running game in direct unsandboxed execution mode.")
-        self.append_log(f"[{t_str}] 🍷 [RUNNER] Loading Proton / Wine runtime container...")
-        self.append_log(f"[{t_str}] 🚀 [EXEC] Launching process for '{game_name}'...")
+            self.append_log(f"[{t_str}] [WARNING] Firejail is not installed on this system.")
+            self.append_log(f"[{t_str}] [FALLBACK] Running game in direct unsandboxed execution mode.")
+        self.append_log(f"[{t_str}] [RUNNER] Loading Proton / Wine runtime container...")
+        self.append_log(f"[{t_str}] [EXEC] Launching process for '{game_name}'...")
 
         self.process_log_path = getattr(self.process, "safelauncher_log_path", None)
         self._process_log_offset = 0
@@ -968,14 +971,70 @@ class SafeLaunchDialog(QDialog):
         self.progress_anim.finished.connect(self._goto_confirmation_stage)
         self.progress_anim.start()
 
+    def _format_log_html(self, text: str) -> str:
+        """Format log line with syntax coloring based on message severity/type."""
+        import html
+        escaped = html.escape(text)
+        lower = text.lower()
+
+        # If line is part of process tree / ps output, keep neutral unless explicit log tag
+        is_process_line = any(text.strip().startswith(prefix) for prefix in (
+            "martin ", "root ", "\\_", "|", "systemd+", "dbus ", "avahi ", "rtkit ", "polkitd "
+        )) or "/proc/self" in lower
+
+        if is_process_line and not any(tag in lower for tag in ("[error]", "[warning]", "[security]", "[success]")):
+            color = "#f4f4f5"
+            weight = "normal"
+            return f"<span style='color: {color}; font-weight: {weight}; font-family: monospace;'>{escaped}</span>"
+
+        # 1. Red: Real Errors, Crashes, Failures
+        has_error = (
+            any(token in lower for token in (
+                "[error]", "error:", " err ", "failed", "failure", "traceback",
+                "exception", "segfault", "permission denied", "cannot open",
+                "no such file"
+            )) or (
+                "crash" in lower and "--enable-crash-reporter" not in lower and "crashhelper" not in lower and "crashreporter" not in lower
+            )
+        )
+
+        if has_error:
+            color = "#f87171"
+            weight = "bold"
+        # 2. Green: Success, Ready, Clean status
+        elif any(token in lower for token in (
+            "[success]", "[status]", "[exit]", "[ready]", "[ok]",
+            "up and running", "up to date", "all checks successful",
+            "initialized cleanly", "finished cleanly"
+        )):
+            color = "#4ade80"
+            weight = "bold"
+        # 3. Orange / Amber: Warnings, Security steps, Fallbacks, Fixes, Probes
+        elif any(token in lower for token in (
+            "[warning]", "[warn]", "warn:", "warning", "[fallback]",
+            "[security]", "[runner]", "[exec]", "[proton log]",
+            "protonfixes", "throttled", "[diagnostics]", "timeout",
+            "skipped", "ignoring"
+        )):
+            color = "#fb923c"
+            weight = "normal"
+        # 4. White / Light Zinc: Neutral logs, Process outputs, Versions
+        else:
+            color = "#f4f4f5"
+            weight = "normal"
+
+        return f"<span style='color: {color}; font-weight: {weight}; font-family: monospace;'>{escaped}</span>"
+
     def append_log(self, text: str):
         if text:
             self.log_lines.append(text)
             if self.diagnostics:
                 self.diagnostics.output.append(text)
-            self.console.appendPlainText(text)
+            
+            html_line = self._format_log_html(text)
+            self.console.appendHtml(html_line)
             if hasattr(self, "error_details") and self.stack.currentWidget() is self.page_error:
-                self.error_details.appendPlainText(text)
+                self.error_details.appendHtml(html_line)
             sb = self.console.verticalScrollBar()
             if sb:
                 sb.setValue(sb.maximum())
@@ -1035,8 +1094,17 @@ class SafeLaunchDialog(QDialog):
         self.handoff_shown = True
         import time
         t_str = time.strftime("%H:%M:%S")
-        self.append_log(f"[{t_str}] ✔️ [SUCCESS] Sandbox container initialized cleanly.")
-        self.append_log(f"[{t_str}] ✨ [STATUS] Handing off control to {self.game_name}. Have fun!")
+        self.append_log(f"[{t_str}] [SUCCESS] Sandbox container initialized cleanly.")
+        self.append_log(f"[{t_str}] [STATUS] Handing off control to {self.game_name}. Have fun!")
+
+        # Start hardware recording if addon is active in auto mode
+        try:
+            from core.plugins.gpu_screen_recorder import GpuRecorderService
+            rec_svc = GpuRecorderService.instance()
+            if rec_svc.config.enabled and rec_svc.config.mode in ("auto_game", "replay_buffer"):
+                rec_svc.start_recording(self.game_name, is_replay=(rec_svc.config.mode == "replay_buffer"))
+        except Exception:
+            pass
 
         self.header_title.setText("Game running — launch log")
         self.header_sub.setText(f"'{self.game_name}' is running in the sandbox container")
@@ -1058,6 +1126,14 @@ class SafeLaunchDialog(QDialog):
         if hasattr(self, "gif_timer"):
             self.gif_timer.stop()
 
+        try:
+            from core.plugins.gpu_screen_recorder import GpuRecorderService
+            rec_svc = GpuRecorderService.instance()
+            if rec_svc.config.enabled and rec_svc.is_running():
+                rec_svc.stop_recording()
+        except Exception:
+            pass
+
         if getattr(self, "process_log_path", None):
             self._poll_process_log()
         details = "\n".join(self.log_lines)
@@ -1071,7 +1147,7 @@ class SafeLaunchDialog(QDialog):
         if return_code == 0 and (self.handoff_shown or has_game_run_markers):
             import time
             t_str = time.strftime("%H:%M:%S")
-            self.append_log(f"[{t_str}] 🏁 [EXIT] '{self.game_name}' finished cleanly (exit code 0).")
+            self.append_log(f"[{t_str}] [EXIT] '{self.game_name}' finished cleanly (exit code 0).")
             self.header_title.setText("Game session finished")
             self.header_sub.setText(f"'{self.game_name}' exited cleanly (exit code 0)")
             self.progress_bar.setValue(100)
@@ -1281,7 +1357,7 @@ class MissingDependencyDialog(QDialog):
         cmd_box.setStyleSheet("""
             QLineEdit {
                 background-color: #09090b;
-                color: #34d399;
+                color: #f4f4f5;
                 border: 1px solid #27272a;
                 border-radius: 6px;
                 font-family: 'Consolas', 'Monaco', monospace;
@@ -1453,7 +1529,7 @@ class CustomRemoveDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        title_label = QLabel("🗑️ Remove Game")
+        title_label = QLabel("Remove Game")
         title_label.setFont(QFont("Arial", 15, QFont.Weight.Bold))
         layout.addWidget(title_label)
 

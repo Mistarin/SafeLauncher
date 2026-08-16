@@ -22,7 +22,8 @@ class CrashReportDialog(QDialog):
     def __init__(self, exc_type, exc_value, exc_tb, parent=None):
         super().__init__(parent)
         self.setWindowTitle("SafeLauncher - Application Error")
-        self.setFixedSize(620, 420)
+        self.setMinimumSize(560, 380)
+        self.setSizeGripEnabled(True)
 
         tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
         self.traceback_text = "".join(tb_lines)
@@ -30,7 +31,7 @@ class CrashReportDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        header = QLabel("⚠️ An unhandled application error occurred")
+        header = QLabel("An unhandled application error occurred")
         header.setStyleSheet("font-size: 16px; font-weight: bold; color: #ef4444;")
         layout.addWidget(header)
 
@@ -55,7 +56,7 @@ class CrashReportDialog(QDialog):
 
         btn_layout = QHBoxLayout()
 
-        btn_copy = QPushButton("📋 Copy Traceback")
+        btn_copy = QPushButton("Copy Traceback")
         btn_copy.clicked.connect(self._copy_traceback)
         btn_layout.addWidget(btn_copy)
 
@@ -122,40 +123,45 @@ def setup_application_environment():
         threading.excepthook = thread_exception_hook
 
 
-def setup_single_instance_ipc(on_activate_callback) -> QLocalServer:
-    """Check single instance IPC server via QLocalSocket. Exit if active instance running."""
+def check_already_running() -> bool:
+    """Fast probe: If an active SafeLauncher instance is already running, send activation signal and return True."""
     socket = QLocalSocket()
     socket.connectToServer(SERVER_NAME)
-    if socket.waitForConnected(500):
-        logger.info("Existing SafeLauncher instance detected. Sending activation signal and exiting.")
+    if socket.waitForConnected(300):
+        logger.info("Existing SafeLauncher instance detected. Sending activation signal and exiting duplicate process.")
         socket.write(b"ACTIVATE")
         socket.waitForBytesWritten(1000)
         socket.disconnectFromServer()
-        sys.exit(0)
+        return True
+    return False
 
+
+def create_single_instance_server(on_activate_callback) -> QLocalServer:
+    """Create single-instance IPC listener socket server to focus existing window on duplicate launch."""
     server = QLocalServer()
     if not server.listen(SERVER_NAME):
-        probe = QLocalSocket()
-        probe.connectToServer(SERVER_NAME)
-        if probe.waitForConnected(1000):
-            probe.write(b"ACTIVATE")
-            probe.waitForBytesWritten(1000)
-            probe.disconnectFromServer()
-            sys.exit(0)
+        # Server might be stale from previous abnormal termination; remove stale socket file and retry
         server.removeServer(SERVER_NAME)
         if not server.listen(SERVER_NAME):
-            logger.critical(f"Could not create single-instance server: {server.errorString()}")
-            raise SystemExit(1)
+            logger.warning(f"Could not bind single-instance server: {server.errorString()}")
+            return server
 
     def _on_new_connection():
         client = server.nextPendingConnection()
         if client:
-            client.waitForReadyRead(500)
-            msg = client.readAll().data()
-            if b"ACTIVATE" in msg:
-                logger.info("Received activation request from secondary launcher process.")
-                on_activate_callback()
+            if client.waitForReadyRead(300):
+                msg = client.readAll().data()
+                if b"ACTIVATE" in msg:
+                    logger.info("Received activation request from secondary launcher process; raising window.")
+                    on_activate_callback()
             client.disconnectFromServer()
 
     server.newConnection.connect(_on_new_connection)
     return server
+
+
+def setup_single_instance_ipc(on_activate_callback) -> QLocalServer:
+    """Backwards-compatible wrapper."""
+    if check_already_running():
+        sys.exit(0)
+    return create_single_instance_server(on_activate_callback)

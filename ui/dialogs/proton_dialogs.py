@@ -2,7 +2,7 @@ import os
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QMessageBox, QDialogButtonBox, QListWidget, QListWidgetItem, QFrame,
-    QProgressBar, QPlainTextEdit
+    QProgressBar, QPlainTextEdit, QWidget
 )
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QFont
@@ -83,7 +83,9 @@ class ProtonManagerDialog(QDialog):
         self.fetcher_thread = None
 
         self.setWindowTitle("GE-Proton Manager - GitHub Auto-Downloader")
-        self.setFixedSize(720, 560)
+        self.setMinimumSize(680, 480)
+        self.resize(720, 560)
+        self.setSizeGripEnabled(True)
         self.setStyleSheet("""
             QDialog { background-color: #121215; color: #ffffff; }
             QLabel { color: #d4d4d8; font-size: 12px; }
@@ -108,7 +110,7 @@ class ProtonManagerDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
-        header = QLabel("📦 GE-Proton Manager (GitHub Releases)")
+        header = QLabel("GE-Proton Manager (GitHub Releases)")
         header.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         header.setStyleSheet("color: #ffffff;")
         layout.addWidget(header)
@@ -145,7 +147,7 @@ class ProtonManagerDialog(QDialog):
 
         dl_row.addStretch(1)
 
-        self.btn_cancel_dl = QPushButton("❌ Cancel Download")
+        self.btn_cancel_dl = QPushButton("Cancel Download")
         self.btn_cancel_dl.setStyleSheet("QPushButton { background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; } QPushButton:hover { background: #991b1b; }")
         self.btn_cancel_dl.clicked.connect(self._cancel_download)
         dl_row.addWidget(self.btn_cancel_dl)
@@ -169,12 +171,12 @@ class ProtonManagerDialog(QDialog):
         # Bottom Buttons
         btn_layout = QHBoxLayout()
 
-        btn_refresh = QPushButton("🔄 Refresh Releases")
+        btn_refresh = QPushButton("Refresh Releases")
         btn_refresh.setStyleSheet("QPushButton { background: #27272a; border: 1px solid #3f3f46; } QPushButton:hover { background: #3f3f46; }")
         btn_refresh.clicked.connect(self._fetch_releases)
         btn_layout.addWidget(btn_refresh)
 
-        btn_system = QPushButton("⚙️ Use System Auto Proton (Default)")
+        btn_system = QPushButton("Use System Auto Proton (Default)")
         btn_system.setStyleSheet("QPushButton { background: #1e293b; color: #94a3b8; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
         btn_system.clicked.connect(lambda: self._select_proton(""))
         btn_layout.addWidget(btn_system)
@@ -233,22 +235,22 @@ class ProtonManagerDialog(QDialog):
             is_active = is_installed and current_path_norm and (current_path_norm in target_path_norm or target_path_norm in current_path_norm)
 
             if is_active:
-                active_lbl = QLabel("✓ Currently Active")
+                active_lbl = QLabel("Currently Active")
                 active_lbl.setStyleSheet("color: #34d399; font-weight: bold; font-size: 11px; padding: 4px 8px; background: #064e3b; border-radius: 4px;")
                 w_layout.addWidget(active_lbl)
             elif is_installed:
                 if self.selected_game_name:
-                    btn_apply_game = QPushButton("⚡ Apply to Selected Game")
+                    btn_apply_game = QPushButton("Apply to Selected Game")
                     btn_apply_game.setStyleSheet("QPushButton { background: #166534; color: #86efac; border: 1px solid #22c55e; } QPushButton:hover { background: #15803d; }")
                     btn_apply_game.clicked.connect(lambda _, p=target_path: self._apply_to_game(p))
                     w_layout.addWidget(btn_apply_game)
 
-                btn_global = QPushButton("🌍 Set Global Default")
+                btn_global = QPushButton("Set Global Default")
                 btn_global.setStyleSheet("QPushButton { background: #1e293b; color: #94a3b8; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
                 btn_global.clicked.connect(lambda _, p=target_path: self._select_proton(p))
                 w_layout.addWidget(btn_global)
             else:
-                dl_btn = QPushButton("📥 Download & Install")
+                dl_btn = QPushButton("Download & Install")
                 dl_btn.clicked.connect(lambda _, r=rel: self._start_download(r))
                 w_layout.addWidget(dl_btn)
 
@@ -297,14 +299,14 @@ class ProtonManagerDialog(QDialog):
 
     def _on_download_complete(self, tag: str, installed_path: str):
         self.download_card.setVisible(False)
-        self.status_label.setText(f"✓ {tag} installed successfully to {installed_path}!")
-        QMessageBox.information(self, "GE-Proton Installed", f"✓ GE-Proton build '{tag}' was downloaded and extracted successfully!\n\nLocation:\n{installed_path}")
+        self.status_label.setText(f"{tag} installed successfully to {installed_path}!")
+        QMessageBox.information(self, "GE-Proton Installed", f"GE-Proton build '{tag}' was downloaded and extracted successfully!\n\nLocation:\n{installed_path}")
         self.proton_selected.emit(installed_path)
         self._fetch_releases()
 
     def _on_download_failed(self, error_msg: str):
         self.download_card.setVisible(False)
-        self.status_label.setText(f"❌ Download failed: {error_msg}")
+        self.status_label.setText(f"Download failed: {error_msg}")
         if "cancelled" not in error_msg.lower():
             QMessageBox.critical(self, "Download Error", f"Failed to download GE-Proton: {error_msg}")
 
@@ -337,13 +339,14 @@ class UmuRuntimeManagerDialog(QDialog):
         self.worker = None
         self.setWindowTitle("UMU Runtime Manager")
         self.setMinimumSize(700, 500)
+        self.setSizeGripEnabled(True)
         self.setStyleSheet("""
             QDialog { background: #141414; color: #fff; }
             QLabel { color: #d4d4d8; }
             QLineEdit { background: #09090b; color: #fff; border: 1px solid #333; padding: 8px; border-radius: 5px; }
             QPushButton { background: #52565e; color: #fff; border: none; border-radius: 5px; padding: 8px 14px; font-weight: bold; }
             QPushButton:hover { background: #6b707a; }
-            QPlainTextEdit { background: #09090b; color: #34d399; border: 1px solid #27272a; border-radius: 8px; font-family: monospace; font-size: 11px; }
+            QPlainTextEdit { background: #09090b; color: #f4f4f5; border: 1px solid #27272a; border-radius: 8px; font-family: monospace; font-size: 11px; }
         """)
         layout = QVBoxLayout(self)
         title = QLabel("UMU Runtime Packages")

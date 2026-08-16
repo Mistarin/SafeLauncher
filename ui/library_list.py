@@ -30,7 +30,7 @@ class LibraryListView(QListWidget):
             game_id, name, path, executable, mode, _, steam_id = game[:7]
             tags = game[10] if len(game) > 10 else ""
             missing = not (path and os.path.isdir(path) and (not executable or os.path.isfile(os.path.join(path, executable))))
-            status = "⚠ Missing" if missing else "✓ Installed"
+            status = "Missing" if missing else "Installed"
             size = format_size(get_dir_size(path)) if path else "0 B"
             text = f"{name}    [{status}]\n{mode}  •  {size}  •  {executable or 'no executable'}"
             if steam_id:

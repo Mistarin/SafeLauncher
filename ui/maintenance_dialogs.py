@@ -12,7 +12,9 @@ class RuntimeInventoryDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Proton / Runtime Inventory")
+        self.setMinimumSize(700, 380)
         self.resize(900, 460)
+        self.setSizeGripEnabled(True)
         self.inventory = RuntimeInventory()
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("System Proton, GE-Proton, UMU-Proton and Steam Runtime installations"))
@@ -53,7 +55,7 @@ class RuntimeInventoryDialog(QDialog):
         record = self._selected()
         if record:
             ok, message = self.inventory.verify(record.path)
-            QMessageBox.information(self, "Runtime verification", ("✓ " if ok else "✗ ") + message)
+            QMessageBox.information(self, "Runtime verification", ("Passed: " if ok else "Failed: ") + message)
 
     def remove(self):
         record = self._selected()
@@ -92,7 +94,7 @@ class PrefixMaintenanceDialog(QDialog):
 
     def refresh(self):
         info = self.manager.inspect(self.game_path)
-        warnings = "\n".join(f"⚠ {warning}" for warning in info.warnings) or "No symlink or structural warnings detected."
+        warnings = "\n".join(f"- {warning}" for warning in info.warnings) or "No symlink or structural warnings detected."
         self.summary.setText(f"Prefix: {info.path}\nSize: {info.size_bytes / (1024 * 1024):.1f} MB\nHealth: {'healthy' if info.healthy else 'needs attention'}\nUsers: {info.user_count}\n\n{warnings}")
 
     def reset(self):

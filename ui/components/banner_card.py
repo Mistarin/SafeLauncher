@@ -1,9 +1,58 @@
 import os
-from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton
-from PyQt6.QtCore import Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve
+from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QWidget
+from PyQt6.QtCore import Qt, QSize, QPoint, QPointF, pyqtSignal, QVariantAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter
 
 from ui.icons import get_app_icon, get_icon
+
+
+class UpdatePulsingDotWidget(QWidget):
+    """Pulsating emerald-green indicator circle for available updates."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(28, 28)
+        self.setToolTip("Steam update available")
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._pulse_phase = 0.0
+
+        self._anim = QVariantAnimation(self)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.setDuration(1600)
+        self._anim.setLoopCount(-1)
+        self._anim.valueChanged.connect(self._on_pulse)
+
+    def _on_pulse(self, val: float):
+        self._pulse_phase = val
+        self.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._anim.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._anim.stop()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        center = QPointF(self.width() / 2.0, self.height() / 2.0)
+
+        # Outer pulsating halo (grows and fades out symmetrically around center)
+        halo_radius = 4.5 + (7.0 * self._pulse_phase)
+        halo_alpha = int(180 * (1.0 - self._pulse_phase))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(16, 185, 129, halo_alpha))
+        painter.drawEllipse(center, halo_radius, halo_radius)
+
+        # Inner solid emerald green core exactly centered
+        core_radius = 4.0
+        painter.setBrush(QColor(52, 211, 153))
+        painter.setPen(QColor(16, 185, 129))
+        painter.drawEllipse(center, core_radius, core_radius)
+        painter.end()
 
 
 class GameBannerWidget(QFrame):
@@ -13,15 +62,17 @@ class GameBannerWidget(QFrame):
     rightClicked = pyqtSignal(int, QPoint)
     favoriteClicked = pyqtSignal(int)
 
-    def __init__(self, game_id: int, name: str, banner_path: str = None, playtime_seconds: int = 0, parent=None):
+    def __init__(self, game_id: int, name: str, banner_path: str = None, playtime_seconds: int = 0, version: str = "", parent=None):
         super().__init__(parent)
         self.game_id = game_id
         self.name = name
         self.banner_path = banner_path
         self.playtime_seconds = playtime_seconds
+        self.version = str(version).strip() if version else ""
         self.selected = False
         self.is_missing = False
         self.is_favorite = False
+        self.is_update_available = False
         self._hover_progress = 0.0  # LERP progress: 0.0 (normal) -> 1.0 (hovered)
         
         # Smooth 180ms LERP animation setup with OutCubic easing curve
@@ -48,6 +99,11 @@ class GameBannerWidget(QFrame):
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.image_label)
 
+        # Green animated pulsing circle indicator for updates
+        self.update_indicator = UpdatePulsingDotWidget(self)
+        self.update_indicator.move(8, 8)
+        self.update_indicator.hide()
+
         # Favorite belongs to the library card itself. Keep it as a real
         # button instead of painting a non-interactive star into the artwork.
         self.favorite_button = QPushButton(self)
@@ -73,6 +129,23 @@ class GameBannerWidget(QFrame):
         self.favorite_button.clicked.connect(lambda: self.favoriteClicked.emit(self.game_id))
         self.favorite_button.hide()
         self._position_favorite_button()
+
+        # Pure version badge positioned at bottom-left of the banner cover
+        self.version_badge = QLabel(self)
+        self.version_badge.setFont(QFont("Arial", 9, QFont.Weight.Bold))
+        self.version_badge.setStyleSheet("""
+            QLabel {
+                background: rgba(15, 15, 18, 0.82);
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 10px;
+                border-radius: 4px;
+                padding: 2px 6px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+            }
+        """)
+        self.version_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.set_version(self.version)
         
         # Game name label using clean sans-serif typography
         self.name_label = QLabel(name)
@@ -94,18 +167,35 @@ class GameBannerWidget(QFrame):
     def _format_playtime(seconds: int) -> str:
         """Convert raw seconds to a human-readable playtime string."""
         if not seconds or seconds < 60:
-            return "⏱ Never played" if not seconds else f"⏱ {seconds}s"
+            return "Never played" if not seconds else f"{seconds}s"
         minutes = seconds // 60
         hours = minutes // 60
         remaining_mins = minutes % 60
         if hours > 0:
-            return f"⏱ {hours}h {remaining_mins}m" if remaining_mins else f"⏱ {hours}h"
-        return f"⏱ {minutes}m"
+            return f"{hours}h {remaining_mins}m" if remaining_mins else f"{hours}h"
+        return f"{minutes}m"
 
     def set_playtime(self, seconds: int):
         """Update displayed playtime without rebuilding the whole widget."""
         self.playtime_seconds = seconds
         self.playtime_label.setText(self._format_playtime(seconds))
+
+    def set_version(self, version: str):
+        """Set pure game version and position badge at bottom-left of banner."""
+        self.version = str(version).strip() if version else ""
+        if self.version:
+            self.version_badge.setText(self.version)
+            self.version_badge.adjustSize()
+            self.version_badge.show()
+            self._position_version_badge()
+        else:
+            self.version_badge.setText("")
+            self.version_badge.hide()
+
+    def _position_version_badge(self):
+        if hasattr(self, 'version_badge') and self.version:
+            self.version_badge.move(8, self.card_height - self.version_badge.height() - 8)
+            self.version_badge.raise_()
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
@@ -161,7 +251,7 @@ class GameBannerWidget(QFrame):
         """Grey out card if game files are missing on drive"""
         self.is_missing = is_missing
         if is_missing:
-            self.setToolTip("⚠️ Missing on Drive: Game directory does not exist")
+            self.setToolTip("Missing on Drive: Game directory does not exist")
         else:
             self.setToolTip("")
         self.update_appearance()
@@ -171,7 +261,7 @@ class GameBannerWidget(QFrame):
         self.setStyleSheet("border: none; background: transparent;")
         
         if self.is_missing:
-            self.name_label.setText(f"⚠️ {self.name} (Missing)")
+            self.name_label.setText(f"{self.name} (Missing)")
             self.name_label.setStyleSheet("padding: 4px; color: #71717a; font-weight: bold;")
             self.image_label.setStyleSheet("background: #18181f; border: 1px solid #272730; border-radius: 8px;")
         elif self.selected:
@@ -190,7 +280,7 @@ class GameBannerWidget(QFrame):
         self.favorite_button.setChecked(is_favorite)
         icon = get_icon("ph.star-fill" if is_favorite else "ph.star", color="#facc15" if is_favorite else "#d4d4d8")
         self.favorite_button.setIcon(icon)
-        self.favorite_button.setText("" if not icon.isNull() else "★")
+        self.favorite_button.setText("" if not icon.isNull() else "*")
         self.favorite_button.setToolTip("Remove from Favorites" if is_favorite else "Add to Favorites")
         self.render_frame(self._hover_progress)
 
@@ -200,26 +290,11 @@ class GameBannerWidget(QFrame):
 
     def set_update_available(self, is_available: bool):
         self.is_update_available = is_available
+        if hasattr(self, 'update_indicator'):
+            self.update_indicator.setVisible(is_available)
+            if is_available:
+                self.update_indicator.raise_()
         self.render_frame(self._hover_progress)
-
-    def _overlay_update_badge(self, pixmap: QPixmap) -> QPixmap:
-        """Overlay green '🟢 Update' badge in top-left corner of card if update is available."""
-        if not getattr(self, 'is_update_available', False):
-            return pixmap
-        res = QPixmap(pixmap)
-        painter = QPainter(res)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        bx, by, bw, bh = 8, 8, 70, 22
-        painter.setBrush(QColor(6, 95, 70, 230))
-        painter.setPen(QColor(52, 211, 153, 220))
-        painter.drawRoundedRect(bx, by, bw, bh, 6, 6)
-
-        painter.setPen(QColor(52, 211, 153))
-        painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
-        painter.drawText(bx, by, bw, bh, Qt.AlignmentFlag.AlignCenter, "🟢 Update")
-        painter.end()
-        return res
 
     def set_card_size(self, width: int):
         """Dynamically resize card banner width and height (2:3 ratio)."""
@@ -228,6 +303,7 @@ class GameBannerWidget(QFrame):
         self.setFixedSize(QSize(self.card_width, self.card_height + 55))
         self.image_label.setFixedSize(QSize(self.card_width, self.card_height))
         self._position_favorite_button()
+        self._position_version_badge()
         self.render_frame(self._hover_progress)
 
     def render_frame(self, progress: float):
@@ -257,10 +333,13 @@ class GameBannerWidget(QFrame):
                     
                     self.image_label.setPixmap(greyed)
                     self.image_label.setText("")
+                    if hasattr(self, 'update_indicator') and self.is_update_available:
+                        self.update_indicator.raise_()
+                    self._position_version_badge()
                     return
             
             self.image_label.setPixmap(QPixmap())
-            self.image_label.setText(f"⚠️\n\n{self.name}\n(Missing)")
+            self.image_label.setText(f"{self.name}\n(Missing)")
             self.image_label.setStyleSheet(
                 "background: #181818; color: #777777; font-weight: bold; font-size: 12px; padding: 10px; border-radius: 6px;"
             )
@@ -293,8 +372,11 @@ class GameBannerWidget(QFrame):
                     p.end()
                     cropped = darkened
 
-                self.image_label.setPixmap(self._overlay_update_badge(cropped))
+                self.image_label.setPixmap(cropped)
                 self.image_label.setText("")
+                if hasattr(self, 'update_indicator') and self.is_update_available:
+                    self.update_indicator.raise_()
+                self._position_version_badge()
                 return
 
         # 3. Placeholder card when cover art is cleared ('none') or missing
@@ -305,4 +387,6 @@ class GameBannerWidget(QFrame):
         painter.setFont(QFont("Monospace", 12, QFont.Weight.Bold))
         painter.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, self.name)
         painter.end()
-        self.image_label.setPixmap(self._overlay_update_badge(placeholder))
+        self.image_label.setPixmap(placeholder)
+        if hasattr(self, 'update_indicator') and self.is_update_available:
+            self.update_indicator.raise_()

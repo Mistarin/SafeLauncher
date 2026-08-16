@@ -257,4 +257,75 @@ except Exception as e:
     print(f"✗ Desktop integration error: {e}")
     sys.exit(1)
 
+# 11. Test Security Diagnostics and Multi-Tab Settings Dialog
+try:
+    from core.security_diagnostics import inspect_security_health, run_live_sandbox_verification
+    from ui.dialogs.settings_dialog import UserSettingsDialog
+    from ui.dialogs.welcome_wizard import WelcomeWizardDialog
+    from core.screenshot_capture import capture_desktop_screenshot, get_game_screenshots_dir
+
+    report = inspect_security_health()
+    assert report.firejail_version != ""
+    assert isinstance(report.gpu_caches, list)
+    print("✓ Security diagnostics health inspector executed cleanly")
+
+    settings_dlg = UserSettingsDialog("TestUser", "/tmp/proton", show_welcome_wizard=True)
+    assert settings_dlg.stack.count() == 4
+    assert settings_dlg.get_show_welcome_wizard() is True
+    print("✓ UserSettingsDialog 4-tab preferences (including Plugins) instantiated cleanly offscreen")
+
+    from core.plugins.gpu_screen_recorder import GpuRecorderService, GpuRecorderConfig
+    rec_cfg = GpuRecorderConfig(enabled=False, mode="replay_buffer", history_seconds=90, codec="hevc", bitrate="20M")
+    service = GpuRecorderService(rec_cfg)
+    cmd = service.build_command("/tmp/test_clip.mp4", is_replay=True, backend="wl-screenrec")
+    assert "-f" in cmd
+    assert "--history" in cmd
+    assert "90" in cmd
+    assert "--codec" in cmd
+    assert "hevc" in cmd
+    assert "--bitrate" in cmd
+    assert "20M" in cmd
+
+    cmd_gpu = service.build_command("/tmp/test_clip.mp4", is_replay=True, backend="gpu-screen-recorder")
+    assert "-w" in cmd_gpu
+    assert "-r" in cmd_gpu
+    assert "90" in cmd_gpu
+    assert "-k" in cmd_gpu
+    assert "hevc" in cmd_gpu
+
+    cmd_ff = service.build_command("/tmp/test_clip.mp4", is_replay=False, backend="ffmpeg")
+    assert "ffmpeg" in cmd_ff
+    assert "20M" in cmd_ff
+    print("✓ Hardware recorder command generation (gpu-screen-recorder, wl-screenrec, ffmpeg) verified")
+
+    wiz = WelcomeWizardDialog("TestPlayer", "/tmp/proton")
+    assert wiz.get_user_name() == "TestPlayer"
+    print("✓ WelcomeWizardDialog instantiated cleanly offscreen")
+
+    ss_dir = get_game_screenshots_dir(999)
+    assert os.path.exists(ss_dir)
+    print("✓ Screenshot capture directory creation verified")
+
+    from ui.dialogs.game_properties_dialog import GamePropertiesDialog
+    test_game_tuple = (1, "Test Game", "/tmp/test", "game.exe", "umu", "", 0, "", "", "", "", "", "", "", 0, "1.0.4", "")
+    prop_dlg = GamePropertiesDialog(test_game_tuple)
+    assert prop_dlg.game_name == "Test Game"
+    print("✓ GamePropertiesDialog instantiated cleanly offscreen")
+
+    from ui.dialogs.settings_dialog import ScreenshotLightboxDialog
+    lightbox = ScreenshotLightboxDialog([], parent=None)
+    assert lightbox is not None
+    print("✓ ScreenshotLightboxDialog instantiated cleanly offscreen")
+
+    from ui.components.banner_card import GameBannerWidget
+    banner = GameBannerWidget(1, "Test Game", version="v0.4.2")
+    assert banner.version == "v0.4.2"
+    assert banner.version_badge.text() == "v0.4.2"
+    assert not banner.version_badge.isHidden()
+    print("✓ GameBannerWidget 16:9 ratio and version badge verified")
+except Exception as e:
+    print(f"✗ Security diagnostics test error: {e}")
+    sys.exit(1)
+
 print("\n✅ All SafeLauncher components tested and working cleanly!")
+

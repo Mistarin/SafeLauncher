@@ -2,7 +2,7 @@ import sys
 from PyQt6.QtWidgets import QApplication
 
 from core.logger import get_logger
-from core.bootstrap import setup_application_environment, setup_single_instance_ipc
+from core.bootstrap import setup_application_environment, check_already_running, create_single_instance_server
 from database import GameDatabase
 from core.firejail_runner import FirejailSandboxRunner
 from core.zip_backup import ZipBackupManager
@@ -16,17 +16,19 @@ def main():
 
     app = QApplication(sys.argv)
 
-    # Initialize core services via DIP contracts
+    # 1. Fast probe: if already running, focus existing window and exit immediately
+    if check_already_running():
+        sys.exit(0)
+
+    # 2. Initialize core services via DIP contracts
     logger.info("Initializing core database and sandbox runners...")
     db = GameDatabase()
     runner = FirejailSandboxRunner()
     backup = ZipBackupManager()
 
-    # Create main window
+    # 3. Create main window & bind single-instance listener
     window = MainWindow(db, runner, backup)
-
-    # Setup single-instance IPC with activation callback
-    server = setup_single_instance_ipc(window._show_and_raise)
+    server = create_single_instance_server(window._show_and_raise)
 
     window.show()
     logger.info("SafeLauncher UI started successfully.")
