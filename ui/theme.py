@@ -272,13 +272,13 @@ def get_application_stylesheet() -> str:
 
     /* ── Splitters ── */
     QSplitter::handle {{
-        background: {BORDER};
+        background: transparent;
     }}
     QSplitter::handle:horizontal {{
-        width: 1px;
+        width: 0px;
     }}
     QSplitter::handle:vertical {{
-        height: 1px;
+        height: 0px;
     }}
     """
 

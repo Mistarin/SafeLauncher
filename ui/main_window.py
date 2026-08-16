@@ -224,11 +224,8 @@ class MainWindow(QMainWindow):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setStyleSheet("""
             QSplitter::handle {
-                background-color: #252A33;
-                width: 1px;
-            }
-            QSplitter::handle:hover {
-                background-color: #3B9FE8;
+                background: transparent;
+                width: 0px;
             }
         """)
         body_layout.addWidget(self.splitter)
@@ -242,7 +239,7 @@ class MainWindow(QMainWindow):
         self.detail_panel.setStyleSheet("""
             QFrame {
                 background: #14171D;
-                border-left: 1px solid #252A33;
+                border: none;
             }
             QLabel {
                 color: #F5F7FA;
@@ -2568,14 +2565,43 @@ class MainWindow(QMainWindow):
         game_id = game[0]
         is_archived = bool(game[17]) if len(game) > 17 and game[17] else False
 
+        def _force_delete_game_path(target_path: str):
+            if not target_path or not os.path.exists(target_path):
+                return
+            try:
+                def _handle_readonly(func, subpath, exc_info):
+                    try:
+                        os.chmod(subpath, 0o777)
+                        func(subpath)
+                    except Exception:
+                        pass
+
+                if os.path.isfile(target_path) or os.path.islink(target_path):
+                    try:
+                        os.chmod(target_path, 0o777)
+                    except Exception:
+                        pass
+                    os.unlink(target_path)
+                elif os.path.isdir(target_path):
+                    try:
+                        shutil.rmtree(target_path, on_exc=_handle_readonly)
+                    except TypeError:
+                        shutil.rmtree(target_path, onerror=_handle_readonly)
+                logger.info(f"Force deleted game files at: {target_path}")
+            except Exception as e:
+                logger.warning(f"Could not force delete game files at '{target_path}': {e}")
+
         if is_archived:
             reply = QMessageBox.question(
                 self,
                 "Permanently Delete",
-                f"Permanently delete '{game[1]}' and all its recorded history from SafeLauncher?",
+                f"Permanently delete '{game[1]}' and all its recorded history and files from SafeLauncher?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.Yes:
+                game_path = game[2]
+                resolved_path = os.path.realpath(os.path.expanduser(game_path)) if game_path else ""
+                _force_delete_game_path(resolved_path)
                 self.db.remove_game(game_id)
                 self._show_toast(f"Permanently removed '{game[1]}'.")
                 self.selected_game = None
@@ -2593,20 +2619,21 @@ class MainWindow(QMainWindow):
                     inside_sandbox = os.path.commonpath([sandbox_root, resolved_path]) == sandbox_root
                 except ValueError:
                     inside_sandbox = False
-                if inside_sandbox and resolved_path != sandbox_root and os.path.exists(resolved_path):
-                    try:
-                        shutil.rmtree(resolved_path)
-                    except Exception as e:
-                        logger.warning(f"Could not delete game files: {e}")
+                if inside_sandbox and resolved_path != sandbox_root:
+                    _force_delete_game_path(resolved_path)
+                elif resolved_path and os.path.exists(resolved_path):
+                    _force_delete_game_path(resolved_path)
 
                 self.db.archive_game(game_id, True)
-                self._show_toast(f"Archived '{game[1]}' and deleted files from disk.")
+                self._show_toast(f"Archived '{game[1]}' and force deleted files from disk.")
             elif dialog.choice == 'archive_keep':
                 self.db.archive_game(game_id, True)
                 self._show_toast(f"Archived '{game[1]}' (files preserved on disk).")
             elif dialog.choice == 'purge_permanently':
+                # Force delete all game files from disk without going to trash
+                _force_delete_game_path(resolved_path)
                 self.db.remove_game(game_id)
-                self._show_toast(f"Permanently removed '{game[1]}' from launcher.")
+                self._show_toast(f"Permanently removed '{game[1]}' and force deleted files.")
 
             self._refresh_library()
             self.selected_game = None

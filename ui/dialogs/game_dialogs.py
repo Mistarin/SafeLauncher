@@ -1552,17 +1552,17 @@ class CustomRemoveDialog(QDialog):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setStyleSheet("""
             QDialog {
-                background-color: #141417;
-                border: 1px solid #2e2e36;
+                background-color: #14171D;
+                border: 1px solid #252A33;
                 border-radius: 8px;
             }
             QLabel {
-                color: #ffffff;
+                color: #F5F7FA;
             }
             QPushButton {
                 padding: 10px 16px;
                 border-radius: 6px;
-                font-weight: bold;
+                font-weight: 500;
                 font-size: 12px;
                 text-align: left;
             }
@@ -1575,12 +1575,12 @@ class CustomRemoveDialog(QDialog):
         layout.setSpacing(14)
 
         title_label = QLabel("Remove / Archive Game")
-        title_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        title_label.setFont(QFont("Arial", 13, QFont.Weight.Bold))
         layout.addWidget(title_label)
 
         msg_label = QLabel(f"Choose what to do with '<b>{game_name}</b>':")
         msg_label.setWordWrap(True)
-        msg_label.setStyleSheet("color: #d4d4d8; font-size: 13px;")
+        msg_label.setStyleSheet("color: #A7ADB8; font-size: 13px;")
         layout.addWidget(msg_label)
 
         btn_box = QVBoxLayout()
@@ -1589,36 +1589,62 @@ class CustomRemoveDialog(QDialog):
         btn_archive = QPushButton("📦 Archive (Keep Files on Disk, Preserve History)")
         btn_archive.setStyleSheet("""
             QPushButton {
-                background: #1e293b; color: #38bdf8; border: 1px solid #0284c7;
+                background-color: #1A1E26;
+                color: #3B9FE8;
+                border: 1px solid #252A33;
             }
-            QPushButton:hover { background: #0369a1; color: #ffffff; }
+            QPushButton:hover {
+                background-color: #0D2A40;
+                border-color: #3B9FE8;
+                color: #FFFFFF;
+            }
         """)
         btn_archive.clicked.connect(self._select_archive_keep)
 
-        btn_disk = QPushButton("🗑 Archive & Delete Game Files from Disk")
+        btn_disk = QPushButton("🗑 Archive & Force Delete Game Files from Disk")
+        btn_disk.setToolTip("Deletes game files directly without trash, keeping playtime statistics and history in archive.")
         btn_disk.setStyleSheet("""
             QPushButton {
-                background: #2a1616; color: #f87171; border: 1px solid #991b1b;
+                background-color: #1A1E26;
+                color: #E5A93D;
+                border: 1px solid #252A33;
             }
-            QPushButton:hover { background: #7f1d1d; color: #ffffff; }
+            QPushButton:hover {
+                background-color: rgba(229, 169, 61, 0.15);
+                border-color: #E5A93D;
+                color: #FFFFFF;
+            }
         """)
         btn_disk.clicked.connect(self._select_archive_disk)
 
-        btn_purge = QPushButton("✕ Permanently Remove from Launcher (Delete All Records)")
+        btn_purge = QPushButton("✕ Permanently Remove from Launcher (Force Delete Files & Records)")
+        btn_purge.setToolTip("Permanently deletes all game files from disk without going to trash, and purges all launcher database records.")
         btn_purge.setStyleSheet("""
             QPushButton {
-                background: #18181b; color: #a1a1aa; border: 1px solid #27272a;
+                background-color: rgba(240, 93, 108, 0.08);
+                color: #F05D6C;
+                border: 1px solid rgba(240, 93, 108, 0.25);
             }
-            QPushButton:hover { background: #27272a; color: #ffffff; }
+            QPushButton:hover {
+                background-color: rgba(240, 93, 108, 0.2);
+                border-color: #F05D6C;
+                color: #FFFFFF;
+            }
         """)
         btn_purge.clicked.connect(self._select_purge)
 
         btn_cancel = QPushButton("Cancel")
         btn_cancel.setStyleSheet("""
             QPushButton {
-                background: #27272a; color: #e4e4e7; border: 1px solid #3f3f46; text-align: center;
+                background-color: #1A1E26;
+                color: #A7ADB8;
+                border: 1px solid #252A33;
+                text-align: center;
             }
-            QPushButton:hover { background: #3f3f46; }
+            QPushButton:hover {
+                background-color: #252A33;
+                color: #F5F7FA;
+            }
         """)
         btn_cancel.clicked.connect(self.reject)
 
