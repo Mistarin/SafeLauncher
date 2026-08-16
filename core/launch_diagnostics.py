@@ -65,7 +65,7 @@ class LaunchDiagnostics:
             return "umu-run is not installed. Install the UMU launcher or choose a native Wine/Linux runner."
         if not self.dependencies.get("firejail", True) and not self.unsafe:
             return "Firejail is unavailable. Install Firejail, then retry the sandboxed launch."
-        if any(token in text for token in ("proton not found", "protonpath", "could not find steamrt", "umu has not been setup")):
+        if any(token in text for token in ("proton not found", "protonpath is not set", "error: protonpath", "could not find steamrt", "could not find steamrt4", "umu has not been setup")):
             return "The Proton/Steam Runtime is missing or not initialized. Verify or repair the selected runtime."
         if "no permissions to create a new namespace" in text or "unprivileged_userns_clone" in text:
             return "The kernel denied user namespaces. Enable the setting for your desktop or use the clearly marked unsafe fallback."
@@ -74,6 +74,11 @@ class LaunchDiagnostics:
         if "bad exe format" in text or "exec format error" in text:
             return f"The executable/runtime architecture is incompatible with this host ({self.architecture})."
         if self.return_code == 0:
+            if any(marker in text for marker in (
+                "presenter:", "actual swap chain", "engaging frame rate limiter",
+                "setting display mode", "fsync: up and running", "dxvk:"
+            )):
+                return "The game session finished normally (exit code 0)."
             return "The runtime exited before the game stayed running. Check the full output and prefix health."
         if self.signal_name:
             return f"The launch process was terminated by {self.signal_name}. Check runtime compatibility and system limits."

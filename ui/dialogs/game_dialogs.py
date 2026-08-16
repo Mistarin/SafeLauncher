@@ -980,7 +980,7 @@ class SafeLaunchDialog(QDialog):
             if sb:
                 sb.setValue(sb.maximum())
 
-            if "parent is shutting down" in text.lower() and not self.launch_finished:
+            if "parent is shutting down" in text.lower() and not self.handoff_shown:
                 QTimer.singleShot(350, self._check_process_state)
 
     def _poll_process_log(self):
@@ -1051,13 +1051,6 @@ class SafeLaunchDialog(QDialog):
         if return_code is None:
             return
 
-        import time
-        startup_elapsed = time.monotonic() - self.startup_started_at
-        if startup_elapsed > self.startup_grace_seconds:
-            self.launch_finished = True
-            self.process_timer.stop()
-            return
-
         self.launch_finished = True
         self.process_timer.stop()
         if hasattr(self, "progress_anim"):
@@ -1068,6 +1061,23 @@ class SafeLaunchDialog(QDialog):
         if getattr(self, "process_log_path", None):
             self._poll_process_log()
         details = "\n".join(self.log_lines)
+        lower_details = details.lower()
+
+        # If process exited cleanly with code 0 and was already running / handed off
+        has_game_run_markers = any(marker in lower_details for marker in (
+            "presenter:", "actual swap chain", "engaging frame rate limiter",
+            "setting display mode", "fsync: up and running", "dxvk:", "vulkan:"
+        ))
+        if return_code == 0 and (self.handoff_shown or has_game_run_markers):
+            import time
+            t_str = time.strftime("%H:%M:%S")
+            self.append_log(f"[{t_str}] 🏁 [EXIT] '{self.game_name}' finished cleanly (exit code 0).")
+            self.header_title.setText("Game session finished")
+            self.header_sub.setText(f"'{self.game_name}' exited cleanly (exit code 0)")
+            self.progress_bar.setValue(100)
+            self.stack.setCurrentWidget(self.page_console)
+            return
+
         if return_code < 0:
             reason = f"The launcher was terminated by signal {-return_code}."
         elif return_code == 0:
@@ -1075,7 +1085,6 @@ class SafeLaunchDialog(QDialog):
         else:
             reason = f"Proton/UMU exited with code {return_code}."
 
-        lower_details = details.lower()
         steam_api_failure = any(token in lower_details for token in (
             "steam_api64.dll", "steam_api.dll", "steamapi_", "steam api",
             "steamapps_v", "steamapps", "unimplemented function steam",
@@ -1086,8 +1095,9 @@ class SafeLaunchDialog(QDialog):
             persist_diagnostics(self.diagnostics)
             reason = self.diagnostics.actionable_explanation()
         self.requires_proton_setup = any(marker in lower_details for marker in (
-            "protonpath",
             "proton not found",
+            "protonpath is not set",
+            "error: protonpath",
             "umu has not been setup",
             "steamrt4 validation failed",
             "could not find steamrt4",

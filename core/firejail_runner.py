@@ -125,13 +125,12 @@ class FirejailSandboxRunner(ISandboxRunner):
             if os.path.isfile(os.path.join(cached_umu, "toolmanifest.vdf")):
                 active_proton = cached_umu
                 logger.info(f"Reusing cached UMU Proton runtime: {active_proton}")
-        if active_proton and not os.path.exists(os.path.join(active_proton, "toolmanifest.vdf")):
-            logger.warning(f"Configured Proton path '{active_proton}' missing toolmanifest.vdf. Falling back to system/UMU default.")
-            active_proton = ""
+        os.makedirs(steam_compat_dir, exist_ok=True)
 
         q_path = shlex.quote(game_path)
         q_work_dir = shlex.quote(working_dir)
         q_exe = shlex.quote(exe_filename)
+
         q_umu_share = shlex.quote(umu_share)
         q_umu_cache = shlex.quote(umu_cache)
         q_steam_compat = shlex.quote(steam_compat_dir)
@@ -145,20 +144,31 @@ class FirejailSandboxRunner(ISandboxRunner):
         if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:
             game_id_export = f"export GAMEID=umu-{int(steam_id)} && "
 
+        # GPU Driver Shader Cache Whitelist
+        gpu_whitelist_flags = ""
+        for p in _GPU_CACHE_PATHS:
+            expanded = os.path.expanduser(p)
+            try:
+                os.makedirs(expanded, exist_ok=True)
+            except OSError:
+                pass
+            if os.path.exists(expanded):
+                gpu_whitelist_flags += f"--whitelist={shlex.quote(expanded)} "
+
         # Keep the complete runtime state in the same persistent launch log.
-        # These diagnostics are intentionally verbose while investigating
-        # compatibility problems and include child-process/syscall evidence.
         proton_log_dir_path = tempfile.mkdtemp(
             prefix=".safelauncher-proton-",
             dir=os.path.realpath(game_path),
         )
         proton_log_dir = shlex.quote(proton_log_dir_path)
-        # +seh,+loaddll can generate gigabytes of repeated Wine backtraces
-        # before a UE5 game even creates its window. Keep Proton/VKD3D
-        # diagnostics enabled, but make the pathological Wine trace opt-in.
+
+        enable_verbose = os.environ.get("SAFELAUNCHER_DEBUG", "0").strip() == "1"
+        proton_log_flag = "1" if enable_verbose or os.environ.get("SAFELAUNCHER_PROTON_LOG", "0") == "1" else "0"
+        vkd3d_debug = os.environ.get("SAFELAUNCHER_VKD3D_DEBUG", "warn" if enable_verbose else "none").strip()
         wine_debug = os.environ.get("SAFELAUNCHER_WINEDEBUG", "-all").strip() or "-all"
+
         debug_exports = (
-            f"export PROTON_LOG=1 VKD3D_DEBUG=warn "
+            f"export PROTON_LOG={proton_log_flag} VKD3D_DEBUG={shlex.quote(vkd3d_debug)} "
             f"WINEDEBUG={shlex.quote(wine_debug)} PROTON_LOG_DIR={proton_log_dir} && "
         )
         diagnostic_header = (
@@ -181,10 +191,6 @@ class FirejailSandboxRunner(ISandboxRunner):
             if enable_strace:
                 logger.warning("SAFELAUNCHER_STRACE=1 requested but strace is not installed.")
         firejail_prefix = "" if trace_prefix else "exec "
-        # Firejail installations may disable tracelog globally; passing the
-        # option in that state makes Firejail exit before UMU starts. Keep
-        # syscall tracing in the launch log and leave Firejail audit logging
-        # to the host configuration when it is enabled there.
         firejail_audit = ""
 
         # Sandbox name for reliable container discovery & termination
@@ -195,25 +201,12 @@ class FirejailSandboxRunner(ISandboxRunner):
         # Build Firejail security hardening options
         blacklist_flags = " ".join(f"--blacklist={shlex.quote(os.path.expanduser(p))}" for p in _SECURITY_BLACKLISTS)
         common_security_flags = f"--private-tmp {blacklist_flags}"
-        # UMU's Steam runtime launcher uses the session bus. Blocking D-Bus
-        # makes pressure-vessel fall back to a degraded wrapper and can cause
-        # the actual Proton game to exit immediately. Keep --nodbus for the
-        # direct Wine/Linux modes where it is safe to do so.
         security_flags = f"{common_security_flags} --nodbus"
-        # Firejail's generic profile includes noinput/novideo. Those are
-        # appropriate for ordinary desktop tools but can prevent Unity and
-        # other game runtimes from initializing their window/input backend.
         game_compat_flags = "--ignore=noinput --ignore=novideo"
 
         if mode in ("umu", "umu_net"):
             runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
             if has_firejail:
-                # UMU itself creates an AF_INET socket during startup. Both
-                # --net=none and --net=lo are incompatible on some hosts:
-                # the former blocks UMU's prerequisite check, while the latter
-                # can fail when Firejail cannot create a loopback device.
-                # Leave the namespace networking unchanged so UMU can start;
-                # umu_net remains the explicit network-enabled launch mode.
                 net_flag = ""
                 if mode == "umu":
                     logger.warning(
@@ -222,25 +215,25 @@ class FirejailSandboxRunner(ISandboxRunner):
                     )
                 cmd = (
                     f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}"
-                    f"--ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
+                    f"--noprofile --ignore=noroot --ignore=seccomp --ignore=restrict-namespaces "
                     f"{net_flag}{firejail_audit}{common_security_flags} {game_compat_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
-                    f"--whitelist={q_steam_compat} "
+                    f"--whitelist={q_steam_compat} {gpu_whitelist_flags}"
                     f"{proton_whitelist}{proton_env}{game_id_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
                 cmd = f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{game_id_export}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
         elif mode == "linux":
             if has_firejail:
-                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--net=none {security_flags} --whitelist={q_path} ./{q_exe}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--noprofile --net=none {security_flags} --whitelist={q_path} {gpu_whitelist_flags}./{q_exe}"
             else:
                 cmd = f"cd {q_work_dir} && {diagnostic_header}./{q_exe}"
         else:  # "wine"
             runner_cmd = f"wine {q_exe}"
             if has_firejail:
                 cmd = (
-                    f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--net=none {security_flags} "
-                    f"--whitelist={q_path} "
+                    f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--noprofile --net=none {security_flags} "
+                    f"--whitelist={q_path} {gpu_whitelist_flags}"
                     f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
