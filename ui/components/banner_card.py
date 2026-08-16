@@ -61,12 +61,14 @@ class GameBannerWidget(QFrame):
     doubleClicked = pyqtSignal(int)
     rightClicked = pyqtSignal(int, QPoint)
     favoriteClicked = pyqtSignal(int)
+    launchClicked = pyqtSignal(int)
 
-    def __init__(self, game_id: int, name: str, banner_path: str = None, playtime_seconds: int = 0, version: str = "", parent=None):
+    def __init__(self, game_id: int, name: str, banner_path: str = None, playtime_seconds: int = 0, version: str = "", icon_path: str = "", parent=None):
         super().__init__(parent)
         self.game_id = game_id
         self.name = name
         self.banner_path = banner_path
+        self.icon_path = str(icon_path).strip() if icon_path else ""
         self.playtime_seconds = playtime_seconds
         self.version = str(version).strip() if version else ""
         self.selected = False
@@ -91,10 +93,10 @@ class GameBannerWidget(QFrame):
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
+        layout.setSpacing(0)
         
         # Banner image (2:3 portrait aspect ratio matching Steam 600x900 library covers)
-        self.image_label = QLabel()
+        self.image_label = QLabel(self)
         self.image_label.setFixedSize(QSize(self.card_width, self.card_height))
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.image_label)
@@ -104,8 +106,7 @@ class GameBannerWidget(QFrame):
         self.update_indicator.move(8, 8)
         self.update_indicator.hide()
 
-        # Favorite belongs to the library card itself. Keep it as a real
-        # button instead of painting a non-interactive star into the artwork.
+        # Favorite belongs to the library card itself
         self.favorite_button = QPushButton(self)
         self.favorite_button.setFixedSize(30, 30)
         self.favorite_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -130,6 +131,29 @@ class GameBannerWidget(QFrame):
         self.favorite_button.hide()
         self._position_favorite_button()
 
+        # Quick-Launch Play button overlay (prominently centered on hover)
+        self.btn_card_play = QPushButton(self)
+        self.btn_card_play.setFixedSize(48, 48)
+        self.btn_card_play.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_card_play.setIcon(get_icon("ph.play-fill", color="#ffffff"))
+        self.btn_card_play.setIconSize(QSize(22, 22))
+        self.btn_card_play.setToolTip(f"Launch {self.name}")
+        self.btn_card_play.setStyleSheet("""
+            QPushButton {
+                background: #16a34a;
+                color: #ffffff;
+                border: none;
+                border-radius: 24px;
+                padding: 0;
+            }
+            QPushButton:hover {
+                background: #22c55e;
+            }
+        """)
+        self.btn_card_play.clicked.connect(lambda: self.launchClicked.emit(self.game_id))
+        self.btn_card_play.hide()
+        self._position_play_button()
+
         # Pure version badge positioned at bottom-left of the banner cover
         self.version_badge = QLabel(self)
         self.version_badge.setFont(QFont("Arial", 9, QFont.Weight.Bold))
@@ -147,19 +171,31 @@ class GameBannerWidget(QFrame):
         self.version_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.set_version(self.version)
         
+        # Footer container for Title & Playtime (vertically & horizontally centered)
+        self.footer_widget = QWidget(self)
+        self.footer_widget.setFixedSize(QSize(self.card_width, 55))
+        self.footer_widget.setStyleSheet("background: transparent;")
+        footer_layout = QVBoxLayout(self.footer_widget)
+        footer_layout.setContentsMargins(4, 0, 4, 0)
+        footer_layout.setSpacing(2)
+        footer_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         # Game name label using clean sans-serif typography
         self.name_label = QLabel(name)
         self.name_label.setWordWrap(True)
         self.name_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.name_label)
+        self.name_label.setStyleSheet("background: transparent;")
+        footer_layout.addWidget(self.name_label)
 
-        # Playtime label — small, dimmed, below the title
+        # Playtime label — small, dimmed, centered below the title
         self.playtime_label = QLabel(self._format_playtime(playtime_seconds))
         self.playtime_label.setFont(QFont("Arial", 9))
         self.playtime_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.playtime_label.setStyleSheet("color: #a1a1aa; background: transparent;")
-        layout.addWidget(self.playtime_label)
+        footer_layout.addWidget(self.playtime_label)
+
+        layout.addWidget(self.footer_widget)
         
         self.update_appearance()
 
@@ -208,6 +244,8 @@ class GameBannerWidget(QFrame):
         # hover-only state after the card enters the widget hierarchy.
         if not self.underMouse():
             self.favorite_button.hide()
+            if hasattr(self, 'btn_card_play'):
+                self.btn_card_play.hide()
 
     def mouseDoubleClickEvent(self, event):
         super().mouseDoubleClickEvent(event)
@@ -219,6 +257,11 @@ class GameBannerWidget(QFrame):
         self.favorite_button.show()
         self.favorite_button.raise_()
         if not self.is_missing:
+            if hasattr(self, 'btn_card_play'):
+                self.btn_card_play.show()
+                self.btn_card_play.raise_()
+            if not self.selected:
+                self.image_label.setStyleSheet("background: #18181f; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px;")
             self.anim.stop()
             self.anim.setStartValue(self._hover_progress)
             self.anim.setEndValue(1.0)
@@ -227,6 +270,10 @@ class GameBannerWidget(QFrame):
     def leaveEvent(self, event):
         super().leaveEvent(event)
         self.favorite_button.hide()
+        if hasattr(self, 'btn_card_play'):
+            self.btn_card_play.hide()
+        if not self.selected and not self.is_missing:
+            self.image_label.setStyleSheet("background: #18181f; border: none; border-radius: 8px;")
         if not self.is_missing:
             self.anim.stop()
             self.anim.setStartValue(self._hover_progress)
@@ -257,60 +304,101 @@ class GameBannerWidget(QFrame):
         self.update_appearance()
 
     def update_appearance(self):
-        """Update container styling (borderless) and trigger frame render"""
+        """Update container styling (borderless when not hovering) and trigger frame render"""
         self.setStyleSheet("border: none; background: transparent;")
         
         if self.is_missing:
-            self.name_label.setText(f"{self.name} (Missing)")
-            self.name_label.setStyleSheet("padding: 4px; color: #71717a; font-weight: bold;")
-            self.image_label.setStyleSheet("background: #18181f; border: 1px solid #272730; border-radius: 8px;")
+            self.name_label.setText(self.name)
+            self.name_label.setStyleSheet("padding: 4px; color: #64748b; font-weight: bold;")
+            self.image_label.setStyleSheet("background: #111318; border: none; border-radius: 8px;")
         elif self.selected:
             self.name_label.setText(self.name)
             self.name_label.setStyleSheet("padding: 4px; background: #3b3f46; color: #ffffff; font-weight: bold; border-radius: 4px;")
-            self.image_label.setStyleSheet("background: #18181f; border: 2px solid #6b7280; border-radius: 8px;")
+            self.image_label.setStyleSheet("background: #18181f; border: 2px solid #38bdf8; border-radius: 8px;")
         else:
             self.name_label.setText(self.name)
             self.name_label.setStyleSheet("padding: 4px; color: #f4f4f5; font-weight: bold;")
-            self.image_label.setStyleSheet("background: #18181f; border: 1px solid #272730; border-radius: 8px;")
+            self.image_label.setStyleSheet("background: #18181f; border: none; border-radius: 8px;")
 
         self.render_frame(self._hover_progress)
 
     def set_favorite(self, is_favorite: bool):
         self.is_favorite = is_favorite
-        self.favorite_button.setChecked(is_favorite)
-        icon = get_icon("ph.star-fill" if is_favorite else "ph.star", color="#facc15" if is_favorite else "#d4d4d8")
-        self.favorite_button.setIcon(icon)
-        self.favorite_button.setText("" if not icon.isNull() else "*")
-        self.favorite_button.setToolTip("Remove from Favorites" if is_favorite else "Add to Favorites")
-        self.render_frame(self._hover_progress)
+        try:
+            self.favorite_button.setChecked(is_favorite)
+            icon = get_icon("ph.star-fill" if is_favorite else "ph.star", color="#facc15" if is_favorite else "#d4d4d8")
+            self.favorite_button.setIcon(icon)
+            self.favorite_button.setText("" if not icon.isNull() else "*")
+            self.favorite_button.setToolTip("Remove from Favorites" if is_favorite else "Add to Favorites")
+            self.render_frame(self._hover_progress)
+        except (RuntimeError, AttributeError):
+            pass
 
     def _position_favorite_button(self):
-        self.favorite_button.move(self.card_width - self.favorite_button.width() - 8, 8)
-        self.favorite_button.raise_()
+        try:
+            self.favorite_button.move(self.card_width - self.favorite_button.width() - 8, 8)
+            self.favorite_button.raise_()
+        except (RuntimeError, AttributeError):
+            pass
+
+    def _position_play_button(self):
+        try:
+            if hasattr(self, 'btn_card_play') and self.btn_card_play:
+                px = (self.card_width - 48) // 2
+                py = (self.card_height - 48) // 2
+                self.btn_card_play.move(px, py)
+                self.btn_card_play.raise_()
+        except (RuntimeError, AttributeError):
+            pass
+
+    def _position_version_badge(self):
+        try:
+            if hasattr(self, 'version_badge') and self.version_badge and self.version_badge.isVisible():
+                self.version_badge.move(8, self.card_height - self.version_badge.height() - 8)
+                self.version_badge.raise_()
+        except (RuntimeError, AttributeError):
+            pass
 
     def set_update_available(self, is_available: bool):
         self.is_update_available = is_available
-        if hasattr(self, 'update_indicator'):
-            self.update_indicator.setVisible(is_available)
-            if is_available:
-                self.update_indicator.raise_()
-        self.render_frame(self._hover_progress)
+        try:
+            if hasattr(self, 'update_indicator') and self.update_indicator:
+                self.update_indicator.setVisible(is_available)
+                if is_available:
+                    self.update_indicator.raise_()
+        except (RuntimeError, AttributeError):
+            pass
+        try:
+            self.render_frame(self._hover_progress)
+        except (RuntimeError, AttributeError):
+            pass
 
     def set_card_size(self, width: int):
         """Dynamically resize card banner width and height (2:3 ratio)."""
-        self.card_width = width
-        self.card_height = int(width * 1.5)
-        self.setFixedSize(QSize(self.card_width, self.card_height + 55))
-        self.image_label.setFixedSize(QSize(self.card_width, self.card_height))
-        self._position_favorite_button()
-        self._position_version_badge()
+        try:
+            self.card_width = width
+            self.card_height = int(width * 1.5)
+            self.setFixedSize(QSize(self.card_width, self.card_height + 55))
+            self.image_label.setFixedSize(QSize(self.card_width, self.card_height))
+            if hasattr(self, 'footer_widget'):
+                self.footer_widget.setFixedSize(QSize(self.card_width, 55))
+            self._position_favorite_button()
+            self._position_play_button()
+            self._position_version_badge()
+            self.render_frame(self._hover_progress)
+        except (RuntimeError, AttributeError):
+            pass
+
+    def set_icon(self, icon_path: str):
+        """Set game icon path and re-render."""
+        self.icon_path = str(icon_path).strip() if icon_path else ""
         self.render_frame(self._hover_progress)
 
     def render_frame(self, progress: float):
-        """Render cover art with LERP zoom & dark overlay on hover"""
+        """Render cover art with LERP zoom & hover overlay"""
         target_w, target_h = self.card_width, self.card_height
         
-        # 1. Missing game state (greyed out)
+        # 2. Missing game state (greyed out fallback)
         if self.is_missing:
             if self.banner_path and self.banner_path != "none" and os.path.exists(self.banner_path):
                 pixmap = QPixmap(self.banner_path)
@@ -338,14 +426,18 @@ class GameBannerWidget(QFrame):
                     self._position_version_badge()
                     return
             
-            self.image_label.setPixmap(QPixmap())
-            self.image_label.setText(f"{self.name}\n(Missing)")
-            self.image_label.setStyleSheet(
-                "background: #181818; color: #777777; font-weight: bold; font-size: 12px; padding: 10px; border-radius: 6px;"
-            )
+            placeholder = QPixmap(target_w, target_h)
+            placeholder.fill(QColor("#111318"))
+            painter = QPainter(placeholder)
+            painter.setPen(QColor("#475569"))
+            painter.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+            painter.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, self.name)
+            painter.end()
+            self.image_label.setPixmap(placeholder)
+            self.image_label.setText("")
             return
 
-        # 2. Normal game state with LERP hover zoom + smooth hover darkening!
+        # 3. Normal game state with LERP hover zoom + smooth hover darkening!
         if self.banner_path and self.banner_path != "none" and os.path.exists(self.banner_path):
             pixmap = QPixmap(self.banner_path)
             if not pixmap.isNull():
@@ -379,7 +471,7 @@ class GameBannerWidget(QFrame):
                 self._position_version_badge()
                 return
 
-        # 3. Placeholder card when cover art is cleared ('none') or missing
+        # 4. Placeholder card when cover art is cleared ('none') or missing
         placeholder = QPixmap(target_w, target_h)
         placeholder.fill(QColor("#181818"))
         painter = QPainter(placeholder)

@@ -16,10 +16,11 @@ _LEGACY_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath
 class SteamGridDBClient:
     """Fetches game banners using Steam Store API (primary) and optional API keys if provided."""
 
+    BASE_URL = "https://www.steamgriddb.com/api/v2"
     STEAM_STORE_API = "https://store.steampowered.com/api/storesearch"
     RAWG_API = "https://api.rawg.io/api"
 
-    def __init__(self, cache_dir: str = None, rawg_api_key: str = None):
+    def __init__(self, cache_dir: str = None, rawg_api_key: str = None, api_key: str = None):
         # [M2 FIX] Default to XDG cache dir; allow override for tests.
         resolved = Path(cache_dir) if cache_dir else Path(_DEFAULT_CACHE_DIR)
         resolved.mkdir(parents=True, exist_ok=True)
@@ -33,6 +34,7 @@ class SteamGridDBClient:
         # [M2 FIX] Migrate any cached banners from the old in-project .banner_cache/
         self._migrate_legacy_cache()
 
+        self.api_key = api_key or os.environ.get("STEAMGRIDDB_API_KEY")
         self.rawg_api_key = rawg_api_key or os.environ.get("RAWG_API_KEY")
         self.session = requests.Session()
         self.session.headers.update({
@@ -314,3 +316,89 @@ class SteamGridDBClient:
             print(f"Error fetching hero banner: {e}")
 
         return None
+
+    def fetch_and_cache_game_icon(self, game_id: int, steam_id: Optional[str] = None, game_name: str = "", exe_path: Optional[str] = None) -> Optional[str]:
+        """Fetch and locally cache a game icon."""
+        if not game_id:
+            return None
+
+        icons_dir = self.cache_dir.parent / "icons"
+        icons_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            icons_dir.chmod(0o700)
+        except Exception:
+            pass
+
+        cache_file = icons_dir / f"icon_{game_id}.png"
+        if cache_file.exists() and cache_file.stat().st_size > 0:
+            return str(cache_file.resolve())
+
+        # 1. Direct Windows .exe embedded icon extraction (highest fidelity authentic icon)
+        if exe_path and os.path.isfile(exe_path):
+            try:
+                from core.icon_extractor import extract_exe_icon
+                if extract_exe_icon(exe_path, str(cache_file)):
+                    return str(cache_file.resolve())
+            except Exception:
+                pass
+
+        # 2. Check local game folder for loose icon files
+        if exe_path and os.path.exists(exe_path):
+            folder = os.path.dirname(exe_path)
+            for cand in ("icon.png", "icon.ico", "app.png", "app.ico", "logo.png"):
+                cand_path = os.path.join(folder, cand)
+                if os.path.isfile(cand_path) and os.path.getsize(cand_path) > 0:
+                    try:
+                        shutil.copyfile(cand_path, cache_file)
+                        return str(cache_file.resolve())
+                    except Exception:
+                        pass
+
+        resolved_appid = steam_id
+        if not resolved_appid or str(resolved_appid) in ("0", "", "None"):
+            if game_name:
+                search_res = self.search_game(game_name)
+                if search_res.get('found') and search_res.get('primary'):
+                    resolved_appid = search_res['primary'].get('appid')
+
+        urls_to_try = []
+
+        # 1. Try SteamGridDB Icons endpoint if API key exists
+        if self.api_key and resolved_appid:
+            try:
+                sgdb_resp = self.session.get(
+                    f"{self.BASE_URL}/icons/steam/{resolved_appid}",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=5
+                )
+                if sgdb_resp.status_code == 200:
+                    data = sgdb_resp.json()
+                    for item in data.get('data', []):
+                        u = item.get('url')
+                        if u:
+                            urls_to_try.append(u)
+            except Exception:
+                pass
+
+        if resolved_appid and str(resolved_appid).isdigit() and int(resolved_appid) > 0:
+            urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/{resolved_appid}/{resolved_appid}_icon.jpg")
+            urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steam/apps/{resolved_appid}/logo.png")
+            urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/capsule_231x87.jpg")
+            urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/header.jpg")
+
+        for url in urls_to_try:
+            try:
+                resp = self.session.get(url, timeout=6, stream=True)
+                if resp.status_code == 200 and resp.headers.get('Content-Type', '').startswith('image/'):
+                    chunks = []
+                    for chunk in resp.iter_content(chunk_size=32768):
+                        chunks.append(chunk)
+                    with open(cache_file, 'wb') as f:
+                        for chunk in chunks:
+                            f.write(chunk)
+                    return str(cache_file.resolve())
+            except Exception:
+                continue
+
+        return None
+

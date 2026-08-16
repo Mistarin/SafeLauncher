@@ -402,13 +402,23 @@ class UserSettingsDialog(QDialog):
         layout.addWidget(sec_disk)
 
         sandbox_dir = ensure_sandbox_dir()
-        total_sandbox_bytes = get_dir_size(sandbox_dir)
         total_drive, used_drive, free_drive = get_disk_usage(sandbox_dir)
 
         form_disk = QFormLayout()
         form_disk.setSpacing(8)
-        form_disk.addRow("Sandbox Games Directory:", QLabel(f"{format_size(total_sandbox_bytes)} ({sandbox_dir})"))
+        self.lbl_sandbox_size = QLabel(f"Calculating... ({sandbox_dir})")
+        form_disk.addRow("Sandbox Games Directory:", self.lbl_sandbox_size)
         form_disk.addRow("Drive Available Space:", QLabel(f"{format_size(free_drive)} free out of {format_size(total_drive)}"))
+
+        # Asynchronously calculate sandbox directory size without blocking dialog opening
+        import threading
+        def _calc_sandbox():
+            try:
+                sz = get_dir_size(sandbox_dir)
+                QTimer.singleShot(0, lambda: self.lbl_sandbox_size.setText(f"{format_size(sz)} ({sandbox_dir})"))
+            except Exception:
+                pass
+        threading.Thread(target=_calc_sandbox, daemon=True, name="SafeLauncher-StorageCalc").start()
 
         self.combo_screenshot_screen = QComboBox()
         screens = get_available_screens()
@@ -428,10 +438,9 @@ class UserSettingsDialog(QDialog):
         layout.addWidget(sec_logs)
 
         diag_dir = diagnostics_directory()
-        diag_size = get_dir_size(diag_dir) if os.path.exists(diag_dir) else 0
         diag_count = len(os.listdir(diag_dir)) if os.path.exists(diag_dir) else 0
 
-        self.lbl_diag_info = QLabel(f"{diag_count} saved launch reports ({format_size(diag_size)})")
+        self.lbl_diag_info = QLabel(f"{diag_count} saved launch reports")
         layout.addWidget(self.lbl_diag_info)
 
         log_btns = QHBoxLayout()

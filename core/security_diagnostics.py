@@ -108,13 +108,12 @@ def inspect_security_health() -> SecurityHealthReport:
     for name, rel in cache_targets:
         exp = os.path.expanduser(rel)
         exists = os.path.exists(exp)
-        size = get_dir_size(exp) if exists else 0
         gpu_caches.append({
             "name": name,
             "path": rel,
             "exists": exists,
-            "size_formatted": format_size(size) if exists else "0 B",
-            "size_bytes": size,
+            "size_formatted": "Available" if exists else "Not created yet",
+            "size_bytes": 0,
         })
 
     # 5. UMU Proton Installation Check

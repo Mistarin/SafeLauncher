@@ -56,14 +56,16 @@ class BannerDownloader(SafeQThread):
 
 
 class BannerAutoFetcher(SafeQThread):
-    """Background thread to auto-fetch missing cover art for games in library"""
-    banner_auto_downloaded = pyqtSignal(int, str, int)  # (game_id, downloaded_file_path, appid)
+    """Background thread to auto-fetch missing cover art and icons for games in library"""
+    banner_auto_downloaded = pyqtSignal(int, str, int, str)  # (game_id, downloaded_file_path, appid, icon_path)
     
-    def __init__(self, game_id: int, game_name: str, sgdb_client: SteamGridDBClient):
+    def __init__(self, game_id: int, game_name: str, sgdb_client: SteamGridDBClient, exe_path: str = "", steam_id: str = ""):
         super().__init__()
         self.game_id = game_id
         self.game_name = game_name
         self.sgdb_client = sgdb_client
+        self.exe_path = exe_path
+        self.steam_id = steam_id
         
     def safe_run(self):
         try:
@@ -72,15 +74,23 @@ class BannerAutoFetcher(SafeQThread):
             res = self.sgdb_client.search_game(self.game_name)
             if self.isInterruptionRequested():
                 return
+            banner_path = ""
+            appid = 0
             if res and res.get('found') and res.get('primary'):
                 url = res['primary'].get('banner_url')
                 appid = res['primary'].get('appid') or 0
                 if url:
-                    path = self.sgdb_client.download_banner(url, self.game_id)
-                    if not self.isInterruptionRequested() and path and os.path.exists(path):
-                        self.banner_auto_downloaded.emit(self.game_id, path, appid)
+                    banner_path = self.sgdb_client.download_banner(url, self.game_id) or ""
+            
+            resolved_appid = str(appid) if appid else (self.steam_id or "")
+            icon_path = self.sgdb_client.fetch_and_cache_game_icon(
+                self.game_id, resolved_appid, self.game_name, exe_path=self.exe_path
+            ) or ""
+            
+            if not self.isInterruptionRequested() and (banner_path or icon_path):
+                self.banner_auto_downloaded.emit(self.game_id, banner_path, appid or 0, icon_path)
         except Exception as e:
-            logger.warning(f"Error auto-fetching banner for '{self.game_name}': {e}")
+            logger.warning(f"Error auto-fetching artwork for '{self.game_name}': {e}")
 
 
 class ArchiveExtractorThread(SafeQThread):
@@ -242,3 +252,24 @@ class HeroFetcherThread(SafeQThread):
         hero_path = self.sgdb_client.download_hero_banner(self.steam_id, self.game_id, self.name)
         if not self.isInterruptionRequested() and hero_path and os.path.exists(hero_path):
             self.hero_downloaded.emit(self.game_id, hero_path)
+
+
+class IconAutoFetcherThread(SafeQThread):
+    """Background QThread for downloading game icons without blocking GUI main thread."""
+    icon_downloaded = pyqtSignal(int, str)  # (game_id, icon_path)
+
+    def __init__(self, game_id: int, name: str, steam_id: Optional[str], sgdb_client: SteamGridDBClient, exe_path: str = "", parent=None):
+        super().__init__(parent)
+        self.game_id = game_id
+        self.name = name
+        self.steam_id = steam_id
+        self.sgdb_client = sgdb_client
+        self.exe_path = exe_path
+
+    def safe_run(self):
+        if self.isInterruptionRequested():
+            return
+        icon_path = self.sgdb_client.fetch_and_cache_game_icon(self.game_id, self.steam_id, self.name, exe_path=self.exe_path)
+        if not self.isInterruptionRequested() and icon_path and os.path.exists(icon_path):
+            self.icon_downloaded.emit(self.game_id, icon_path)
+

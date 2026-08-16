@@ -2,7 +2,8 @@ import os
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QMessageBox, QComboBox, QProgressBar, QWidget, QFrame, QMenu,
-    QCheckBox, QStackedWidget, QPlainTextEdit, QGraphicsOpacityEffect, QApplication
+    QCheckBox, QStackedWidget, QPlainTextEdit, QGraphicsOpacityEffect, QApplication,
+    QScrollArea
 )
 from PyQt6.QtCore import Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QUrl
 from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QMovie, QDesktopServices
@@ -475,11 +476,17 @@ class AddGameDialog(QDialog):
                 "Wine – Legacy": "wine",
                 "Native Linux": "linux",
             }.get(self.mode_combo.currentText().strip(), "umu")
-        executable = (
-            self.exe_combo.currentText()
-            if self._exe_user_edited or self.exe_combo.currentIndex() < 0
-            else self.exe_combo.currentData()
-        )
+        if self.exe_combo.currentIndex() >= 0 and self.exe_combo.currentData():
+            executable = str(self.exe_combo.currentData()).strip()
+        else:
+            executable = self.exe_combo.currentText().strip()
+
+        # Strip any UI formatting like " · Windows executable · 906.3 MB"
+        if " · " in executable:
+            executable = executable.split(" · ")[0].strip()
+        if "  ·  " in executable:
+            executable = executable.split("  ·  ")[0].strip()
+
         return (
             self.name_input.text().strip(),
             self.path_input.text().strip(),
@@ -552,8 +559,46 @@ class EditGameDialog(AddGameDialog):
 
         self.mark_current_btn = QPushButton("Mark Steam Build as Current")
         self.mark_current_btn.setToolTip("Use only after updating the game manually through Steam or by replacing its files.")
-        self.mark_current_btn.clicked.connect(lambda: self.mark_current_requested.emit(self.game_id))
+        self.mark_current_btn.clicked.connect(self._on_mark_current_clicked)
         self.left_box.insertWidget(self.left_box.count() - 1, self.mark_current_btn)
+
+        # Manual Steam Build ID input option right under Mark Steam Build as Current
+        build_id_val = str(game_data[11]) if len(game_data) > 11 and game_data[11] else ""
+        
+        self.build_id_lbl = QLabel("Current Installed Steam Build ID (Manual Override):")
+        self.build_id_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: bold; margin-top: 6px;")
+        self.left_box.insertWidget(self.left_box.count() - 1, self.build_id_lbl)
+
+        self.build_id_input = QLineEdit()
+        self.build_id_input.setPlaceholderText("e.g. 14258963 (write build ID manually)")
+        self.build_id_input.setText(build_id_val)
+        self.build_id_input.setFixedHeight(34)
+        self.build_id_input.setStyleSheet("""
+            QLineEdit {
+                background: #181d28;
+                color: #ffffff;
+                border: 1px solid #283248;
+                border-radius: 6px;
+                padding: 0 10px;
+                font-size: 12px;
+                font-family: monospace;
+            }
+            QLineEdit:focus {
+                border: 1px solid #38bdf8;
+            }
+        """)
+        self.left_box.insertWidget(self.left_box.count() - 1, self.build_id_input)
+
+    def _on_mark_current_clicked(self):
+        parent_win = self.parent()
+        latest = getattr(parent_win, 'latest_checked_build_id', "") if parent_win else ""
+        if latest and hasattr(self, 'build_id_input'):
+            self.build_id_input.setText(str(latest))
+        self.mark_current_requested.emit(self.game_id)
+
+    def get_build_id(self) -> str:
+        """Get the manually entered or recorded Steam build ID."""
+        return self.build_id_input.text().strip() if hasattr(self, 'build_id_input') else ""
 
 
 class LaunchOptionsDialog(QDialog):
@@ -1499,16 +1544,16 @@ class ToastNotification(QFrame):
 
 
 class CustomRemoveDialog(QDialog):
-    """Custom styled dark confirmation dialog for game removal."""
+    """Custom styled dark confirmation dialog for game removal and archiving."""
     def __init__(self, game_name: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Remove Game")
-        self.setFixedWidth(440)
+        self.setWindowTitle("Remove / Archive Game")
+        self.setFixedWidth(460)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setStyleSheet("""
             QDialog {
-                background-color: #181818;
-                border: 1px solid #333333;
+                background-color: #141417;
+                border: 1px solid #2e2e36;
                 border-radius: 8px;
             }
             QLabel {
@@ -1519,49 +1564,346 @@ class CustomRemoveDialog(QDialog):
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 12px;
-                border: none;
+                text-align: left;
             }
         """)
 
-        self.choice = None  # 'library_only', 'delete_disk', or 'cancel'
+        self.choice = None  # 'archive_keep', 'archive_delete_disk', 'purge_permanently', or 'cancel'
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        layout.setContentsMargins(22, 22, 22, 22)
+        layout.setSpacing(14)
 
-        title_label = QLabel("Remove Game")
-        title_label.setFont(QFont("Arial", 15, QFont.Weight.Bold))
+        title_label = QLabel("Remove / Archive Game")
+        title_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         layout.addWidget(title_label)
 
-        msg_label = QLabel(f"How would you like to remove '{game_name}'?")
+        msg_label = QLabel(f"Choose what to do with '<b>{game_name}</b>':")
         msg_label.setWordWrap(True)
-        msg_label.setStyleSheet("color: #cccccc; font-size: 13px;")
+        msg_label.setStyleSheet("color: #d4d4d8; font-size: 13px;")
         layout.addWidget(msg_label)
 
         btn_box = QVBoxLayout()
         btn_box.setSpacing(10)
 
-        btn_lib = QPushButton("Library Only (Keep Files on Disk)")
-        btn_lib.setStyleSheet("QPushButton { background: #1e293b; color: white; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
-        btn_lib.clicked.connect(self._select_lib)
+        btn_archive = QPushButton("📦 Archive (Keep Files on Disk, Preserve History)")
+        btn_archive.setStyleSheet("""
+            QPushButton {
+                background: #1e293b; color: #38bdf8; border: 1px solid #0284c7;
+            }
+            QPushButton:hover { background: #0369a1; color: #ffffff; }
+        """)
+        btn_archive.clicked.connect(self._select_archive_keep)
 
-        btn_disk = QPushButton("Delete Game Files & Sandbox Data from Disk")
-        btn_disk.setStyleSheet("QPushButton { background: #c62828; color: white; } QPushButton:hover { background: #e53935; }")
-        btn_disk.clicked.connect(self._select_disk)
+        btn_disk = QPushButton("🗑 Archive & Delete Game Files from Disk")
+        btn_disk.setStyleSheet("""
+            QPushButton {
+                background: #2a1616; color: #f87171; border: 1px solid #991b1b;
+            }
+            QPushButton:hover { background: #7f1d1d; color: #ffffff; }
+        """)
+        btn_disk.clicked.connect(self._select_archive_disk)
+
+        btn_purge = QPushButton("✕ Permanently Remove from Launcher (Delete All Records)")
+        btn_purge.setStyleSheet("""
+            QPushButton {
+                background: #18181b; color: #a1a1aa; border: 1px solid #27272a;
+            }
+            QPushButton:hover { background: #27272a; color: #ffffff; }
+        """)
+        btn_purge.clicked.connect(self._select_purge)
 
         btn_cancel = QPushButton("Cancel")
-        btn_cancel.setStyleSheet("QPushButton { background: #333333; color: #aaaaaa; } QPushButton:hover { background: #444444; color: white; }")
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background: #27272a; color: #e4e4e7; border: 1px solid #3f3f46; text-align: center;
+            }
+            QPushButton:hover { background: #3f3f46; }
+        """)
         btn_cancel.clicked.connect(self.reject)
 
-        btn_box.addWidget(btn_lib)
+        btn_box.addWidget(btn_archive)
         btn_box.addWidget(btn_disk)
+        btn_box.addWidget(btn_purge)
         btn_box.addWidget(btn_cancel)
         layout.addLayout(btn_box)
 
-    def _select_lib(self):
-        self.choice = 'library_only'
+    def _select_archive_keep(self):
+        self.choice = 'archive_keep'
         self.accept()
 
-    def _select_disk(self):
-        self.choice = 'delete_disk'
+    def _select_archive_disk(self):
+        self.choice = 'archive_delete_disk'
         self.accept()
+
+    def _select_purge(self):
+        self.choice = 'purge_permanently'
+        self.accept()
+
+
+class ManageCollectionGamesDialog(QDialog):
+    """Sleek modal allowing the user to check/uncheck games that belong to a collection."""
+    def __init__(self, collection_name: str, all_games: list, current_member_ids: set, parent=None):
+        super().__init__(parent)
+        self.collection_name = collection_name
+        self.all_games = all_games
+        self.member_ids = set(current_member_ids)
+        self.setWindowTitle(f"Manage Collection: {collection_name}")
+        self.resize(520, 560)
+        self.setMinimumSize(420, 400)
+        self.setSizeGripEnabled(True)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #121418;
+                color: #ffffff;
+            }
+            QLabel { color: #e4e4e7; }
+            QLineEdit {
+                background: #181a20;
+                color: #ffffff;
+                border: 1px solid #2b303c;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+            QCheckBox {
+                color: #e4e4e7;
+                font-size: 13px;
+                font-weight: 500;
+                padding: 6px 8px;
+                spacing: 8px;
+            }
+            QCheckBox:hover {
+                background: #1a1d24;
+                border-radius: 4px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 1px solid #3b4252;
+                background: #181a20;
+            }
+            QCheckBox::indicator:checked {
+                background: #0284c7;
+                border-color: #38bdf8;
+            }
+            QPushButton {
+                background: #27272a;
+                color: #ffffff;
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover { background: #3f3f46; }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+
+        header = QLabel(f"📁 Manage Collection: {collection_name}")
+        header.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        header.setStyleSheet("color: #38bdf8;")
+        layout.addWidget(header)
+
+        sub = QLabel("Select which games should belong to this collection:")
+        sub.setStyleSheet("color: #a1a1aa; font-size: 12px;")
+        layout.addWidget(sub)
+
+        # Search filter box
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("Filter games...")
+        self.search_box.setClearButtonEnabled(True)
+        self.search_box.textChanged.connect(self._filter_list)
+        layout.addWidget(self.search_box)
+
+        # Scrollable checkboxes
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setStyleSheet("QScrollArea { background: #15171d; border: 1px solid #232732; border-radius: 6px; }")
+
+        self.list_container = QWidget()
+        self.list_container.setStyleSheet("background: transparent;")
+        self.list_layout = QVBoxLayout(self.list_container)
+        self.list_layout.setContentsMargins(10, 10, 10, 10)
+        self.list_layout.setSpacing(4)
+
+        self.checkboxes = []
+        for g in sorted(self.all_games, key=lambda x: str(x[1]).lower()):
+            g_id = g[0]
+            g_name = g[1]
+            cb = QCheckBox(f"{g_name}")
+            cb.setChecked(g_id in self.member_ids)
+            cb.setProperty("game_id", g_id)
+            cb.setProperty("game_name", g_name)
+            self.checkboxes.append(cb)
+            self.list_layout.addWidget(cb)
+
+        self.list_layout.addStretch()
+        self.scroll.setWidget(self.list_container)
+        layout.addWidget(self.scroll, 1)
+
+        # Bottom buttons
+        btn_row = QHBoxLayout()
+        btn_select_all = QPushButton("Select All")
+        btn_select_all.clicked.connect(lambda: self._set_all_checked(True))
+        btn_clear = QPushButton("Clear All")
+        btn_clear.clicked.connect(lambda: self._set_all_checked(False))
+        btn_row.addWidget(btn_select_all)
+        btn_row.addWidget(btn_clear)
+        btn_row.addStretch()
+
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(btn_cancel)
+
+        btn_save = QPushButton("Save Collection")
+        btn_save.setStyleSheet("QPushButton { background: #0284c7; color: #ffffff; border: none; } QPushButton:hover { background: #0369a1; }")
+        btn_save.clicked.connect(self.accept)
+        btn_row.addWidget(btn_save)
+
+        layout.addLayout(btn_row)
+
+    def _filter_list(self, query: str):
+        q = query.strip().lower()
+        for cb in self.checkboxes:
+            name = str(cb.property("game_name") or "").lower()
+            cb.setVisible(not q or q in name)
+
+    def _set_all_checked(self, checked: bool):
+        for cb in self.checkboxes:
+            if cb.isVisible():
+                cb.setChecked(checked)
+
+    def get_selected_game_ids(self) -> set:
+        return {cb.property("game_id") for cb in self.checkboxes if cb.isChecked()}
+
+
+class CreateCollectionDialog(QDialog):
+    """Custom frameless modal window for creating a new game collection."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedSize(440, 230)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+
+        self.container = QFrame(self)
+        self.container.setStyleSheet("""
+            QFrame {
+                background: #111318;
+                border: 1px solid #1e222d;
+                border-radius: 12px;
+            }
+        """)
+        add_soft_shadow(self.container, blur=24, y=6, alpha=140)
+        main_layout.addWidget(self.container)
+
+        layout = QVBoxLayout(self.container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.title_bar = DialogTitleBar(self, "New Collection")
+        layout.addWidget(self.title_bar)
+
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(20, 10, 20, 18)
+        body_layout.setSpacing(14)
+
+        desc = QLabel("Enter a name for your collection to categorize your games:")
+        desc.setStyleSheet("color: #94a3b8; font-size: 12px; background: transparent;")
+        desc.setWordWrap(True)
+        body_layout.addWidget(desc)
+
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("e.g. RPGs, Backlog, Favorites, Co-op...")
+        self.name_input.setFixedHeight(38)
+        self.name_input.setStyleSheet("""
+            QLineEdit {
+                background: #181d28;
+                color: #ffffff;
+                border: 1px solid #283248;
+                border-radius: 6px;
+                padding: 0 12px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QLineEdit:focus {
+                border: 1px solid #38bdf8;
+            }
+        """)
+        self.name_input.returnPressed.connect(self._on_confirm)
+        body_layout.addWidget(self.name_input)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        btn_row.addStretch()
+
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setFixedHeight(34)
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background: #1e2433;
+                color: #94a3b8;
+                border: none;
+                border-radius: 6px;
+                padding: 0 16px;
+                font-weight: bold;
+                font-size: 12px;
+                text-align: center;
+            }
+            QPushButton:hover { background: #334155; color: #ffffff; }
+        """)
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(btn_cancel)
+
+        self.btn_create = QPushButton("Create Collection")
+        self.btn_create.setFixedHeight(34)
+        self.btn_create.setStyleSheet("""
+            QPushButton {
+                background: #0284c7;
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 0 18px;
+                font-weight: bold;
+                font-size: 12px;
+                text-align: center;
+            }
+            QPushButton:hover { background: #0369a1; }
+        """)
+        self.btn_create.clicked.connect(self._on_confirm)
+        btn_row.addWidget(self.btn_create)
+
+        body_layout.addLayout(btn_row)
+        layout.addWidget(body)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.name_input.setFocus()
+
+    def _on_confirm(self):
+        if self.get_collection_name():
+            self.accept()
+
+    def get_collection_name(self) -> str:
+        return self.name_input.text().strip()
+
+
+class RenameCollectionDialog(CreateCollectionDialog):
+    """Custom modal window for renaming an existing game collection."""
+    def __init__(self, current_name: str, parent=None):
+        super().__init__(parent)
+        self.title_bar.set_title("Rename Collection")
+        self.name_input.setText(current_name)
+        self.name_input.selectAll()
+        self.btn_create.setText("Save Name")
+
+
+

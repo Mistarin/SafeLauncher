@@ -24,18 +24,24 @@ class ResponsiveGridContainer(QWidget):
     def set_card_width(self, new_width: int):
         """Update card width for all children and reflow layout."""
         self.card_width = new_width
-        for w in self.widgets:
-            if hasattr(w, 'set_card_size'):
-                w.set_card_size(new_width)
+        for w in list(self.widgets):
+            try:
+                if hasattr(w, 'set_card_size'):
+                    w.set_card_size(new_width)
+            except (RuntimeError, AttributeError):
+                pass
         self._schedule_reflow()
 
     def set_banner_widgets(self, widgets: list):
         # Hide and destroy previous widgets that are no longer active
-        for old_w in self.widgets:
+        for old_w in list(self.widgets):
             if old_w not in widgets:
-                old_w.hide()
-                old_w.setParent(None)
-                old_w.deleteLater()
+                try:
+                    old_w.hide()
+                    old_w.setParent(None)
+                    old_w.deleteLater()
+                except (RuntimeError, AttributeError):
+                    pass
         self.widgets = widgets
         self.reflow()
 
@@ -65,69 +71,84 @@ class ResponsiveGridContainer(QWidget):
         self._apply_reflow(cols)
 
     def reflow(self):
-        # Let the current slide finish; the final resize is reapplied afterward.
-        if self._reflow_animating:
-            return
-        if not self.widgets:
-            self._last_columns = None
-            return
+        try:
+            # Let the current slide finish; the final resize is reapplied afterward.
+            if self._reflow_animating:
+                return
+            if not self.widgets:
+                self._last_columns = None
+                return
 
-        available_width = max(1, self.width() - 20)
-        cols = max(1, available_width // (self.card_width + self.spacing))
+            available_width = max(1, self.width() - 20)
+            cols = max(1, available_width // (self.card_width + self.spacing))
 
-        # Only animate the meaningful layout change: cards crossing a column boundary.
-        if self._last_columns is not None and cols != self._last_columns and not self._reflow_animating:
-            self._animate_reflow(cols)
-            return
+            # Only animate the meaningful layout change: cards crossing a column boundary.
+            if self._last_columns is not None and cols != self._last_columns and not self._reflow_animating:
+                self._animate_reflow(cols)
+                return
 
-        self._last_columns = cols
-        self._apply_reflow(cols)
+            self._last_columns = cols
+            self._apply_reflow(cols)
+        except (RuntimeError, AttributeError):
+            pass
 
     def _apply_reflow(self, cols: int):
         """Apply the grid positions without triggering another transition."""
-        # Clear layout items without double-destroying child widgets
-        while self.grid_layout.count() > 0:
-            item = self.grid_layout.takeAt(0)
+        try:
+            # Clear layout items without double-destroying child widgets
+            while self.grid_layout.count() > 0:
+                item = self.grid_layout.takeAt(0)
 
-        for index, widget in enumerate(self.widgets):
-            row = index // cols
-            col = index % cols
-            self.grid_layout.addWidget(widget, row, col)
+            for index, widget in enumerate(self.widgets):
+                try:
+                    row = index // cols
+                    col = index % cols
+                    self.grid_layout.addWidget(widget, row, col)
+                except (RuntimeError, AttributeError):
+                    pass
+        except (RuntimeError, AttributeError):
+            pass
 
     def _animate_reflow(self, cols: int):
         """Slide only cards whose row/column position changes into place."""
-        self._reflow_animating = True
-        self._pending_columns = cols
-        self._reflow_cards = [
-            widget for index, widget in enumerate(self.widgets)
-            if (index // self._last_columns, index % self._last_columns)
-            != (index // cols, index % cols)
-        ]
-        old_positions = {widget: widget.pos() for widget in self._reflow_cards}
-        # Prevent QGridLayout from painting the intermediate destination frame.
-        self.setUpdatesEnabled(False)
-        self._apply_reflow(self._pending_columns)
-        self._last_columns = self._pending_columns
-        self.grid_layout.activate()
-        self.grid_layout.setEnabled(False)
+        try:
+            self._reflow_animating = True
+            self._pending_columns = cols
+            self._reflow_cards = [
+                widget for index, widget in enumerate(self.widgets)
+                if (index // self._last_columns, index % self._last_columns)
+                != (index // cols, index % cols)
+            ]
+            old_positions = {widget: widget.pos() for widget in self._reflow_cards}
+            # Prevent QGridLayout from painting the intermediate destination frame.
+            self.setUpdatesEnabled(False)
+            self._apply_reflow(self._pending_columns)
+            self._last_columns = self._pending_columns
+            self.grid_layout.activate()
+            self.grid_layout.setEnabled(False)
 
-        self._reflow_slide = QParallelAnimationGroup(self)
-        for widget in self._reflow_cards:
-            new_position = widget.pos()
-            widget.move(old_positions[widget])
-            animation = QPropertyAnimation(widget, b"pos", self._reflow_slide)
-            animation.setDuration(520)
-            animation.setStartValue(old_positions[widget])
-            animation.setEndValue(new_position)
-            animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
-            self._reflow_slide.addAnimation(animation)
-        self.setUpdatesEnabled(True)
-        self.update()
-        self._reflow_slide.finished.connect(self._finish_reflow_animation)
-        self._reflow_slide.start()
+            self._reflow_slide = QParallelAnimationGroup(self)
+            for widget in self._reflow_cards:
+                new_position = widget.pos()
+                widget.move(old_positions[widget])
+                animation = QPropertyAnimation(widget, b"pos", self._reflow_slide)
+                animation.setDuration(520)
+                animation.setStartValue(old_positions[widget])
+                animation.setEndValue(new_position)
+                animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+                self._reflow_slide.addAnimation(animation)
+            self.setUpdatesEnabled(True)
+            self.update()
+            self._reflow_slide.finished.connect(self._finish_reflow_animation)
+            self._reflow_slide.start()
+        except (RuntimeError, AttributeError):
+            self._finish_reflow_animation()
 
     def _finish_reflow_animation(self):
-        self.grid_layout.setEnabled(True)
-        self.grid_layout.activate()
-        self._reflow_cards = []
-        self._reflow_animating = False
+        try:
+            self.grid_layout.setEnabled(True)
+            self.grid_layout.activate()
+            self._reflow_cards = []
+            self._reflow_animating = False
+        except (RuntimeError, AttributeError):
+            pass

@@ -65,6 +65,8 @@ class GameRecord:
     install_date: int = 0
     version_override: str = ""
     patch_notes_url: str = ""
+    is_archived: int = 0
+    icon_url: str = ""
 
     def __getitem__(self, idx):
         fields = (
@@ -72,12 +74,19 @@ class GameRecord:
             self.banner_url or "", self.steam_id or "", self.playtime_seconds,
             self.is_favorite, self.last_played, self.tags, self.build_id,
             self.proton_path, self.collection, self.install_date,
-            self.version_override, self.patch_notes_url
+            self.version_override, self.patch_notes_url,
+            self.is_archived, self.icon_url
         )
         return fields[idx]
 
     def __len__(self):
-        return 17
+        return 19
+
+    def __hash__(self):
+        return hash(self.id)
+
+    def __len__(self):
+        return 19
 
     def __iter__(self):
         return iter((
@@ -85,7 +94,8 @@ class GameRecord:
             self.banner_url or "", self.steam_id or "", self.playtime_seconds,
             self.is_favorite, self.last_played, self.tags, self.build_id,
             self.proton_path, self.collection, self.install_date,
-            self.version_override, self.patch_notes_url
+            self.version_override, self.patch_notes_url,
+            self.is_archived, self.icon_url
         ))
 
 
@@ -95,6 +105,7 @@ class GameDatabase:
         "playtime_seconds, is_favorite, last_played, tags, build_id"
         ", proton_path, collection, install_date"
         ", version_override, patch_notes_url"
+        ", is_archived, icon_url"
     )
 
     def __init__(self, db_path: str = None):
@@ -184,6 +195,22 @@ class GameDatabase:
                     cursor.execute("ALTER TABLE games ADD COLUMN version_override TEXT DEFAULT ''")
                 if "patch_notes_url" not in columns:
                     cursor.execute("ALTER TABLE games ADD COLUMN patch_notes_url TEXT DEFAULT ''")
+                if "is_archived" not in columns:
+                    cursor.execute("ALTER TABLE games ADD COLUMN is_archived INTEGER DEFAULT 0")
+                if "icon_url" not in columns:
+                    cursor.execute("ALTER TABLE games ADD COLUMN icon_url TEXT DEFAULT ''")
+                
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS collections (
+                        name TEXT PRIMARY KEY
+                    )
+                """)
+
+                # Sanitize any accidental combo box formatting in executable column
+                cursor.execute("SELECT id, executable FROM games WHERE executable LIKE '%·%'")
+                for row_id, row_exe in cursor.fetchall():
+                    clean_exe = row_exe.split(" · ")[0].split("  ·  ")[0].strip()
+                    cursor.execute("UPDATE games SET executable = ? WHERE id = ?", (clean_exe, row_id))
         except Exception as e:
             logger.error(f"Error initializing database schema: {e}")
 
@@ -320,6 +347,75 @@ class GameDatabase:
         except Exception as e:
             logger.error(f"Failed to update collection for game {game_id}: {e}")
 
+    def add_collection(self, name: str) -> None:
+        name = name.strip()
+        if not name:
+            return
+        try:
+            with self.conn:
+                self.conn.execute("INSERT OR IGNORE INTO collections (name) VALUES (?)", (name,))
+        except Exception as e:
+            logger.error(f"Failed to add collection '{name}': {e}")
+
+    def delete_collection(self, name: str) -> None:
+        name = name.strip()
+        if not name:
+            return
+        try:
+            with self.conn:
+                self.conn.execute("DELETE FROM collections WHERE name = ?", (name,))
+                self.conn.execute("UPDATE games SET collection = '' WHERE collection = ?", (name,))
+        except Exception as e:
+            logger.error(f"Failed to delete collection '{name}': {e}")
+
+    def rename_collection(self, old_name: str, new_name: str) -> None:
+        old_name = old_name.strip()
+        new_name = new_name.strip()
+        if not old_name or not new_name:
+            return
+        try:
+            with self.conn:
+                self.conn.execute("DELETE FROM collections WHERE name = ?", (old_name,))
+                self.conn.execute("INSERT OR REPLACE INTO collections (name) VALUES (?)", (new_name,))
+                self.conn.execute("UPDATE games SET collection = ? WHERE collection = ?", (new_name, old_name))
+        except Exception as e:
+            logger.error(f"Failed to rename collection '{old_name}' -> '{new_name}': {e}")
+
+    def get_all_collections(self) -> List[str]:
+        try:
+            cursor = self.conn.cursor()
+            cols = set()
+            for row in cursor.execute("SELECT name FROM collections"):
+                if row[0]:
+                    cols.add(str(row[0]).strip())
+            for row in cursor.execute("SELECT DISTINCT collection FROM games WHERE collection != ''"):
+                if row[0]:
+                    cols.add(str(row[0]).strip())
+            return sorted(list(cols), key=lambda x: x.lower())
+        except Exception as e:
+            logger.error(f"Failed to fetch collections: {e}")
+            return []
+
+    def archive_game(self, game_id: int, is_archived: bool = True) -> None:
+        """Mark a game as archived (or unarchived) preserving its playtime, config, and save data."""
+        try:
+            with self.conn:
+                self.conn.execute("UPDATE games SET is_archived = ? WHERE id = ?", (1 if is_archived else 0, game_id))
+                logger.info(f"{'Archived' if is_archived else 'Restored'} game ID {game_id}")
+        except Exception as e:
+            logger.error(f"Failed to set archived status for game {game_id}: {e}")
+
+    def restore_game(self, game_id: int) -> None:
+        """Restore an archived game back to the active library."""
+        self.archive_game(game_id, is_archived=False)
+
+    def update_game_icon(self, game_id: int, icon_url: str) -> None:
+        try:
+            with self.conn:
+                self.conn.execute("UPDATE games SET icon_url = ? WHERE id = ?", (icon_url or "", game_id))
+        except Exception as e:
+            logger.error(f"Failed to update icon for game {game_id}: {e}")
+
     def get_all_games(self) -> List[GameRecord]:
         try:
             cursor = self.conn.cursor()
@@ -331,7 +427,9 @@ class GameDatabase:
                     banner_url=r[5] or "", steam_id=r[6] or "", playtime_seconds=r[7] or 0,
                     is_favorite=r[8] or 0, last_played=r[9] or 0, tags=r[10] or "",
                     build_id=r[11] or "", proton_path=r[12] or "", collection=r[13] or "",
-                    install_date=r[14] or 0, version_override=r[15] or "", patch_notes_url=r[16] or ""
+                    install_date=r[14] or 0, version_override=r[15] or "", patch_notes_url=r[16] or "",
+                    is_archived=r[17] if len(r) > 17 and r[17] else 0,
+                    icon_url=r[18] if len(r) > 18 and r[18] else ""
                 )
                 for r in rows
             ]

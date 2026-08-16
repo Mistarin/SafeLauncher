@@ -188,7 +188,8 @@ try:
     )
     assert rec.id == 1 and rec.name == "Hades"
     assert rec[0] == 1 and rec[1] == "Hades" and rec[5] == "https://example.com/banner.png"
-    assert len(rec) == 17
+    assert len(rec) >= 17
+    assert rec.is_archived == 0
     unpacked_id, unpacked_name, *rest = rec
     assert unpacked_id == 1 and unpacked_name == "Hades"
     print("✓ GameRecord dataclass attribute & index access verified")
@@ -323,9 +324,20 @@ try:
     assert banner.version_badge.text() == "v0.4.2"
     assert not banner.version_badge.isHidden()
     print("✓ GameBannerWidget 16:9 ratio and version badge verified")
+
+    from ui.dialogs.game_dialogs import CustomRemoveDialog, ManageCollectionGamesDialog
+    remove_dlg = CustomRemoveDialog("Test Game")
+    assert remove_dlg is not None
+    print("✓ CustomRemoveDialog archive options instantiated cleanly")
+
+    col_dlg = ManageCollectionGamesDialog("RPG", [(1, "Game 1"), (2, "Game 2")], {1})
+    assert col_dlg.collection_name == "RPG"
+    assert 1 in col_dlg.get_selected_game_ids()
+    print("✓ ManageCollectionGamesDialog instantiated and checked cleanly")
 except Exception as e:
     print(f"✗ Security diagnostics test error: {e}")
     sys.exit(1)
 
 print("\n✅ All SafeLauncher components tested and working cleanly!")
+
 

@@ -45,7 +45,7 @@ logger = get_logger("UI")
 from ui.threads import (
     BannerFetcher, BannerDownloader, BannerAutoFetcher, ArchiveExtractorThread,
     GitHubReleasesFetcherThread, UmuBootstrapWorker, SafeLaunchLogReader,
-    DiskSizeFetcherThread, HeroFetcherThread
+    DiskSizeFetcherThread, HeroFetcherThread, IconAutoFetcherThread
 )
 from core.archive_installer import find_executables
 from core.host_process import host_process_env
@@ -63,7 +63,8 @@ from ui.components.sidebar import LeftSidebarWidget, CustomTitleBar, DialogTitle
 from ui.dialogs.proton_dialogs import ProtonSetupWizard, ProtonManagerDialog, UmuRuntimeManagerDialog
 from ui.dialogs.game_dialogs import (
     AddGameDialog, EditGameDialog, LaunchOptionsDialog, SafeLaunchDialog,
-    MissingDependencyDialog, ToastNotification, CustomRemoveDialog
+    MissingDependencyDialog, ToastNotification, CustomRemoveDialog,
+    ManageCollectionGamesDialog, CreateCollectionDialog, RenameCollectionDialog
 )
 from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDialog, DiskManagerDialog
 from ui.dialogs.game_properties_dialog import GamePropertiesDialog
@@ -120,6 +121,7 @@ class MainWindow(QMainWindow):
         self.local_version_by_game_id = {}
         self.metadata_attempted_tags = set()
         self._hero_attempted = set()
+        self._icon_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
         self.running_game_ids = set()
         self.topbar_extractor_thread = None
@@ -180,9 +182,17 @@ class MainWindow(QMainWindow):
         root_vbox.setContentsMargins(0, 0, 0, 0)
         root_vbox.setSpacing(0)
         
-        # Top Custom Draggable Title Bar
+        # Top Custom Draggable Title Bar with Tools Dropdown and Search Bar
         self.title_bar = CustomTitleBar(self)
         root_vbox.addWidget(self.title_bar)
+        self.title_bar.search_changed.connect(self._on_search_query_changed)
+        self.title_bar.sync_requested.connect(self._on_sync_sandbox)
+        self.title_bar.install_archive_requested.connect(self._on_install_zip_archive)
+        self.title_bar.check_updates_requested.connect(self._check_all_steam_updates)
+        self.title_bar.open_sandbox_requested.connect(self._open_sandbox_dir)
+        self.title_bar.export_save_requested.connect(self._on_export)
+        self.title_bar.import_save_requested.connect(self._on_import)
+        self.title_bar.disk_manager_requested.connect(self._open_disk_manager)
         
         # Body Container Layout (Left Sidebar + Center/Right Splitter)
         body_widget = QWidget()
@@ -198,23 +208,12 @@ class MainWindow(QMainWindow):
         self.sidebar.compact_changed.connect(
             lambda compact: self.settings.setValue("sidebar_compact", compact)
         )
-
-        self.nav_library = self.sidebar.nav_library
-        self.nav_updates = self.sidebar.nav_updates
-        self.nav_updates.clicked.connect(self._check_all_steam_updates)
-        self.nav_sandbox = self.sidebar.nav_sandbox
-        self.nav_sandbox.clicked.connect(self._open_sandbox_dir)
-        self.nav_install_zip = self.sidebar.nav_install_zip
-        self.nav_install_zip.clicked.connect(self._on_install_zip_archive)
-        self.nav_sync = self.sidebar.nav_sync
-        self.nav_sync.clicked.connect(self._on_sync_sandbox)
-        self.nav_disk = self.sidebar.nav_disk
-        self.nav_disk.clicked.connect(self._open_disk_manager)
-        self.stat_label = self.sidebar.stat_label
-        self.title_bar.search_changed.connect(self._on_search_query_changed)
+        self.sidebar.filter_selected.connect(self._set_filter)
+        self.sidebar.collection_selected.connect(self._set_collection_filter)
+        self.sidebar.add_collection_requested.connect(self._on_add_collection)
+        self.sidebar.size_changed.connect(self._on_card_size_changed)
         self.sidebar.btn_settings.clicked.connect(self._open_settings)
-        self.sidebar.act_export.triggered.connect(self._on_export)
-        self.sidebar.act_import.triggered.connect(self._on_import)
+        self.stat_label = QLabel()  # Keep hidden logic variable for tests
 
         # 2. Splitter Layout: Center Game Grid + Right Game Details Inspector Panel
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -276,11 +275,27 @@ class MainWindow(QMainWindow):
         self._panel_expanding = False
 
         detail_layout = QVBoxLayout(self.detail_panel)
-        detail_layout.setContentsMargins(18, 18, 18, 18)
-        detail_layout.setSpacing(9)
+        detail_layout.setContentsMargins(18, 12, 18, 18)
+        detail_layout.setSpacing(8)
         detail_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # Selected Game Cover Art Preview
+        # Top Bar with Close button (no overlapping)
+        top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(0, 0, 0, 4)
+        top_bar.addStretch()
+
+        self.btn_hide_detail = QPushButton("✕")
+        self.btn_hide_detail.setFixedSize(26, 26)
+        self.btn_hide_detail.setToolTip("Close details panel")
+        self.btn_hide_detail.setStyleSheet("""
+            QPushButton { background: transparent; color: #94a3b8; font-size: 13px; font-weight: bold; border: none; padding: 0; text-align: center; }
+            QPushButton:hover { color: #ffffff; background: #1e293b; border-radius: 4px; }
+        """)
+        self.btn_hide_detail.clicked.connect(lambda: self._animate_left_panel(False))
+        top_bar.addWidget(self.btn_hide_detail)
+        detail_layout.addLayout(top_bar)
+
+        # Selected Game Cover Art Preview (pushed down cleanly)
         self.detail_cover = QLabel()
         self.detail_cover.setFixedSize(QSize(180, 270))
         self.detail_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -327,8 +342,8 @@ class MainWindow(QMainWindow):
                 color: #b7bbc3;
                 background: #171a20;
                 border-radius: 8px;
-                padding: 8px 10px;
-                font-size: 12px;
+                padding: 6px 10px;
+                font-size: 11px;
                 font-weight: bold;
             }
         """)
@@ -337,27 +352,27 @@ class MainWindow(QMainWindow):
         # Selected Game Disk Size
         self.detail_disk_size = QLabel("")
         self.detail_disk_size.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_disk_size.setStyleSheet("color: #8f949e; font-size: 11px; font-weight: bold; padding: 4px 0;")
+        self.detail_disk_size.setStyleSheet("color: #8f949e; font-size: 11px; font-weight: bold; padding: 2px 0;")
 
         # Steam update status and version details
         self.detail_update_widget = QWidget()
         self.detail_update_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.detail_update_layout = QVBoxLayout(self.detail_update_widget)
-        self.detail_update_layout.setContentsMargins(4, 2, 4, 2)
-        self.detail_update_layout.setSpacing(5)
+        self.detail_update_layout.setContentsMargins(0, 0, 0, 0)
+        self.detail_update_layout.setSpacing(4)
         self.detail_update_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_detail_update = QLabel("")
         self.lbl_detail_update.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_detail_update.setMinimumHeight(26)
+        self.lbl_detail_update.setFixedHeight(22)
         self.detail_update_layout.addWidget(self.lbl_detail_update)
 
         self.lbl_detail_versions = QLabel("")
         self.lbl_detail_versions.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_detail_versions.setWordWrap(True)
         self.lbl_detail_versions.setOpenExternalLinks(True)
-        self.lbl_detail_versions.setStyleSheet("QLabel { color: #b7bbc3; background: #171a20; border: 1px solid #2b313c; border-radius: 7px; font-size: 10px; padding: 6px 9px; }")
-        self.detail_update_layout.addWidget(self.lbl_detail_versions, 1)
+        self.lbl_detail_versions.setStyleSheet("QLabel { color: #b7bbc3; background: #171a20; border: 1px solid #2b313c; border-radius: 6px; font-size: 10px; padding: 2px 6px; }")
+        self.detail_update_layout.addWidget(self.lbl_detail_versions)
 
         self.btn_retry_steam = QPushButton("Retry")
         self.btn_retry_steam.setVisible(False)
@@ -372,218 +387,138 @@ class MainWindow(QMainWindow):
         detail_layout.addSpacing(8)
         self.btn_detail_launch = QPushButton("Launch Game")
         self.btn_detail_launch.setObjectName("detailLaunch")
-        self.btn_detail_launch.setIcon(get_icon("ph.play", color="#ffffff"))
-        self.btn_detail_launch.setMinimumHeight(50)
+        self.btn_detail_launch.setIcon(get_icon("ph.play-bold", color="#ffffff"))
+        self.btn_detail_launch.setIconSize(QSize(16, 16))
+        self.btn_detail_launch.setFixedHeight(44)
         self.btn_detail_launch.setStyleSheet("""
             QPushButton#detailLaunch {
                 background: #2f8f63;
                 color: #ffffff;
                 font-weight: bold;
-                font-size: 14px;
+                font-size: 13px;
                 border: none;
-                border-radius: 10px;
-                padding: 10px 14px;
+                border-radius: 8px;
+                padding: 0 18px;
+                text-align: center;
             }
             QPushButton#detailLaunch:hover {
                 background: #3eaa77;
             }
-            QPushButton#detailLaunch:disabled {
-                background: #1b2029;
-                color: #52525b;
-                border-color: transparent;
-            }
         """)
-        self.btn_detail_launch.setIconSize(QSize(20, 20))
-        self.btn_detail_launch.setMinimumWidth(200)
-        # Do not apply a second graphics effect here: the parent inspector
-        # already fades with QGraphicsOpacityEffect. Qt fails to paint this
-        # child reliably when a drop-shadow effect is nested inside it.
+        self.btn_detail_launch.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_detail_launch.clicked.connect(self._on_launch)
         detail_layout.addWidget(self.btn_detail_launch)
-        detail_layout.addSpacing(8)
 
-        # Action Buttons
-        self.btn_detail_edit = QPushButton(" Edit Settings")
-        self.btn_detail_edit.setIcon(get_app_icon("edit"))
-        self.btn_detail_edit.setMinimumHeight(32)
+        sec_btn_style = """
+            QPushButton {
+                background: #151821;
+                color: #e2e8f0;
+                border: none;
+                border-radius: 6px;
+                padding: 0 14px;
+                font-weight: bold;
+                font-size: 12px;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background: #1e2433;
+                color: #ffffff;
+            }
+        """
+
+        # Secondary Action Buttons
+        self.btn_detail_edit = QPushButton("Edit Game")
+        self.btn_detail_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#38bdf8"))
+        self.btn_detail_edit.setIconSize(QSize(16, 16))
+        self.btn_detail_edit.setFixedHeight(34)
+        self.btn_detail_edit.setStyleSheet(sec_btn_style)
         self.btn_detail_edit.clicked.connect(self._on_edit)
         detail_layout.addWidget(self.btn_detail_edit)
 
-        self.btn_detail_screenshots = QPushButton(" Screenshots")
-        self.btn_detail_screenshots.setIcon(get_icon("ph.camera-bold"))
-        self.btn_detail_screenshots.setMinimumHeight(32)
+        self.btn_detail_screenshots = QPushButton("Screenshots")
+        self.btn_detail_screenshots.setIcon(get_icon("ph.image-bold", color="#a855f7"))
+        self.btn_detail_screenshots.setIconSize(QSize(16, 16))
+        self.btn_detail_screenshots.setFixedHeight(34)
+        self.btn_detail_screenshots.setStyleSheet(sec_btn_style)
         self.btn_detail_screenshots.clicked.connect(self._open_screenshot_gallery)
         detail_layout.addWidget(self.btn_detail_screenshots)
 
-        self.btn_detail_properties = QPushButton(" Game Properties")
-        self.btn_detail_properties.setIcon(get_icon("ph.gear-six-bold"))
-        self.btn_detail_properties.setMinimumHeight(32)
+        self.btn_detail_properties = QPushButton("Properties")
+        self.btn_detail_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#94a3b8"))
+        self.btn_detail_properties.setIconSize(QSize(16, 16))
+        self.btn_detail_properties.setFixedHeight(34)
+        self.btn_detail_properties.setStyleSheet(sec_btn_style)
         self.btn_detail_properties.clicked.connect(self._open_game_properties)
         detail_layout.addWidget(self.btn_detail_properties)
 
-        self.btn_detail_remove = QPushButton(" Remove Game")
-        self.btn_detail_remove.setIcon(get_app_icon("remove"))
-        self.btn_detail_remove.setMinimumHeight(32)
+        self.btn_detail_remove = QPushButton("Remove Game")
+        self.btn_detail_remove.setIcon(get_icon("ph.trash-bold", color="#f87171"))
+        self.btn_detail_remove.setIconSize(QSize(16, 16))
+        self.btn_detail_remove.setFixedHeight(34)
         self.btn_detail_remove.setStyleSheet("""
             QPushButton {
-                background: #2a1212;
-                color: #ef4444;
-                border: 1px solid #7f1d1d;
+                background: #2a1215;
+                color: #f87171;
+                border: none;
+                border-radius: 6px;
+                padding: 0 14px;
+                font-weight: bold;
+                font-size: 12px;
+                text-align: center;
             }
             QPushButton:hover {
-                background: #7f1d1d;
+                background: #450a0a;
                 color: #ffffff;
-            }
-            QPushButton:disabled {
-                background: #181212;
-                color: #553333;
-                border-color: #221515;
             }
         """)
         self.btn_detail_remove.clicked.connect(self._on_remove)
         detail_layout.addWidget(self.btn_detail_remove)
 
         detail_layout.addStretch()
-        detail_layout.addWidget(self.detail_disk_size)
 
-        # -------------------------------------------------------------
-        # Center Main Content Panel (Game Library Grid)
-        # -------------------------------------------------------------
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(28, 24, 28, 22)
-        right_layout.setSpacing(16)
+        # Center Main Game Library Area
+        self.right_panel = QWidget()
+        self.right_panel.setObjectName("libraryCentralPanel")
+        self.right_panel.setStyleSheet("QWidget#libraryCentralPanel { background: transparent; }")
+        right_layout = QVBoxLayout(self.right_panel)
+        right_layout.setContentsMargins(18, 14, 18, 14)
+        right_layout.setSpacing(12)
 
         # Add center game grid first, right detail panel second
-        self.splitter.addWidget(right_panel)
+        self.splitter.addWidget(self.right_panel)
         self.splitter.addWidget(self.detail_panel)
 
         saved_right_w = self.settings.value("right_inspector_width", 300, type=int)
         self.splitter.setSizes([880, saved_right_w])
         self.splitter.splitterMoved.connect(self._on_splitter_moved)
-        
-        # Right Header / Title & Filter Controls
+
+        # Header Title with Sorting, View Toggle, and Inspector Reveal Button
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
-        header_title = QLabel("Game Library")
-        header_title.setFont(QFont("Arial", 22, QFont.Weight.Bold))
-        header_title.setStyleSheet("color: #fff;")
-        header_layout.addWidget(header_title)
         
-        self.btn_view_toggle = QPushButton("☷  List" if self.library_view_mode == "grid" else "▦  Grid")
-        self.btn_view_toggle.setToolTip("Toggle grid/list library view")
-        self.btn_view_toggle.clicked.connect(self._toggle_library_view)
-        self.btn_view_toggle.setMinimumHeight(34)
+        header_title = QLabel("Game Library")
+        header_title.setFont(QFont("Arial", 18, QFont.Weight.Bold))
+        header_title.setStyleSheet("color: #ffffff; background: transparent;")
+        header_layout.addWidget(header_title)
         header_layout.addStretch()
-        header_layout.addWidget(self.btn_view_toggle)
-
-        # Sleek Segmented Filter Bar Container
-        filter_container = QFrame()
-        filter_container.setStyleSheet("""
-            QFrame {
-                background: #17191e;
-                border: none;
-                border-radius: 10px;
-            }
-        """)
-        fc_layout = QHBoxLayout(filter_container)
-        fc_layout.setContentsMargins(3, 3, 3, 3)
-        fc_layout.setSpacing(4)
-
-        filter_btn_style = """
-            QPushButton {
-                background: transparent;
-                color: #a1a1aa;
-                border: none;
-                border-radius: 6px;
-                padding: 5px 12px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: #1f1f24;
-                color: #ffffff;
-            }
-            QPushButton:checked {
-                background: #30343c;
-                color: #ffffff;
-                border: none;
-            }
-        """
-
-        self.btn_filter_all = QPushButton("All")
-        self.btn_filter_all.setIcon(get_icon("ph.squares-four", color="#d5d7dc"))
-        self.btn_filter_all.setCheckable(True)
-        self.btn_filter_all.setChecked(True)
-        self.btn_filter_all.setStyleSheet(filter_btn_style)
-        self.btn_filter_all.clicked.connect(lambda: self._set_filter("all"))
-
-        self.btn_filter_installed = QPushButton("Installed")
-        self.btn_filter_installed.setIcon(get_icon("ph.check-circle", color="#d5d7dc"))
-        self.btn_filter_installed.setCheckable(True)
-        self.btn_filter_installed.setStyleSheet(filter_btn_style)
-        self.btn_filter_installed.clicked.connect(lambda: self._set_filter("installed"))
-
-        self.btn_filter_missing = QPushButton("Missing")
-        self.btn_filter_missing.setIcon(get_icon("ph.warning-circle", color="#d5d7dc"))
-        self.btn_filter_missing.setCheckable(True)
-        self.btn_filter_missing.setStyleSheet(filter_btn_style)
-        self.btn_filter_missing.clicked.connect(lambda: self._set_filter("missing"))
-
-        self.btn_filter_fav = QPushButton("Favorites")
-        self.btn_filter_fav.setIcon(get_icon("ph.star", color="#d5d7dc"))
-        self.btn_filter_fav.setCheckable(True)
-        self.btn_filter_fav.setStyleSheet(filter_btn_style)
-        self.btn_filter_fav.clicked.connect(lambda: self._set_filter("favorites"))
-
-        self.btn_filter_recent = QPushButton("Recent")
-        self.btn_filter_recent.setIcon(get_icon("ph.clock", color="#d5d7dc"))
-        self.btn_filter_recent.setCheckable(True)
-        self.btn_filter_recent.setStyleSheet(filter_btn_style)
-        self.btn_filter_recent.clicked.connect(lambda: self._set_filter("recent"))
-
-        self.btn_filter_attention = QPushButton("Needs attention")
-        self.btn_filter_attention.setIcon(get_icon("ph.warning-octagon", color="#d5d7dc"))
-        self.btn_filter_attention.setCheckable(True)
-        self.btn_filter_attention.setStyleSheet(filter_btn_style)
-        self.btn_filter_attention.clicked.connect(lambda: self._set_filter("attention"))
-
-        self.btn_filter_collection = QPushButton("Collection")
-        self.btn_filter_collection.setIcon(get_icon("ph.folder-simple", color="#d5d7dc"))
-        self.btn_filter_collection.setStyleSheet(filter_btn_style)
-        self.btn_filter_collection.clicked.connect(self._choose_collection_filter)
-
-        fc_layout.addWidget(self.btn_filter_all)
-        fc_layout.addWidget(self.btn_filter_installed)
-        fc_layout.addWidget(self.btn_filter_missing)
-        fc_layout.addWidget(self.btn_filter_fav)
-        fc_layout.addWidget(self.btn_filter_recent)
-        fc_layout.addWidget(self.btn_filter_attention)
-        fc_layout.addWidget(self.btn_filter_collection)
-        for filter_button in (
-            self.btn_filter_all, self.btn_filter_installed, self.btn_filter_missing,
-            self.btn_filter_fav, self.btn_filter_recent, self.btn_filter_attention,
-            self.btn_filter_collection,
-        ):
-            filter_button.setIconSize(QSize(17, 17))
 
         # Sorting ComboBox
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(["Sort: A–Z Title", "Sort: Most Played", "Sort: Recently Added", "Sort: Disk Size", "Sort: Runner"])
-        self.sort_combo.setFixedHeight(28)
+        self.sort_combo.setFixedHeight(32)
         self.sort_combo.setStyleSheet("""
             QComboBox {
-                background: #181818;
+                background: #11141d;
                 color: #ffffff;
                 border: none;
-                border-radius: 5px;
-                padding: 2px 8px;
+                border-radius: 6px;
+                padding: 0 10px;
                 font-size: 11px;
                 font-weight: bold;
             }
             QComboBox::drop-down { border: none; }
             QComboBox QAbstractItemView {
-                background: #1a1a1a;
+                background: #11141d;
                 color: #ffffff;
                 selection-background-color: #1e293b;
             }
@@ -591,113 +526,168 @@ class MainWindow(QMainWindow):
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         header_layout.addWidget(self.sort_combo)
 
-        self.btn_reveal_detail = QPushButton(" Details")
-        self.btn_reveal_detail.setIcon(get_icon("ph.caret-double-left", color="#c9ccd2"))
-        self.btn_reveal_detail.setIconSize(QSize(16, 16))
-        self.btn_reveal_detail.setToolTip("Show game details panel")
-        self.btn_reveal_detail.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_reveal_detail.setStyleSheet("""
+        self.btn_view_toggle = QPushButton("☷ List" if self.library_view_mode == "grid" else "▦ Grid")
+        self.btn_view_toggle.setToolTip("Toggle grid/list library view")
+        self.btn_view_toggle.clicked.connect(self._toggle_library_view)
+        self.btn_view_toggle.setFixedHeight(32)
+        self.btn_view_toggle.setStyleSheet("""
             QPushButton {
-                background: #08090b;
-                color: #c9ccd2;
+                background: #11141d;
+                color: #ffffff;
                 border: none;
-                border-radius: 8px;
-                padding: 8px 12px;
-                font-size: 11px;
+                border-radius: 6px;
+                padding: 0 14px;
+                font-size: 12px;
                 font-weight: bold;
+                text-align: center;
             }
-            QPushButton:hover { background: #17191e; color: #ffffff; }
+            QPushButton:hover { background: #1e293b; }
         """)
-        self.btn_reveal_detail.clicked.connect(lambda: self._animate_left_panel(True))
-        add_soft_shadow(self.btn_reveal_detail, blur=16, y=3, alpha=90)
-        self.btn_reveal_detail.setParent(right_panel)
-        self.btn_reveal_detail.raise_()
+        header_layout.addWidget(self.btn_view_toggle)
         right_layout.addLayout(header_layout)
-        self._reposition_reveal_button()
-        right_layout.addWidget(filter_container)
+
+        # ── Rich Collection Header Banner (Shown when inside a Collection) ──
+        self.collection_banner = QFrame(self.right_panel)
+        self.collection_banner.setVisible(False)
+        self.collection_banner.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0c2b45, stop:1 #111827);
+                border: none;
+                border-radius: 10px;
+            }
+        """)
+        cb_layout = QHBoxLayout(self.collection_banner)
+        cb_layout.setContentsMargins(14, 10, 14, 10)
+        cb_layout.setSpacing(14)
+
+        col_icon_lbl = QLabel()
+        col_icon_lbl.setPixmap(get_icon("ph.folder-open-bold", color="#38bdf8").pixmap(28, 28))
+        cb_layout.addWidget(col_icon_lbl)
+
+        col_text_layout = QVBoxLayout()
+        col_text_layout.setSpacing(2)
+        self.lbl_col_banner_title = QLabel("Collection")
+        self.lbl_col_banner_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        self.lbl_col_banner_title.setStyleSheet("color: #ffffff; background: transparent;")
+        col_text_layout.addWidget(self.lbl_col_banner_title)
+
+        self.lbl_col_banner_stats = QLabel("0 Games  •  0.0 hrs Total Playtime")
+        self.lbl_col_banner_stats.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 500; background: transparent;")
+        col_text_layout.addWidget(self.lbl_col_banner_stats)
+        cb_layout.addLayout(col_text_layout)
+
+        cb_layout.addStretch()
+
+        btn_col_manage = QPushButton("Manage Games")
+        btn_col_manage.setIcon(get_icon("ph.plus-bold", color="#ffffff"))
+        btn_col_manage.setIconSize(QSize(13, 13))
+        btn_col_manage.setStyleSheet("""
+            QPushButton { background: #0284c7; color: white; border: none; padding: 0 14px; height: 28px; border-radius: 6px; font-size: 11px; font-weight: bold; text-align: center; }
+            QPushButton:hover { background: #0369a1; }
+        """)
+        btn_col_manage.clicked.connect(self._manage_current_collection_games)
+        cb_layout.addWidget(btn_col_manage)
+
+        btn_col_rename = QPushButton("Rename")
+        btn_col_rename.setIcon(get_icon("ph.pencil-simple-bold", color="#cbd5e1"))
+        btn_col_rename.setIconSize(QSize(13, 13))
+        btn_col_rename.setStyleSheet("""
+            QPushButton { background: #1e293b; color: #cbd5e1; border: none; padding: 0 14px; height: 28px; border-radius: 6px; font-size: 11px; font-weight: bold; text-align: center; }
+            QPushButton:hover { background: #334155; color: #fff; }
+        """)
+        btn_col_rename.clicked.connect(self._rename_current_collection)
+        cb_layout.addWidget(btn_col_rename)
+
+        btn_col_delete = QPushButton("Delete")
+        btn_col_delete.setIcon(get_icon("ph.trash-bold", color="#f87171"))
+        btn_col_delete.setIconSize(QSize(13, 13))
+        btn_col_delete.setStyleSheet("""
+            QPushButton { background: #450a0a; color: #f87171; border: none; padding: 0 14px; height: 28px; border-radius: 6px; font-size: 11px; font-weight: bold; text-align: center; }
+            QPushButton:hover { background: #7f1d1d; color: #fff; }
+        """)
+        btn_col_delete.clicked.connect(self._delete_current_collection)
+        cb_layout.addWidget(btn_col_delete)
+
+        btn_col_close = QPushButton("✕")
+        btn_col_close.setFixedSize(26, 26)
+        btn_col_close.setToolTip("Exit collection view")
+        btn_col_close.setStyleSheet("""
+            QPushButton { background: transparent; color: #94a3b8; border: none; font-size: 13px; font-weight: bold; padding: 0; text-align: center; }
+            QPushButton:hover { color: #fff; background: #1e293b; border-radius: 4px; }
+        """)
+        btn_col_close.clicked.connect(lambda: self._set_collection_filter(""))
+        cb_layout.addWidget(btn_col_close)
+
+        right_layout.addWidget(self.collection_banner)
 
         # Games Grid in Scroll Area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("QScrollArea, QWidget#qt_scrollarea_viewport { background: transparent; border: none; }")
+        self.scroll_area = QScrollArea(self.right_panel)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("QScrollArea, QWidget#qt_scrollarea_viewport { background: transparent; border: none; }")
         
         # Dynamic Responsive Grid Container (2:3 portrait cards, default width 200px)
-        self.grid_container = ResponsiveGridContainer(card_width=200, spacing=15)
+        self.library_view_stack = QStackedWidget(self.scroll_area)
+        self.grid_container = ResponsiveGridContainer(self.library_view_stack, card_width=200, spacing=15)
         self.grid_container.setStyleSheet("background: transparent;")
-        self.list_view = LibraryListView()
+        self.list_view = LibraryListView(self.library_view_stack)
         self.list_view.game_clicked.connect(self._select_game_by_id)
         self.list_view.game_double_clicked.connect(self._on_double_click_game)
-        self.library_view_stack = QStackedWidget()
+        self.list_view.game_launch_clicked.connect(self._launch_game_by_id)
         self.library_view_stack.addWidget(self.grid_container)
         self.library_view_stack.addWidget(self.list_view)
         self.library_view_stack.setCurrentIndex(1 if self.library_view_mode == "list" else 0)
-        scroll_area.setWidget(self.library_view_stack)
-        right_layout.addWidget(scroll_area)
+        self.scroll_area.setWidget(self.library_view_stack)
+        right_layout.addWidget(self.scroll_area)
 
-        # Action Buttons Layout (Add Game on bottom-left, Card Size Slider, Launch on bottom-right)
+        # Action Buttons Layout (Add Game on bottom-left)
         action_layout = QHBoxLayout()
-        action_layout.setContentsMargins(0, 5, 0, 0)
-        action_layout.setSpacing(15)
+        action_layout.setContentsMargins(0, 4, 0, 0)
+        action_layout.setSpacing(14)
         
         self.btn_add = QPushButton("Add Game")
         self.btn_add.setObjectName("addGameButton")
         self.btn_add.setIcon(get_app_icon("add"))
         self.btn_add.clicked.connect(self._on_add)
-        self.btn_add.setMinimumHeight(40)
-        self.btn_add.setStyleSheet("QPushButton#addGameButton { background: #2f8f63; color: #ffffff; font-weight: bold; border-radius: 8px; border: none; padding: 10px 20px; } QPushButton#addGameButton:hover { background: #3eaa77; }")
-        self.btn_add.setIconSize(QSize(19, 19))
-        add_soft_shadow(self.btn_add, blur=20, y=5, alpha=105)
+        self.btn_add.setFixedHeight(38)
+        self.btn_add.setStyleSheet("""
+            QPushButton#addGameButton {
+                background: #2f8f63; color: #ffffff; font-weight: bold; border-radius: 8px; border: none; padding: 0 18px; font-size: 12px; text-align: center;
+            }
+            QPushButton#addGameButton:hover { background: #3eaa77; }
+        """)
+        self.btn_add.setIconSize(QSize(18, 18))
+        add_soft_shadow(self.btn_add, blur=18, y=4, alpha=90)
         action_layout.addWidget(self.btn_add)
 
-        self.btn_select_all = QPushButton("Select all")
-        self.btn_select_all.clicked.connect(self._select_all_visible)
-        action_layout.addWidget(self.btn_select_all)
-        self.btn_clear_selection = QPushButton("Clear")
-        self.btn_clear_selection.clicked.connect(self._clear_library_selection)
-        action_layout.addWidget(self.btn_clear_selection)
-        self.btn_collection = QPushButton("Collection…")
-        self.btn_collection.clicked.connect(self._assign_selected_collection)
-        action_layout.addWidget(self.btn_collection)
-        self.btn_favorite_selected = QPushButton("Favorite Selected")
-        self.btn_favorite_selected.clicked.connect(self._favorite_selected)
-        action_layout.addWidget(self.btn_favorite_selected)
+        action_layout.addStretch()
 
-        # Card Size Zoom Slider
-        zoom_layout = QHBoxLayout()
-        zoom_layout.setSpacing(8)
-        zoom_label = QLabel("Card Size:")
-        zoom_label.setStyleSheet("color: #a1a1aa; font-size: 11px; font-weight: bold;")
-        zoom_layout.addWidget(zoom_label)
-
-        self.size_slider = QSlider(Qt.Orientation.Horizontal)
-        self.size_slider.setRange(140, 280)
-        self.size_slider.setValue(200)
-        self.size_slider.setFixedWidth(130)
-        self.size_slider.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.size_slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                height: 6px;
-                background: #27272a;
-                border-radius: 3px;
+        # Details Button for opening the right panel (placed down in bottom bar)
+        self.btn_reveal_detail = QPushButton(" Details")
+        self.btn_reveal_detail.setIcon(get_icon("ph.caret-double-left-bold", color="#94a3b8"))
+        self.btn_reveal_detail.setIconSize(QSize(16, 16))
+        self.btn_reveal_detail.setToolTip("Open game details panel")
+        self.btn_reveal_detail.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_reveal_detail.setFixedHeight(38)
+        self.btn_reveal_detail.setStyleSheet("""
+            QPushButton {
+                background: #141720;
+                color: #cbd5e1;
+                border: 1px solid #222a38;
+                border-radius: 8px;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: bold;
+                text-align: center;
             }
-            QSlider::sub-page:horizontal {
-                background: #52525b;
-                border-radius: 3px;
-            }
-            QSlider::handle:horizontal {
-                background: #ffffff;
-                width: 14px;
-                height: 14px;
-                margin: -4px 0;
-                border-radius: 7px;
+            QPushButton:hover {
+                background: #1e2433;
+                color: #ffffff;
+                border-color: #38bdf8;
             }
         """)
-        self.size_slider.valueChanged.connect(self._on_card_size_changed)
-        zoom_layout.addWidget(self.size_slider)
+        self.btn_reveal_detail.clicked.connect(lambda: self._animate_left_panel(True))
+        action_layout.addWidget(self.btn_reveal_detail)
 
-        action_layout.addLayout(zoom_layout)
-
-        action_layout.addStretch()
         right_layout.addLayout(action_layout)
         
         self.setStyleSheet("""
@@ -1060,15 +1050,71 @@ class MainWindow(QMainWindow):
                 self._show_toast(f"Game '{name}' added to library.")
 
     def _set_filter(self, filter_mode: str):
-        """Set active filter mode (all, installed, missing, favorites) and refresh view"""
+        """Set active filter mode (all, installed, favorites, archived) and refresh view."""
         self.current_filter = filter_mode
-        self.btn_filter_all.setChecked(filter_mode == "all")
-        self.btn_filter_installed.setChecked(filter_mode == "installed")
-        self.btn_filter_missing.setChecked(filter_mode == "missing")
-        self.btn_filter_fav.setChecked(filter_mode == "favorites")
-        self.btn_filter_recent.setChecked(filter_mode == "recent")
-        self.btn_filter_attention.setChecked(filter_mode == "attention")
+        self.collection_filter = ""
         self._refresh_library()
+
+    def _set_collection_filter(self, col_name: str):
+        """Filter library to a specific collection and update banner."""
+        self.collection_filter = col_name.strip()
+        self.current_filter = "" if self.collection_filter else "all"
+        self._refresh_library()
+
+    def _on_add_collection(self):
+        """Prompt to create a new collection with custom styled modal."""
+        dlg = CreateCollectionDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            col_name = dlg.get_collection_name()
+            if col_name:
+                self.db.add_collection(col_name)
+                self._set_collection_filter(col_name)
+                self._show_toast(f"Created collection '{col_name}'.")
+
+    def _manage_current_collection_games(self):
+        """Open modal to select games belonging to current collection."""
+        if not self.collection_filter:
+            return
+        active_games = [g for g in self.games if not (len(g) > 17 and g[17])]
+        current_members = {g[0] for g in active_games if len(g) > 13 and str(g[13]).strip() == self.collection_filter}
+        dlg = ManageCollectionGamesDialog(self.collection_filter, active_games, current_members, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_members = dlg.get_selected_game_ids()
+            for g in active_games:
+                g_id = g[0]
+                if g_id in new_members:
+                    self.db.update_game_collection(g_id, self.collection_filter)
+                elif len(g) > 13 and str(g[13]).strip() == self.collection_filter:
+                    self.db.update_game_collection(g_id, "")
+            self._show_toast(f"Updated collection '{self.collection_filter}'.")
+            self._refresh_library()
+
+    def _rename_current_collection(self):
+        """Rename active collection across all games with custom styled modal."""
+        if not self.collection_filter:
+            return
+        dlg = RenameCollectionDialog(self.collection_filter, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_col = dlg.get_collection_name()
+            if new_col and new_col != self.collection_filter:
+                self.db.rename_collection(self.collection_filter, new_col)
+                self._set_collection_filter(new_col)
+                self._show_toast(f"Renamed collection to '{new_col}'.")
+
+    def _delete_current_collection(self):
+        """Delete active collection tag from all games."""
+        if not self.collection_filter:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete Collection",
+            f"Are you sure you want to delete collection '{self.collection_filter}'?\n(Games will remain in your library)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.db.delete_collection(self.collection_filter)
+            self._set_collection_filter("")
+            self._show_toast("Collection deleted.")
 
     def _choose_collection_filter(self):
         collections = sorted({str(game[13]).strip() for game in self.games if len(game) > 13 and str(game[13]).strip()})
@@ -1076,9 +1122,7 @@ class MainWindow(QMainWindow):
         choice, accepted = QInputDialog.getItem(self, "Filter collection", "Collection:", choices, 0, False)
         if not accepted:
             return
-        self.collection_filter = "" if choice == "All collections" else choice
-        self.btn_filter_collection.setText(self.collection_filter or "Collection")
-        self._refresh_library()
+        self._set_collection_filter("" if choice == "All collections" else choice)
 
     def _on_sort_changed(self, idx: int):
         """Sort games list by title, activity, install date, size, or runner."""
@@ -1127,8 +1171,6 @@ class MainWindow(QMainWindow):
             self._show_toast("Select one or more games first.", is_error=True)
             return
         for game_id in selected:
-            # The database toggle is intentionally used only for the batch action;
-            # it preserves each game's existing state and avoids a new UI model.
             self.db.toggle_favorite(game_id)
         self._refresh_library()
 
@@ -1154,26 +1196,51 @@ class MainWindow(QMainWindow):
         selected_game_id = self.selected_game[0] if self.selected_game else None
         # Explicitly hide and destroy old child widgets
         for old_w in list(self.banner_widgets.values()):
-            old_w.hide()
-            old_w.setParent(None)
-            old_w.deleteLater()
+            try:
+                old_w.hide()
+                old_w.setParent(None)
+                old_w.deleteLater()
+            except (RuntimeError, AttributeError):
+                pass
         self.banner_widgets.clear()
         
         self.games = self.db.get_all_games()
         self.games_by_id = {game[0]: game for game in self.games}
-        # Replace the cached tuple after every database refresh.  Keeping the
-        # old tuple here made saved executable/runner changes appear to fail
-        # until the application was restarted.
         if selected_game_id is not None:
             self.selected_game = self.games_by_id.get(selected_game_id)
         self.library_selection.replace(self.library_selection.ids.intersection(self.games_by_id))
         self.stat_label.setText(f"{len(self.games)} Game(s) Total")
+
+        # Compute dynamic sidebar statistics
+        active_games = [g for g in self.games if not (len(g) > 17 and g[17])]
+        inst_games = []
+        for g in active_games:
+            p = g[2]
+            exe = g[3]
+            f_ex = os.path.exists(p) if p else False
+            e_ex = os.path.exists(os.path.join(p, exe)) if (p and exe) else f_ex
+            if f_ex and (e_ex or not exe):
+                inst_games.append(g)
+
+        fav_games = [g for g in active_games if (len(g) > 8 and g[8])]
+        arch_games = [g for g in self.games if (len(g) > 17 and g[17])]
+        self.sidebar.update_counts(len(active_games), len(inst_games), len(fav_games), len(arch_games))
+
+        all_cols = self.db.get_all_collections()
+        collections_dict = {c: 0 for c in all_cols}
+        for g in active_games:
+            c_name = str(g[13]).strip() if len(g) > 13 else ""
+            if c_name:
+                collections_dict[c_name] = collections_dict.get(c_name, 0) + 1
+        sorted_cols = sorted(collections_dict.items(), key=lambda x: x[0].lower())
+        self.sidebar.update_collections_list(sorted_cols)
 
         if not self.games:
             label = QLabel("No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started.")
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setStyleSheet("color: #999; font-size: 14px; padding: 40px;")
             self.grid_container.set_banner_widgets([label])
+            self.collection_banner.setVisible(False)
             return
 
         # Filter & sort games list
@@ -1182,6 +1249,7 @@ class MainWindow(QMainWindow):
             game_id, name, path, executable, mode, banner_url, steam_id = g[:7]
             playtime = g[7] if len(g) > 7 and g[7] else 0
             is_fav = bool(g[8]) if len(g) > 8 and g[8] else False
+            is_archived = bool(g[17]) if len(g) > 17 and g[17] else False
 
             # 1. Search Query Filter
             searchable = " ".join(str(value or "") for value in (name, g[10] if len(g) > 10 else "", executable, steam_id, mode, g[12] if len(g) > 12 else "" )).lower()
@@ -1194,23 +1262,36 @@ class MainWindow(QMainWindow):
             exe_exists = os.path.exists(full_exe) if full_exe else False
             is_missing = not (folder_exists and (exe_exists or not executable))
 
-            # 2. Status Filter
-            if self.current_filter == "installed" and is_missing:
-                continue
-            elif self.current_filter == "missing" and not is_missing:
-                continue
-            elif self.current_filter == "favorites" and not is_fav:
-                continue
-            elif self.current_filter == "recent" and not (len(g) > 9 and g[9]):
-                continue
-            elif self.current_filter == "attention" and not (is_missing or not steam_id or (mode.startswith("umu") and not (len(g) > 12 and g[12]))):
-                continue
-            if self.collection_filter and (len(g) <= 13 or str(g[13]).strip() != self.collection_filter):
-                continue
+            # 2. Status & Archive Filtering
+            if self.current_filter == "archived":
+                if not is_archived:
+                    continue
+            else:
+                if is_archived:
+                    continue
+                if self.current_filter == "installed" and is_missing:
+                    continue
+                elif self.current_filter == "favorites" and not is_fav:
+                    continue
+                if self.collection_filter and (len(g) <= 13 or str(g[13]).strip() != self.collection_filter):
+                    continue
 
             processed.append((g, is_missing, playtime, is_fav))
 
-        # 3. Sorting
+        # 3. Update collection banner stats
+        try:
+            if self.collection_filter:
+                self.collection_banner.setVisible(True)
+                self.lbl_col_banner_title.setText(f"{self.collection_filter}")
+                col_playtime = sum(item[2] for item in processed)
+                col_hours = col_playtime / 3600.0
+                self.lbl_col_banner_stats.setText(f"{len(processed)} Game(s)  •  {col_hours:.1f} hrs Total Playtime")
+            else:
+                self.collection_banner.setVisible(False)
+        except (RuntimeError, AttributeError):
+            pass
+
+        # 4. Sorting
         if self.current_sort == 0:  # A-Z Title
             processed.sort(key=lambda x: x[0][1].lower())
         elif self.current_sort == 1:  # Most Played
@@ -1223,7 +1304,7 @@ class MainWindow(QMainWindow):
             processed.sort(key=lambda x: x[0][4].lower())
 
         if not processed:
-            msg = f"No games matching '{self.search_query}'" if self.search_query else "No games matching selected filter."
+            msg = f"No games matching '{self.search_query}'" if self.search_query else ("No archived games found." if self.current_filter == "archived" else "No games matching selected filter.")
             label = QLabel(msg)
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setStyleSheet("color: #777777; font-size: 14px; padding: 40px;")
@@ -1234,32 +1315,56 @@ class MainWindow(QMainWindow):
         for g, is_missing, playtime_seconds, is_fav in processed:
             game_id, name, path, executable, mode, banner_url, steam_id = g[:7]
             version_override = g[15] if len(g) > 15 and g[15] else ""
+            icon_url = g[18] if len(g) > 18 and g[18] else ""
             
-            widget = GameBannerWidget(game_id, name, banner_url, playtime_seconds or 0, version=version_override)
+            # Check local icons cache if not yet set in DB
+            if not icon_url:
+                cached_icon = os.path.join(self.sgdb_client.cache_dir.parent, "icons", f"icon_{game_id}.png")
+                if os.path.exists(cached_icon):
+                    icon_url = cached_icon
+            
+            widget = GameBannerWidget(
+                game_id, name, banner_url, playtime_seconds or 0,
+                version=version_override, icon_path=icon_url, parent=self.grid_container
+            )
+            widget.set_missing(is_missing)
             widget.set_update_available(self.update_status_by_game_id.get(game_id, False))
             widget.set_favorite(is_fav)
             widget.set_selected(game_id in self.library_selection.ids)
             widget.clicked.connect(self._select_game_by_id)
             widget.doubleClicked.connect(self._on_double_click_game)
             widget.favoriteClicked.connect(self._on_card_favorite_clicked)
+            widget.launchClicked.connect(self._launch_game_by_id)
             
             widgets.append(widget)
             self.banner_widgets[game_id] = widget
             
-            if banner_url is None and game_id not in self._auto_fetch_attempted:
+            if (banner_url is None or not icon_url) and game_id not in self._auto_fetch_attempted:
                 self._auto_fetch_attempted.add(game_id)
-                fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client)
+                full_exe = os.path.join(path, executable) if (path and executable) else ""
+                fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
                 fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
                 fetcher.finished.connect(lambda f=fetcher: self._cleanup_auto_fetcher(f))
                 fetcher.start()
                 self.auto_fetchers.append(fetcher)
             
-        self.grid_container.set_banner_widgets(widgets)
-        self.list_view.set_games([item[0] for item in processed], self.library_selection.ids)
+        try:
+            self.grid_container.set_banner_widgets(widgets)
+        except (RuntimeError, AttributeError):
+            pass
+        try:
+            self.list_view.set_games(
+                processed,
+                self.library_selection.ids,
+                self.update_status_by_game_id,
+                self.sgdb_client.cache_dir
+            )
+        except (RuntimeError, AttributeError):
+            pass
         self._check_games_on_drive()
         self._update_tray_menu()
 
-        # Pre-cache 16:9 hero background artwork for all library games in background threads
+        # Pre-cache 16:9 hero background artwork and game icons in background threads
         for game in self.games:
             g_id, g_name, _, _, _, _, s_id = game[:7]
             hero_cache_file = os.path.join(self.sgdb_client.cache_dir, "heroes", f"hero_{g_id}.jpg")
@@ -1269,6 +1374,25 @@ class MainWindow(QMainWindow):
                     hero_thread = HeroFetcherThread(g_id, g_name, s_id, self.sgdb_client, parent=self)
                     hero_thread.hero_downloaded.connect(self._on_hero_downloaded)
                     self._track_metadata_fetcher(hero_thread)
+
+            icon_url = game[18] if len(game) > 18 and game[18] else ""
+            if not icon_url and g_id not in self._icon_attempted:
+                self._icon_attempted.add(g_id)
+                g_path = game[2] if len(game) > 2 else ""
+                g_exe = game[3] if len(game) > 3 else ""
+                full_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else ""
+                icon_thread = IconAutoFetcherThread(g_id, g_name, str(s_id or ""), self.sgdb_client, exe_path=full_exe, parent=self)
+                icon_thread.icon_downloaded.connect(self._on_icon_downloaded)
+                self._track_metadata_fetcher(icon_thread)
+
+    def _on_icon_downloaded(self, game_id: int, icon_path: str):
+        """Save downloaded game icon path in DB and update card."""
+        self.db.update_game_icon(game_id, icon_path)
+        try:
+            if game_id in self.banner_widgets:
+                self.banner_widgets[game_id].set_icon(icon_path)
+        except (RuntimeError, AttributeError):
+            pass
 
     def _check_games_on_drive(self):
         """Check all games in library against disk and grey out missing ones"""
@@ -1281,16 +1405,28 @@ class MainWindow(QMainWindow):
             
             is_missing = not (folder_exists and (exe_exists or not executable))
             
-            if game_id in self.banner_widgets:
-                self.banner_widgets[game_id].set_missing(is_missing)
+            try:
+                if game_id in self.banner_widgets:
+                    self.banner_widgets[game_id].set_missing(is_missing)
+            except (RuntimeError, AttributeError):
+                pass
 
-    def _on_auto_banner_downloaded(self, game_id: int, image_path: str, steam_id: int = 0):
+    def _on_auto_banner_downloaded(self, game_id: int, image_path: str, steam_id: int = 0, icon_path: str = ""):
         """Update DB and widget when background auto-fetch completes"""
-        self.db.update_game_banner(game_id, image_path)
+        if image_path:
+            self.db.update_game_banner(game_id, image_path)
         if steam_id:
             self.db.update_game_steam_id(game_id, steam_id)
-        if game_id in self.banner_widgets:
-            self.banner_widgets[game_id].set_banner(image_path)
+        if icon_path:
+            self.db.update_game_icon(game_id, icon_path)
+        try:
+            if game_id in self.banner_widgets:
+                if image_path:
+                    self.banner_widgets[game_id].set_banner(image_path)
+                if icon_path:
+                    self.banner_widgets[game_id].set_icon(icon_path)
+        except (RuntimeError, AttributeError):
+            pass
 
     def _cleanup_auto_fetcher(self, fetcher):
         if fetcher in self.auto_fetchers:
@@ -1316,13 +1452,19 @@ class MainWindow(QMainWindow):
         self.library_selection.click(game_id, additive=additive)
         if not self.selected_game or self.selected_game[0] != game_id:
             self._cancel_metadata_fetchers()
-        for widget in self.banner_widgets.values():
-            widget.set_selected(widget.game_id in self.library_selection.ids)
+        for widget in list(self.banner_widgets.values()):
+            try:
+                widget.set_selected(widget.game_id in self.library_selection.ids)
+            except (RuntimeError, AttributeError):
+                pass
         for game in self.games:
             if game[0] == game_id:
                 self.selected_game = game
-                if game_id in self.banner_widgets:
-                    self.banner_widgets[game_id].set_selected(True)
+                try:
+                    if game_id in self.banner_widgets:
+                        self.banner_widgets[game_id].set_selected(True)
+                except (RuntimeError, AttributeError):
+                    pass
                 break
         self._update_detail_panel()
 
@@ -1346,14 +1488,8 @@ class MainWindow(QMainWindow):
         self._reposition_reveal_button()
 
     def _reposition_reveal_button(self):
-        """Keep the hidden-inspector affordance floating over the library edge."""
-        button = getattr(self, "btn_reveal_detail", None)
-        if button is None or not hasattr(button, "parentWidget") or button.parentWidget() is None:
-            return
-        host = button.parentWidget()
-        button.adjustSize()
-        button.move(max(12, host.width() - button.width() - 16), 14)
-        button.raise_()
+        """No-op as reveal button is docked in the bottom action bar."""
+        pass
 
     def _on_panel_anim_step(self, val: float):
         saved_w = self.settings.value("right_inspector_width", 300, type=int)
@@ -1427,9 +1563,11 @@ class MainWindow(QMainWindow):
         """Refresh registered global hotkeys in background listener."""
         if not hasattr(self, "global_hotkeys"):
             return
-        self.global_hotkeys.clear_bindings()
-        self.global_hotkeys.register_hotkey(self.screenshot_hotkey or "F12", "screenshot")
-        self.global_hotkeys.register_hotkey(self.gpu_recorder_config.capture_hotkey or "F9", "toggle_recording")
+        bindings = {
+            self.screenshot_hotkey or "F12": "screenshot",
+            self.gpu_recorder_config.capture_hotkey or "F9": "toggle_recording",
+        }
+        self.global_hotkeys.update_bindings(bindings)
 
     def _on_global_hotkey(self, action: str):
         """Dispatch global hotkey action emitted from background listener."""
@@ -1616,17 +1754,21 @@ class MainWindow(QMainWindow):
             return "Unknown date"
 
     def _check_all_steam_updates(self):
-        """Check every Steam-linked game once, used on startup and from the sidebar."""
+        """Check every Steam-linked game once, used on startup and from the tools menu."""
         games = self.db.get_all_games()
         pending = [0]
-        self.nav_updates.setEnabled(False)
-        self.nav_updates.setText(" Checking Steam…")
+        self._show_toast("Checking Steam for updates...")
+        if hasattr(self, "nav_updates") and self.nav_updates is not None:
+            self.nav_updates.setEnabled(False)
+            self.nav_updates.setText(" Checking Steam…")
 
         def finished_one():
             pending[0] -= 1
             if pending[0] <= 0:
-                self.nav_updates.setEnabled(True)
-                self.nav_updates.setText(" Check for Updates")
+                if hasattr(self, "nav_updates") and self.nav_updates is not None:
+                    self.nav_updates.setEnabled(True)
+                    self.nav_updates.setText(" Check for Updates")
+                self._show_toast("Steam update check complete.")
 
         for game in games:
             game_id, _, path, _, _, _, steam_id = game[:7]
@@ -1679,15 +1821,21 @@ class MainWindow(QMainWindow):
         self.steam_check_results[game_id] = (build_id, build_date, False, "")
         self.update_status_by_game_id[game_id] = False
         self.metadata_attempted_builds.discard(game_id)
-        if game_id in self.banner_widgets:
-            self.banner_widgets[game_id].set_update_available(False)
+        try:
+            if game_id in self.banner_widgets:
+                self.banner_widgets[game_id].set_update_available(False)
+        except (RuntimeError, AttributeError):
+            pass
 
     def _on_steam_build_checked(self, game_id: int, latest_build_id: str, latest_build_date: int, is_update_available: bool):
         """Callback when background SteamBuildFetcher returns build info."""
         self.steam_check_results[game_id] = (latest_build_id, latest_build_date, is_update_available, "")
         self.update_status_by_game_id[game_id] = bool(is_update_available and latest_build_id)
-        if game_id in self.banner_widgets:
-            self.banner_widgets[game_id].set_update_available(is_update_available)
+        try:
+            if game_id in self.banner_widgets:
+                self.banner_widgets[game_id].set_update_available(is_update_available)
+        except (RuntimeError, AttributeError):
+            pass
         if not self.selected_game or self.selected_game[0] != game_id:
             return
 
@@ -1720,10 +1868,10 @@ class MainWindow(QMainWindow):
             status_color = ("#7f1d1d", "#fca5a5", "#991b1b") if is_update_available else ("#064e3b", "#34d399", "#059669")
             self.lbl_detail_update.setText(status)
             self.lbl_detail_update.setStyleSheet(
-                f"background: {status_color[0]}; color: {status_color[1]}; border: 1px solid {status_color[2]}; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;"
+                f"background: {status_color[0]}; color: {status_color[1]}; border: 1px solid {status_color[2]}; border-radius: 6px; padding: 2px 8px; font-size: 10px; font-weight: bold;"
             )
             self.lbl_detail_versions.setText(
-                "<table width='100%' cellspacing='0' cellpadding='3'>"
+                "<table width='100%' cellspacing='0' cellpadding='1' style='margin:0; padding:0; border-collapse:collapse;'>"
                 "<tr><td></td><td align='center'><font color='#8f949e'>LOCAL</font></td>"
                 "<td align='center'><font color='#8f949e'>STEAM</font></td></tr>"
                 f"<tr><td><font color='#8f949e'>Version</font></td><td align='center'><b>{escape(str(version_override))}</b></td>"
@@ -1773,6 +1921,32 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         self._select_game_by_id(game_id)
 
+    def _apply_steam_update_to_game(self):
+        """Allow users to mark local install build as matching Steam current release."""
+        game = self.selected_game
+        if not game:
+            return
+        game_id = game[0]
+        if not self.update_status_by_game_id.get(game_id, False):
+            self._show_toast("No Steam update detected for this game.", is_error=True)
+            return
+        latest = getattr(self, 'latest_checked_build_id', "")
+        if not latest:
+            self._show_toast("Steam has not provided a build to record yet.", is_error=True)
+            return
+        self.db.update_build_id(game_id, latest)
+        self.update_status_by_game_id[game_id] = False
+        self._show_toast("Steam build marked as current. Game files were not changed.")
+        self._refresh_library()
+        self._select_game_by_id(game_id)
+
+    def _retry_steam_check(self):
+        if not self.selected_game:
+            return
+        game_id = self.selected_game[0]
+        self.metadata_attempted_builds.discard(game_id)
+        self._update_detail_panel()
+
     def _on_steam_tags_found(self, game_id: int, tags_list: list, steam_app_id: str = ""):
         """Callback when background SteamTagsFetcher returns genres/categories"""
         if steam_app_id and steam_app_id.isdigit() and int(steam_app_id) > 0:
@@ -1797,10 +1971,10 @@ class MainWindow(QMainWindow):
             badge = QLabel(tag)
             badge.setStyleSheet("""
                 QLabel {
-                    background: #1e1e1e;
-                    color: #d1d5db;
-                    border: 1px solid #333333;
-                    border-radius: 10px;
+                    background: #1e1b4b;
+                    color: #c7d2fe;
+                    border: none;
+                    border-radius: 6px;
                     padding: 3px 9px;
                     font-size: 10px;
                     font-weight: bold;
@@ -1937,7 +2111,7 @@ class MainWindow(QMainWindow):
             if os.path.isfile(os.path.join(shots_dir, filename))
             and os.path.splitext(filename)[1].lower() in image_extensions
         ) if os.path.exists(shots_dir) else 0
-        self.btn_detail_screenshots.setText(f" Screenshots ({count})")
+        self.btn_detail_screenshots.setText(f"Screenshots ({count})")
 
         self._update_detail_launch_button(game_id)
         self.btn_detail_launch.setVisible(True)
@@ -1946,6 +2120,7 @@ class MainWindow(QMainWindow):
         self.btn_detail_screenshots.setEnabled(True)
         self.btn_detail_properties.setEnabled(True)
         self.btn_detail_remove.setEnabled(True)
+        self._animate_left_panel(True)
 
         if banner_url and banner_url != "none" and os.path.exists(banner_url):
             pixmap = QPixmap(banner_url)
@@ -1972,30 +2147,51 @@ class MainWindow(QMainWindow):
         self.detail_cover.setPixmap(placeholder)
 
     def _update_detail_launch_button(self, game_id: int):
-        """Show a red actionable Stop Game button while running, or green Launch Game button."""
-        if game_id in self.running_game_ids:
-            self.btn_detail_launch.setText("Stop Game")
-            self.btn_detail_launch.setIcon(get_icon("ph.stop-circle", color="#ffffff"))
+        """Show a red actionable Stop Game button while running, green Launch Game, or blue Restore button if archived."""
+        game = self.selected_game
+        is_archived = bool(game[17]) if game and len(game) > 17 and game[17] else False
+
+        if is_archived:
+            self.btn_detail_launch.setText("Restore to Library")
+            self.btn_detail_launch.setIcon(get_icon("ph.arrow-counter-clockwise-bold", color="#ffffff"))
+            self.btn_detail_launch.setIconSize(QSize(16, 16))
             self.btn_detail_launch.setEnabled(True)
             self.btn_detail_launch.setStyleSheet("""
                 QPushButton#detailLaunch {
-                    background: #991b1b; color: #ffffff;
-                    border: 1px solid #ef4444; border-radius: 8px;
-                    font-weight: bold; padding: 10px 20px;
+                    background: #0284c7; color: #ffffff; border: none;
+                    border-radius: 8px; font-weight: bold; padding: 0 20px; font-size: 13px; text-align: center;
                 }
-                QPushButton#detailLaunch:hover { background: #b91c1c; }
+                QPushButton#detailLaunch:hover { background: #0369a1; }
+            """)
+            self.btn_detail_remove.setText("Permanently Delete")
+            return
+
+        self.btn_detail_remove.setText("Remove Game")
+        if game_id in self.running_game_ids:
+            self.btn_detail_launch.setText("Stop Game")
+            self.btn_detail_launch.setIcon(get_icon("ph.stop-circle-bold", color="#ffffff"))
+            self.btn_detail_launch.setIconSize(QSize(16, 16))
+            self.btn_detail_launch.setEnabled(True)
+            self.btn_detail_launch.setStyleSheet("""
+                QPushButton#detailLaunch {
+                    background: #dc2626; color: #ffffff;
+                    border: none; border-radius: 8px;
+                    font-weight: bold; padding: 0 20px; font-size: 13px; text-align: center;
+                }
+                QPushButton#detailLaunch:hover { background: #ef4444; }
                 QPushButton#detailLaunch:disabled { background: #4b5563; color: #9ca3af; }
             """)
         else:
             self.btn_detail_launch.setText("Launch Game")
-            self.btn_detail_launch.setIcon(get_icon("ph.play", color="#ffffff"))
+            self.btn_detail_launch.setIcon(get_icon("ph.play-bold", color="#ffffff"))
+            self.btn_detail_launch.setIconSize(QSize(16, 16))
             self.btn_detail_launch.setEnabled(True)
             self.btn_detail_launch.setStyleSheet("""
                 QPushButton#detailLaunch {
-                    background: #2f8f63; color: #ffffff; border: none;
-                    border-radius: 8px; font-weight: bold; padding: 10px 20px;
+                    background: #16a34a; color: #ffffff; border: none;
+                    border-radius: 8px; font-weight: bold; padding: 0 20px; font-size: 13px; text-align: center;
                 }
-                QPushButton#detailLaunch:hover { background: #3eaa77; }
+                QPushButton#detailLaunch:hover { background: #22c55e; }
                 QPushButton#detailLaunch:disabled { background: #4b5563; color: #9ca3af; }
             """)
 
@@ -2111,11 +2307,32 @@ class MainWindow(QMainWindow):
             self._refresh_library()
             self._select_game_by_id(game[0])
 
+    def _on_restore_game(self):
+        """Restore an archived game back to the active library."""
+        game = self._get_selected_game()
+        if not game:
+            return
+        game_id = game[0]
+        self.db.restore_game(game_id)
+        self._show_toast(f"Restored '{game[1]}' to library.")
+        self._refresh_library()
+        self._select_game_by_id(game_id)
+
+    def _launch_game_by_id(self, game_id: int):
+        """Directly select and launch game by its ID."""
+        self._select_game_by_id(game_id)
+        self._on_launch()
+
     def _on_launch(self):
         """Launch selected game directly using default mode, or stop if already running."""
         game = self._get_selected_game()
         if not game:
             self._show_toast("Please select a game to launch.", is_error=True)
+            return
+
+        is_archived = bool(game[17]) if len(game) > 17 and game[17] else False
+        if is_archived:
+            self._on_restore_game()
             return
 
         game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game, 0)
@@ -2276,6 +2493,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name, path, exe, mode, banner_path = dialog.get_values()
             version_override, patch_notes_url = dialog.get_version_metadata()
+            manual_build_id = dialog.get_build_id()
             if not name or not path or not exe:
                 QMessageBox.warning(self, "Error", "All fields are required.")
                 return
@@ -2293,6 +2511,12 @@ class MainWindow(QMainWindow):
             self.db.update_game_mode(game_id, mode)
             logger.info(f"Saved game settings for {game_id}: executable='{exe}', mode='{mode}'")
             self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
+            if manual_build_id is not None:
+                self.db.update_build_id(game_id, manual_build_id)
+                self.local_version_by_game_id[game_id] = (manual_build_id, 0)
+                # Clear cached update status so it re-checks against new manual build
+                self.metadata_attempted_builds.discard(game_id)
+                self.steam_check_results.pop(game_id, None)
             self._refresh_library()
             self._show_toast(f"Updated settings for '{name}'.")
     
@@ -2335,36 +2559,49 @@ class MainWindow(QMainWindow):
             self._show_toast("Please select a game to remove.", is_error=True)
             return
         
+        game_id = game[0]
+        is_archived = bool(game[17]) if len(game) > 17 and game[17] else False
+
+        if is_archived:
+            reply = QMessageBox.question(
+                self,
+                "Permanently Delete",
+                f"Permanently delete '{game[1]}' and all its recorded history from SafeLauncher?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.db.remove_game(game_id)
+                self._show_toast(f"Permanently removed '{game[1]}'.")
+                self.selected_game = None
+                self._refresh_library()
+            return
+
         dialog = CustomRemoveDialog(game[1], self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            game_id = game[0]
             game_path = game[2]
+            resolved_path = os.path.realpath(os.path.expanduser(game_path)) if game_path else ""
 
-            resolved_path = os.path.realpath(os.path.expanduser(game_path))
-            if dialog.choice == 'delete_disk':
+            if dialog.choice == 'archive_delete_disk':
                 sandbox_root = os.path.realpath(os.path.expanduser(DEFAULT_SANDBOX_DIR))
                 try:
                     inside_sandbox = os.path.commonpath([sandbox_root, resolved_path]) == sandbox_root
                 except ValueError:
                     inside_sandbox = False
-                if not inside_sandbox or resolved_path == sandbox_root:
-                    self._show_toast("Refused to delete files outside the sandbox directory.", is_error=True)
-                    return
-            
-            self.db.remove_game(game_id)
-            
-            if dialog.choice == 'delete_disk':
-                if os.path.exists(resolved_path):
+                if inside_sandbox and resolved_path != sandbox_root and os.path.exists(resolved_path):
                     try:
                         shutil.rmtree(resolved_path)
-                        self._show_toast(f"Removed '{game[1]}' and deleted files.")
                     except Exception as e:
-                        self._show_toast(f"Failed to delete files: {e}", is_error=True)
-                else:
-                    self._show_toast(f"Removed '{game[1]}' from library.")
-            else:
-                self._show_toast(f"Removed '{game[1]}' (files preserved).")
-                
+                        logger.warning(f"Could not delete game files: {e}")
+
+                self.db.archive_game(game_id, True)
+                self._show_toast(f"Archived '{game[1]}' and deleted files from disk.")
+            elif dialog.choice == 'archive_keep':
+                self.db.archive_game(game_id, True)
+                self._show_toast(f"Archived '{game[1]}' (files preserved on disk).")
+            elif dialog.choice == 'purge_permanently':
+                self.db.remove_game(game_id)
+                self._show_toast(f"Permanently removed '{game[1]}' from launcher.")
+
             self._refresh_library()
             self.selected_game = None
 

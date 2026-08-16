@@ -145,12 +145,28 @@ class FirejailSandboxRunner(ISandboxRunner):
         prefix_path = shlex.quote(os.path.join(game_path, 'prefix'))
         proton_env = f"--env=PROTONPATH={shlex.quote(active_proton)} " if active_proton else ""
         proton_whitelist = f"--whitelist={shlex.quote(active_proton)} " if active_proton else ""
+        # Auto-detect Steam AppID from steam_appid.txt if not specified
+        if not steam_id or str(steam_id).strip() in ("", "0", "None"):
+            for cand_dir in (working_dir, game_path):
+                appid_file = os.path.join(cand_dir, "steam_appid.txt")
+                if os.path.isfile(appid_file):
+                    try:
+                        with open(appid_file, "r") as af:
+                            val = af.read().strip()
+                            if val.isdigit() and int(val) > 0:
+                                steam_id = val
+                                break
+                    except Exception:
+                        pass
+
         game_id_env = ""
         if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:
-            game_id_env = f"--env=GAMEID=umu-{int(steam_id)} "
+            s_id = int(steam_id)
+            game_id_env = f"--env=GAMEID=umu-{s_id} --env=SteamAppId={s_id} --env=SteamGameId={s_id} --env=STEAM_COMPAT_APP_ID={s_id} "
         game_id_export = ""
         if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:
-            game_id_export = f"export GAMEID=umu-{int(steam_id)} && "
+            s_id = int(steam_id)
+            game_id_export = f"export GAMEID=umu-{s_id} SteamAppId={s_id} SteamGameId={s_id} STEAM_COMPAT_APP_ID={s_id} && "
 
         # GPU Driver Shader Cache Whitelist
         gpu_whitelist_flags = ""
