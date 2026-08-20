@@ -2,48 +2,50 @@
 
 ### Secure, high-performance game sandboxing for Linux.
 
-SafeLauncher is a purpose-built desktop environment designed to run Windows and Linux games inside strictly isolated sandboxes without sacrificing performance. By fusing the kernel-level isolation of Firejail with modern Proton, UMU, and Wine execution layers, SafeLauncher delivers complete containment, automated artwork curation, and intelligent save management wrapped in a refined interface.
+<img width="2560" height="1440" alt="obrazek" src="https://github.com/user-attachments/assets/0c776ac5-fcd6-4ef1-b236-3b81d6d117ff" />
+
+SafeLauncher runs Windows and Linux games in separate Firejail sandboxes while keeping Proton, UMU, Wine, artwork, saves, and desktop integration in one place. Each game gets its own prefix and launch policy, so you can control what it can access and whether it can reach the network.
 
 ---
 
 ## Overview
 
-Traditional gaming setups on Linux grant executables broad access to your user home directory, background processes, and local network. SafeLauncher redefines this paradigm by placing each game inside an isolated sandbox, ensuring personal data, credentials, and system files remain completely untouched.
+Games often run with more access to your home directory and network than they need. SafeLauncher gives each title its own sandbox, prefix, and launch settings, with an offline mode for games that do not need network access.
 
-From dynamic Proton discovery and SteamGridDB artwork syncing to one-click save backup archives and Discord Rich Presence, every subsystem is engineered to deliver a seamless experience.
+It also handles Proton discovery, SteamGridDB artwork, save snapshots, archive installation, and Discord Rich Presence from the same library.
 
 ---
 
 ## Key Features
 
 ### Kernel-Level Sandbox Isolation
-* **Zero-Leak Process Containment**: Enforces strict Firejail sandboxing policies across game processes, background helper daemons, and Wine subprocesses.
-* **Network Access Modes**: Toggle between fully network-isolated offline play (blocking telemetry and outbound calls) and bridged networking for multiplayer titles.
-* **Prefix Isolation & Hygiene**: Automates isolated per-game Wine and Proton prefixes, preventing cross-contamination and clutter across your system.
-* **Security & Launch Diagnostics**: Built-in runtime auditing engine scans sandbox configurations, evaluates access permissions, and generates structured diagnostic logs.
+* **Sandboxed launches**: Runs game processes, Wine helpers, and related tools through Firejail.
+* **Network modes**: Block network access for offline play or use bridged networking for multiplayer games.
+* **Per-game prefixes**: Creates an isolated Wine or Proton prefix for each game.
+* **Launch diagnostics**: Audits sandbox settings and records structured runtime logs.
 
 ### Compatibility & Runtime Engine
-* **Universal Runner Support**: Native compatibility with UMU (Unified Multi-platform Utility), Valve Proton, Proton-GE, and custom Wine distributions.
-* **Automated Runtime Inventory**: Automatically discovers installed Steam runtimes, Proton versions, and system Wine binaries.
-* **Performance Enhancements**: Integrated support for Feral GameMode, Gamescope micro-compositor, and MangoHud performance overlays.
-* **Custom Environment & Launch Flags**: Fine-tune per-game environment variables, DLL overrides, and custom sandbox arguments via an intuitive properties inspector.
+* **Runner support**: Use UMU, Valve Proton, Proton-GE, system Wine, or custom Wine and Proton paths.
+* **Runtime discovery**: Finds installed Steam runtimes, Proton versions, and Wine binaries.
+* **Performance tools**: Works with Feral GameMode, Gamescope, and MangoHud.
+* **Per-game settings**: Set environment variables, DLL overrides, and extra sandbox arguments.
 
 ### Intelligent Library & Metadata Management
-* **Automated Artwork Sync**: Integrates with SteamGridDB to automatically pull high-resolution grid posters, dynamic hero banners, logos, and icon assets.
-* **Embedded Icon Extraction**: Native Windows Portable Executable (PE) binary inspection automatically extracts high-resolution icons directly from `.exe` files.
-* **Gameplay Insights**: Integrated HowLongToBeat (HLTB) queries provide main story, extra, and completionist playtime estimations directly within the library.
-* **Steam Tagging & Organization**: Automated Steam genre and categorization tags with customizable sorting, filtering, search, and favorites.
+* **Artwork sync**: Pulls posters, hero banners, logos, and icons from SteamGridDB.
+* **Icon extraction**: Extracts icons from Windows `.exe` files.
+* **Playtime estimates**: Shows HowLongToBeat estimates for the main story, extra content, and completionist runs.
+* **Library organization**: Supports Steam tags, search, sorting, filters, and favorites.
 
 ### Archive Installation & Save State Lifecycle
-* **Direct Archive Installer**: Install games directly from compressed archives (`.zip`, `.7z`, `.tar`, `.tar.gz`, `.tgz`) with automatic extraction and structure normalization.
-* **Snapshot Save Management**: Export and import entire save states as compressed ZIP archives with automatic save path detection across standard Windows and Wine paths.
-* **Safe State Restoration**: Inspect and restore historical backup snapshots without risking save corruption or data loss.
+* **Archive installation**: Installs games from `.zip`, `.7z`, `.tar`, `.tar.gz`, and `.tgz` archives, then finds likely executables.
+* **Save snapshots**: Exports and imports save data as ZIP archives and detects common Windows and Wine save paths.
+* **Snapshot history**: Inspect and restore previous backups.
 
 ### Desktop & System Integration
-* **Single-Instance Architecture**: Instant IPC socket communication ensures quick wake-and-focus behavior when launched repeatedly.
-* **Discord Rich Presence**: Real-time Discord status updates reflecting current game titles, session durations, and custom presence assets.
-* **GPU Screen Recording & Screenshots**: Integration with modern capture utilities and in-game screenshot galleries.
-* **Native Desktop Shortcuts**: Generate standards-compliant `.desktop` application menu entries to launch sandboxed titles directly from your system launcher.
+* **Single instance**: Uses a local IPC socket to bring the existing window into focus when launched again.
+* **Discord Rich Presence**: Shows the current game and session duration.
+* **Capture integration**: Works with screen recording and screenshot tools available on the host.
+* **Desktop shortcuts**: Creates `.desktop` entries for launching games from the application menu.
 
 ---
 
@@ -51,7 +53,7 @@ From dynamic Proton discovery and SteamGridDB artwork syncing to one-click save 
 
 ### Method 1: AppImage (Recommended)
 
-SafeLauncher is distributed as a standalone, zero-dependency AppImage containing Python, PyQt6, and all core dependencies.
+The AppImage bundles SafeLauncher and its Python dependencies. Firejail and your chosen compatibility runner still need to be installed on the host.
 
 1. Download the latest `SafeLauncher-x86_64.AppImage` from the releases page.
 2. Grant execution permissions:
@@ -63,8 +65,8 @@ SafeLauncher is distributed as a standalone, zero-dependency AppImage containing
    ./SafeLauncher-x86_64.AppImage
    ```
 
-#### Host Prerequisites
-SafeLauncher manages sandboxing and compatibility layers using standard Linux host utilities. Install Firejail and your preferred compatibility runner:
+#### Host prerequisites
+Install Firejail and Wine, or another supported runner such as Proton or UMU:
 
 * **Ubuntu / Debian**:
   ```bash
@@ -87,7 +89,7 @@ SafeLauncher manages sandboxing and compatibility layers using standard Linux ho
 
 ### Method 2: Running from Source
 
-For development or direct customization:
+For development or customization:
 
 1. **Clone the repository**:
    ```bash
@@ -120,13 +122,13 @@ For development or direct customization:
 
 ### Method 3: Building the AppImage with Docker
 
-You can build a clean, reproducible AppImage using the automated Docker build toolchain:
+The Docker build script creates a reproducible AppImage:
 
 ```bash
 ./packaging/build-appimage-docker.sh
 ```
 
-The resulting standalone binary will be placed at `dist/SafeLauncher-x86_64.AppImage`.
+The resulting binary is placed at `dist/SafeLauncher-x86_64.AppImage`.
 
 ---
 
@@ -138,47 +140,49 @@ The resulting standalone binary will be placed at `dist/SafeLauncher-x86_64.AppI
 2. Enter the game title and select the installation directory.
 3. Select the target executable (`.exe` or Linux binary).
 4. Choose the preferred runner (UMU, Proton, or Wine) and set the network isolation mode.
-5. Click **Add** to finalize. SafeLauncher will automatically fetch artwork and prepare the sandbox environment.
+5. Click **Add**. SafeLauncher prepares the sandbox and fetches artwork when available.
 
 ### Installing from an Archive
 
 1. Select **Install from Archive**.
 2. Browse to any supported archive file (`.zip`, `.7z`, `.tar.gz`).
-3. Designate the target installation directory. SafeLauncher extracts the contents, discovers executable candidates, and populates metadata automatically.
+3. Choose the installation directory. SafeLauncher extracts the files, finds likely executables, and creates the game entry.
 
 ### Managing Save States
 
-* **Export Saves**: Select a game, click **Export Save**, and choose a destination path. SafeLauncher compresses the prefix save directory into a portable `.zip` snapshot.
-* **Import Saves**: Select a game, click **Import Save**, and select a previously exported `.zip` file. SafeLauncher validates and extracts the save files into the isolated prefix.
+* **Export Saves**: Select a game, click **Export Save**, and choose a destination. SafeLauncher creates a ZIP snapshot of its detected save data.
+* **Import Saves**: Select a game, click **Import Save**, and select a previous snapshot. SafeLauncher validates it and restores the files inside the isolated prefix.
 
 ---
 
 ## Architecture & Storage
 
-SafeLauncher follows the XDG Base Directory Specification to ensure full separation between configuration, database states, and cached assets:
+SafeLauncher stores its data in the standard XDG directories:
 
 | Path | Description |
 | :--- | :--- |
-| `~/.local/share/safelauncher/library.db` | Primary SQLite database storing game metadata, configurations, and playtime metrics. |
-| `~/.local/share/safelauncher/logs/` | Structured runtime and sandbox diagnostic logs. |
-| `~/.cache/safelauncher/` | Cached SteamGridDB posters, hero banners, logos, and extracted icons. |
-| `~/.config/safelauncher/` | Global application preferences and API keys. |
+| `~/.local/share/safelauncher/library.db` | SQLite database with game metadata, settings, and playtime. |
+| `~/.local/share/safelauncher/logs/` | Runtime and sandbox diagnostics. |
+| `~/.cache/safelauncher/` | Downloaded artwork and extracted icons. |
+| `~/.config/safelauncher/` | Global settings and API keys. |
 
 ---
 
 ## Troubleshooting
 
 #### Firejail SUID Permission
-If your distribution requires elevated permissions for Firejail namespace creation:
+Some distributions require the Firejail SUID bit for namespace creation:
 ```bash
 sudo chmod u+s /usr/bin/firejail
 ```
 
+Only apply this if your distribution's Firejail setup requires it.
+
 #### Proton / UMU Path Discovery
-Ensure Steam or UMU is installed on your host system. SafeLauncher searches standard Steam library locations (`~/.steam/steam`, `~/.local/share/Steam`, and Flatpak Steam paths) to auto-detect Proton versions. Custom Proton paths can be specified in Global Settings.
+SafeLauncher checks common Steam locations, including `~/.steam/steam`, `~/.local/share/Steam`, and Flatpak Steam paths. Set a custom Proton or UMU path in Global Settings if automatic discovery does not find it.
 
 #### MangoHud / GameMode Integration
-To enable performance overlays and priority scheduling, ensure `mangohud` and `gamemode` packages are installed on your host system.
+Install `mangohud` and `gamemode` through your distribution's package manager to enable these integrations.
 
 ---
 
