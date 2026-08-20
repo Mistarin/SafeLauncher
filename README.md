@@ -2,6 +2,10 @@
 
 ### Secure, high-performance game sandboxing for Linux.
 
+[![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.kernel.org)
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 <img width="2560" height="1440" alt="obrazek" src="https://github.com/user-attachments/assets/0c776ac5-fcd6-4ef1-b236-3b81d6d117ff" />
 
 SafeLauncher runs Windows and Linux games in separate Firejail sandboxes while keeping Proton, UMU, Wine, artwork, saves, and desktop integration in one place. Each game gets its own prefix and launch policy, so you can control what it can access and whether it can reach the network.
@@ -30,13 +34,13 @@ It also handles Proton discovery, SteamGridDB artwork, save snapshots, archive i
 * **Performance tools**: Works with Feral GameMode, Gamescope, and MangoHud.
 * **Per-game settings**: Set environment variables, DLL overrides, and extra sandbox arguments.
 
-### Intelligent Library & Metadata Management
+### Library and Metadata
 * **Artwork sync**: Pulls posters, hero banners, logos, and icons from SteamGridDB.
 * **Icon extraction**: Extracts icons from Windows `.exe` files.
 * **Playtime estimates**: Shows HowLongToBeat estimates for the main story, extra content, and completionist runs.
 * **Library organization**: Supports Steam tags, search, sorting, filters, and favorites.
 
-### Archive Installation & Save State Lifecycle
+### Archive Installation and Saves
 * **Archive installation**: Installs games from `.zip`, `.7z`, `.tar`, `.tar.gz`, and `.tgz` archives, then finds likely executables.
 * **Save snapshots**: Exports and imports save data as ZIP archives and detects common Windows and Wine save paths.
 * **Snapshot history**: Inspect and restore previous backups.
@@ -55,7 +59,7 @@ It also handles Proton discovery, SteamGridDB artwork, save snapshots, archive i
 
 The AppImage bundles SafeLauncher and its Python dependencies. Firejail and your chosen compatibility runner still need to be installed on the host.
 
-1. Download the latest `SafeLauncher-x86_64.AppImage` from the releases page.
+1. Download the latest [SafeLauncher-x86_64.AppImage](https://github.com/Mistarin/SafeLauncher/releases/latest).
 2. Grant execution permissions:
    ```bash
    chmod +x SafeLauncher-x86_64.AppImage
