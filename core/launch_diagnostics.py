@@ -67,6 +67,13 @@ class LaunchDiagnostics:
             return "Firejail is unavailable. Install Firejail, then retry the sandboxed launch."
         if any(token in text for token in ("proton not found", "protonpath is not set", "error: protonpath", "could not find steamrt", "could not find steamrt4", "umu has not been setup")):
             return "The Proton/Steam Runtime is missing or not initialized. Verify or repair the selected runtime."
+        if "baddroutput" in text or "badwindow" in text or "x error of failed request" in text:
+            return (
+                "The game reached Proton but failed while creating or querying its X11 window/display. "
+                "This commonly affects fullscreen or monitor detection under Wayland/XWayland. "
+                "Retry in windowed mode, compare a direct launch with SafeLauncher, and test an X11 desktop session. "
+                "The graphics-session preflight above shows whether DISPLAY, XRandR, or Vulkan was already failing."
+            )
         if "no permissions to create a new namespace" in text or "unprivileged_userns_clone" in text:
             return "The kernel denied user namespaces. Enable the setting for your desktop or use the clearly marked unsafe fallback."
         if "no such file" in text or "cannot open" in text:
