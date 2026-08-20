@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime
@@ -66,7 +67,7 @@ from ui.dialogs.game_dialogs import (
     MissingDependencyDialog, ToastNotification, CustomRemoveDialog,
     ManageCollectionGamesDialog, CreateCollectionDialog, RenameCollectionDialog
 )
-from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDialog, DiskManagerDialog
+from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDialog, VideoGalleryDialog, DiskManagerDialog
 from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 from ui.theme import (
     get_application_stylesheet, btn_primary_style, btn_secondary_style,
@@ -449,6 +450,14 @@ class MainWindow(QMainWindow):
         self.btn_detail_screenshots.setStyleSheet(sec_btn_style)
         self.btn_detail_screenshots.clicked.connect(self._open_screenshot_gallery)
         detail_layout.addWidget(self.btn_detail_screenshots)
+
+        self.btn_detail_videos = QPushButton("Videos")
+        self.btn_detail_videos.setIcon(get_icon("ph.video-camera-bold", color="#A7ADB8"))
+        self.btn_detail_videos.setIconSize(QSize(15, 15))
+        self.btn_detail_videos.setFixedHeight(32)
+        self.btn_detail_videos.setStyleSheet(sec_btn_style)
+        self.btn_detail_videos.clicked.connect(self._open_video_gallery)
+        detail_layout.addWidget(self.btn_detail_videos)
 
         self.btn_detail_properties = QPushButton("Properties")
         self.btn_detail_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#A7ADB8"))
@@ -1595,6 +1604,15 @@ class MainWindow(QMainWindow):
         dialog.exec()
         self._update_detail_panel()
 
+    def _open_video_gallery(self):
+        """Open the video browser for the selected game."""
+        game = self.selected_game
+        if not game:
+            return
+        dialog = VideoGalleryDialog(game[0], game[1], self.gpu_recorder_config.output_dir, self)
+        dialog.exec()
+        self._update_detail_panel()
+
     def _open_game_properties(self):
         """Open consolidated GamePropertiesDialog for the selected game."""
         game = self.selected_game
@@ -2079,11 +2097,23 @@ class MainWindow(QMainWindow):
         ) if os.path.exists(shots_dir) else 0
         self.btn_detail_screenshots.setText(f"Screenshots ({count})")
 
+        video_dir = os.path.abspath(os.path.expanduser(self.gpu_recorder_config.output_dir))
+        video_prefix = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_") or "gameplay"
+        video_extensions = (".mp4", ".mkv", ".webm", ".mov", ".avi")
+        video_count = sum(
+            1 for filename in os.listdir(video_dir)
+            if os.path.isfile(os.path.join(video_dir, filename))
+            and filename.lower().endswith(video_extensions)
+            and filename.lower().startswith(video_prefix + "_")
+        ) if os.path.exists(video_dir) else 0
+        self.btn_detail_videos.setText(f"Videos ({video_count})")
+
         self._update_detail_launch_button(game_id)
         self.btn_detail_launch.setVisible(True)
         self.btn_detail_launch.raise_()
         self.btn_detail_edit.setEnabled(True)
         self.btn_detail_screenshots.setEnabled(True)
+        self.btn_detail_videos.setEnabled(True)
         self.btn_detail_properties.setEnabled(True)
         self.btn_detail_remove.setEnabled(True)
         self._animate_left_panel(True)

@@ -1,10 +1,12 @@
 import os
+import re
 import shutil
 import subprocess
+from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QProgressBar, QSizeGrip, QCheckBox, QComboBox
+    QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
@@ -1167,6 +1169,135 @@ class ScreenshotGalleryDialog(QDialog):
             subprocess.Popen(["xdg-open", self.screenshots_dir], env=host_process_env())
         except Exception:
             pass
+
+
+class VideoGalleryDialog(QDialog):
+    """Browse recordings and replay clips belonging to one game."""
+
+    VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov", ".avi")
+
+    def __init__(self, game_id: int, game_name: str, output_dir: str = DEFAULT_RECORDINGS_DIR, parent=None):
+        super().__init__(parent)
+        self.game_id = game_id
+        self.game_name = game_name
+        self.video_dir = os.path.abspath(os.path.expanduser(output_dir))
+        self.game_prefix = re.sub(r"[^a-z0-9]+", "_", game_name.strip().lower()).strip("_") or "gameplay"
+
+        self.setWindowTitle(f"Videos - {game_name}")
+        self.setMinimumSize(700, 480)
+        self.resize(820, 560)
+        self.setSizeGripEnabled(True)
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        root_layout.addWidget(DialogTitleBar(self, f"Videos - {game_name}"))
+
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(18, 14, 18, 14)
+        body_layout.setSpacing(12)
+
+        self.list_widget = QWidget()
+        self.list_layout = QVBoxLayout(self.list_widget)
+        self.list_layout.setContentsMargins(10, 10, 10, 10)
+        self.list_layout.setSpacing(8)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background: #121214; border: 1px solid #27272a; }")
+        scroll.setWidget(self.list_widget)
+        body_layout.addWidget(scroll)
+
+        actions = QHBoxLayout()
+        open_folder = QPushButton("Open Directory")
+        open_folder.setIcon(get_icon("ph.folder-open-bold"))
+        open_folder.clicked.connect(self._open_folder)
+        actions.addWidget(open_folder)
+        actions.addStretch()
+        close = QPushButton("Close")
+        close.setMinimumWidth(80)
+        close.clicked.connect(self.accept)
+        actions.addWidget(close)
+        actions.addWidget(QSizeGrip(self), 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+        body_layout.addLayout(actions)
+        root_layout.addWidget(body)
+        self.setStyleSheet("QDialog { background-color: #121214; color: #ffffff; }")
+        self.load_videos()
+
+    def _files(self):
+        if not os.path.isdir(self.video_dir):
+            return []
+        return sorted(
+            [os.path.join(self.video_dir, name) for name in os.listdir(self.video_dir)
+             if name.lower().endswith(self.VIDEO_EXTENSIONS)
+             and name.lower().startswith(self.game_prefix + "_")
+             and os.path.isfile(os.path.join(self.video_dir, name))],
+            key=os.path.getmtime,
+            reverse=True,
+        )
+
+    def load_videos(self):
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        files = self._files()
+        if not files:
+            empty = QLabel("No recordings or replay clips found for this game.")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setStyleSheet("color: #71717a; font-size: 13px; padding: 40px;")
+            self.list_layout.addWidget(empty)
+            return
+
+        for filepath in files:
+            row = QFrame()
+            row.setStyleSheet("QFrame { background: #18181b; border: 1px solid #27272a; border-radius: 6px; }")
+            layout = QHBoxLayout(row)
+            layout.setContentsMargins(12, 10, 12, 10)
+            icon = QLabel()
+            icon.setPixmap(get_icon("ph.video-camera-bold").pixmap(28, 28))
+            layout.addWidget(icon)
+            info = QVBoxLayout()
+            name = QLabel(os.path.basename(filepath))
+            name.setStyleSheet("color: #f4f4f5; font-weight: 600; background: transparent;")
+            info.addWidget(name)
+            size_mb = os.path.getsize(filepath) / (1024 * 1024)
+            modified = os.path.getmtime(filepath)
+            detail = QLabel(f"{size_mb:.1f} MB  •  {datetime.fromtimestamp(modified):%Y-%m-%d %H:%M}")
+            detail.setStyleSheet("color: #a1a1aa; font-size: 11px; background: transparent;")
+            info.addWidget(detail)
+            layout.addLayout(info, 1)
+            play = QPushButton("Play")
+            play.clicked.connect(lambda _, p=filepath: self._play(p))
+            layout.addWidget(play)
+            reveal = QPushButton("Show")
+            reveal.clicked.connect(lambda _, p=filepath: self._show_file(p))
+            layout.addWidget(reveal)
+            delete = QPushButton("Delete")
+            delete.clicked.connect(lambda _, p=filepath: self._delete(p))
+            layout.addWidget(delete)
+            self.list_layout.addWidget(row)
+        self.list_layout.addStretch()
+
+    def _play(self, filepath):
+        subprocess.Popen(["xdg-open", filepath], env=host_process_env())
+
+    def _show_file(self, filepath):
+        subprocess.Popen(["xdg-open", os.path.dirname(filepath)], env=host_process_env())
+
+    def _delete(self, filepath):
+        answer = QMessageBox.question(self, "Delete video", f"Delete {os.path.basename(filepath)}?")
+        if answer == QMessageBox.StandardButton.Yes:
+            try:
+                os.remove(filepath)
+                self.load_videos()
+            except OSError as error:
+                QMessageBox.warning(self, "Delete failed", str(error))
+
+    def _open_folder(self):
+        os.makedirs(self.video_dir, exist_ok=True)
+        subprocess.Popen(["xdg-open", self.video_dir], env=host_process_env())
 
 
 class DiskManagerDialog(QDialog):
