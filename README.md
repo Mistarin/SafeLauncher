@@ -2,6 +2,9 @@
 
 ### Secure, high-performance game sandboxing for Linux.
 
+<img width="2560" height="1440" alt="obrazek" src="https://github.com/user-attachments/assets/0c776ac5-fcd6-4ef1-b236-3b81d6d117ff" />
+
+
 SafeLauncher is a purpose-built desktop environment designed to run Windows and Linux games inside strictly isolated sandboxes without sacrificing performance. By fusing the kernel-level isolation of Firejail with modern Proton, UMU, and Wine execution layers, SafeLauncher delivers complete containment, automated artwork curation, and intelligent save management wrapped in a refined interface.
 
 ---
