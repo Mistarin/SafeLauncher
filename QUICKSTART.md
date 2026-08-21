@@ -19,42 +19,26 @@ bash launcher.sh
 
 ## What's Included
 
-✅ **Fully Functional PyQt6 GUI**
-- Beautiful, intuitive interface for game management
-- Double-click to launch games
-- Add/remove games with dialog
-- Import/export save files
-
-✅ **Game Sandbox Integration**
-- Firejail sandboxing for security
-- Wine/UMU compatibility modes
-- Automatic Wine prefix management
-
-✅ **SQLite Database**
-- Persistent game library storage
-- Quick add/remove operations
-- Game metadata tracking
-
-✅ **Save Management**
-- Export saves as ZIP archives
-- Import saves back into games
-- Automatic save directory detection
+- **PyQt6 GUI**: Desktop interface with game list, add/remove dialogs, and save backup tools.
+- **Game Sandbox Integration**: Firejail sandboxing, Wine/UMU compatibility modes, and automatic prefix management.
+- **SQLite Database**: Persistent game library storage and metadata tracking.
+- **Save Management**: Export and import saves as ZIP archives with automatic directory detection.
 
 ## Features
 
-### 🎮 Game Management
+### Game Management
 - **Add Games**: Browse for a game directory, set the executable, and choose a runner mode
 - **Install from Archive**: Install a game from a ZIP, 7z, TAR, TAR.GZ, or TGZ archive
 - **Launch Games**: Select a game and click **Launch Game**, or double-click it
 - **Remove Games**: Delete games from library (game files preserved)
 
-### 🛡️ Security
+### Security
 - Firejail sandboxing for Windows games
 - Offline mode with network access disabled
 - Network-enabled mode for games that need online features
 - Separate Wine prefixes per game
 
-### 💾 Save Backup
+### Save Backup
 - Export game saves to ZIP files
 - Import saves from ZIP archives
 - Backup and restore across systems
@@ -182,7 +166,3 @@ To contribute or modify the launcher:
 ## License
 
 Created for personal use. Modify and distribute as needed.
-
----
-
-Enjoy your sandboxed gaming! 🎮
