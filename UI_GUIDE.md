@@ -319,7 +319,3 @@ Potential future improvements:
 - Search/filter functionality
 - Pro controller support
 - Achievement tracking
-
----
-
-Created with PyQt6 for seamless game management! 🎮✨
