@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
 from PyQt6.QtWidgets import QKeySequenceEdit
 
-from core.disk_utils import get_dir_size, get_disk_usage, format_size
+from core.disk_utils import get_dir_size, get_disk_usage, format_size, store_dir_size
 from core.host_process import host_process_env
 from database import _APP_DATA_DIR
 from core.desktop_integration import install_safelauncher_desktop_entry, is_desktop_entry_installed
@@ -36,6 +36,7 @@ class UserSettingsDialog(QDialog):
     """Clean, resizable settings, plugins and security diagnostics center."""
     runtime_manager_requested = pyqtSignal()
     proton_manager_requested = pyqtSignal()
+    _sandbox_size_ready = pyqtSignal(int)  # emitted from worker thread
 
     def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None):
         super().__init__(parent)
@@ -414,12 +415,14 @@ class UserSettingsDialog(QDialog):
         form_disk.addRow("Sandbox Games Directory:", self.lbl_sandbox_size)
         form_disk.addRow("Drive Available Space:", QLabel(f"{format_size(free_drive)} free out of {format_size(total_drive)}"))
 
-        # Asynchronously calculate sandbox directory size without blocking dialog opening
+        # Asynchronously calculate sandbox directory size without blocking dialog opening.
+        # A queued signal marshals the result onto the GUI thread — QTimer must never
+        # be started from a foreign thread.
         import threading
+        self._sandbox_size_ready.connect(self._on_sandbox_size_ready)
         def _calc_sandbox():
             try:
-                sz = get_dir_size(sandbox_dir)
-                QTimer.singleShot(0, lambda: self.lbl_sandbox_size.setText(f"{format_size(sz)} ({sandbox_dir})"))
+                self._sandbox_size_ready.emit(get_dir_size(sandbox_dir))
             except Exception:
                 pass
         threading.Thread(target=_calc_sandbox, daemon=True, name="SafeLauncher-StorageCalc").start()
@@ -792,6 +795,14 @@ class UserSettingsDialog(QDialog):
 
     get_wl_screenrec_config = get_gpu_recorder_config
 
+    def _on_sandbox_size_ready(self, size_bytes: int):
+        """Receive sandbox size computed on the worker thread (GUI-thread slot)."""
+        try:
+            if hasattr(self, "lbl_sandbox_size"):
+                self.lbl_sandbox_size.setText(f"{format_size(size_bytes)} ({ensure_sandbox_dir()})")
+        except RuntimeError:
+            pass  # dialog already destroyed
+
     def get_screenshot_target_screen(self) -> str:
         return self.combo_screenshot_screen.currentData() or "current"
 
@@ -1022,7 +1033,8 @@ class ScreenshotLightboxDialog(QDialog):
             if not self.filepaths:
                 self.accept()
         except Exception as e:
-            logger.warning(f"Failed to delete screenshot: {e}")
+            from core.logger import get_logger
+            get_logger("Settings").warning(f"Failed to delete screenshot: {e}")
 
 
 class ScreenshotGalleryDialog(QDialog):
@@ -1321,7 +1333,13 @@ class VideoGalleryDialog(QDialog):
 
 
 class DiskManagerDialog(QDialog):
-    """Clean dark dialog for analyzing sandbox disk space consumption."""
+    """Clean dark dialog for analyzing sandbox disk space consumption.
+
+    All directory walks happen on a worker thread; results arrive via the
+    queued _sizes_ready signal so opening the dialog never blocks the GUI.
+    """
+    _sizes_ready = pyqtSignal(list)  # [(name, path, bytes)] sorted desc
+
     def __init__(self, games: list, parent=None):
         super().__init__(parent)
         self.games = games
@@ -1345,11 +1363,11 @@ class DiskManagerDialog(QDialog):
         body_layout.setSpacing(12)
 
         sandbox_dir = ensure_sandbox_dir()
-        total_sandbox_bytes = get_dir_size(sandbox_dir)
         total_drive, used_drive, free_drive = get_disk_usage(sandbox_dir)
 
         form_top = QFormLayout()
-        form_top.addRow("Total Sandbox Storage:", QLabel(f"{format_size(total_sandbox_bytes)}"))
+        self.lbl_total_sandbox = QLabel("Calculating…")
+        form_top.addRow("Total Sandbox Storage:", self.lbl_total_sandbox)
         form_top.addRow("Drive Available Space:", QLabel(f"{format_size(free_drive)} free out of {format_size(total_drive)}"))
         body_layout.addLayout(form_top)
 
@@ -1362,42 +1380,36 @@ class DiskManagerDialog(QDialog):
         scroll.setStyleSheet("QScrollArea { background: #121214; border: 1px solid #27272a; }")
 
         list_widget = QWidget()
-        list_layout = QVBoxLayout(list_widget)
-        list_layout.setContentsMargins(8, 8, 8, 8)
-        list_layout.setSpacing(6)
+        self._game_rows_layout = QVBoxLayout(list_widget)
+        self._game_rows_layout.setContentsMargins(8, 8, 8, 8)
+        self._game_rows_layout.setSpacing(6)
 
-        game_sizes = []
-        for g in games:
-            if hasattr(g, 'id'):
-                game_id, name, path = g.id, g.name, g.path
-            else:
-                game_id, name, path = g[0], g[1], g[2]
-            sz = get_dir_size(path) if path and os.path.exists(path) else 0
-            game_sizes.append((name, path, sz))
+        lbl_wait = QLabel("Calculating game sizes…")
+        lbl_wait.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_wait.setStyleSheet("color: #777; font-size: 12px; padding: 16px;")
+        self._game_rows_layout.addWidget(lbl_wait)
+        self._placeholder_row = lbl_wait
 
-        game_sizes.sort(key=lambda x: x[2], reverse=True)
-
-        for name, path, sz in game_sizes:
-            row_frame = QFrame()
-            row_frame.setStyleSheet("QFrame { background: #18181b; border: 1px solid #27272a; }")
-            r_layout = QHBoxLayout(row_frame)
-            r_layout.setContentsMargins(10, 8, 10, 8)
-
-            name_lbl = QLabel(name)
-            name_lbl.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 12px;")
-            r_layout.addWidget(name_lbl)
-
-            r_layout.addStretch()
-
-            size_badge = QLabel(format_size(sz))
-            size_badge.setStyleSheet("color: #a1a1aa; font-size: 11px; padding: 2px 6px;")
-            r_layout.addWidget(size_badge)
-
-            btn_folder = QPushButton("Open Directory")
-            btn_folder.clicked.connect(lambda _, p=path: self._open_path(p))
-            r_layout.addWidget(btn_folder)
-
-            list_layout.addWidget(row_frame)
+        # One worker computes the sandbox total and every game size, then hands
+        # the ranked results back through a queued signal (thread-safe emit).
+        self._sizes_ready.connect(self._on_sizes_ready)
+        import threading
+        def _compute_sizes():
+            results = []
+            for g in games:
+                if hasattr(g, 'id'):
+                    game_id, name, path = g.id, g.name, g.path
+                else:
+                    game_id, name, path = g[0], g[1], g[2]
+                try:
+                    sz = get_dir_size(path) if path and os.path.exists(path) else 0
+                except Exception:
+                    sz = 0
+                store_dir_size(path, sz)  # feed shared cache for list view/sorting
+                results.append((name, path, sz))
+            results.sort(key=lambda x: x[2], reverse=True)
+            self._sizes_ready.emit(results)
+        threading.Thread(target=_compute_sizes, daemon=True, name="SafeLauncher-DiskSizes").start()
 
         scroll.setWidget(list_widget)
         body_layout.addWidget(scroll)
@@ -1415,6 +1427,43 @@ class DiskManagerDialog(QDialog):
 
         root_layout.addWidget(body)
         self.setStyleSheet("QDialog { background-color: #121214; color: #ffffff; }")
+
+    def _on_sizes_ready(self, results: list):
+        """Populate the ranked size list once the worker finishes (GUI-thread slot)."""
+        try:
+            if hasattr(self, "lbl_total_sandbox"):
+                self.lbl_total_sandbox.setText(format_size(sum(sz for _, _, sz in results)))
+            if not hasattr(self, "_game_rows_layout"):
+                return
+            if self._placeholder_row is not None:
+                self._placeholder_row.setParent(None)
+                self._placeholder_row.deleteLater()
+                self._placeholder_row = None
+            for name, path, sz in results:
+                self._game_rows_layout.addWidget(self._build_size_row(name, path, sz))
+        except RuntimeError:
+            pass  # dialog already destroyed
+
+    def _build_size_row(self, name: str, path: str, sz: int) -> QFrame:
+        row_frame = QFrame()
+        row_frame.setStyleSheet("QFrame { background: #18181b; border: 1px solid #27272a; }")
+        r_layout = QHBoxLayout(row_frame)
+        r_layout.setContentsMargins(10, 8, 10, 8)
+
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 12px;")
+        r_layout.addWidget(name_lbl)
+
+        r_layout.addStretch()
+
+        size_badge = QLabel(format_size(sz))
+        size_badge.setStyleSheet("color: #a1a1aa; font-size: 11px; padding: 2px 6px;")
+        r_layout.addWidget(size_badge)
+
+        btn_folder = QPushButton("Open Directory")
+        btn_folder.clicked.connect(lambda _, p=path: self._open_path(p))
+        r_layout.addWidget(btn_folder)
+        return row_frame
 
     def _open_path(self, path: str):
         try:

@@ -34,8 +34,8 @@ bash launcher.sh
 
 ### Security
 - Firejail sandboxing for Windows games
-- Offline mode with network access disabled
-- Network-enabled mode for games that need online features
+- Native Linux and legacy Wine modes run without network access (`--net=none`)
+- UMU/Proton launches currently have full host network access — treat them as online
 - Separate Wine prefixes per game
 
 ### Save Backup
@@ -96,9 +96,9 @@ SafeLauncher/
 3. Click **Browse...** and select the game directory
 4. Enter the executable name (e.g., "portal2.exe")
 5. Select launch mode:
-   - **UMU – Offline**: Recommended for Windows games that do not need internet access
-   - **UMU – Network Enabled**: For games that need online features
-   - **Wine – Legacy**: Runs directly with system Wine
+   - **UMU – Standard (networked)**: Recommended path for Windows games via Proton. Note: currently has full host network access.
+   - **UMU – Network Enabled (alias)**: Identical to UMU Standard; kept for compatibility.
+   - **Wine – Legacy (offline)**: Runs directly with system Wine, sandboxed without network.
 6. Click **Add**
 
 ### Launching a Game
@@ -151,7 +151,7 @@ sudo chmod u+s /usr/bin/firejail
 - **Backup saves regularly**: Use the export feature to create backups
 - **Test launch mode**: UMU and Wine have different compatibility levels
 - **Check game logs**: Wine logs are in `<game_path>/prefix/drive_c/windows/temp`
-- **Network access**: Offline mode is safer; use Network Enabled mode when a game needs internet access
+- **Network access**: UMU launches are online; use Wine/Native Linux modes for network isolation
 
 ## Development
 

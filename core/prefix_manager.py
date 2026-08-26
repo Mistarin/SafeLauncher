@@ -1,6 +1,7 @@
 """Wine prefix inspection and recoverable maintenance operations."""
 
 from dataclasses import dataclass
+import inspect
 import os
 import shutil
 import tarfile
@@ -77,17 +78,61 @@ class PrefixManager:
         if staging.exists():
             shutil.rmtree(staging)
         staging.mkdir(parents=True)
-        with tarfile.open(archive_path, "r:*") as archive:
-            for member in archive.getmembers():
-                target = (staging / member.name).resolve()
-                if staging.resolve() not in target.parents and target != staging.resolve():
-                    raise ValueError("Prefix backup contains an unsafe path.")
-            archive.extractall(staging)
+
+        try:
+            with tarfile.open(archive_path, "r:*") as archive:
+                if "filter" in inspect.signature(tarfile.TarFile.extractall).parameters:
+                    # 'data' rejects absolute paths, traversal, and out-of-tree
+                    # symlinks during extraction itself. Pre-validation cannot do
+                    # this reliably: resolution sees neither links that will be
+                    # created nor those they point through mid-extract.
+                    archive.extractall(staging, filter="data")
+                else:
+                    self._extract_members_safely(archive, staging)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+
         extracted = staging / "prefix"
-        if prefix.exists():
-            shutil.rmtree(prefix)
-        extracted.rename(prefix)
-        staging.rmdir()
+        if not extracted.is_dir():
+            shutil.rmtree(staging, ignore_errors=True)
+            raise ValueError("Prefix backup is malformed: missing top-level 'prefix/' directory.")
+
+        # Stage fully, then swap. The live prefix must survive a bad backup,
+        # so nothing gets destroyed until the replacement is verified on disk.
+        previous = prefix.with_name("prefix.old")
+        if previous.exists():
+            shutil.rmtree(previous)
+        had_live_prefix = prefix.exists()
+        if had_live_prefix:
+            prefix.rename(previous)
+        try:
+            extracted.rename(prefix)
+        except Exception:
+            if had_live_prefix and previous.exists() and not prefix.exists():
+                previous.rename(prefix)
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+
+        shutil.rmtree(staging, ignore_errors=True)
+        if previous.exists():
+            shutil.rmtree(previous, ignore_errors=True)
+
+    @staticmethod
+    def _extract_members_safely(archive: "tarfile.TarFile", staging: Path) -> None:
+        """Fallback extraction for runtimes without tarfile extraction filters."""
+        staging_root = staging.resolve()
+        safe_members = []
+        for member in archive.getmembers():
+            if not (member.isfile() or member.isdir()):
+                # Links and device nodes are exactly what lets a hostile
+                # archive redirect writes outside the staging tree; skip them.
+                continue
+            target = (staging / member.name).resolve()
+            if target != staging_root and staging_root not in target.parents:
+                raise ValueError("Prefix backup contains an unsafe path.")
+            safe_members.append(member)
+        archive.extractall(staging, members=safe_members)
 
     def migrate(self, game_path: str, destination_game_path: str) -> str:
         source = Path(game_path) / "prefix"

@@ -32,7 +32,11 @@ def _migrate_legacy_db(new_path: str) -> None:
 
 
 def _create_database_backup(db_path: str) -> None:
-    """Create auto-backup copy (library.db.bak) on startup."""
+    """Create auto-backup copy (library.db.bak) on startup.
+
+    Only called after the database file has passed a consistency check, so a
+    corrupted database can never overwrite the last known-good recovery copy.
+    """
     if db_path == ":memory:" or not os.path.isfile(db_path):
         return
     bak_path = f"{db_path}.bak"
@@ -116,7 +120,6 @@ class GameDatabase:
         if db_path != ":memory:":
             os.makedirs(os.path.dirname(db_path), mode=0o700, exist_ok=True)
             _migrate_legacy_db(db_path)
-            _create_database_backup(db_path)
 
         self.conn = None
         self._connect_with_retry()
@@ -126,25 +129,44 @@ class GameDatabase:
                 os.chmod(db_path, 0o600)
             except Exception:
                 pass
+            # Back up only after the connection was verified consistent, so the
+            # recovery copy always holds the newest healthy snapshot.
+            _create_database_backup(db_path)
 
         self._create_table()
 
     def _connect_with_retry(self):
         """Connect to SQLite database with self-healing restore from .bak on corruption."""
+        def _is_consistent(conn) -> bool:
+            # sqlite3.connect does not touch data pages; corruption only surfaces
+            # on the first real query, so force an explicit integrity check.
+            try:
+                row = conn.execute("PRAGMA quick_check(1)").fetchone()
+            except sqlite3.DatabaseError:
+                return False
+            return bool(row) and str(row[0]).lower() == "ok"
+
         try:
             self.conn = sqlite3.connect(self.db_path, timeout=5)
             self.conn.execute("PRAGMA busy_timeout = 5000")
+            if not _is_consistent(self.conn):
+                raise sqlite3.DatabaseError(f"Integrity check failed for {self.db_path}")
         except sqlite3.DatabaseError as e:
             logger.error(f"Failed to open SQLite database {self.db_path}: {e}")
+            self.conn = None
             bak_path = f"{self.db_path}.bak"
             if os.path.isfile(bak_path):
                 logger.warning(f"Attempting self-healing recovery from backup: {bak_path}")
                 try:
                     shutil.copy2(bak_path, self.db_path)
-                    self.conn = sqlite3.connect(self.db_path, timeout=5)
-                    self.conn.execute("PRAGMA busy_timeout = 5000")
-                    logger.info("Successfully restored database from backup.")
-                    return
+                    conn = sqlite3.connect(self.db_path, timeout=5)
+                    conn.execute("PRAGMA busy_timeout = 5000")
+                    if _is_consistent(conn):
+                        self.conn = conn
+                        logger.info("Successfully restored database from backup.")
+                        return
+                    conn.close()
+                    logger.error("Restored backup also failed its integrity check.")
                 except Exception as restore_err:
                     logger.error(f"Backup restore failed: {restore_err}")
             # If all fails, fall back to in-memory database to prevent launcher crash

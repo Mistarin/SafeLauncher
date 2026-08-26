@@ -180,14 +180,22 @@ class FirejailSandboxRunner(ISandboxRunner):
                 gpu_whitelist_flags += f"--whitelist={shlex.quote(expanded)} "
 
         # Keep the complete runtime state in the same persistent launch log.
-        proton_log_dir_path = tempfile.mkdtemp(
-            prefix=".safelauncher-proton-",
-            dir=os.path.realpath(game_path),
-        )
+        # Only create the per-launch diagnostics directory when verbose logging
+        # is requested; unconditionally it littered every game folder with
+        # stale empty dirs and (via the env dump below) persisted the launcher
+        # environment — potentially including API tokens — on every launch.
+        enable_verbose = os.environ.get("SAFELAUNCHER_DEBUG", "0").strip() == "1" or \
+            os.environ.get("SAFELAUNCHER_PROTON_LOG", "0") == "1"
+        if enable_verbose:
+            proton_log_dir_path = tempfile.mkdtemp(
+                prefix=".safelauncher-proton-",
+                dir=os.path.realpath(game_path),
+            )
+        else:
+            proton_log_dir_path = ""
         proton_log_dir = shlex.quote(proton_log_dir_path)
 
-        enable_verbose = os.environ.get("SAFELAUNCHER_DEBUG", "0").strip() == "1"
-        proton_log_flag = "1" if enable_verbose or os.environ.get("SAFELAUNCHER_PROTON_LOG", "0") == "1" else "0"
+        proton_log_flag = "1" if enable_verbose else "0"
         vkd3d_debug = os.environ.get("SAFELAUNCHER_VKD3D_DEBUG", "warn" if enable_verbose else "none").strip()
         wine_debug = os.environ.get("SAFELAUNCHER_WINEDEBUG", "-all").strip() or "-all"
 
@@ -195,22 +203,27 @@ class FirejailSandboxRunner(ISandboxRunner):
             f"export PROTON_LOG={proton_log_flag} VKD3D_DEBUG={shlex.quote(vkd3d_debug)} "
             f"WINEDEBUG={shlex.quote(wine_debug)} PROTON_LOG_DIR={proton_log_dir} && "
         )
+        # Opt-in: `env | sort` dumps every ambient token into a persistent file.
         diagnostic_header = (
-            "echo '===== SAFELAUNCHER DIAGNOSTICS ====='; "
-            "echo '--- complete launch environment ---'; env | sort; "
-            "echo '--- graphics session preflight ---'; "
-            "printf 'DISPLAY=%s\\nWAYLAND_DISPLAY=%s\\nXDG_SESSION_TYPE=%s\\n' "
-            "\"$DISPLAY\" \"$WAYLAND_DISPLAY\" \"$XDG_SESSION_TYPE\"; "
-            "if command -v xrandr >/dev/null 2>&1; then "
-            "echo '--- xrandr --query ---'; xrandr --query 2>&1 | sed -n '1,120p'; "
-            "else echo 'xrandr: not installed'; fi; "
-            "if command -v vulkaninfo >/dev/null 2>&1; then "
-            "echo '--- vulkaninfo --summary ---'; vulkaninfo --summary 2>&1 | sed -n '1,80p'; "
-            "else echo 'vulkaninfo: not installed'; fi; "
-            "echo '--- initial process tree ---'; ps -ef --forest; "
             f"echo '--- runtime={shlex.quote(active_proton or 'system/default')} "
             f"prefix={prefix_path} game={q_path} ---'; "
         )
+        if enable_verbose:
+            diagnostic_header = (
+                "echo '===== SAFELAUNCHER DIAGNOSTICS ====='; "
+                "echo '--- complete launch environment ---'; env | sort; "
+                "echo '--- graphics session preflight ---'; "
+                "printf 'DISPLAY=%s\\nWAYLAND_DISPLAY=%s\\nXDG_SESSION_TYPE=%s\\n' "
+                "\"$DISPLAY\" \"$WAYLAND_DISPLAY\" \"$XDG_SESSION_TYPE\"; "
+                "if command -v xrandr >/dev/null 2>&1; then "
+                "echo '--- xrandr --query ---'; xrandr --query 2>&1 | sed -n '1,120p'; "
+                "else echo 'xrandr: not installed'; fi; "
+                "if command -v vulkaninfo >/dev/null 2>&1; then "
+                "echo '--- vulkaninfo --summary ---'; vulkaninfo --summary 2>&1 | sed -n '1,80p'; "
+                "else echo 'vulkaninfo: not installed'; fi; "
+                "echo '--- initial process tree ---'; ps -ef --forest; "
+                + diagnostic_header
+            )
         enable_strace = os.environ.get("SAFELAUNCHER_STRACE", "0").strip() == "1"
         strace_path = shutil.which("strace") if enable_strace else None
         if strace_path:

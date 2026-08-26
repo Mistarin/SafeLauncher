@@ -291,24 +291,31 @@ class SteamGridDBClient:
                     response = self.session.get(url, timeout=6, stream=True)
                     if response.status_code == 200 and response.headers.get('Content-Type', '').startswith('image/'):
                         chunks = []
+                        total = 0
                         for chunk in response.iter_content(chunk_size=65536):
+                            total += len(chunk)
+                            # Same exhaustion guard as download_banner: never
+                            # buffer an uncapped response body into RAM.
+                            if total > self._MAX_BANNER_BYTES:
+                                print(f"Refusing hero download: response exceeds {self._MAX_BANNER_BYTES // (1024*1024)} MB from {url}")
+                                break
                             chunks.append(chunk)
-                        
-                        with open(cache_file, 'wb') as f:
-                            for chunk in chunks:
-                                f.write(chunk)
-                        
-                        # Verify downloaded file is widescreen landscape (width >= height)
-                        try:
-                            from PIL import Image
-                            with Image.open(cache_file) as img:
-                                w, h = img.size
-                                if w >= h:
-                                    return str(cache_file.resolve())
-                                else:
-                                    cache_file.unlink()
-                        except Exception:
-                            return str(cache_file.resolve())
+                        else:
+                            with open(cache_file, 'wb') as f:
+                                for chunk in chunks:
+                                    f.write(chunk)
+
+                            # Verify downloaded file is widescreen landscape (width >= height)
+                            try:
+                                from PIL import Image
+                                with Image.open(cache_file) as img:
+                                    w, h = img.size
+                                    if w >= h:
+                                        return str(cache_file.resolve())
+                                    else:
+                                        cache_file.unlink()
+                            except Exception:
+                                return str(cache_file.resolve())
                 except Exception:
                     continue
 
@@ -386,17 +393,24 @@ class SteamGridDBClient:
             urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/capsule_231x87.jpg")
             urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/header.jpg")
 
+        max_icon_bytes = 5 * 1024 * 1024  # 5 MB cap; icons are tiny in practice
         for url in urls_to_try:
             try:
                 resp = self.session.get(url, timeout=6, stream=True)
                 if resp.status_code == 200 and resp.headers.get('Content-Type', '').startswith('image/'):
                     chunks = []
+                    total = 0
                     for chunk in resp.iter_content(chunk_size=32768):
+                        total += len(chunk)
+                        if total > max_icon_bytes:
+                            print(f"Refusing icon download: response exceeds {max_icon_bytes // (1024*1024)} MB from {url}")
+                            break
                         chunks.append(chunk)
-                    with open(cache_file, 'wb') as f:
-                        for chunk in chunks:
-                            f.write(chunk)
-                    return str(cache_file.resolve())
+                    else:
+                        with open(cache_file, 'wb') as f:
+                            for chunk in chunks:
+                                f.write(chunk)
+                        return str(cache_file.resolve())
             except Exception:
                 continue
 

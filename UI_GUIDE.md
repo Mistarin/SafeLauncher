@@ -247,7 +247,7 @@ mode: wine
 ### UMU (Unified Multi-platform Utility)
 ```bash
 cd '<game_path>' && firejail --ignore=noroot --ignore=seccomp \
-  --net=none --whitelist='<game_path>' \
+  --whitelist='<game_path>' \
   --whitelist='$HOME/.local/share/umu' \
   --whitelist='$HOME/.cache/umu' \
   --env=WINEPREFIX='<game_path>/prefix' \
@@ -255,7 +255,7 @@ cd '<game_path>' && firejail --ignore=noroot --ignore=seccomp \
 ```
 - Better compatibility with newer games
 - Requires UMU installed
-- No network by default
+- **Has full host network access** (no `--net=none`; pressure-vessel compatibility)
 - Modern approach
 
 ### Wine

@@ -9,6 +9,9 @@ from core.zip_backup import ZipBackupManager
 from ui.main_window import MainWindow
 from core.dependency_checker import install_requirements, missing_requirements
 
+# Single source of truth for the application version.
+__version__ = "0.3.1"
+
 logger = get_logger("Main")
 
 
@@ -78,6 +81,17 @@ def main():
     # 3. Create main window & bind single-instance listener
     window = MainWindow(db, runner, backup)
     server = create_single_instance_server(window._show_and_raise)
+
+    # 4. Ensure the bundled ludusavi save-detection engine is present.
+    #    Runs on a daemon thread: never download on the GUI thread; until it
+    #    finishes (or if it fails) detection falls back to heuristics.
+    import threading
+    from core.ludusavi_installer import ensure_ludusavi
+    threading.Thread(
+        target=ensure_ludusavi,
+        daemon=True,
+        name="SafeLauncher-LudusaviBootstrap",
+    ).start()
 
     window.show()
     logger.info("SafeLauncher UI started successfully.")

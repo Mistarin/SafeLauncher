@@ -1,5 +1,51 @@
 import os
 import shutil
+import threading
+import time
+
+
+_DIR_SIZE_CACHE = {}
+_DIR_SIZE_LOCK = threading.Lock()
+_DIR_SIZE_TTL_SECONDS = 600.0
+
+
+def peek_dir_size(dir_path: str):
+    """Return the cached directory size if fresh, otherwise None.
+
+    Never touches the disk, so GUI-thread callers can order or display sizes
+    while the actual calculation runs in worker threads (see store_dir_size,
+    used by DiskSizeFetcherThread).
+    """
+    if not dir_path:
+        return None
+    key = os.path.abspath(dir_path)
+    now = time.monotonic()
+    with _DIR_SIZE_LOCK:
+        entry = _DIR_SIZE_CACHE.get(key)
+        if entry and (now - entry[0]) < _DIR_SIZE_TTL_SECONDS:
+            return entry[1]
+    return None
+
+
+def has_fresh_dir_size(dir_path: str) -> bool:
+    return peek_dir_size(dir_path) is not None
+
+
+def store_dir_size(dir_path: str, size_bytes: int) -> None:
+    """Publish a computed directory size for reuse across the UI (thread-safe)."""
+    if not dir_path:
+        return
+    key = os.path.abspath(dir_path)
+    with _DIR_SIZE_LOCK:
+        _DIR_SIZE_CACHE[key] = (time.monotonic(), int(size_bytes))
+
+
+def dir_size_display(dir_path: str) -> str:
+    """Human-readable size from cache, or an ellipsis while unknown."""
+    size = peek_dir_size(dir_path)
+    if size is None:
+        return "…"
+    return format_size(size)
 
 
 def get_dir_size(dir_path: str) -> int:

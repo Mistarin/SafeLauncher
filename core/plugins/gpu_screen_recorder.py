@@ -101,7 +101,7 @@ class GpuRecorderService:
         ]
         if shutil.which("gpu-screen-recorder"):
             try:
-                out = subprocess.check_output(["gpu-screen-recorder", "--list-monitors"], text=True, stderr=subprocess.DEVNULL)
+                out = subprocess.check_output(["gpu-screen-recorder", "--list-monitors"], text=True, stderr=subprocess.DEVNULL, timeout=4)
                 for line in out.strip().splitlines():
                     if "|" in line:
                         m_name, m_res = line.split("|", 1)
@@ -116,7 +116,7 @@ class GpuRecorderService:
         devices = [("default_output", "Default Desktop / Game Audio")]
         if shutil.which("pactl"):
             try:
-                out = subprocess.check_output(["pactl", "list", "sources"], text=True, stderr=subprocess.DEVNULL)
+                out = subprocess.check_output(["pactl", "list", "sources"], text=True, stderr=subprocess.DEVNULL, timeout=4)
                 current_name = ""
                 current_desc = ""
                 for line in out.splitlines():
@@ -141,7 +141,7 @@ class GpuRecorderService:
         ]
         if shutil.which("pactl"):
             try:
-                out = subprocess.check_output(["pactl", "list", "sources"], text=True, stderr=subprocess.DEVNULL)
+                out = subprocess.check_output(["pactl", "list", "sources"], text=True, stderr=subprocess.DEVNULL, timeout=4)
                 current_name = ""
                 current_desc = ""
                 for line in out.splitlines():

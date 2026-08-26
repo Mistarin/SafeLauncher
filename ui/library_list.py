@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QFont, QPixmap, QPainter, QColor, QIcon
 
-from core.disk_utils import get_dir_size, format_size
+from core.disk_utils import dir_size_display
 from ui.icons import get_app_icon, get_icon
 
 
@@ -153,7 +153,7 @@ class LibraryListItemWidget(QWidget):
         """)
         bottom_line.addWidget(mode_lbl)
 
-        size_str = format_size(get_dir_size(self.path)) if self.path else "0 B"
+        size_str = dir_size_display(self.path) if self.path else "0 B"
         meta_items = [size_str]
         if self.executable:
             meta_items.append(self.executable)
