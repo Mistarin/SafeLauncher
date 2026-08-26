@@ -57,7 +57,7 @@ class FirejailSandboxRunner(ISandboxRunner):
         logger.debug(f"Dependency check result: {deps}")
         return deps
 
-    def launch(self, game_path: str, executable: str, mode: str, steam_id: str = "", sandbox: bool = True) -> subprocess.Popen:
+    def launch(self, game_path: str, executable: str, mode: str, steam_id: str = "", sandbox: bool = True, env_vars: dict = None) -> subprocess.Popen:
         if not game_path or not os.path.exists(game_path):
             logger.error(f"Launch failed: Game path does not exist: {game_path}")
             raise ValueError(f"Game path does not exist: {game_path}")
@@ -237,6 +237,17 @@ class FirejailSandboxRunner(ISandboxRunner):
         security_flags = f"{common_security_flags} --nodbus"
         game_compat_flags = "--ignore=noinput --ignore=novideo"
 
+        # Per-game custom environment variables and presets (FSR, DXVK, etc.)
+        custom_env_flags = ""
+        custom_env_exports = ""
+        if env_vars and isinstance(env_vars, dict):
+            for k, v in env_vars.items():
+                clean_k = "".join(c for c in str(k) if c.isalnum() or c == "_")
+                if clean_k and v is not None and str(v).strip() != "":
+                    q_v = shlex.quote(str(v))
+                    custom_env_flags += f"--env={clean_k}={q_v} "
+                    custom_env_exports += f"export {clean_k}={q_v} && "
+
         if mode in ("umu", "umu_net"):
             runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
             if has_firejail:
@@ -252,25 +263,25 @@ class FirejailSandboxRunner(ISandboxRunner):
                     f"{net_flag}{firejail_audit}{common_security_flags} {game_compat_flags} "
                     f"--whitelist={q_path} --whitelist={q_umu_share} --whitelist={q_umu_cache} "
                     f"--whitelist={q_steam_compat} {gpu_whitelist_flags}"
-                    f"{proton_whitelist}{proton_env}{game_id_env}--env=WINEPREFIX={prefix_path} {runner_cmd}"
+                    f"{proton_whitelist}{proton_env}{game_id_env}{custom_env_flags}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
-                cmd = f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{game_id_export}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
+                cmd = f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{game_id_export}{custom_env_exports}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
         elif mode == "linux":
             if has_firejail:
-                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--noprofile --net=none {security_flags} --whitelist={q_path} {gpu_whitelist_flags}./{q_exe}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--noprofile --net=none {security_flags} --whitelist={q_path} {gpu_whitelist_flags}{custom_env_flags}./{q_exe}"
             else:
-                cmd = f"cd {q_work_dir} && {diagnostic_header}./{q_exe}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{custom_env_exports}./{q_exe}"
         else:  # "wine"
             runner_cmd = f"wine {q_exe}"
             if has_firejail:
                 cmd = (
                     f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--noprofile --net=none {security_flags} "
                     f"--whitelist={q_path} {gpu_whitelist_flags}"
-                    f"--env=WINEPREFIX={prefix_path} {runner_cmd}"
+                    f"{custom_env_flags}--env=WINEPREFIX={prefix_path} {runner_cmd}"
                 )
             else:
-                cmd = f"cd {q_work_dir} && {diagnostic_header}{debug_exports}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{debug_exports}{custom_env_exports}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
 
         logger.info(f"Spawning process in mode '{mode}' (Firejail: {has_firejail}, Proton: '{active_proton}'): {cmd}")
 

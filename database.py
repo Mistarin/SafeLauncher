@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 import shutil
 import time
 from core.logger import get_logger
@@ -67,6 +68,7 @@ class GameRecord:
     patch_notes_url: str = ""
     is_archived: int = 0
     icon_url: str = ""
+    env_vars: str = "{}"
 
     def __getitem__(self, idx):
         fields = (
@@ -75,18 +77,15 @@ class GameRecord:
             self.is_favorite, self.last_played, self.tags, self.build_id,
             self.proton_path, self.collection, self.install_date,
             self.version_override, self.patch_notes_url,
-            self.is_archived, self.icon_url
+            self.is_archived, self.icon_url, self.env_vars or "{}"
         )
         return fields[idx]
 
     def __len__(self):
-        return 19
+        return 20
 
     def __hash__(self):
         return hash(self.id)
-
-    def __len__(self):
-        return 19
 
     def __iter__(self):
         return iter((
@@ -95,7 +94,7 @@ class GameRecord:
             self.is_favorite, self.last_played, self.tags, self.build_id,
             self.proton_path, self.collection, self.install_date,
             self.version_override, self.patch_notes_url,
-            self.is_archived, self.icon_url
+            self.is_archived, self.icon_url, self.env_vars or "{}"
         ))
 
 
@@ -105,7 +104,7 @@ class GameDatabase:
         "playtime_seconds, is_favorite, last_played, tags, build_id"
         ", proton_path, collection, install_date"
         ", version_override, patch_notes_url"
-        ", is_archived, icon_url"
+        ", is_archived, icon_url, env_vars"
     )
 
     def __init__(self, db_path: str = None):
@@ -199,6 +198,8 @@ class GameDatabase:
                     cursor.execute("ALTER TABLE games ADD COLUMN is_archived INTEGER DEFAULT 0")
                 if "icon_url" not in columns:
                     cursor.execute("ALTER TABLE games ADD COLUMN icon_url TEXT DEFAULT ''")
+                if "env_vars" not in columns:
+                    cursor.execute("ALTER TABLE games ADD COLUMN env_vars TEXT DEFAULT '{}'")
                 
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS collections (
@@ -416,6 +417,29 @@ class GameDatabase:
         except Exception as e:
             logger.error(f"Failed to update icon for game {game_id}: {e}")
 
+    def update_game_env_vars(self, game_id: int, env_vars: dict | str) -> None:
+        """Update per-game environment variables and presets (stored as JSON string)."""
+        try:
+            val_str = json.dumps(env_vars) if isinstance(env_vars, dict) else str(env_vars or "{}")
+            with self.conn:
+                self.conn.execute("UPDATE games SET env_vars = ? WHERE id = ?", (val_str, game_id))
+            logger.info(f"Updated environment variables for game {game_id}")
+        except Exception as e:
+            logger.error(f"Failed to update env_vars for game {game_id}: {e}")
+
+    def get_game_env_vars(self, game_id: int) -> dict:
+        """Retrieve per-game environment variables as a dictionary."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT env_vars FROM games WHERE id = ?", (game_id,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return {}
+        except Exception as e:
+            logger.error(f"Failed to get env_vars for game {game_id}: {e}")
+            return {}
+
     def get_all_games(self) -> List[GameRecord]:
         try:
             cursor = self.conn.cursor()
@@ -429,7 +453,8 @@ class GameDatabase:
                     build_id=r[11] or "", proton_path=r[12] or "", collection=r[13] or "",
                     install_date=r[14] or 0, version_override=r[15] or "", patch_notes_url=r[16] or "",
                     is_archived=r[17] if len(r) > 17 and r[17] else 0,
-                    icon_url=r[18] if len(r) > 18 and r[18] else ""
+                    icon_url=r[18] if len(r) > 18 and r[18] else "",
+                    env_vars=r[19] if len(r) > 19 and r[19] else "{}"
                 )
                 for r in rows
             ]
@@ -451,3 +476,4 @@ class GameDatabase:
                 self.conn.close()
             except Exception:
                 pass
+
