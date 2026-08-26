@@ -14,7 +14,7 @@ SafeLauncher runs Windows and Linux games in separate Firejail sandboxes while k
 
 ## Overview
 
-Games often run with more access to your home directory and network than they need. SafeLauncher gives each title its own sandbox, prefix, and launch settings, with an offline mode for games that do not need network access.
+Games often run with more access to your home directory and network than they need. SafeLauncher gives each title its own sandbox, prefix, and launch settings, and can run network-free for games that do not need connectivity.
 
 It also handles Proton discovery, SteamGridDB artwork, save snapshots, archive installation, and Discord Rich Presence from the same library.
 
@@ -24,7 +24,7 @@ It also handles Proton discovery, SteamGridDB artwork, save snapshots, archive i
 
 ### Kernel-Level Sandbox Isolation
 * **Sandboxed launches**: Runs game processes, Wine helpers, and related tools through Firejail.
-* **Network modes**: Block network access for offline play or use bridged networking for multiplayer games.
+* **Network isolation**: Native Linux and legacy Wine modes run with `--net=none` (no network). UMU/Proton launches currently have full host network access, so treat them as online.
 * **Per-game prefixes**: Creates an isolated Wine or Proton prefix for each game.
 * **Launch diagnostics**: Audits sandbox settings and records structured runtime logs.
 
@@ -37,7 +37,6 @@ It also handles Proton discovery, SteamGridDB artwork, save snapshots, archive i
 ### Library and Metadata
 * **Artwork sync**: Pulls posters, hero banners, logos, and icons from SteamGridDB.
 * **Icon extraction**: Extracts icons from Windows `.exe` files.
-* **Playtime estimates**: Shows HowLongToBeat estimates for the main story, extra content, and completionist runs.
 * **Library organization**: Supports Steam tags, search, sorting, filters, and favorites.
 
 ### Archive Installation and Saves

@@ -1,4 +1,5 @@
 import os
+import getpass
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QMessageBox, QComboBox, QProgressBar, QWidget, QFrame, QMenu,
@@ -158,9 +159,11 @@ class AddGameDialog(QDialog):
         # Launch Mode
         self.mode_combo = QComboBox()
         self.mode_combo.setMinimumHeight(36)
-        self.mode_combo.addItem(get_app_icon("shield"), "UMU – Offline", "umu")
-        self.mode_combo.addItem(get_app_icon("globe"), "UMU – Network Enabled", "umu_net")
-        self.mode_combo.addItem(get_app_icon("wine"), "Wine – Legacy", "wine")
+        # Both UMU entries currently launch with full host networking (see
+        # FirejailSandboxRunner) — labels must not claim otherwise.
+        self.mode_combo.addItem(get_app_icon("shield"), "UMU – Standard (networked)", "umu")
+        self.mode_combo.addItem(get_app_icon("globe"), "UMU – Network Enabled (alias)", "umu_net")
+        self.mode_combo.addItem(get_app_icon("wine"), "Wine – Legacy (offline)", "wine")
         self.mode_combo.addItem(get_app_icon("terminal"), "Native Linux", "linux")
         form_layout.addRow("Runner Mode:", self.mode_combo)
 
@@ -471,9 +474,9 @@ class AddGameDialog(QDialog):
         mode = self.mode_combo.currentData()
         if mode not in ("umu", "umu_net", "wine", "linux"):
             mode = {
-                "UMU – Offline": "umu",
-                "UMU – Network Enabled": "umu_net",
-                "Wine – Legacy": "wine",
+                "UMU – Standard (networked)": "umu",
+                "UMU – Network Enabled (alias)": "umu_net",
+                "Wine – Legacy (offline)": "wine",
                 "Native Linux": "linux",
             }.get(self.mode_combo.currentText().strip(), "umu")
         if self.exe_combo.currentIndex() >= 0 and self.exe_combo.currentData():
@@ -632,24 +635,24 @@ class LaunchOptionsDialog(QDialog):
         body_layout.addWidget(info_label)
 
         btn_umu = self._create_option_button(
-            "UMU – Offline",
-            "Recommended for Windows games that do not need internet access",
+            "UMU – Standard (networked)",
+            "Recommended Windows path via Proton. Note: currently has full host network access.",
             "shield"
         )
         btn_umu.clicked.connect(lambda: self._select("umu"))
         body_layout.addWidget(btn_umu)
 
         btn_umu_net = self._create_option_button(
-            "UMU – Network Enabled",
-            "Allows internet access for online features",
+            "UMU – Network Enabled (alias)",
+            "Alias of UMU Standard — kept for compatibility with existing libraries.",
             "globe"
         )
         btn_umu_net.clicked.connect(lambda: self._select("umu_net"))
         body_layout.addWidget(btn_umu_net)
 
         btn_wine = self._create_option_button(
-            "Wine – Legacy",
-            "Runs directly with system Wine without the Proton wrapper",
+            "Wine – Legacy (offline)",
+            "Runs directly with system Wine without the Proton wrapper. Sandboxed without network access.",
             "wine"
         )
         btn_wine.clicked.connect(lambda: self._select("wine"))

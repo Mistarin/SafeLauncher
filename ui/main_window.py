@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from datetime import datetime
 from html import escape
 from PyQt6.QtWidgets import (
@@ -9,7 +10,8 @@ from PyQt6.QtWidgets import (
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
     QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
     QApplication, QSystemTrayIcon, QCheckBox, QGraphicsOpacityEffect, QPlainTextEdit, QProgressBar,
-    QStackedWidget, QSlider, QSplitter, QDialogButtonBox, QInputDialog, QSizePolicy
+    QStackedWidget, QSlider, QSplitter, QDialogButtonBox, QInputDialog, QSizePolicy,
+    QProgressDialog
 )
 from PyQt6.QtCore import (
     Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer,
@@ -21,7 +23,7 @@ from core.steamgriddb_client import SteamGridDBClient
 from core.playtime_tracker import PlaytimeTrackerThread
 from core.steam_tags import SteamTagsFetcher
 from core.steam_build_tracker import SteamBuildFetcher, read_local_steam_build
-from core.disk_utils import get_dir_size, format_size, get_disk_usage
+from core.disk_utils import format_size, get_disk_usage, peek_dir_size, has_fresh_dir_size
 from core.discord_rpc import DiscordRPC
 from core.host_process import host_process_env
 from core.archive_extractor import (
@@ -112,6 +114,10 @@ def detect_linux_distro() -> tuple[str, str]:
 
 
 class MainWindow(QMainWindow):
+    # Queued-signal carriers for save-sync work performed off the GUI thread.
+    _save_op_done = pyqtSignal(object)      # exit-upload payload dict
+    _prelaunch_resolved = pyqtSignal(object)  # pre-launch sync payload dict
+
     def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager):
         super().__init__()
         self.db = db
@@ -122,6 +128,8 @@ class MainWindow(QMainWindow):
         self.selected_game = None
         self.banner_widgets = {}
         self.auto_fetchers = []
+        self._pending_auto_fetchers = []  # queued so first-load art fetch doesn't storm APIs
+        self.max_concurrent_auto_fetchers = 3
         self._auto_fetch_attempted = set()
         self.metadata_fetchers = []
         self.metadata_attempted_builds = set()
@@ -134,6 +142,11 @@ class MainWindow(QMainWindow):
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
         self.running_game_ids = set()
         self.topbar_extractor_thread = None
+        self._size_fetch_scheduled = set()  # game dirs queued for background sizing
+        self._size_resort_timer = QTimer(self)
+        self._size_resort_timer.setSingleShot(True)
+        self._size_resort_timer.setInterval(400)
+        self._size_resort_timer.timeout.connect(self._refresh_library)
         self.games_by_id = {}
         self.library_selection = LibrarySelectionModel()
 
@@ -827,7 +840,7 @@ class MainWindow(QMainWindow):
         if not self.selected_game:
             return
         game_id = self.selected_game.id if hasattr(self.selected_game, 'id') else self.selected_game[0]
-        self.db.set_game_runtime(game_id, proton_path)
+        self.db.update_game_proton_path(game_id, proton_path)
         self._show_toast(f"Applied {os.path.basename(proton_path)} to '{self.selected_game.name}'.")
 
     def _open_runtime_manager(self):
@@ -921,9 +934,10 @@ class MainWindow(QMainWindow):
 
         self.tray_menu.addSeparator()
 
-        # Quit
+        # Quit through closeEvent so all background workers, trackers, RPC and
+        # hotkey grabs are shut down cleanly instead of being destroyed mid-run.
         act_quit = self.tray_menu.addAction(get_app_icon("close"), "Quit SafeLauncher")
-        act_quit.triggered.connect(QApplication.instance().quit)
+        act_quit.triggered.connect(self.close)
 
         self.tray_icon.setContextMenu(self.tray_menu)
 
@@ -983,7 +997,7 @@ class MainWindow(QMainWindow):
             self,
             "Select Game Archive",
             "",
-            "Archive Files (*.zip *.7z *.tar.gz *.rar)"
+            "Archive Files (*.zip *.7z *.tar.gz *.tgz)"
         )
         if not zip_path or not os.path.exists(zip_path):
             return
@@ -1205,23 +1219,13 @@ class MainWindow(QMainWindow):
         self.stat_label.setText(f"{len(self.games)} Game(s) Total")
 
         # Compute dynamic sidebar statistics
-        active_games = [g for g in self.games if not (len(g) > 17 and g[17])]
-        inst_games = []
-        for g in active_games:
-            p = g[2]
-            exe = g[3]
-            f_ex = os.path.exists(p) if p else False
-            e_ex = os.path.exists(os.path.join(p, exe)) if (p and exe) else f_ex
-            if f_ex and (e_ex or not exe):
-                inst_games.append(g)
-
-        fav_games = [g for g in active_games if (len(g) > 8 and g[8])]
-        arch_games = [g for g in self.games if (len(g) > 17 and g[17])]
-        self.sidebar.update_counts(len(active_games), len(inst_games), len(fav_games), len(arch_games))
+        self._update_sidebar_counts()
 
         all_cols = self.db.get_all_collections()
         collections_dict = {c: 0 for c in all_cols}
-        for g in active_games:
+        for g in self.games:
+            if len(g) > 17 and g[17]:
+                continue
             c_name = str(g[13]).strip() if len(g) > 13 else ""
             if c_name:
                 collections_dict[c_name] = collections_dict.get(c_name, 0) + 1
@@ -1292,9 +1296,16 @@ class MainWindow(QMainWindow):
         elif self.current_sort == 2:  # Recently Added (id desc)
             processed.sort(key=lambda x: x[0][14] if len(x[0]) > 14 and x[0][14] else x[0][0], reverse=True)
         elif self.current_sort == 3:  # Disk size
-            processed.sort(key=lambda x: get_dir_size(x[0][2]), reverse=True)
+            # Never walk multi-GB directories on the GUI thread here: sort by
+            # whatever sizes are cached; missing ones are computed by workers
+            # (_schedule_size_fetches below) and re-sorted when they arrive.
+            processed.sort(key=lambda x: peek_dir_size(x[0][2]) or 0, reverse=True)
         elif self.current_sort == 4:  # Runner
             processed.sort(key=lambda x: x[0][4].lower())
+
+        # Background size calculation for any game dir without a fresh cached
+        # value (used by Disk Size sorting and list-view metadata rows).
+        self._schedule_size_fetches({x[0][2] for x in processed if x[0][2]})
 
         if not processed:
             msg = f"No games matching '{self.search_query}'" if self.search_query else ("No archived games found." if self.current_filter == "archived" else "No games matching selected filter.")
@@ -1338,8 +1349,13 @@ class MainWindow(QMainWindow):
                 fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
                 fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
                 fetcher.finished.connect(lambda f=fetcher: self._cleanup_auto_fetcher(f))
-                fetcher.start()
-                self.auto_fetchers.append(fetcher)
+                # Throttle: start immediately only up to the concurrency cap,
+                # queue the rest instead of firing N simultaneous request bursts.
+                if len(self.auto_fetchers) < self.max_concurrent_auto_fetchers:
+                    fetcher.start()
+                    self.auto_fetchers.append(fetcher)
+                else:
+                    self._pending_auto_fetchers.append(fetcher)
             
         try:
             self.grid_container.set_banner_widgets(widgets)
@@ -1378,6 +1394,21 @@ class MainWindow(QMainWindow):
                 icon_thread.icon_downloaded.connect(self._on_icon_downloaded)
                 self._track_metadata_fetcher(icon_thread)
 
+    def _update_sidebar_counts(self):
+        """Recompute sidebar stats; called on refresh and after drive re-checks."""
+        active_games = [g for g in self.games if not (len(g) > 17 and g[17])]
+        inst_games = []
+        for g in active_games:
+            p = g[2]
+            exe = g[3]
+            f_ex = os.path.exists(p) if p else False
+            e_ex = os.path.exists(os.path.join(p, exe)) if (p and exe) else f_ex
+            if f_ex and (e_ex or not exe):
+                inst_games.append(g)
+        fav_games = [g for g in active_games if (len(g) > 8 and g[8])]
+        arch_games = [g for g in self.games if (len(g) > 17 and g[17])]
+        self.sidebar.update_counts(len(active_games), len(inst_games), len(fav_games), len(arch_games))
+
     def _on_icon_downloaded(self, game_id: int, icon_path: str):
         """Save downloaded game icon path in DB and update card."""
         self.db.update_game_icon(game_id, icon_path)
@@ -1404,6 +1435,9 @@ class MainWindow(QMainWindow):
             except (RuntimeError, AttributeError):
                 pass
 
+        # Keep sidebar counts consistent with the re-checked on-disk state.
+        self._update_sidebar_counts()
+
     def _on_auto_banner_downloaded(self, game_id: int, image_path: str, steam_id: int = 0, icon_path: str = ""):
         """Update DB and widget when background auto-fetch completes"""
         if image_path:
@@ -1424,6 +1458,26 @@ class MainWindow(QMainWindow):
     def _cleanup_auto_fetcher(self, fetcher):
         if fetcher in self.auto_fetchers:
             self.auto_fetchers.remove(fetcher)
+        # Defer Qt-side destruction to the event loop: finished fires while the
+        # OS thread is still terminating, and dropping the last Python reference
+        # here can destroy a running QThread.
+        try:
+            fetcher.deleteLater()
+        except RuntimeError:
+            pass
+        self._start_next_pending_fetcher()
+
+    def _start_next_pending_fetcher(self):
+        """Launch the next queued art fetch once a slot frees up."""
+        while self._pending_auto_fetchers:
+            if len(self.auto_fetchers) >= self.max_concurrent_auto_fetchers:
+                return
+            fetcher = self._pending_auto_fetchers.pop(0)
+            if fetcher.isInterruptionRequested():
+                continue
+            fetcher.start()
+            self.auto_fetchers.append(fetcher)
+            return
 
     def _cancel_metadata_fetchers(self):
         for fetcher in list(self.metadata_fetchers):
@@ -1438,6 +1492,28 @@ class MainWindow(QMainWindow):
     def _cleanup_metadata_fetcher(self, fetcher):
         if fetcher in self.metadata_fetchers:
             self.metadata_fetchers.remove(fetcher)
+        try:
+            fetcher.deleteLater()
+        except RuntimeError:
+            pass
+
+    def _schedule_size_fetches(self, paths):
+        """Compute missing directory sizes on worker threads, never on the GUI."""
+        for path in paths or []:
+            if not path or path in self._size_fetch_scheduled or has_fresh_dir_size(path):
+                continue
+            self._size_fetch_scheduled.add(path)
+            fetcher = DiskSizeFetcherThread(-1, path, parent=self)
+            fetcher.disk_size_calculated.connect(
+                lambda _gid, _sz, p=path: self._on_library_size_ready(p)
+            )
+            self._track_metadata_fetcher(fetcher)
+
+    def _on_library_size_ready(self, path):
+        """A background size landed in the cache; re-sort once things settle."""
+        self._size_fetch_scheduled.discard(path)
+        if self.current_sort == 3 and not self._size_resort_timer.isActive():
+            self._size_resort_timer.start()
 
     def _select_game_by_id(self, game_id: int):
         """Select a game card visually and update the left detail panel"""
@@ -1588,29 +1664,6 @@ class MainWindow(QMainWindow):
                 self.panel_anim.setEasingCurve(QEasingCurve.Type.InCubic)
                 self.panel_anim.start()
 
-    def keyPressEvent(self, event):
-        super().keyPressEvent(event)
-        if event.key() == Qt.Key.Key_F12:
-            self._take_screenshot()
-
-        # Check hotkeys for wl-screenrec addon
-        if getattr(self, "wl_recorder_config", None) and self.wl_recorder_config.enabled:
-            key_name = ""
-            if event.key() == Qt.Key.Key_F9:
-                key_name = "F9"
-            elif event.key() == Qt.Key.Key_F10:
-                key_name = "F10"
-            elif event.key() == Qt.Key.Key_F11:
-                key_name = "F11"
-            elif event.key() == Qt.Key.Key_F12:
-                key_name = "F12"
-
-            if key_name:
-                if key_name == self.wl_recorder_config.capture_hotkey:
-                    self._toggle_game_recording()
-                elif key_name == self.wl_recorder_config.replay_hotkey:
-                    self._trigger_replay_save()
-
     def _update_global_hotkeys(self):
         """Refresh registered global hotkeys in background listener."""
         if not hasattr(self, "global_hotkeys"):
@@ -1619,6 +1672,10 @@ class MainWindow(QMainWindow):
             self.screenshot_hotkey or "F12": "screenshot",
             self.gpu_recorder_config.capture_hotkey or "F9": "toggle_recording",
         }
+        replay_key = self.gpu_recorder_config.replay_hotkey or "F10"
+        # Only register when distinct — the listener binds one action per key.
+        if all(key != replay_key for key in bindings):
+            bindings[replay_key] = "save_replay"
         self.global_hotkeys.update_bindings(bindings)
 
     def _on_global_hotkey(self, action: str):
@@ -1696,6 +1753,15 @@ class MainWindow(QMainWindow):
         """No-op kept for backwards compatibility."""
         pass
 
+    def _set_detail_record_label(self, text: str, icon_key: str = None):
+        """Update the detail-panel record button if one exists in the current layout."""
+        button = getattr(self, "btn_detail_record", None)
+        if not button:
+            return
+        button.setText(text)
+        if icon_key:
+            button.setIcon(get_icon(icon_key))
+
     def _toggle_game_recording(self):
         """Handle manual recording start/stop or instant replay buffer capture."""
         rec_svc = GpuRecorderService.instance()
@@ -1729,14 +1795,13 @@ class MainWindow(QMainWindow):
         else:
             if rec_svc.is_running():
                 saved_path = rec_svc.stop_recording()
-                self.btn_detail_record.setText(" Record Video")
-                self.btn_detail_record.setIcon(get_icon("ph.video-camera-bold"))
+                self._set_detail_record_label(" Record Video", "ph.video-camera-bold")
                 fn = os.path.basename(saved_path) if saved_path else "video.mp4"
                 self._show_toast(f"Recording saved: {fn}")
                 show_ingame_notification("Recording Saved", fn, icon_type="info", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True)
             else:
                 if rec_svc.start_recording(game_name, is_replay=False):
-                    self.btn_detail_record.setText(" Stop Recording")
+                    self._set_detail_record_label(" Stop Recording")
                     self._show_toast(f"Recording started for '{game_name}'...")
                     show_ingame_notification(
                         "Recording Started",
@@ -1763,7 +1828,7 @@ class MainWindow(QMainWindow):
         if not rec_svc.is_running():
             if rec_svc.start_recording(game_name, is_replay=True):
                 self._show_toast("Started replay buffer. Press hotkey again to save clip.")
-                self.btn_detail_record.setText(" Save Replay Clip")
+                self._set_detail_record_label(" Save Replay Clip")
                 show_ingame_notification(
                     "Replay Buffer Active",
                     f"Press {self.gpu_recorder_config.replay_hotkey} to save clip",
@@ -2343,36 +2408,108 @@ class MainWindow(QMainWindow):
             selected_proton = game_data[12] if len(game_data) > 12 and game_data[12] else self.proton_path
             game_env_vars = self.db.get_game_env_vars(game_id)
 
-            # Pre-launch Cloud Save Synchronization check
+            # Pre-launch Cloud Save Synchronization. The heavy zip/dir I/O runs
+            # on a worker thread behind a modal progress indicator; the launch
+            # itself continues in _continue_launch once resolution arrives.
+            ctx = {
+                "game_id": game_id,
+                "game_name": game_name,
+                "path": path,
+                "exe": exe,
+                "selected_mode": selected_mode,
+                "selected_proton": selected_proton,
+                "steam_id": steam_id,
+                "sandbox": sandbox,
+                "env_vars": game_env_vars,
+            }
+            self._schedule_prelaunch_sync(ctx)
+            return
+        except Exception as e:
+            logger.error(f"Failed to launch game ID {game_id}: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to launch game: {str(e)}")
+
+    def _schedule_prelaunch_sync(self, ctx: dict):
+        """Resolve cloud-save state for a pending launch on a worker thread."""
+        game_name = ctx["game_name"]
+        path = ctx["path"]
+        steam_id = ctx["steam_id"]
+
+        progress = QProgressDialog(f"Checking cloud saves for '{game_name}'…", None, 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(150)
+        progress.show()
+
+        def _work():
+            payload = {"proceed": True, "needs_conflict": False, "toast": "", "ctx": ctx}
             try:
-                sync_status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(game_name, path, steam_id)
-                if sync_status == SyncStatus.CLOUD_ONLY:
-                    if CloudSaveSyncEngine.sync_cloud_to_local(game_name, path):
-                        self._show_toast(f"⬇️ Restored cloud save for '{game_name}'.")
-                elif sync_status == SyncStatus.CLOUD_NEWER:
+                status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(game_name, path, steam_id)
+                if status == SyncStatus.CLOUD_ONLY:
+                    ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path)
+                    if ok:
+                        payload["toast"] = f"⬇️ Restored cloud save for '{game_name}'."
+                elif status == SyncStatus.CLOUD_NEWER:
                     auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
                     if auto_newer:
-                        if CloudSaveSyncEngine.sync_cloud_to_local(game_name, path):
-                            self._show_toast(f"⬇️ Updated to newer cloud save for '{game_name}'.")
+                        ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path)
+                        if ok:
+                            payload["toast"] = f"⬇️ Updated to newer cloud save for '{game_name}'."
                     else:
-                        conflict_dlg = SaveConflictDialog(game_name, local_stats, cloud_stats, parent=self)
-                        if conflict_dlg.exec() == QDialog.DialogCode.Accepted:
-                            if conflict_dlg.cb_always_newer.isChecked():
-                                self.settings.setValue("auto_prefer_newer_saves", True)
-                            if conflict_dlg.choice == "cloud":
-                                if CloudSaveSyncEngine.sync_cloud_to_local(game_name, path):
-                                    self._show_toast(f"⬇️ Restored newer cloud save for '{game_name}'.")
-                            else:
-                                CloudSaveSyncEngine.sync_local_to_cloud(game_name, path, steam_id)
-                                self._show_toast("⬆️ Overwrote cloud save with local version.")
-                        else:
-                            return
+                        payload["needs_conflict"] = True
+                        payload["local_stats"] = local_stats
+                        payload["cloud_stats"] = cloud_stats
             except Exception as sync_check_err:
                 logger.warning(f"Pre-launch cloud sync check failed: {sync_check_err}")
+            try:
+                progress.deleteLater()
+            except RuntimeError:
+                pass
+            self._prelaunch_resolved.emit(payload)
 
+        self._prelaunch_resolved.connect(self._finish_prelaunch_sync)
+        threading.Thread(target=_work, daemon=True, name="SafeLauncher-PrelaunchSync").start()
+
+    def _finish_prelaunch_sync(self, payload: dict):
+        """GUI-thread continuation after the pre-launch sync worker resolves."""
+        try:
+            self._prelaunch_resolved.disconnect(self._finish_prelaunch_sync)
+        except TypeError:
+            pass
+        ctx = payload.get("ctx", {})
+
+        if payload.get("needs_conflict"):
+            conflict_dlg = SaveConflictDialog(ctx.get("game_name", ""), payload["local_stats"], payload["cloud_stats"], parent=self)
+            if conflict_dlg.exec() == QDialog.DialogCode.Accepted:
+                if conflict_dlg.cb_always_newer.isChecked():
+                    self.settings.setValue("auto_prefer_newer_saves", True)
+                if conflict_dlg.choice == "cloud":
+                    if CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"]):
+                        self._show_toast(f"⬇️ Restored newer cloud save for '{ctx['game_name']}'.")
+                else:
+                    CloudSaveSyncEngine.sync_local_to_cloud(ctx["game_name"], ctx["path"], ctx["steam_id"])
+                    self._show_toast("⬆️ Overwrote cloud save with local version.")
+            else:
+                return
+        elif payload.get("toast"):
+            self._show_toast(payload["toast"])
+
+        self._continue_launch(ctx)
+
+    def _continue_launch(self, ctx: dict):
+        """Perform the actual process launch and follow-up wiring (main thread)."""
+        game_id = ctx["game_id"]
+        game_name = ctx["game_name"]
+        path = ctx["path"]
+        exe = ctx["exe"]
+        steam_id = ctx["steam_id"]
+        sandbox = ctx["sandbox"]
+        env_vars = ctx["env_vars"]
+        selected_mode = ctx["selected_mode"]
+        selected_proton = ctx["selected_proton"]
+        try:
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(selected_proton)
-            process = self.runner.launch(path, exe, selected_mode, steam_id, sandbox=sandbox, env_vars=game_env_vars)
+            process = self.runner.launch(path, exe, selected_mode, steam_id, sandbox=sandbox, env_vars=env_vars)
             if process:
                 logger.info(f"Successfully launched '{game_name}' (PID: {process.pid})")
                 self.running_game_ids.add(game_id)
@@ -2491,7 +2628,7 @@ class MainWindow(QMainWindow):
                 self._launch_mode(game_id, path, exe, dialog.selected_mode)
 
     def keyPressEvent(self, event):
-        """Global keyboard shortcuts for library navigation."""
+        """Global keyboard shortcuts for library navigation and recorder fallbacks."""
         key = event.key()
         modifiers = event.modifiers()
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -2510,6 +2647,29 @@ class MainWindow(QMainWindow):
                 self.title_bar.search_input.selectAll()
                 event.accept()
                 return
+
+        # Screenshot fallback for environments without X11 global grabs (e.g. Wayland).
+        if key == Qt.Key.Key_F12:
+            self._take_screenshot()
+
+        # Local hotkey fallbacks for the wl-screenrec addon.
+        if getattr(self, "wl_recorder_config", None) and self.wl_recorder_config.enabled:
+            key_name = ""
+            if key == Qt.Key.Key_F9:
+                key_name = "F9"
+            elif key == Qt.Key.Key_F10:
+                key_name = "F10"
+            elif key == Qt.Key.Key_F11:
+                key_name = "F11"
+            elif key == Qt.Key.Key_F12:
+                key_name = "F12"
+
+            if key_name:
+                if key_name == self.wl_recorder_config.capture_hotkey:
+                    self._toggle_game_recording()
+                elif key_name == self.wl_recorder_config.replay_hotkey:
+                    self._trigger_replay_save()
+
         super().keyPressEvent(event)
 
     def _on_playtime_recorded(self, game_id: int, elapsed_seconds: int):
@@ -2541,20 +2701,66 @@ class MainWindow(QMainWindow):
                         rec_svc.stop_recording()
                         logger.info("GPU recorder put on standby (all games closed)")
 
-        # Auto Cloud Save Sync on Game Exit
+        # Auto Cloud Save Sync on Game Exit. Runs on a worker thread — zipping
+        # multi-GB save trees must never freeze the GUI. Only uploads when
+        # local state is genuinely newer; an unconditional upload would clobber
+        # a cloud archive a newer session on another machine produced.
         try:
             game_rec = self.games_by_id.get(tracker.game_id)
             if game_rec:
                 g_name = game_rec[1]
                 g_path = game_rec[2]
                 g_steam_id = str(game_rec[6]).strip() if len(game_rec) > 6 and game_rec[6] else ""
-                if CloudSaveSyncEngine.sync_local_to_cloud(g_name, g_path, g_steam_id):
-                    self._show_toast(f"☁️ Cloud save synced for '{g_name}'.")
+
+                def _exit_sync(name=g_name, gpath=g_path, sid=g_steam_id):
+                    payload = {"game": name, "outcome": "skipped", "reason": ""}
+                    try:
+                        status, _, _ = CloudSaveSyncEngine.check_sync_status(name, gpath, sid)
+                        if status == SyncStatus.LOCAL_NEWER:
+                            payload["outcome"] = (
+                                "uploaded" if CloudSaveSyncEngine.sync_local_to_cloud(name, gpath, sid)
+                                else "failed"
+                            )
+                            payload["reason"] = status.value
+                        else:
+                            payload["outcome"] = "skipped"
+                            payload["reason"] = status.value
+                    except Exception as err:
+                        logger.warning(f"Auto cloud save sync on game exit failed: {err}")
+                        payload["outcome"] = "failed"
+                        payload["reason"] = str(err)
+                    return payload
+
+                self._save_op_done.connect(self._on_exit_save_sync_done)
+                threading.Thread(
+                    target=lambda: self._save_op_done.emit(_exit_sync()),
+                    daemon=True,
+                    name="SafeLauncher-ExitSync",
+                ).start()
         except Exception as sync_exit_err:
             logger.warning(f"Auto cloud save sync on game exit failed: {sync_exit_err}")
 
+    def _on_exit_save_sync_done(self, payload: dict):
+        """GUI-thread slot reporting the outcome of the background exit upload."""
+        try:
+            self._save_op_done.disconnect(self._on_exit_save_sync_done)
+        except TypeError:
+            pass
+        name = payload.get("game", "")
+        outcome = payload.get("outcome")
+        if outcome == "uploaded":
+            self._show_toast(f"☁️ Cloud save synced for '{name}'.")
+        elif outcome == "failed":
+            logger.warning(f"Exit cloud-save upload failed for '{name}'.")
+        elif payload.get("reason") in ("cloud_newer", "cloud_only"):
+            logger.info(
+                f"Skipping exit upload for '{name}': cloud save is newer "
+                f"({payload['reason']}); use the Save Manager to resolve manually."
+            )
+
     def closeEvent(self, event):
         """Stop all background workers before destroying the main window."""
+        self._pending_auto_fetchers = []  # queued fetchers were never started
         for fetcher in list(self.metadata_fetchers):
             if fetcher.isRunning():
                 fetcher.requestInterruption()

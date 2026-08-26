@@ -14,7 +14,7 @@ from typing import List, Tuple, Optional
 from PyQt6.QtCore import QSettings
 
 from core.ludusavi_detector import LudusaviDetector, SaveLocation
-from core.zip_backup import ZipBackupManager
+from core.zip_backup import ZipBackupManager, _MANIFEST_NAME
 from database import _APP_DATA_DIR
 from core.logger import get_logger
 
@@ -99,11 +99,18 @@ class CloudSaveSyncEngine:
             file_count = 0
 
             with zipfile.ZipFile(cloud_zip, 'r') as zipf:
-                # If safelauncher_manifest.json exists, parse original creation timestamp
-                if "safelauncher_manifest.json" in zipf.namelist():
+                # Prefer the manifest's recorded newest-content mtime so local and
+                # cloud snapshots are compared on the same clock domain. Archives
+                # produced before this field existed fall back to the zip's own
+                # filesystem mtime.
+                if _MANIFEST_NAME in zipf.namelist():
                     try:
-                        manifest = json.loads(zipf.read("safelauncher_manifest.json").decode("utf-8"))
-                        mtime = float(manifest.get("created_at", mtime))
+                        manifest = json.loads(zipf.read(_MANIFEST_NAME).decode("utf-8"))
+                        content_mtime = manifest.get("source_max_mtime")
+                        if content_mtime:
+                            mtime = float(content_mtime)
+                        else:
+                            mtime = float(manifest.get("created_at", mtime))
                     except Exception:
                         pass
                 file_count = len([m for m in zipf.infolist() if not m.is_dir() and m.filename != "safelauncher_manifest.json"])
