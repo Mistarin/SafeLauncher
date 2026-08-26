@@ -37,7 +37,7 @@ class UserSettingsDialog(QDialog):
     runtime_manager_requested = pyqtSignal()
     proton_manager_requested = pyqtSignal()
 
-    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", parent=None):
+    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None):
         super().__init__(parent)
         self.user_name = user_name
         self.proton_path = proton_path
@@ -45,6 +45,8 @@ class UserSettingsDialog(QDialog):
         self.gpu_config = gpu_config or GpuRecorderConfig()
         self.screenshot_screen = screenshot_screen or "current"
         self.screenshot_hotkey = screenshot_hotkey or "F12"
+        from core.cloud_save_sync import CloudSaveSyncEngine
+        self.cloud_saves_dir = cloud_saves_dir or CloudSaveSyncEngine.get_cloud_root()
 
         self.setWindowTitle("Settings")
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
@@ -432,6 +434,16 @@ class UserSettingsDialog(QDialog):
         self.combo_screenshot_screen.setCurrentIndex(selected_ss_idx)
         form_disk.addRow("Screenshot Monitor / Display:", self.combo_screenshot_screen)
 
+        # Cloud Saves Root Directory
+        cloud_row = QHBoxLayout()
+        self.edit_cloud_saves_dir = QLineEdit(self.cloud_saves_dir)
+        cloud_row.addWidget(self.edit_cloud_saves_dir, 1)
+
+        btn_browse_cloud = QPushButton("Browse...")
+        btn_browse_cloud.clicked.connect(self._browse_cloud_dir)
+        cloud_row.addWidget(btn_browse_cloud)
+        form_disk.addRow("Cloud Saves Root Directory:", cloud_row)
+
         layout.addLayout(form_disk)
 
         sec_logs = QLabel("Logs & Diagnostics")
@@ -721,6 +733,14 @@ class UserSettingsDialog(QDialog):
         path = QFileDialog.getExistingDirectory(self, "Select Proton tool directory", os.path.expanduser("~/.local/share"))
         if path:
             self.proton_input.setText(path)
+
+    def _browse_cloud_dir(self):
+        path = QFileDialog.getExistingDirectory(self, "Select Cloud Saves Root Directory", self.edit_cloud_saves_dir.text() or os.path.expanduser("~"))
+        if path:
+            self.edit_cloud_saves_dir.setText(path)
+
+    def get_cloud_saves_dir(self) -> str:
+        return self.edit_cloud_saves_dir.text().strip()
 
     def _open_runtime_manager(self):
         self.runtime_manager_requested.emit()

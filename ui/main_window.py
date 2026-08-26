@@ -70,6 +70,8 @@ from ui.dialogs.game_dialogs import (
 from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDialog, VideoGalleryDialog, DiskManagerDialog
 from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
+from ui.dialogs.save_conflict_dialog import SaveConflictDialog
+from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
 from ui.theme import (
     get_application_stylesheet, btn_primary_style, btn_secondary_style,
     btn_tertiary_style, btn_destructive_style, BG_APP, SURFACE, SURFACE_ELEVATED,
@@ -748,6 +750,7 @@ class MainWindow(QMainWindow):
     def _open_settings(self):
         """Open launcher preferences and persist profile changes."""
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
+        cloud_dir = self.settings.value("cloud_saves_dir", "", type=str)
         dialog = UserSettingsDialog(
             self.user_name,
             self.proton_path,
@@ -755,6 +758,7 @@ class MainWindow(QMainWindow):
             gpu_config=self.gpu_recorder_config,
             screenshot_screen=self.screenshot_screen,
             screenshot_hotkey=self.screenshot_hotkey,
+            cloud_saves_dir=cloud_dir,
             parent=self
         )
         dialog.runtime_manager_requested.connect(self._open_runtime_manager)
@@ -765,6 +769,7 @@ class MainWindow(QMainWindow):
             self.settings.setValue("user_name", self.user_name)
             self.settings.setValue("proton_path", self.proton_path)
             self.settings.setValue("show_welcome_wizard", dialog.get_show_welcome_wizard())
+            self.settings.setValue("cloud_saves_dir", dialog.get_cloud_saves_dir())
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(self.proton_path)
 
@@ -2337,6 +2342,34 @@ class MainWindow(QMainWindow):
             steam_id = str(game_data[6]).strip() if len(game_data) > 6 and game_data[6] else ""
             selected_proton = game_data[12] if len(game_data) > 12 and game_data[12] else self.proton_path
             game_env_vars = self.db.get_game_env_vars(game_id)
+
+            # Pre-launch Cloud Save Synchronization check
+            try:
+                sync_status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(game_name, path, steam_id)
+                if sync_status == SyncStatus.CLOUD_ONLY:
+                    if CloudSaveSyncEngine.sync_cloud_to_local(game_name, path):
+                        self._show_toast(f"⬇️ Restored cloud save for '{game_name}'.")
+                elif sync_status == SyncStatus.CLOUD_NEWER:
+                    auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
+                    if auto_newer:
+                        if CloudSaveSyncEngine.sync_cloud_to_local(game_name, path):
+                            self._show_toast(f"⬇️ Updated to newer cloud save for '{game_name}'.")
+                    else:
+                        conflict_dlg = SaveConflictDialog(game_name, local_stats, cloud_stats, parent=self)
+                        if conflict_dlg.exec() == QDialog.DialogCode.Accepted:
+                            if conflict_dlg.cb_always_newer.isChecked():
+                                self.settings.setValue("auto_prefer_newer_saves", True)
+                            if conflict_dlg.choice == "cloud":
+                                if CloudSaveSyncEngine.sync_cloud_to_local(game_name, path):
+                                    self._show_toast(f"⬇️ Restored newer cloud save for '{game_name}'.")
+                            else:
+                                CloudSaveSyncEngine.sync_local_to_cloud(game_name, path, steam_id)
+                                self._show_toast("⬆️ Overwrote cloud save with local version.")
+                        else:
+                            return
+            except Exception as sync_check_err:
+                logger.warning(f"Pre-launch cloud sync check failed: {sync_check_err}")
+
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(selected_proton)
             process = self.runner.launch(path, exe, selected_mode, steam_id, sandbox=sandbox, env_vars=game_env_vars)
@@ -2507,6 +2540,18 @@ class MainWindow(QMainWindow):
                     if rec_svc.is_running():
                         rec_svc.stop_recording()
                         logger.info("GPU recorder put on standby (all games closed)")
+
+        # Auto Cloud Save Sync on Game Exit
+        try:
+            game_rec = self.games_by_id.get(tracker.game_id)
+            if game_rec:
+                g_name = game_rec[1]
+                g_path = game_rec[2]
+                g_steam_id = str(game_rec[6]).strip() if len(game_rec) > 6 and game_rec[6] else ""
+                if CloudSaveSyncEngine.sync_local_to_cloud(g_name, g_path, g_steam_id):
+                    self._show_toast(f"☁️ Cloud save synced for '{g_name}'.")
+        except Exception as sync_exit_err:
+            logger.warning(f"Auto cloud save sync on game exit failed: {sync_exit_err}")
 
     def closeEvent(self, event):
         """Stop all background workers before destroying the main window."""
