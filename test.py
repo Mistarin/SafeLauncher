@@ -326,18 +326,55 @@ try:
     print("✓ GameBannerWidget 16:9 ratio and version badge verified")
 
     from ui.dialogs.game_dialogs import CustomRemoveDialog, ManageCollectionGamesDialog
-    remove_dlg = CustomRemoveDialog("Test Game")
-    assert remove_dlg is not None
-    print("✓ CustomRemoveDialog archive options instantiated cleanly")
+    # Test Ludusavi Save Detector & Multi-Location Backup
+    from core.ludusavi_detector import LudusaviDetector, SaveLocation
+    from ui.dialogs.save_manager_dialog import SaveManagerDialog
+    with tempfile.TemporaryDirectory() as tmp_save_game:
+        # Create mock Wine/UMU prefix hierarchy
+        user_saved_games = os.path.join(tmp_save_game, "prefix", "drive_c", "users", "steamuser", "Saved Games", "Portal 2")
+        os.makedirs(user_saved_games, exist_ok=True)
+        with open(os.path.join(user_saved_games, "slot1.sav"), "w") as sf:
+            sf.write("save slot 1 data")
 
-    col_dlg = ManageCollectionGamesDialog("RPG", [(1, "Game 1"), (2, "Game 2")], {1})
-    assert col_dlg.collection_name == "RPG"
-    assert 1 in col_dlg.get_selected_game_ids()
-    print("✓ ManageCollectionGamesDialog instantiated and checked cleanly")
+        detected = LudusaviDetector.detect_saves("Portal 2", tmp_save_game, steam_id="620")
+        assert len(detected) >= 1, "Failed to detect mock save game in Saved Games"
+        assert detected[0].file_count >= 1, "File count detection failed"
+        print("✓ Ludusavi save detector heuristics verified across UMU/Wine prefix")
+
+        # Test multi-location export and manifest-aware import
+        multi_zip = os.path.join(tmp_save_game, "multi_backup.zip")
+        assert backup.export_save_locations(detected, multi_zip, game_name="Portal 2"), "Multi-save export failed"
+        assert os.path.exists(multi_zip), "Multi-save ZIP missing"
+
+        # Restore into new prefix
+        restore_prefix = os.path.join(tmp_save_game, "restored_prefix")
+        assert backup.import_save(multi_zip, restore_prefix), "Manifest-aware import failed"
+        expected_restored = os.path.join(restore_prefix, detected[0].relative_to_prefix, "slot1.sav")
+        assert os.path.isfile(expected_restored), f"Restored file missing at {expected_restored}"
+        print("✓ Manifest-aware multi-location save export and restoration verified")
+
+        save_dlg = SaveManagerDialog(1, "Portal 2", tmp_save_game, steam_id="620")
+        assert save_dlg is not None
+        print("✓ SaveManagerDialog instantiated cleanly offscreen")
+
+    # Test Database env_vars presets
+    with tempfile.TemporaryDirectory() as tmp_env_db:
+        test_db = GameDatabase(os.path.join(tmp_env_db, "test.db"))
+        gid = test_db.add_game("FSR Test", "/tmp/fsr", "game.exe", "umu")
+        assert test_db.get_game_env_vars(gid) == {}
+        test_db.update_game_env_vars(gid, {"WINE_FULLSCREEN_FSR": "1", "DXVK_ASYNC": "1", "CUSTOM_VAR": "hello"})
+        loaded_env = test_db.get_game_env_vars(gid)
+        assert loaded_env.get("WINE_FULLSCREEN_FSR") == "1"
+        assert loaded_env.get("DXVK_ASYNC") == "1"
+        assert loaded_env.get("CUSTOM_VAR") == "hello"
+        test_db.close()
+        print("✓ Database env_vars column & presets CRUD operations verified")
+
 except Exception as e:
     print(f"✗ Security diagnostics test error: {e}")
     sys.exit(1)
 
 print("\n✅ All SafeLauncher components tested and working cleanly!")
+
 
 

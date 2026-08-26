@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import (
     Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer,
-    QUrl, QSettings, QAbstractAnimation,
+    QUrl, QSettings, QAbstractAnimation, QEvent,
 )
 from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices
 from core.interfaces import ISandboxRunner, IBackupManager
@@ -69,6 +69,7 @@ from ui.dialogs.game_dialogs import (
 )
 from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDialog, VideoGalleryDialog, DiskManagerDialog
 from ui.dialogs.game_properties_dialog import GamePropertiesDialog
+from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from ui.theme import (
     get_application_stylesheet, btn_primary_style, btn_secondary_style,
     btn_tertiary_style, btn_destructive_style, BG_APP, SURFACE, SURFACE_ELEVATED,
@@ -183,6 +184,11 @@ class MainWindow(QMainWindow):
         # Root Layout: Hero Background Canvas + Top Title Bar + Body (Left Sidebar + Center Grid & Right Inspector Splitter)
         self.hero_bg = HeroBackgroundWidget(self)
         self.setCentralWidget(self.hero_bg)
+        
+        self.setMouseTracking(True)
+        self.hero_bg.setMouseTracking(True)
+        self.installEventFilter(self)
+        self.hero_bg.installEventFilter(self)
         
         root_vbox = QVBoxLayout(self.hero_bg)
         root_vbox.setContentsMargins(0, 0, 0, 0)
@@ -1465,6 +1471,65 @@ class MainWindow(QMainWindow):
             self.settings.setValue("right_inspector_width", sizes[1])
         self._reposition_reveal_button()
 
+    RESIZE_MARGIN = 8
+
+    def _get_resize_edges_at_point(self, global_pos: QPoint) -> Qt.Edge:
+        if self.isMaximized():
+            return Qt.Edge(0)
+        pos = self.mapFromGlobal(global_pos)
+        x = pos.x()
+        y = pos.y()
+        w = self.width()
+        h = self.height()
+        if x < 0 or y < 0 or x > w or y > h:
+            return Qt.Edge(0)
+        edge = Qt.Edge(0)
+        if x <= self.RESIZE_MARGIN:
+            edge |= Qt.Edge.LeftEdge
+        elif x >= w - self.RESIZE_MARGIN:
+            edge |= Qt.Edge.RightEdge
+
+        if y <= self.RESIZE_MARGIN:
+            edge |= Qt.Edge.TopEdge
+        elif y >= h - self.RESIZE_MARGIN:
+            edge |= Qt.Edge.BottomEdge
+
+        return edge
+
+    def _update_edge_cursor(self, edges: Qt.Edge):
+        if (edges == (Qt.Edge.TopEdge | Qt.Edge.LeftEdge)) or (edges == (Qt.Edge.BottomEdge | Qt.Edge.RightEdge)):
+            self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        elif (edges == (Qt.Edge.TopEdge | Qt.Edge.RightEdge)) or (edges == (Qt.Edge.BottomEdge | Qt.Edge.LeftEdge)):
+            self.setCursor(Qt.CursorShape.SizeBDiagCursor)
+        elif edges & (Qt.Edge.LeftEdge | Qt.Edge.RightEdge):
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        elif edges & (Qt.Edge.TopEdge | Qt.Edge.BottomEdge):
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
+        else:
+            self.unsetCursor()
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.MouseMove:
+            if not self.isMaximized() and event.buttons() == Qt.MouseButton.NoButton:
+                edges = self._get_resize_edges_at_point(event.globalPosition().toPoint())
+                if edges:
+                    self._update_edge_cursor(edges)
+                elif self.cursor().shape() in (
+                    Qt.CursorShape.SizeHorCursor,
+                    Qt.CursorShape.SizeVerCursor,
+                    Qt.CursorShape.SizeFDiagCursor,
+                    Qt.CursorShape.SizeBDiagCursor,
+                ):
+                    self.unsetCursor()
+        elif event.type() == QEvent.Type.MouseButtonPress:
+            if event.button() == Qt.MouseButton.LeftButton and not self.isMaximized():
+                edges = self._get_resize_edges_at_point(event.globalPosition().toPoint())
+                if edges:
+                    handle = self.windowHandle()
+                    if handle is not None and handle.startSystemResize(edges):
+                        return True
+        return super().eventFilter(obj, event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposition_reveal_button()
@@ -2271,9 +2336,10 @@ class MainWindow(QMainWindow):
             game_data = self.games_by_id.get(game_id, ())
             steam_id = str(game_data[6]).strip() if len(game_data) > 6 and game_data[6] else ""
             selected_proton = game_data[12] if len(game_data) > 12 and game_data[12] else self.proton_path
+            game_env_vars = self.db.get_game_env_vars(game_id)
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(selected_proton)
-            process = self.runner.launch(path, exe, selected_mode, steam_id, sandbox=sandbox)
+            process = self.runner.launch(path, exe, selected_mode, steam_id, sandbox=sandbox, env_vars=game_env_vars)
             if process:
                 logger.info(f"Successfully launched '{game_name}' (PID: {process.pid})")
                 self.running_game_ids.add(game_id)
@@ -2673,44 +2739,14 @@ class MainWindow(QMainWindow):
         if not game:
             QMessageBox.warning(self, "Warning", "Please select a game.")
             return
-        
-        save_path = os.path.join(game[2], "prefix", "drive_c", "users")
-        
-        if not os.path.exists(save_path):
-            QMessageBox.warning(self, "Warning", "Save directory not found.")
-            return
-        
-        export_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Save",
-            f"{game[1]}_save.zip",
-            "ZIP Files (*.zip)"
-        )
-        
-        if export_path:
-            if self.backup.export_save(save_path, export_path):
-                self._show_toast("Save exported successfully.")
-            else:
-                self._show_toast("Failed to export save.", is_error=True)
+        steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
+        SaveManagerDialog(game[0], game[1], game[2], steam_id, self).exec()
     
     def _on_import(self):
         game = self._get_selected_game()
         if not game:
             self._show_toast("Please select a game to import save.", is_error=True)
             return
-        
-        import_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import Save",
-            "",
-            "ZIP Files (*.zip)"
-        )
-        
-        if import_path:
-            dest_path = os.path.join(game[2], "prefix", "drive_c", "users")
-            os.makedirs(dest_path, exist_ok=True)
-            
-            if self.backup.import_save(import_path, dest_path):
-                self._show_toast("Save imported successfully.")
-            else:
-                self._show_toast("Failed to import save.", is_error=True)
+        steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
+        dlg = SaveManagerDialog(game[0], game[1], game[2], steam_id, self)
+        dlg._import_snapshot()

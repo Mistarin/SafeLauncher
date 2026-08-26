@@ -394,6 +394,7 @@ class HeaderBar(QFrame):
         brand = QLabel("SafeLauncher")
         brand.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         brand.setStyleSheet("color: #F5F7FA; background: transparent; letter-spacing: 0.3px;")
+        brand.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(brand)
 
         # ── Tools Dropdown Menu ──
@@ -567,11 +568,28 @@ class HeaderBar(QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            handle = self.main_window.windowHandle()
+            if handle is not None:
+                if self.main_window.isMaximized():
+                    cursor_x = event.globalPosition().x()
+                    normal_geom = self.main_window.normalGeometry()
+                    normal_width = normal_geom.width() if normal_geom.isValid() and normal_geom.width() > 0 else 1180
+                    self.main_window.showNormal()
+                    new_x = max(0, int(cursor_x - normal_width / 2))
+                    self.main_window.move(new_x, max(0, int(event.globalPosition().y() - 25)))
+                if handle.startSystemMove():
+                    event.accept()
+                    return
             self.drag_pos = event.globalPosition().toPoint() - self.main_window.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton and self.drag_pos:
+            handle = self.main_window.windowHandle()
+            if handle is not None and handle.startSystemMove():
+                self.drag_pos = None
+                event.accept()
+                return
             if self.main_window.isMaximized():
                 self.main_window.showNormal()
             self.main_window.move(event.globalPosition().toPoint() - self.drag_pos)
@@ -607,6 +625,7 @@ class DialogTitleBar(QFrame):
         self.title_label = QLabel(title)
         self.title_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         self.title_label.setStyleSheet("color: #F5F7FA; background: transparent;")
+        self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(self.title_label)
 
         layout.addStretch()
@@ -637,10 +656,19 @@ class DialogTitleBar(QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            handle = self.dialog.windowHandle()
+            if handle is not None and handle.startSystemMove():
+                event.accept()
+                return
             self.drag_pos = event.globalPosition().toPoint() - self.dialog.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton and self.drag_pos:
+            handle = self.dialog.windowHandle()
+            if handle is not None and handle.startSystemMove():
+                self.drag_pos = None
+                event.accept()
+                return
             self.dialog.move(event.globalPosition().toPoint() - self.drag_pos)
             event.accept()
