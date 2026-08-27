@@ -9,6 +9,54 @@ from core.cloud_detector import discover_local_cloud_backend
 
 def run_cloud_setup_wizard() -> int:
     """Run interactive terminal setup wizard for private cloud save backend."""
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    current_url = settings.value("convex_site_url", "", type=str).strip()
+    discovered_url = discover_local_cloud_backend()
+    active_url = current_url or discovered_url or ""
+    current_key = settings.value("cloud_secret_key", "", type=str).strip()
+
+    # ANSI color formatting
+    GREEN = "\033[92m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+
+    # Fast probe: if already configured and reachable, show green checkmark
+    if active_url:
+        try:
+            headers = {}
+            if current_key:
+                headers["Authorization"] = f"Bearer {current_key}"
+                headers["X-SafeLauncher-Key"] = current_key
+
+            resp_health = requests.get(f"{active_url}/api/health", headers=headers, timeout=3)
+            if resp_health.status_code == 200:
+                resp_me = requests.get(f"{active_url}/api/me", headers=headers, timeout=3)
+                quota_info = ""
+                if resp_me.status_code == 200:
+                    data = resp_me.json()
+                    used_mb = data.get("bytesUsed", 0) / (1024 * 1024)
+                    quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
+                    game_count = len(data.get("games", []))
+                    quota_info = f" ({used_mb:.1f} MB of {quota_mb:.0f} MB used · {game_count} game(s) synced)"
+
+                print("\n" + "=" * 64)
+                print(f" {GREEN}{BOLD}[✓] SafeLauncher Cloud Saves are already set up and active!{RESET}")
+                print("=" * 64)
+                print(f"  • Endpoint: {active_url}")
+                if quota_info:
+                    print(f"  • Storage: {quota_info.strip(' ()')}")
+                if current_key:
+                    print(f"  • Secret Key: {'*' * len(current_key)}")
+                print("-" * 64)
+
+                reconf = input("\nWould you like to reconfigure or change endpoints? [y/N]: ").strip().lower()
+                if reconf not in ("y", "yes"):
+                    print(f"{GREEN}[✓] Existing cloud configuration preserved.{RESET}\n")
+                    return 0
+                print("")
+        except Exception:
+            pass
+
     print("\n" + "=" * 64)
     print("      SafeLauncher Cloud Saves Setup")
     print("=" * 64)
@@ -19,10 +67,6 @@ def run_cloud_setup_wizard() -> int:
     print("  2. Deploy: cd SafeLauncherCloud && npm install && npx convex deploy")
     print("  3. Copy your project's .convex.site URL from the deployment output")
     print("-" * 64)
-
-    settings = QSettings("SafeLauncher", "SafeLauncher")
-    current_url = settings.value("convex_site_url", "", type=str).strip()
-    discovered_url = discover_local_cloud_backend()
 
     default_url = current_url or discovered_url or ""
 
