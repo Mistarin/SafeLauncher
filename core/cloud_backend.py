@@ -144,13 +144,19 @@ class ConvexSaveBackend:
             raise CloudBackendError(f"Could not read staged save: {e}") from e
         plain_sha = hashlib.sha256(plaintext).hexdigest()
 
+        if len(plaintext) > MAX_SAVE_BYTES:
+            raise CloudBackendError(
+                f"Save archive ({len(plaintext) / (1024*1024):.1f} MB) exceeds maximum allowed size ({MAX_SAVE_BYTES / (1024*1024):.1f} MB).",
+                "payload_too_large", 413
+            )
+
         listing = self.list_games()
-        existing = next((g for g in listing["games"] if g["nameKey"] == name_key), None)
+        existing = next((g for g in listing.get("games", []) if g.get("nameKey") == name_key), None)
         current_version = None
-        if existing and existing["versions"]:
+        if existing and existing.get("versions"):
             top = existing["versions"][0]
-            if (top["plainSha256"] == plain_sha
-                    and top["sourceMaxMtime"] >= int(source_max_mtime)):
+            if (top.get("plainSha256") == plain_sha
+                    or top.get("sourceMaxMtime", 0) >= int(source_max_mtime)):
                 logger.info(f"Cloud already holds identical saves for '{name_key}'.")
                 return {"skipped": True}
 

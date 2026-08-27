@@ -79,6 +79,16 @@ def _scan_folder_stats(folder_path: str) -> tuple[int, int, float]:
 class LudusaviDetector:
     """Finds exact game save paths inside isolated Wine/UMU prefixes and game folders."""
 
+    _LOCATION_CACHE: Dict[tuple, List[SaveLocation]] = {}
+
+    @classmethod
+    def clear_cache(cls, game_name: Optional[str] = None):
+        """Clear discovery cache for a game or all games."""
+        if game_name is None:
+            cls._LOCATION_CACHE.clear()
+        else:
+            cls._LOCATION_CACHE = {k: v for k, v in cls._LOCATION_CACHE.items() if k[0] != game_name}
+
     # ------------------------------------------------------------------ #
     # Binary discovery                                                   #
     # ------------------------------------------------------------------ #
@@ -138,6 +148,30 @@ class LudusaviDetector:
     @classmethod
     def detect_saves(cls, game_name: str, game_path: str, steam_id: str = "") -> List[SaveLocation]:
         """Detect save files/folders using ludusavi merged with local heuristics."""
+        cache_key = (game_name, game_path, steam_id)
+        cached = cls._LOCATION_CACHE.get(cache_key)
+        if cached is not None:
+            # Fast-path: refresh file counts and mtimes in < 0.1ms without spawning CLI subprocess
+            refreshed: List[SaveLocation] = []
+            all_valid = True
+            for loc in cached:
+                if not os.path.exists(loc.path):
+                    all_valid = False
+                    break
+                count, size, mtime = _scan_folder_stats(loc.path)
+                refreshed.append(SaveLocation(
+                    display_name=loc.display_name,
+                    path=loc.path,
+                    is_directory=loc.is_directory,
+                    file_count=count,
+                    total_size_bytes=size,
+                    last_modified=mtime,
+                    relative_to_prefix=loc.relative_to_prefix,
+                    source=loc.source
+                ))
+            if all_valid and refreshed:
+                return refreshed
+
         cli_results: List[SaveLocation] = []
         if cls.is_cli_available():
             cli_results = cls._detect_via_cli(game_name, game_path, steam_id)
@@ -190,6 +224,10 @@ class LudusaviDetector:
                     break
             if not covered:
                 kept.append(loc)
+
+        if kept:
+            cls._LOCATION_CACHE[cache_key] = kept
+
         return kept
 
     @classmethod

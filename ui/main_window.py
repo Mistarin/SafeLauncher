@@ -137,6 +137,7 @@ class MainWindow(QMainWindow):
         self.metadata_attempted_builds = set()
         self.update_status_by_game_id = {}
         self.steam_check_results = {}
+        self.cloud_save_status_cache = {}
         self.local_version_by_game_id = {}
         self.metadata_attempted_tags = set()
         self._hero_attempted = set()
@@ -2119,7 +2120,11 @@ class MainWindow(QMainWindow):
         if self.selected_game and self.selected_game[0] == game_id:
             self.detail_disk_size.setText(f"Size: {format_size(size_bytes)}")
 
-    def _on_cloud_save_status_calculated(self, game_id: int, status, local_stats, cloud_stats):
+    def _render_cloud_status(self, game_id: int, status, local_stats=None):
+        """Update both library card badge and left detail inspector panel."""
+        if game_id in self.banner_widgets:
+            self.banner_widgets[game_id].set_cloud_status(status)
+
         if self.selected_game and self.selected_game[0] == game_id:
             from core.cloud_save_sync import SyncStatus
             if status == SyncStatus.IN_SYNC:
@@ -2134,12 +2139,16 @@ class MainWindow(QMainWindow):
             elif status == SyncStatus.CLOUD_ONLY:
                 self.detail_cloud_status.setText("<font color='#3B9FE8'><b>▼ Cloud Save: Available</b></font>")
                 self.detail_cloud_status.setToolTip("Cloud save exists and will be auto-restored on launch.")
-            elif status == SyncStatus.NO_SAVES or not local_stats or not getattr(local_stats, "exists", False):
+            elif status == SyncStatus.NO_SAVES or (local_stats is not None and not getattr(local_stats, "exists", False)):
                 self.detail_cloud_status.setText("<font color='#F05D6C'><b>✕ Cloud Save: Save not found</b></font>")
                 self.detail_cloud_status.setToolTip("Game save not found. SafeLauncher will not upload entire game files.")
             else:
                 self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: --</font>")
                 self.detail_cloud_status.setToolTip("")
+
+    def _on_cloud_save_status_calculated(self, game_id: int, status, local_stats, cloud_stats):
+        self.cloud_save_status_cache[game_id] = (status, local_stats, cloud_stats)
+        self._render_cloud_status(game_id, status, local_stats)
 
     def _update_detail_panel(self):
         """Update left panel with current selected game details and trigger smooth slide animation."""
@@ -2197,9 +2206,15 @@ class MainWindow(QMainWindow):
         else:
             self.detail_disk_size.setText("Size: --")
 
-        # Cloud Save status calculation in background thread
-        self.detail_cloud_status.setText("Cloud Save: Checking...")
-        self.detail_cloud_status.setToolTip("Checking save sync status...")
+        # Cloud Save status: instant render from cache if available, background refresh
+        cached_save = self.cloud_save_status_cache.get(game_id)
+        if cached_save is not None:
+            c_status, c_local, _ = cached_save
+            self._render_cloud_status(game_id, c_status, c_local)
+        else:
+            self.detail_cloud_status.setText("Cloud Save: Checking...")
+            self.detail_cloud_status.setToolTip("Checking save sync status...")
+
         save_thread = CloudSaveStatusFetcherThread(game_id, name, path or "", str(steam_id or ""), parent=self)
         save_thread.save_status_calculated.connect(self._on_cloud_save_status_calculated)
         self._track_metadata_fetcher(save_thread)
@@ -2810,6 +2825,7 @@ class MainWindow(QMainWindow):
                 "uploaded": [],
                 "newer_in_cloud": [],
                 "checked_count": 0,
+                "game_statuses": {},
             }
             try:
                 for g in games_snapshot:
@@ -2824,8 +2840,10 @@ class MainWindow(QMainWindow):
                             # Auto-upload unsynced local saves to cloud
                             if CloudSaveSyncEngine.sync_local_to_cloud(name, path, steam_id):
                                 payload["uploaded"].append(name)
+                                status = SyncStatus.IN_SYNC
                         elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
                             payload["newer_in_cloud"].append(name)
+                        payload["game_statuses"][game_id] = status
                     except Exception as ge:
                         logger.debug(f"Startup cloud check failed for '{name}': {ge}")
             except Exception as e:
@@ -2846,6 +2864,16 @@ class MainWindow(QMainWindow):
             self._startup_sync_done.disconnect(self._on_startup_cloud_sync_done)
         except TypeError:
             pass
+
+        # Update each visible card badge in library and cache
+        for game_id, status in payload.get("game_statuses", {}).items():
+            self.cloud_save_status_cache[game_id] = (status, None, None)
+            if game_id in self.banner_widgets:
+                self.banner_widgets[game_id].set_cloud_status(status)
+
+        if self.selected_game and self.selected_game[0] in self.cloud_save_status_cache:
+            sel_id = self.selected_game[0]
+            self._render_cloud_status(sel_id, self.cloud_save_status_cache[sel_id][0])
 
         uploaded = payload.get("uploaded", [])
         newer_in_cloud = payload.get("newer_in_cloud", [])
