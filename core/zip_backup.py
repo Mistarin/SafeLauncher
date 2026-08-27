@@ -57,7 +57,7 @@ class ZipBackupManager(IBackupManager):
             return False
 
         def writer(tmp_path: str) -> None:
-            with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                 for root, _, files in os.walk(save_path):
                     for file in files:
                         full_path = os.path.join(root, file)
@@ -94,7 +94,7 @@ class ZipBackupManager(IBackupManager):
             def writer(tmp_path: str) -> None:
                 nonlocal max_source_mtime
                 written_any = False
-                with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     items_meta = []
                     for idx, loc in enumerate(locations):
                         src_path = loc.path if hasattr(loc, "path") else str(loc)

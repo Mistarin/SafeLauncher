@@ -6,7 +6,7 @@ import tempfile
 from core.launch_diagnostics import LaunchDiagnostics
 from core.interfaces import ISandboxRunner
 from core.host_process import host_process_env
-from core.prefix_sanitizer import sanitize_wine_prefix
+from core.prefix_sanitizer import sanitize_wine_prefix, cleanup_prefix_health
 from core.logger import get_logger
 
 logger = get_logger("FirejailRunner")
@@ -66,9 +66,10 @@ class FirejailSandboxRunner(ISandboxRunner):
             logger.error(f"Launch failed: Unknown mode '{mode}'")
             raise ValueError(f"Unknown launch mode: {mode!r}. Must be one of {sorted(_VALID_MODES)}")
 
-        # [SECURITY] Sanitize Wine prefix user folders (Documents, Desktop) to strip host symlinks
+        # [SECURITY] Sanitize Wine prefix user folders (Documents, Desktop) and clean stale locks
         if mode in ("umu", "umu_net", "wine"):
             sanitize_wine_prefix(game_path)
+            cleanup_prefix_health(game_path)
 
         deps = self.check_dependencies()
         has_firejail = deps["firejail"] and sandbox
