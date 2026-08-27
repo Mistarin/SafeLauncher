@@ -1,203 +1,132 @@
 # SafeLauncher
 
-### Secure, high-performance game sandboxing for Linux.
+### Secure, high-performance game sandboxing and library manager for Linux.
 
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.kernel.org)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-<img width="2560" height="1440" alt="obrazek" src="https://github.com/user-attachments/assets/0c776ac5-fcd6-4ef1-b236-3b81d6d117ff" />
+<img width="2560" height="1440" alt="SafeLauncher Library Interface" src="https://github.com/user-attachments/assets/0c776ac5-fcd6-4ef1-b236-3b81d6d117ff" />
 
-SafeLauncher runs Windows and Linux games in separate Firejail sandboxes while keeping Proton, UMU, Wine, artwork, saves, and desktop integration in one place. Each game gets its own prefix and launch policy, so you can control what it can access and whether it can reach the network.
+SafeLauncher isolates Windows and Linux games inside dedicated Firejail sandboxes. Every title runs in its own prefix with custom launch policies, network isolation, and runtime environment controls.
 
----
-
-## Overview
-
-Games often run with more access to your home directory and network than they need. SafeLauncher gives each title its own sandbox, prefix, and launch settings, and can run network-free for games that do not need connectivity.
-
-It also handles Proton discovery, SteamGridDB artwork, save snapshots, archive installation, and Discord Rich Presence from the same library.
+It combines Proton/UMU/Wine runtime management, SteamGridDB metadata and poster syncing, archive installations (`.zip`, `.7z`, `.tar.gz`), local save backups, and zero-knowledge client-encrypted private cloud save sync on Convex.
 
 ---
 
-## Key Features
+## Quick Start (Setup Scripts)
 
-### Kernel-Level Sandbox Isolation
-* **Sandboxed launches**: Runs game processes, Wine helpers, and related tools through Firejail.
-* **Network isolation**: Native Linux and legacy Wine modes run with `--net=none` (no network). UMU/Proton launches currently have full host network access, so treat them as online.
-* **Per-game prefixes**: Creates an isolated Wine or Proton prefix for each game.
-* **Launch diagnostics**: Audits sandbox settings and records structured runtime logs.
+The repository provides ordered scripts in `setup/` for running, configuring, testing, and packaging SafeLauncher:
 
-### Compatibility & Runtime Engine
-* **Runner support**: Use UMU, Valve Proton, Proton-GE, system Wine, or custom Wine and Proton paths.
-* **Runtime discovery**: Finds installed Steam runtimes, Proton versions, and Wine binaries.
-* **Performance tools**: Works with Feral GameMode, Gamescope, and MangoHud.
-* **Per-game settings**: Set environment variables, DLL overrides, and extra sandbox arguments.
+```bash
+git clone https://github.com/Mistarin/SafeLauncher.git
+cd SafeLauncher
+```
 
-### Library and Metadata
-* **Artwork sync**: Pulls posters, hero banners, logos, and icons from SteamGridDB.
-* **Icon extraction**: Extracts icons from Windows `.exe` files.
-* **Library organization**: Supports Steam tags, search, sorting, filters, and favorites.
-
-### Archive Installation and Saves
-* **Archive installation**: Installs games from `.zip`, `.7z`, `.tar`, `.tar.gz`, and `.tgz` archives, then finds likely executables.
-* **Save snapshots**: Exports and imports save data as ZIP archives and detects common Windows and Wine save paths.
-* **Snapshot history**: Inspect and restore previous backups.
-
-### Desktop & System Integration
-* **Single instance**: Uses a local IPC socket to bring the existing window into focus when launched again.
-* **Discord Rich Presence**: Shows the current game and session duration.
-* **Capture integration**: Works with screen recording and screenshot tools available on the host.
-* **Desktop shortcuts**: Creates `.desktop` entries for launching games from the application menu.
+| Step | Script | Action |
+| :---: | :--- | :--- |
+| **`01`** | `./setup/01-doctor.sh` | Audit host distro, GPU drivers (NVIDIA/AMD/Intel), Wayland/X11, and gaming dependencies (`firejail`, `wine`, `gamemode`, `mangohud`, `gamescope`). |
+| **`02`** | `./setup/02-launch.sh` | Verify Python requirements, set up `.venv` automatically, and start SafeLauncher. |
+| **`03`** | `./setup/03-setup-cloud.sh` | Deploy your personal Convex cloud backend from source or connect an existing deployment. |
+| **`04`** | `./setup/04-install-desktop-entry.sh` | Register the application icon and `.desktop` launcher in your application menu. |
+| **`05`** | `./setup/05-build-appimage.sh` | Compile a standalone, reproducible Linux AppImage in `dist/SafeLauncher-x86_64.AppImage`. |
+| **`06`** | `./setup/06-run-tests.sh` | Execute the component and integration test suite. |
 
 ---
 
-## Installation
+## AppImage Installation
 
-### Method 1: AppImage (Recommended)
+If you prefer using prebuilt binaries without managing a Python environment:
 
-The AppImage bundles SafeLauncher and its Python dependencies. Firejail and your chosen compatibility runner still need to be installed on the host.
-
-1. Download the latest [SafeLauncher-x86_64.AppImage](https://github.com/Mistarin/SafeLauncher/releases/latest).
-2. Grant execution permissions:
+1. Download the latest release from [Releases](https://github.com/Mistarin/SafeLauncher/releases/latest).
+2. Mark executable and run:
    ```bash
    chmod +x SafeLauncher-x86_64.AppImage
-   ```
-3. Run the application:
-   ```bash
    ./SafeLauncher-x86_64.AppImage
    ```
 
-#### Host prerequisites
-Install Firejail and Wine, or another supported runner such as Proton or UMU:
+### Host Requirements
 
-* **Ubuntu / Debian**:
+SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, or `umu-run`) on the host system:
+
+* **Arch Linux / CachyOS / Manjaro**:
   ```bash
-  sudo apt install firejail wine
+  sudo pacman -S --needed firejail wine mangohud gamemode gamescope
   ```
-* **Fedora**:
+* **Ubuntu / Debian / Mint / Pop!_OS**:
   ```bash
-  sudo dnf install firejail wine
+  sudo apt install -y firejail wine mangohud gamemode gamescope
   ```
-* **Arch Linux**:
+* **Fedora / Nobara**:
   ```bash
-  sudo pacman -S firejail wine
+  sudo dnf install -y firejail wine mangohud gamemode gamescope
   ```
 * **openSUSE**:
   ```bash
-  sudo zypper install firejail wine
+  sudo zypper install -y firejail wine mangohud gamemode gamescope
   ```
 
 ---
 
-### Method 2: Running from Source
+## CLI Commands
 
-For development or customization:
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/Mistarin/SafeLauncher.git
-   cd SafeLauncher
-   ```
-
-2. **Create and activate a virtual environment**:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
-
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Launch SafeLauncher**:
-   ```bash
-   python main.py
-   ```
-
-5. **Install system desktop shortcut (Optional)**:
-   ```bash
-   ./install_desktop_entry.sh
-   ```
-
----
-
-### Method 3: Building the AppImage with Docker
-
-The Docker build script creates a reproducible AppImage:
+SafeLauncher supports direct terminal flags for diagnostics and setup:
 
 ```bash
-./packaging/build-appimage-docker.sh
+# Run host system and driver diagnostics
+python3 main.py --doctor
+
+# Run interactive terminal cloud save setup wizard
+python3 main.py --setup-cloud
+
+# Run test suite
+python3 test.py
 ```
 
-The resulting binary is placed at `dist/SafeLauncher-x86_64.AppImage`.
+---
+
+## Core Features
+
+### 1. Sandbox Isolation & Prefix Sanitization
+* **Process Sandboxing**: Wraps games, Wine helpers, and runtime tools inside Firejail namespaces.
+* **Network Isolation**: Runs offline games with `--net=none` to prevent unauthorized outbound connections.
+* **Prefix Isolation**: Allocates a separate Wine/Proton prefix per game and sanitizes host root directory symlinks (e.g. `dosdevices/z:` mapping).
+* **Launch Diagnostics**: Records structured sandbox audit logs per session in `~/.local/share/safelauncher/logs/`.
+
+### 2. Compatibility & Performance Runtimes
+* **Runners**: Supports Valve Proton, Proton-GE, UMU Launcher (`umu-run`), system Wine, or custom binary paths.
+* **Optimization Overlays**: Toggles Feral GameMode (`gamemoderun`), MangoHud performance monitoring, and Gamescope micro-compositing.
+* **Per-Game Variables**: Configure custom environment variables, DLL overrides, and launch arguments.
+
+### 3. Save Management & Private Cloud Sync
+* **Automatic Detection**: Finds save directories across Wine prefixes, Proton prefixes, and native folders using Ludusavi heuristics.
+* **Local Snapshots**: Export and restore save archives with level-9 DEFLATE compression and Zip-Slip path traversal protection.
+* **Private Cloud Backend ([SafeLauncherCloud](https://github.com/Mistarin/SafeLauncherCloud.git))**:
+  * Sync game saves to your own private Convex backend with client-side AES-256-GCM encryption.
+  * Free 1 GiB storage quota on Convex free tier with 50 MiB max payload support.
+  * 3-generation version rollback and conflict resolution.
+
+### 4. Library Management & Archive Installer
+* **SteamGridDB Sync**: Fetches high-resolution posters, hero banners, logos, and icons.
+* **Hardware-Accelerated UI**: In-memory `QPixmapCache` guarantees 60/120 FPS scrolling on large libraries.
+* **Archive Installer**: Installs games directly from `.zip`, `.7z`, `.tar`, `.tar.gz`, and `.tgz` archives and identifies executables automatically.
 
 ---
 
-## Getting Started
+## Data & Storage Locations
 
-### Adding a Game
+SafeLauncher adheres to standard Linux XDG base directory specifications:
 
-1. Launch SafeLauncher and select **Add Game** in the toolbar.
-2. Enter the game title and select the installation directory.
-3. Select the target executable (`.exe` or Linux binary).
-4. Choose the preferred runner (UMU, Proton, or Wine) and set the network isolation mode.
-5. Click **Add**. SafeLauncher prepares the sandbox and fetches artwork when available.
-
-### Installing from an Archive
-
-1. Select **Install from Archive**.
-2. Browse to any supported archive file (`.zip`, `.7z`, `.tar.gz`).
-3. Choose the installation directory. SafeLauncher extracts the files, finds likely executables, and creates the game entry.
-
-### Save Management and Private Cloud Sync
-
-SafeLauncher detects save directories automatically using Ludusavi heuristics across Wine prefixes, Proton prefixes, and native Linux folders.
-
-* **Local ZIP snapshots**: Export and restore save backups directly from the game card or save manager.
-* **Private cloud sync**: Sync saves to your own Convex deployment using AES-256-GCM client-side encryption.
-  * Backend repository: [SafeLauncherCloud](https://github.com/Mistarin/SafeLauncherCloud.git)
-  * Terminal setup:
-    ```bash
-    safelauncher --setup-cloud
-    ```
-  * GUI setup: Open **Settings -> Cloud -> Setup Wizard** to configure your Convex endpoint.
-  * Free 1 GiB storage quota on Convex with 3-generation version rollback and conflict resolution.
-
----
-
-## Architecture & Storage
-
-SafeLauncher stores its data in the standard XDG directories:
-
-| Path | Description |
+| Path | Contents |
 | :--- | :--- |
-| `~/.local/share/safelauncher/library.db` | SQLite database with game metadata, settings, and playtime. |
-| `~/.local/share/safelauncher/logs/` | Runtime and sandbox diagnostics. |
-| `~/.cache/safelauncher/` | Downloaded artwork and extracted icons. |
-| `~/.config/safelauncher/` | Global settings and API keys. |
-
----
-
-## Troubleshooting
-
-#### Firejail SUID Permission
-Some distributions require the Firejail SUID bit for namespace creation:
-```bash
-sudo chmod u+s /usr/bin/firejail
-```
-
-Only apply this if your distribution's Firejail setup requires it.
-
-#### Proton / UMU Path Discovery
-SafeLauncher checks common Steam locations, including `~/.steam/steam`, `~/.local/share/Steam`, and Flatpak Steam paths. Set a custom Proton or UMU path in Global Settings if automatic discovery does not find it.
-
-#### MangoHud / GameMode Integration
-Install `mangohud` and `gamemode` through your distribution's package manager to enable these integrations.
+| `~/.local/share/safelauncher/library.db` | SQLite database storing game metadata, launch configurations, and playtime counters. |
+| `~/.local/share/safelauncher/logs/` | Runtime logs and sandbox launch diagnostics. |
+| `~/.local/share/safelauncher/bin/` | App-managed external binaries (e.g. Ludusavi save detector). |
+| `~/.cache/safelauncher/` | Cached SteamGridDB posters, hero banners, and extracted game icons. |
+| `~/.config/SafeLauncher/` | Global launcher configuration and local user settings. |
 
 ---
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for details.
+Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
