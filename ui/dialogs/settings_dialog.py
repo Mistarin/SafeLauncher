@@ -557,6 +557,9 @@ class UserSettingsDialog(QDialog):
 
         acct_btns = QHBoxLayout()
         acct_btns.setSpacing(8)
+        self.btn_wizard = QPushButton("Setup Wizard…")
+        self.btn_wizard.clicked.connect(self._open_cloud_wizard)
+        acct_btns.addWidget(self.btn_wizard)
         self.btn_sign_in = QPushButton("Test & Connect…")
         self.btn_sign_in.clicked.connect(self._cloud_connect)
         acct_btns.addWidget(self.btn_sign_in)
@@ -875,6 +878,21 @@ class UserSettingsDialog(QDialog):
     def _on_cloud_mode_changed(self, index: int):
         from core.cloud_save_sync import set_cloud_mode
         set_cloud_mode(self.combo_cloud_mode.itemData(index) or "local")
+
+    def _open_cloud_wizard(self):
+        """Launch the step-by-step Convex cloud setup wizard."""
+        try:
+            from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
+            wizard = CloudWizardDialog(self)
+            if wizard.exec():
+                from core.cloud_backend import get_site_url
+                self.edit_convex_url.setText(get_site_url())
+                settings = QSettings("SafeLauncher", "SafeLauncher")
+                self.edit_cloud_secret_key.setText(settings.value("cloud_secret_key", "", type=str))
+                self.combo_cloud_mode.setCurrentIndex(1)
+                self._refresh_account_status()
+        except Exception as e:
+            QMessageBox.warning(self, "Setup Wizard", f"Could not open wizard: {e}")
 
     def _open_account_manager(self):
         """Launch the full profile/quota/version manager dialog."""

@@ -4,59 +4,76 @@ import sys
 import requests
 from PyQt6.QtCore import QSettings
 
+from core.cloud_detector import discover_local_cloud_backend
+
 
 def run_cloud_setup_wizard() -> int:
-    """Run interactive terminal setup wizard for private cloud backend."""
-    print("=" * 68)
-    print("           SafeLauncher Private Cloud Save Setup Wizard")
-    print("=" * 68)
-    print("SafeLauncher Cloud Saves are 100% private and self-hosted on Convex.")
-    print("You can deploy your free backend (1 GB storage) from GitHub:")
-    print("  -> https://github.com/Mistarin/SafeLauncherCloud.git")
-    print("-" * 68)
+    """Run interactive terminal setup wizard for private cloud save backend."""
+    print("\n" + "=" * 64)
+    print("      SafeLauncher Cloud Saves Setup")
+    print("=" * 64)
+    print("SafeLauncher stores encrypted game saves on your own private Convex backend.")
+    print("Convex offers 1 GB free storage without monthly fees.\n")
+    print("If you haven't deployed your backend yet:")
+    print("  1. Clone: git clone https://github.com/Mistarin/SafeLauncherCloud.git")
+    print("  2. Deploy: cd SafeLauncherCloud && npm install && npx convex deploy")
+    print("  3. Copy your project's .convex.site URL from the deployment output")
+    print("-" * 64)
 
     settings = QSettings("SafeLauncher", "SafeLauncher")
     current_url = settings.value("convex_site_url", "", type=str).strip()
+    discovered_url = discover_local_cloud_backend()
 
-    prompt_url = f"Enter your Convex Site URL [{current_url}]: " if current_url else "Enter your Convex Site URL (e.g. https://your-project.convex.site): "
-    site_url = input(prompt_url).strip()
-    if not site_url and current_url:
-        site_url = current_url
+    default_url = current_url or discovered_url or ""
+
+    if discovered_url and not current_url:
+        print(f"\n[Detected] Found local backend deployment: {discovered_url}")
+        use_detected = input("Use this detected endpoint? [Y/n]: ").strip().lower()
+        if use_detected not in ("n", "no"):
+            default_url = discovered_url
+
+    prompt = f"Convex Site URL [{default_url}]: " if default_url else "Convex Site URL (e.g. https://my-saves.convex.site): "
+    entered_url = input(prompt).strip()
+    site_url = entered_url if entered_url else default_url
 
     if not site_url:
-        print("[ERROR] Site URL cannot be empty. Aborted.")
+        print("[!] Site URL cannot be empty. Setup aborted.")
         return 1
 
     site_url = site_url.rstrip("/")
     if not site_url.startswith("http://") and not site_url.startswith("https://"):
         site_url = "https://" + site_url
 
-    secret_key = input("Enter your Cloud Secret Key (optional, press Enter if none): ").strip()
+    current_key = settings.value("cloud_secret_key", "", type=str).strip()
+    key_prompt = f"Secret Access Key [{current_key}]: " if current_key else "Secret Access Key (optional, press Enter to skip): "
+    entered_key = input(key_prompt).strip()
+    secret_key = entered_key if entered_key else (current_key if entered_url == "" else "")
 
-    print(f"\nTesting connection to {site_url}/api/health...")
+    print(f"\nVerifying connection to {site_url}...")
     try:
         headers = {}
         if secret_key:
             headers["Authorization"] = f"Bearer {secret_key}"
             headers["X-SafeLauncher-Key"] = secret_key
 
+        # 1. Health probe
         resp = requests.get(f"{site_url}/api/health", headers=headers, timeout=6)
         if resp.status_code != 200:
-            print(f"[ERROR] Health check failed with HTTP {resp.status_code}.")
+            print(f"[x] Health check failed (HTTP {resp.status_code}). Check the URL and deployment status.")
             return 1
+        print("[✓] Backend is online.")
 
-        print("[OK] Health probe successful!")
-
-        # Verify authentication/API route
+        # 2. Account overview probe
         resp_me = requests.get(f"{site_url}/api/me", headers=headers, timeout=6)
         if resp_me.status_code == 200:
             data = resp_me.json()
             quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
-            print(f"[OK] Authenticated successfully! Cloud storage quota: {quota_mb:.0f} MB")
+            used_mb = data.get("bytesUsed", 0) / (1024 * 1024)
+            print(f"[✓] Storage quota: {used_mb:.1f} MB used of {quota_mb:.0f} MB")
         else:
-            print(f"[WARNING] /api/me returned HTTP {resp_me.status_code}. (Check your secret key if required).")
+            print(f"[!] Warning: /api/me returned HTTP {resp_me.status_code}. (Check secret key if configured).")
 
-        # Save settings
+        # Save to local configuration
         settings.setValue("cloud_mode", "convex")
         settings.setValue("convex_site_url", site_url)
         if secret_key:
@@ -64,13 +81,13 @@ def run_cloud_setup_wizard() -> int:
         else:
             settings.remove("cloud_secret_key")
 
-        print("\n" + "=" * 68)
-        print(" SUCCESS: Cloud Saves configured and enabled in SafeLauncher!")
-        print("=" * 68)
+        print("\n" + "=" * 64)
+        print("Setup complete. SafeLauncher will now sync game saves to your cloud backend.")
+        print("=" * 64 + "\n")
         return 0
 
-    except Exception as e:
-        print(f"[ERROR] Could not connect to {site_url}: {e}")
+    except Exception as err:
+        print(f"[x] Connection failed: {err}")
         return 1
 
 
