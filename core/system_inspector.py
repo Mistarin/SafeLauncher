@@ -93,6 +93,8 @@ _PACKAGE_NAME_ALIASES: Dict[str, Dict[str, str]] = {
     "mangohud": {"apt": "mangohud", "pacman": "mangohud", "dnf": "mangohud", "zypper": "mangohud"},
     "gamescope": {"apt": "gamescope", "pacman": "gamescope", "dnf": "gamescope", "zypper": "gamescope"},
     "ffmpeg": {"apt": "ffmpeg", "pacman": "ffmpeg", "dnf": "ffmpeg", "zypper": "ffmpeg"},
+    "umu-run": {"apt": "umu-launcher", "pacman": "umu-launcher", "dnf": "umu-launcher", "zypper": "umu-launcher"},
+    "ludusavi": {"apt": "ludusavi", "pacman": "ludusavi", "dnf": "ludusavi", "zypper": "ludusavi"},
 }
 
 
@@ -382,12 +384,36 @@ def print_system_report() -> None:
         else:
             print(f"  {RED}✖ {tool:<12}{RESET} Not found")
 
-    # Actionable suggestions
+    # Actionable suggestions and interactive install prompts
     if audit.missing_packages:
         print(f"\n{YELLOW}{BOLD}Recommended Action for {audit.distro.pretty_name}:{RESET}")
         print("  Install missing gaming and sandboxing packages with:")
         print(f"  {CYAN}{BOLD}{audit.install_command_for_missing}{RESET}")
-    else:
+        try:
+            run_inst = input(f"\n{CYAN}{BOLD}➜{RESET} Run this installation command now with sudo? [y/N]: ").strip().lower()
+            if run_inst in ("y", "yes"):
+                print(f"  Running: {audit.install_command_for_missing}")
+                subprocess.run(audit.install_command_for_missing, shell=True)
+        except Exception:
+            pass
+
+    # Special handling for app-managed Ludusavi binary
+    if not audit.tools_installed.get("ludusavi", False):
+        try:
+            print(f"\n{YELLOW}{BOLD}SafeLauncher can download and manage Ludusavi automatically (no root/sudo needed).{RESET}")
+            dl_ludusavi = input(f"{CYAN}{BOLD}➜{RESET} Download Ludusavi save detector now? [Y/n]: ").strip().lower()
+            if dl_ludusavi not in ("n", "no"):
+                from core.ludusavi_installer import ensure_ludusavi
+                res = ensure_ludusavi()
+                if res and os.path.isfile(res):
+                    print(f"  {GREEN}{BOLD}✔ Ludusavi installed successfully to:{RESET} {res}")
+                    audit.tools_installed["ludusavi"] = True
+                else:
+                    print(f"  {RED}✖ Ludusavi download failed.{RESET}")
+        except Exception as e:
+            print(f"  {RED}✖ Download failed: {e}{RESET}")
+
+    if all(audit.tools_installed.values()):
         print(f"\n{GREEN}{BOLD}✔ All essential gaming and sandbox dependencies are installed!{RESET}")
 
     print("")
