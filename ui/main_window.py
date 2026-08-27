@@ -138,8 +138,10 @@ class MainWindow(QMainWindow):
         self.update_status_by_game_id = {}
         self.steam_check_results = {}
         self.cloud_save_status_cache = {}
+        self._cloud_save_checked_ts = {}
         self.local_version_by_game_id = {}
         self.metadata_attempted_tags = set()
+        self._steam_build_checked_ts = {}
         self._hero_attempted = set()
         self._icon_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
@@ -152,6 +154,7 @@ class MainWindow(QMainWindow):
         self._size_resort_timer.timeout.connect(self._refresh_library)
         self.games_by_id = {}
         self.library_selection = LibrarySelectionModel()
+        self._load_persistent_cache()
 
         # Background maintenance: prune orphaned temp files
         try:
@@ -1995,8 +1998,13 @@ class MainWindow(QMainWindow):
 
     def _on_steam_build_checked(self, game_id: int, latest_build_id: str, latest_build_date: int, is_update_available: bool):
         """Callback when background SteamBuildFetcher returns build info."""
+        import time
         self.steam_check_results[game_id] = (latest_build_id, latest_build_date, is_update_available, "")
         self.update_status_by_game_id[game_id] = bool(is_update_available and latest_build_id)
+        if not hasattr(self, "_steam_build_checked_ts"):
+            self._steam_build_checked_ts = {}
+        self._steam_build_checked_ts[game_id] = time.time()
+        self._save_persistent_cache()
         try:
             if game_id in self.banner_widgets:
                 self.banner_widgets[game_id].set_update_available(is_update_available)
@@ -2106,6 +2114,111 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         self._select_game_by_id(game_id)
 
+    def _load_persistent_cache(self):
+        """Load cached cloud save statuses, Steam check results, and attempted tag lookups from disk."""
+        import json
+        import time
+        from core.cloud_save_sync import SyncStatus, SaveStats
+        cache_file = os.path.join(os.path.expanduser("~/.cache/safelauncher"), "metadata_cache.json")
+        self._cloud_save_checked_ts = {}
+        self._steam_build_checked_ts = {}
+        if not os.path.isfile(cache_file):
+            return
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            cloud_cache = data.get("cloud_save_status", {})
+            for gid_str, entry in cloud_cache.items():
+                try:
+                    gid = int(gid_str)
+                    stat_val = entry.get("status")
+                    if stat_val:
+                        l_stats = SaveStats(
+                            exists=entry.get("local_exists", False),
+                            last_modified=entry.get("local_mtime", 0.0),
+                            size_bytes=entry.get("local_size", 0),
+                            file_count=entry.get("local_count", 0),
+                            display_path=entry.get("display_path", "")
+                        )
+                        c_stats = SaveStats(
+                            exists=entry.get("cloud_exists", False),
+                            last_modified=entry.get("cloud_mtime", 0.0),
+                            size_bytes=entry.get("cloud_size", 0)
+                        )
+                        self.cloud_save_status_cache[gid] = (SyncStatus(stat_val), l_stats, c_stats)
+                        self._cloud_save_checked_ts[gid] = entry.get("checked_at", time.time())
+                except Exception:
+                    continue
+
+            attempted_tags = data.get("attempted_tags", [])
+            self.metadata_attempted_tags = set(int(x) for x in attempted_tags if str(x).isdigit())
+
+            steam_builds = data.get("steam_builds", {})
+            for gid_str, entry in steam_builds.items():
+                try:
+                    gid = int(gid_str)
+                    self.steam_check_results[gid] = (
+                        entry.get("latest_build_id", ""),
+                        entry.get("latest_build_date", 0),
+                        entry.get("is_update", False),
+                        entry.get("error", "")
+                    )
+                    self._steam_build_checked_ts[gid] = entry.get("checked_at", time.time())
+                    self.metadata_attempted_builds.add(gid)
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.warning(f"Could not load metadata cache: {e}")
+
+    def _save_persistent_cache(self):
+        """Atomically persist cloud save status and Steam lookup cache to ~/.cache/safelauncher/metadata_cache.json."""
+        import json
+        import time
+        cache_dir = os.path.expanduser("~/.cache/safelauncher")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = os.path.join(cache_dir, "metadata_cache.json")
+        try:
+            cloud_dict = {}
+            for gid, val in self.cloud_save_status_cache.items():
+                status, l_stats, c_stats = val
+                cloud_dict[str(gid)] = {
+                    "status": status.value if hasattr(status, "value") else str(status),
+                    "local_exists": getattr(l_stats, "exists", False) if l_stats else False,
+                    "local_mtime": getattr(l_stats, "last_modified", 0.0) if l_stats else 0.0,
+                    "local_size": getattr(l_stats, "size_bytes", 0) if l_stats else 0,
+                    "local_count": getattr(l_stats, "file_count", 0) if l_stats else 0,
+                    "display_path": getattr(l_stats, "display_path", "") if l_stats else "",
+                    "cloud_exists": getattr(c_stats, "exists", False) if c_stats else False,
+                    "cloud_mtime": getattr(c_stats, "last_modified", 0.0) if c_stats else 0.0,
+                    "cloud_size": getattr(c_stats, "size_bytes", 0) if c_stats else 0,
+                    "checked_at": getattr(self, "_cloud_save_checked_ts", {}).get(gid, time.time())
+                }
+
+            builds_dict = {}
+            for gid, res in self.steam_check_results.items():
+                build_id, b_date, is_update, err = res
+                builds_dict[str(gid)] = {
+                    "latest_build_id": build_id,
+                    "latest_build_date": b_date,
+                    "is_update": is_update,
+                    "error": err,
+                    "checked_at": getattr(self, "_steam_build_checked_ts", {}).get(gid, time.time())
+                }
+
+            payload = {
+                "cloud_save_status": cloud_dict,
+                "attempted_tags": list(self.metadata_attempted_tags),
+                "steam_builds": builds_dict,
+                "saved_at": time.time()
+            }
+            tmp_path = cache_file + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(tmp_path, cache_file)
+        except Exception as e:
+            logger.warning(f"Could not persist metadata cache: {e}")
+
     def _on_steam_tags_found(self, game_id: int, tags_list: list, steam_app_id: str = ""):
         """Callback when background SteamTagsFetcher returns genres/categories"""
         if steam_app_id and steam_app_id.isdigit() and int(steam_app_id) > 0:
@@ -2113,6 +2226,8 @@ class MainWindow(QMainWindow):
         if tags_list:
             tags_str = ", ".join(tags_list)
             self.db.update_game_tags(game_id, tags_str)
+        self.metadata_attempted_tags.add(game_id)
+        self._save_persistent_cache()
         if not self.selected_game or self.selected_game[0] != game_id:
             return
 
@@ -2176,8 +2291,13 @@ class MainWindow(QMainWindow):
                 self.detail_cloud_status.setToolTip("")
 
     def _on_cloud_save_status_calculated(self, game_id: int, status, local_stats, cloud_stats):
+        import time
         self.cloud_save_status_cache[game_id] = (status, local_stats, cloud_stats)
+        if not hasattr(self, "_cloud_save_checked_ts"):
+            self._cloud_save_checked_ts = {}
+        self._cloud_save_checked_ts[game_id] = time.time()
         self._render_cloud_status(game_id, status, local_stats)
+        self._save_persistent_cache()
 
     def _update_detail_panel(self):
         """Update left panel with current selected game details and trigger smooth slide animation."""
@@ -2235,8 +2355,13 @@ class MainWindow(QMainWindow):
         else:
             self.detail_disk_size.setText("Size: --")
 
-        # Cloud Save status: instant render from cache if available, background refresh
+        # Cloud Save status: instant render from cache if available, background refresh only if stale (> 30 min)
+        import time
         cached_save = self.cloud_save_status_cache.get(game_id)
+        now = time.time()
+        last_checked = getattr(self, "_cloud_save_checked_ts", {}).get(game_id, 0)
+        is_stale = (now - last_checked) > 1800  # 30 mins
+
         if cached_save is not None:
             c_status, c_local, _ = cached_save
             self._render_cloud_status(game_id, c_status, c_local)
@@ -2244,9 +2369,10 @@ class MainWindow(QMainWindow):
             self.detail_cloud_status.setText("Cloud Save: Checking...")
             self.detail_cloud_status.setToolTip("Checking save sync status...")
 
-        save_thread = CloudSaveStatusFetcherThread(game_id, name, path or "", str(steam_id or ""), parent=self)
-        save_thread.save_status_calculated.connect(self._on_cloud_save_status_calculated)
-        self._track_metadata_fetcher(save_thread)
+        if cached_save is None or is_stale:
+            save_thread = CloudSaveStatusFetcherThread(game_id, name, path or "", str(steam_id or ""), parent=self)
+            save_thread.save_status_calculated.connect(self._on_cloud_save_status_calculated)
+            self._track_metadata_fetcher(save_thread)
 
         local_build_id = game[11] if len(game) > 11 and game[11] else ""
         local_build_date = game[14] if len(game) > 14 and game[14] else 0
@@ -2266,7 +2392,10 @@ class MainWindow(QMainWindow):
         self.btn_retry_steam.setVisible(False)
         self.latest_checked_build_id = ""
         self.latest_checked_build_date = 0
-        if steam_id and steam_id != "0" and game_id not in self.metadata_attempted_builds and not any(
+        steam_last_checked = getattr(self, "_steam_build_checked_ts", {}).get(game_id, 0)
+        steam_is_stale = (now - steam_last_checked) > 7200  # 2 hours
+
+        if steam_id and steam_id != "0" and (game_id not in self.metadata_attempted_builds or steam_is_stale) and not any(
             isinstance(fetcher, SteamBuildFetcher) and fetcher.game_id == game_id
             for fetcher in self.metadata_fetchers
         ):
@@ -2845,13 +2974,27 @@ class MainWindow(QMainWindow):
 
     def _start_background_cloud_sync(self):
         """Run startup cloud save check & sync queue across library with a concurrency pool of 3."""
+        import time
         games_snapshot = list(self.games)
         if not games_snapshot:
             return
 
-        # Prioritize games not yet in cache
-        uncached = [g for g in games_snapshot if len(g) > 0 and g[0] not in self.cloud_save_status_cache]
-        games_to_process = uncached if uncached else games_snapshot
+        # Prioritize games not yet in persistent cache or whose check is stale (> 2 hours)
+        now = time.time()
+        games_to_process = []
+        for g in games_snapshot:
+            if len(g) > 0:
+                gid = g[0]
+                if gid not in self.cloud_save_status_cache:
+                    games_to_process.append(g)
+                else:
+                    checked_at = getattr(self, "_cloud_save_checked_ts", {}).get(gid, 0)
+                    if (now - checked_at) > 7200:
+                        games_to_process.append(g)
+
+        if not games_to_process:
+            logger.info("All library games have active persistent cloud save cache. Skipping startup batch scan.")
+            return
 
         worker = CloudSaveBatchQueueWorker(games_to_process, max_workers=3, parent=self)
         worker.game_status_ready.connect(self._on_cloud_save_status_calculated)
