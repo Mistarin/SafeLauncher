@@ -16,7 +16,19 @@ logger = get_logger("Main")
 
 
 def main():
+    # Handle terminal setup wizard before GUI application bootstrap
+    if any(arg in sys.argv for arg in ("--setup-cloud", "setup-cloud", "-c")):
+        from core.cloud_cli_wizard import run_cloud_setup_wizard
+        sys.exit(run_cloud_setup_wizard())
+
     setup_application_environment()
+
+    # Anonymous player heartbeat to measure active installations
+    try:
+        from core.telemetry import ping_central_telemetry
+        ping_central_telemetry(__version__)
+    except Exception:
+        pass
 
     app = QApplication(sys.argv)
 

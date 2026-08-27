@@ -30,10 +30,8 @@ MAX_SAVE_BYTES = 50 * 1024 * 1024   # 50 MB max per save archive
 QUOTA_BYTES = 500 * 1024 * 1024
 _DOWNLOAD_STREAM_TIMEOUT = (10, 60)
 
-# Publishable default endpoints (dev deployment); override via QSettings
-# convex_site_url / env SAFELAUNCHER_CONVEX_SITE_URL, e.g. after production
-# deploy this becomes https://moonlit-sockeye-565.eu-west-1.convex.site.
-DEFAULT_SITE_URL = "https://quiet-rooster-847.eu-west-1.convex.site"
+# Default endpoint (configured per-user via QSettings or 'safelauncher --setup-cloud')
+DEFAULT_SITE_URL = ""
 
 
 class CloudBackendError(Exception):
@@ -78,19 +76,30 @@ class ConvexSaveBackend:
         site = get_site_url()
         if not site:
             raise CloudBackendError("Convex endpoint not configured.", "no_endpoint")
-        try:
-            token = clerk_auth.get_access_token()
-        except clerk_auth.AuthError as e:
-            raise CloudBackendError(str(e), "auth", 401) from e
+        
+        # 1. Use configured secret key if present (self-hosted SafeLauncherCloud)
+        secret_key = QSettings("SafeLauncher", "SafeLauncher").value("cloud_secret_key", "", type=str).strip() or os.environ.get("SAFELAUNCHER_SECRET_KEY", "")
+        headers = kwargs.pop("headers", {})
+        if secret_key:
+            headers["X-SafeLauncher-Key"] = secret_key
+            headers["Authorization"] = f"Bearer {secret_key}"
+        else:
+            # 2. Fall back to Clerk auth or default owner for self-hosted instances
+            try:
+                token = clerk_auth.get_access_token()
+                headers["Authorization"] = f"Bearer {token}"
+            except clerk_auth.AuthError:
+                headers["Authorization"] = "Bearer default_owner"
+
         resp = self.session.request(
             method,
             f"{site}{path}",
-            headers={"Authorization": f"Bearer {token}", **kwargs.pop("headers", {})},
+            headers=headers,
             timeout=kwargs.pop("timeout", 20),
             json=json_body,
             **kwargs,
         )
-        if resp.status_code == 401 and retry_auth:
+        if resp.status_code == 401 and retry_auth and not secret_key:
             clerk_auth.refresh_now(force=True)
             return self._request(method, path, json_body=json_body,
                                  retry_auth=False, **kwargs)
