@@ -2,71 +2,92 @@
 
 ### Secure, high-performance game sandboxing and library manager for Linux.
 
+[![Download Latest Release](https://img.shields.io/badge/Download-AppImage-blue?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/Mistarin/SafeLauncher/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.kernel.org)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 <img width="2560" height="1440" alt="SafeLauncher Library Interface" src="https://github.com/user-attachments/assets/0c776ac5-fcd6-4ef1-b236-3b81d6d117ff" />
 
-SafeLauncher isolates Windows and Linux games inside dedicated Firejail sandboxes. Every title runs in its own prefix with custom launch policies, network isolation, and runtime environment controls.
+SafeLauncher isolates Windows and Linux games inside dedicated Firejail sandboxes. Every game runs in its own prefix with custom launch policies, network isolation, and runtime controls.
 
-It combines Proton/UMU/Wine runtime management, SteamGridDB metadata and poster syncing, archive installations (`.zip`, `.7z`, `.tar.gz`), local save backups, and zero-knowledge client-encrypted private cloud save sync on Convex.
-
----
-
-## Quick Start (Setup Scripts)
-
-The repository provides ordered scripts in `setup/` for running, configuring, testing, and packaging SafeLauncher:
-
-```bash
-git clone https://github.com/Mistarin/SafeLauncher.git
-cd SafeLauncher
-```
-
-| Step | Script | Action |
-| :---: | :--- | :--- |
-| **`01`** | `./setup/01-doctor.sh` | Audit host distro, GPU drivers (NVIDIA/AMD/Intel), Wayland/X11, and gaming dependencies (`firejail`, `wine`, `gamemode`, `mangohud`, `gamescope`). |
-| **`02`** | `./setup/02-launch.sh` | Verify Python requirements, set up `.venv` automatically, and start SafeLauncher. |
-| **`03`** | `./setup/03-setup-cloud.sh` | Deploy your personal Convex cloud backend from source or connect an existing deployment. |
-| **`04`** | `./setup/04-install-desktop-entry.sh` | Register the application icon and `.desktop` launcher in your application menu. |
-| **`05`** | `./setup/05-build-appimage.sh` | Compile a standalone, reproducible Linux AppImage in `dist/SafeLauncher-x86_64.AppImage`. |
-| **`06`** | `./setup/06-run-tests.sh` | Execute the component and integration test suite. |
+It combines Proton/UMU/Wine runtime management, SteamGridDB artwork sync, direct archive installation (`.zip`, `.7z`, `.tar.gz`), local save backups, and zero-knowledge client-side encrypted cloud saves on Convex.
 
 ---
 
-## AppImage (Standalone Binary)
+## Installation
 
-If you prefer prebuilt binaries without setting up Python:
+### Option 1: AppImage (Recommended)
 
-1. Download [`SafeLauncher-x86_64.AppImage`](https://github.com/Mistarin/SafeLauncher/releases/latest).
-2. Mark executable:
+The standalone AppImage bundles all dependencies in a single executable file:
+
+1. **Download the latest binary:**  
+   👉 **[Download SafeLauncher-x86_64.AppImage](https://github.com/Mistarin/SafeLauncher/releases/latest)**
+
+2. **Make executable and run:**
    ```bash
    chmod +x SafeLauncher-x86_64.AppImage
-   ```
-3. Run GUI:
-   ```bash
    ./SafeLauncher-x86_64.AppImage
    ```
 
-### AppImage Built-in Commands
-All terminal utilities are embedded directly inside the AppImage:
+3. **Install desktop menu icon (Optional):**
+   ```bash
+   ./SafeLauncher-x86_64.AppImage --install-desktop
+   ```
+
+#### AppImage Terminal Commands
+The AppImage forwards all CLI arguments directly to internal utilities:
 
 ```bash
-# Register application menu entry and icon
-./SafeLauncher-x86_64.AppImage --install-desktop
-
-# Run host hardware, distro, and driver diagnostics
+# Run host hardware, GPU driver, and gaming dependency diagnostics
 ./SafeLauncher-x86_64.AppImage --doctor
 
-# Run interactive cloud save backend setup wizard
+# Run interactive terminal cloud save setup wizard
 ./SafeLauncher-x86_64.AppImage --setup-cloud
 ```
 
 ---
 
-## Host Requirements
+### Option 2: Running from Source
 
-SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, or `umu-run`) on the host:
+For developers or users running directly from git:
+
+1. **Clone repository:**
+   ```bash
+   git clone https://github.com/Mistarin/SafeLauncher.git
+   cd SafeLauncher
+   ```
+
+2. **Launch with automated dependency check:**
+   ```bash
+   ./setup/02-launch.sh
+   ```
+   *(Automatically sets up an isolated `.venv` and verifies `requirements.txt` on first start).*
+
+3. **Updating existing install:**
+   ```bash
+   git pull
+   ./setup/02-launch.sh
+   ```
+
+#### Setup Scripts Overview (`setup/`)
+
+The repository includes ordered helper scripts for managing the application:
+
+| Step | Script | Action |
+| :---: | :--- | :--- |
+| **`01`** | `./setup/01-doctor.sh` | Run host distro, GPU driver, Wayland/X11, and gaming dependency audit. |
+| **`02`** | `./setup/02-launch.sh` | Verify environment and start SafeLauncher. |
+| **`03`** | `./setup/03-setup-cloud.sh` | Deploy personal Convex backend from source or configure connection. |
+| **`04`** | `./setup/04-install-desktop-entry.sh` | Install system desktop shortcut and application menu icon. |
+| **`05`** | `./setup/05-build-appimage.sh` | Build reproducible standalone AppImage in `dist/SafeLauncher-x86_64.AppImage`. |
+| **`06`** | `./setup/06-run-tests.sh` | Execute automated test suite. |
+
+---
+
+## Host Prerequisites
+
+SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, or `umu-run`) on the host system:
 
 * **Arch Linux / CachyOS / Manjaro**:
   ```bash
@@ -87,30 +108,10 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 
 ---
 
-## CLI Reference (Source Code)
-
-When running from source, equivalent flags are available via `main.py`:
-
-```bash
-# Run host system and driver diagnostics
-python3 main.py --doctor
-
-# Run interactive terminal cloud save setup wizard
-python3 main.py --setup-cloud
-
-# Install system desktop entry
-python3 main.py --install-desktop
-
-# Run test suite
-python3 test.py
-```
-
----
-
 ## Core Features
 
 ### 1. Sandbox Isolation & Prefix Sanitization
-* **Process Sandboxing**: Wraps games, Wine helpers, and runtime tools inside Firejail namespaces.
+* **Process Sandboxing**: Wraps game processes, Wine helpers, and runtime tools inside Firejail namespaces.
 * **Network Isolation**: Runs offline games with `--net=none` to prevent unauthorized outbound connections.
 * **Prefix Isolation**: Allocates a separate Wine/Proton prefix per game and sanitizes host root directory symlinks (e.g. `dosdevices/z:` mapping).
 * **Launch Diagnostics**: Records structured sandbox audit logs per session in `~/.local/share/safelauncher/logs/`.
