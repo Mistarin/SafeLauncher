@@ -1,6 +1,5 @@
-import urllib.request
 import urllib.parse
-import json
+import requests
 from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
@@ -23,9 +22,11 @@ class SteamTagsFetcher(SafeQThread):
                 return
             query = urllib.parse.quote(self.game_name)
             search_url = f"https://store.steampowered.com/api/storesearch/?term={query}&l=english&cc=US"
-            req = urllib.request.Request(search_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                search_data = json.loads(response.read().decode("utf-8"))
+            resp = requests.get(search_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+            if resp.status_code != 200:
+                self.tags_found.emit(self.game_id, [], "")
+                return
+            search_data = resp.json()
 
             if self.isInterruptionRequested():
                 return
@@ -37,9 +38,11 @@ class SteamTagsFetcher(SafeQThread):
 
             app_id = items[0]["id"]
             detail_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}"
-            req_detail = urllib.request.Request(detail_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req_detail, timeout=5) as response:
-                detail_data = json.loads(response.read().decode("utf-8"))
+            resp_detail = requests.get(detail_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+            if resp_detail.status_code != 200:
+                self.tags_found.emit(self.game_id, [], str(app_id))
+                return
+            detail_data = resp_detail.json()
 
             if self.isInterruptionRequested():
                 return
@@ -60,5 +63,5 @@ class SteamTagsFetcher(SafeQThread):
             logger.info(f"Fetched Steam tags for '{self.game_name}': {combined}")
             self.tags_found.emit(self.game_id, combined, str(app_id))
         except Exception as e:
-            logger.warning(f"Could not fetch Steam tags for '{self.game_name}': {e}")
+            logger.warning(f"Failed to fetch Steam tags for '{self.game_name}': {e}")
             self.tags_found.emit(self.game_id, [], "")

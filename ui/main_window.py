@@ -233,6 +233,8 @@ class MainWindow(QMainWindow):
         
         # Body Container Layout (Left Sidebar + Center/Right Splitter)
         body_widget = QWidget()
+        body_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        body_widget.setStyleSheet("background: transparent;")
         body_layout = QHBoxLayout(body_widget)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(0)
@@ -254,7 +256,11 @@ class MainWindow(QMainWindow):
 
         # 2. Splitter Layout: Center Game Grid + Right Game Details Inspector Panel
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.splitter.setStyleSheet("""
+            QSplitter {
+                background: transparent;
+            }
             QSplitter::handle {
                 background: transparent;
                 width: 0px;
@@ -537,6 +543,7 @@ class MainWindow(QMainWindow):
         # Center Main Game Library Area
         self.right_panel = QWidget()
         self.right_panel.setObjectName("libraryCentralPanel")
+        self.right_panel.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.right_panel.setStyleSheet("QWidget#libraryCentralPanel { background: transparent; }")
         right_layout = QVBoxLayout(self.right_panel)
         right_layout.setContentsMargins(18, 14, 18, 14)
@@ -550,10 +557,6 @@ class MainWindow(QMainWindow):
         self.splitter.setSizes([880, saved_right_w])
         self.splitter.splitterMoved.connect(self._on_splitter_moved)
 
-        # Header Title with Sorting, View Toggle, and Inspector Reveal Button
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(10)
-        
         # Header Title with Sorting, View Toggle, and Inspector Reveal Button
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
@@ -684,12 +687,31 @@ class MainWindow(QMainWindow):
         # Games Grid in Scroll Area
         self.scroll_area = QScrollArea(self.right_panel)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet("QScrollArea, QWidget#qt_scrollarea_viewport { background: transparent; border: none; }")
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                background-color: transparent;
+                border: none;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+                background-color: transparent;
+            }
+        """)
+        if self.scroll_area.viewport():
+            self.scroll_area.viewport().setStyleSheet("background: transparent; background-color: transparent; border: none;")
+            self.scroll_area.viewport().setAutoFillBackground(False)
+            self.scroll_area.viewport().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         
         # Dynamic Responsive Grid Container (2:3 portrait cards, default width 200px)
         self.library_view_stack = QStackedWidget(self.scroll_area)
+        self.library_view_stack.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.library_view_stack.setStyleSheet("QStackedWidget { background: transparent; background-color: transparent; }")
         self.grid_container = ResponsiveGridContainer(self.library_view_stack, card_width=200, spacing=15)
-        self.grid_container.setStyleSheet("background: transparent;")
+        self.grid_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.grid_container.setStyleSheet("background: transparent; background-color: transparent;")
         self.list_view = LibraryListView(self.library_view_stack)
         self.list_view.game_clicked.connect(self._select_game_by_id)
         self.list_view.game_double_clicked.connect(self._on_double_click_game)

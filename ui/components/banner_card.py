@@ -90,8 +90,10 @@ class GameBannerWidget(QFrame):
         self.card_width = 200
         self.card_height = 300
 
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFrameStyle(QFrame.Shape.NoFrame)
         self.setLineWidth(0)
+        self.setStyleSheet("border: none; background: transparent; background-color: transparent;")
         self.setFixedSize(QSize(self.card_width, self.card_height + 55))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         

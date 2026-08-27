@@ -6,6 +6,8 @@ class ResponsiveGridContainer(QWidget):
     """Container widget that reflows game banner widgets dynamically into columns based on window width"""
     def __init__(self, parent=None, card_width: int = 200, spacing: int = 15):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent; background-color: transparent;")
         self.card_width = card_width
         self.spacing = spacing
         self.widgets = []
