@@ -48,7 +48,8 @@ logger = get_logger("UI")
 from ui.threads import (
     BannerFetcher, BannerDownloader, BannerAutoFetcher, ArchiveExtractorThread,
     GitHubReleasesFetcherThread, UmuBootstrapWorker, SafeLaunchLogReader,
-    DiskSizeFetcherThread, HeroFetcherThread, IconAutoFetcherThread
+    DiskSizeFetcherThread, HeroFetcherThread, IconAutoFetcherThread,
+    CloudSaveStatusFetcherThread
 )
 from core.archive_installer import find_executables
 from core.host_process import host_process_env
@@ -375,6 +376,13 @@ class MainWindow(QMainWindow):
         self.detail_disk_size = QLabel("")
         self.detail_disk_size.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detail_disk_size.setStyleSheet("color: #6F7682; font-size: 11px; font-weight: 500; padding: 2px 0;")
+        detail_layout.addWidget(self.detail_disk_size)
+
+        # Selected Game Cloud Save Status
+        self.detail_cloud_status = QLabel("")
+        self.detail_cloud_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.detail_cloud_status.setStyleSheet("color: #6F7682; font-size: 11px; font-weight: 500; padding: 2px 0;")
+        detail_layout.addWidget(self.detail_cloud_status)
 
         # Steam update status and version details
         self.detail_update_widget = QWidget()
@@ -2111,6 +2119,28 @@ class MainWindow(QMainWindow):
         if self.selected_game and self.selected_game[0] == game_id:
             self.detail_disk_size.setText(f"Size: {format_size(size_bytes)}")
 
+    def _on_cloud_save_status_calculated(self, game_id: int, status, local_stats, cloud_stats):
+        if self.selected_game and self.selected_game[0] == game_id:
+            from core.cloud_save_sync import SyncStatus
+            if status == SyncStatus.IN_SYNC:
+                self.detail_cloud_status.setText("<font color='#35C98A'><b>● Cloud Save: Synced</b></font>")
+                self.detail_cloud_status.setToolTip("Save files are fully backed up and synchronized with the cloud.")
+            elif status == SyncStatus.LOCAL_NEWER:
+                self.detail_cloud_status.setText("<font color='#3B9FE8'><b>▲ Cloud Save: Ready to Upload</b></font>")
+                self.detail_cloud_status.setToolTip("Local save is newer than cloud. SafeLauncher will auto-upload on game exit.")
+            elif status == SyncStatus.CLOUD_NEWER:
+                self.detail_cloud_status.setText("<font color='#E5A93D'><b>▼ Cloud Save: Newer in Cloud</b></font>")
+                self.detail_cloud_status.setToolTip("A newer save exists in the cloud. SafeLauncher will prompt to restore on launch.")
+            elif status == SyncStatus.CLOUD_ONLY:
+                self.detail_cloud_status.setText("<font color='#3B9FE8'><b>▼ Cloud Save: Available</b></font>")
+                self.detail_cloud_status.setToolTip("Cloud save exists and will be auto-restored on launch.")
+            elif status == SyncStatus.NO_SAVES or not local_stats or not getattr(local_stats, "exists", False):
+                self.detail_cloud_status.setText("<font color='#F05D6C'><b>✕ Cloud Save: Save not found</b></font>")
+                self.detail_cloud_status.setToolTip("Game save not found. SafeLauncher will not upload entire game files.")
+            else:
+                self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: --</font>")
+                self.detail_cloud_status.setToolTip("")
+
     def _update_detail_panel(self):
         """Update left panel with current selected game details and trigger smooth slide animation."""
         game = self.selected_game
@@ -2166,6 +2196,13 @@ class MainWindow(QMainWindow):
             self._track_metadata_fetcher(disk_thread)
         else:
             self.detail_disk_size.setText("Size: --")
+
+        # Cloud Save status calculation in background thread
+        self.detail_cloud_status.setText("Cloud Save: Checking...")
+        self.detail_cloud_status.setToolTip("Checking save sync status...")
+        save_thread = CloudSaveStatusFetcherThread(game_id, name, path or "", str(steam_id or ""), parent=self)
+        save_thread.save_status_calculated.connect(self._on_cloud_save_status_calculated)
+        self._track_metadata_fetcher(save_thread)
 
         local_build_id = game[11] if len(game) > 11 and game[11] else ""
         local_build_date = game[14] if len(game) > 14 and game[14] else 0
@@ -2752,6 +2789,8 @@ class MainWindow(QMainWindow):
         outcome = payload.get("outcome")
         if outcome == "uploaded":
             self._show_toast(f"Cloud save synced for '{name}'.")
+            if self.selected_game and self.selected_game[1] == name:
+                self._update_detail_panel()
         elif outcome == "failed":
             logger.warning(f"Exit cloud-save upload failed for '{name}'.")
         elif payload.get("reason") in ("cloud_newer", "cloud_only"):
