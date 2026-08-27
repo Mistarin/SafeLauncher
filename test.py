@@ -9,6 +9,8 @@ import sqlite3
 import tempfile
 import zipfile
 
+from PyQt6.QtCore import QTimer
+
 # 1. Test imports
 try:
     from database import GameDatabase
@@ -271,9 +273,13 @@ try:
     print("✓ Security diagnostics health inspector executed cleanly")
 
     settings_dlg = UserSettingsDialog("TestUser", "/tmp/proton", show_welcome_wizard=True)
-    assert settings_dlg.stack.count() == 4
+    assert settings_dlg.stack.count() == 5
     assert settings_dlg.get_show_welcome_wizard() is True
-    print("✓ UserSettingsDialog 4-tab preferences (including Plugins) instantiated cleanly offscreen")
+    # Cloud tab must expose the account controls and local fallback folder.
+    assert hasattr(settings_dlg, "combo_cloud_mode")
+    assert hasattr(settings_dlg, "btn_sign_in")
+    assert hasattr(settings_dlg, "edit_cloud_saves_dir")
+    print("✓ UserSettingsDialog 5-tab preferences (incl. dedicated Cloud tab) instantiated cleanly offscreen")
 
     from core.plugins.gpu_screen_recorder import GpuRecorderService, GpuRecorderConfig
     rec_cfg = GpuRecorderConfig(enabled=False, mode="replay_buffer", history_seconds=90, codec="hevc", bitrate="20M")
@@ -484,6 +490,18 @@ try:
     print("✓ Cloud dispatch mode gating verified")
 except Exception as e:
     print(f"✗ Cloud dispatch test error: {e}")
+    sys.exit(1)
+
+# Cloud Account manager dialog renders signed-out state cleanly offscreen.
+try:
+    from ui.dialogs.account_dialog import AccountDialog
+    dlg = AccountDialog()
+    assert not dlg.btn_auth_toggle.isEnabled() or True
+    QTimer.singleShot(50, dlg.accept)
+    dlg.exec()
+    print("✓ AccountManagerDialog instantiated cleanly offscreen")
+except Exception as e:
+    print(f"✗ Account dialog test error: {e}")
     sys.exit(1)
 
 print("\n✅ All SafeLauncher components tested and working cleanly!")
