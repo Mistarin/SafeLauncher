@@ -1,7 +1,7 @@
-import urllib.request
 import json
 import os
 import re
+import requests
 from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
@@ -55,45 +55,42 @@ class SteamBuildFetcher(SafeQThread):
 
         try:
             url = f"https://api.steamcmd.net/v1/info/{self.steam_id}"
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "SafeLauncher/1.0 (Linux Game Sandbox Manager)"}
-            )
+            headers = {"User-Agent": "SafeLauncher/1.0 (Linux Game Sandbox Manager)"}
             logger.debug(f"Checking Steam build for game {self.game_id}, AppID {self.steam_id}")
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                if resp.status != 200:
-                    self._fail(f"Steam metadata returned HTTP {resp.status}")
-                    return
-                data = json.loads(resp.read().decode("utf-8"))
-                if not isinstance(data, dict):
-                    self._fail("Steam metadata returned an invalid response")
-                    return
+            resp = requests.get(url, headers=headers, timeout=12)
+            if resp.status_code != 200:
+                self._fail(f"Steam metadata returned HTTP {resp.status_code}")
+                return
+            data = resp.json()
+            if not isinstance(data, dict):
+                self._fail("Steam metadata returned an invalid response")
+                return
+            if self.isInterruptionRequested():
+                return
+            app_data = data.get("data", {}).get(self.steam_id, {})
+            depots = app_data.get("depots", {})
+            branches = depots.get("branches", {})
+            public_branch = branches.get("public", {})
+            latest_build_id = str(public_branch.get("buildid", "")).strip()
+            latest_build_date = public_branch.get("timeupdated", 0)
+            try:
+                latest_build_date = int(latest_build_date or 0)
+            except (TypeError, ValueError):
+                latest_build_date = 0
+
+            if latest_build_id:
+                if self.local_build_id:
+                    is_update = (latest_build_id != self.local_build_id)
+                elif self.local_build_date > 0:
+                    is_update = (latest_build_date > self.local_build_date)
+                else:
+                    is_update = False
+                logger.info(f"Steam Build check for game {self.game_id} (AppID {self.steam_id}): latest={latest_build_id}, update={is_update}")
                 if self.isInterruptionRequested():
                     return
-                app_data = data.get("data", {}).get(self.steam_id, {})
-                depots = app_data.get("depots", {})
-                branches = depots.get("branches", {})
-                public_branch = branches.get("public", {})
-                latest_build_id = str(public_branch.get("buildid", "")).strip()
-                latest_build_date = public_branch.get("timeupdated", 0)
-                try:
-                    latest_build_date = int(latest_build_date or 0)
-                except (TypeError, ValueError):
-                    latest_build_date = 0
-
-                if latest_build_id:
-                    if self.local_build_id:
-                        is_update = (latest_build_id != self.local_build_id)
-                    elif self.local_build_date > 0:
-                        is_update = (latest_build_date > self.local_build_date)
-                    else:
-                        is_update = False
-                    logger.info(f"Steam Build check for game {self.game_id} (AppID {self.steam_id}): latest={latest_build_id}, update={is_update}")
-                    if self.isInterruptionRequested():
-                        return
-                    self.update_checked.emit(self.game_id, latest_build_id, latest_build_date, is_update)
-                    return
-                self._fail("Steam returned no public branch build for this AppID")
+                self.update_checked.emit(self.game_id, latest_build_id, latest_build_date, is_update)
+                return
+            self._fail("Steam returned no public branch build for this AppID")
         except Exception as e:
             logger.warning(f"Failed to check Steam build for AppID {self.steam_id}: {e}")
             self._fail(f"Steam check failed: {e}")
