@@ -16,7 +16,7 @@ cat << DESKTOP > "$APPS_DIR/safelauncher.desktop"
 [Desktop Entry]
 Name=SafeLauncher
 Comment=Secure, high-performance game sandboxing for Linux
-Exec=$ROOT_DIR/scripts/launch.sh %U
+Exec=$ROOT_DIR/setup/launch.sh %U
 Icon=safelauncher
 Terminal=false
 Type=Application
