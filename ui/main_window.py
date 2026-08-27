@@ -2759,7 +2759,36 @@ class MainWindow(QMainWindow):
             )
 
     def closeEvent(self, event):
-        """Stop all background workers before destroying the main window."""
+        """Stop all background workers, then destroy the main window.
+
+        Quit must ALWAYS succeed: the window hides immediately for feedback,
+        every work source is stopped once, and past a hard deadline stubborn
+        threads are terminated instead of being waited on forever.
+        """
+        import time as _time
+
+        first_attempt = getattr(self, "_shutdown_deadline", 0.0) == 0.0
+        if first_attempt:
+            self._shutdown_deadline = _time.monotonic() + 12.0
+            # Immediate visual feedback: quit looks like quit.
+            self.hide()
+
+            # Halt every source that schedules new background work while we
+            # are trying to shut down.
+            for timer_name in ("drive_check_timer", "_size_resort_timer"):
+                timer = getattr(self, timer_name, None)
+                if timer is not None:
+                    try:
+                        timer.stop()
+                    except RuntimeError:
+                        pass
+            listener = getattr(self, "global_hotkeys", None)
+            if listener is not None:
+                try:
+                    listener.stop()
+                except Exception:
+                    pass
+
         self._pending_auto_fetchers = []  # queued fetchers were never started
         for fetcher in list(self.metadata_fetchers):
             if fetcher.isRunning():
@@ -2770,29 +2799,27 @@ class MainWindow(QMainWindow):
         for tracker in list(self.playtime_trackers):
             tracker.stop()
 
-        extractor = getattr(self, "topbar_extractor_thread", None)
-        if extractor and extractor.isRunning():
-            extractor.requestInterruption()
-            extractor.quit()
-            extractor.wait(7000)
-            if extractor.isRunning():
-                QTimer.singleShot(100, self.close)
-                event.ignore()
-                return
-
         workers = list(self.metadata_fetchers) + list(self.auto_fetchers) + list(self.playtime_trackers)
         for worker in workers:
             if worker.isRunning():
                 # Network requests use short timeouts, but allow enough time
                 # for the active request to return before Qt destroys QThread.
-                worker.wait(7000)
+                worker.wait(1500)
 
-        # Never destroy a parented QThread while it is running, but also never
-        # freeze the GUI indefinitely. Retry close after the bounded wait.
-        if any(worker.isRunning() for worker in workers):
+        still_running = [w for w in workers if w.isRunning()]
+        if still_running and _time.monotonic() < self._shutdown_deadline:
             QTimer.singleShot(100, self.close)
             event.ignore()
             return
+
+        if still_running:
+            logger.error(
+                f"Forcing quit past shutdown deadline; terminating "
+                f"{len(still_running)} unresponsive worker(s)."
+            )
+            for worker in still_running:
+                worker.terminate()
+                worker.wait(1000)
 
         if hasattr(self, "discord_rpc") and self.discord_rpc:
             self.discord_rpc.clear_activity()
