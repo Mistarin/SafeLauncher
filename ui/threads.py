@@ -276,3 +276,28 @@ class IconAutoFetcherThread(SafeQThread):
         if not self.isInterruptionRequested() and icon_path and os.path.exists(icon_path):
             self.icon_downloaded.emit(self.game_id, icon_path)
 
+
+class CloudSaveStatusFetcherThread(SafeQThread):
+    """Background QThread for checking local and cloud save status without blocking GUI."""
+    save_status_calculated = pyqtSignal(int, object, object, object)  # (game_id, status, local_stats, cloud_stats)
+
+    def __init__(self, game_id: int, game_name: str, path: str, steam_id: str = "", parent=None):
+        super().__init__(parent)
+        self.game_id = game_id
+        self.game_name = game_name
+        self.path = path
+        self.steam_id = steam_id
+
+    def safe_run(self):
+        if self.isInterruptionRequested():
+            return
+        try:
+            from core.cloud_save_sync import CloudSaveSyncEngine
+            status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
+                self.game_name, self.path, self.steam_id
+            )
+            if not self.isInterruptionRequested():
+                self.save_status_calculated.emit(self.game_id, status, local_stats, cloud_stats)
+        except Exception as e:
+            logger.debug(f"CloudSaveStatusFetcherThread error for game {self.game_id}: {e}")
+
