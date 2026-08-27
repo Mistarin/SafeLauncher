@@ -16,6 +16,12 @@ logger = get_logger("Main")
 
 
 def main():
+    # Handle CLI system diagnostics / doctor
+    if any(arg in sys.argv for arg in ("--doctor", "doctor", "-d")):
+        from core.system_inspector import print_system_report
+        print_system_report()
+        sys.exit(0)
+
     # Handle terminal setup wizard before GUI application bootstrap
     if any(arg in sys.argv for arg in ("--setup-cloud", "setup-cloud", "-c")):
         from core.cloud_cli_wizard import run_cloud_setup_wizard
