@@ -52,7 +52,7 @@ def main():
     if check_already_running():
         sys.exit(0)
 
-    missing = missing_requirements()
+    missing = [] if getattr(sys, "frozen", False) else missing_requirements()
     if missing:
         details = "\n".join(f"• {item}" for item in missing)
         if sys.prefix == sys.base_prefix:
