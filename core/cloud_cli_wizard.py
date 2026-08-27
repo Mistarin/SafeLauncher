@@ -4,7 +4,7 @@ import sys
 import requests
 from PyQt6.QtCore import QSettings
 
-from core.cloud_detector import discover_local_cloud_backend
+from core.cloud_detector import discover_local_cloud_backend, detect_local_cloud_installation
 
 
 def run_cloud_setup_wizard() -> int:
@@ -68,23 +68,30 @@ def run_cloud_setup_wizard() -> int:
         except Exception:
             pass
 
-    # Step 1: Deployment overview
-    banner("[1/3] Backend Deployment Guide", CYAN)
-    print("  SafeLauncher stores encrypted game saves on your private Convex cloud.")
-    print("  Convex provides 1 GB free cloud storage without monthly fees.\n")
-    print(f"  {BOLD}Quick deployment steps:{RESET}")
-    print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git{RESET}")
-    print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherCloud && npm install && npx convex deploy{RESET}")
-    print(f"   {DIM}3.{RESET} Copy your project's {BOLD}.convex.site{RESET} URL from the terminal output.")
-    footer(CYAN)
+    # Step 1: Deployment & Auto-Detection
+    local_info = detect_local_cloud_installation()
+    if local_info:
+        banner("[1/3] Backend Auto-Detection", CYAN)
+        print(f"  {GREEN}{BOLD}✔ Found local server files:{RESET} {local_info['path']}")
+        if local_info.get("site_url"):
+            print(f"  {GREEN}{BOLD}✔ Extracted from .env.local:{RESET}  {local_info['site_url']}")
+            if local_info.get("deployment"):
+                print(f"  {DIM}• Convex deployment:{RESET}        {local_info['deployment']}")
+        else:
+            print(f"  {YELLOW}● Server folder found, but .env.local is not initialized yet.{RESET}")
+            print(f"    Run {YELLOW}npx convex deploy{RESET} inside that directory to deploy.")
+        footer(CYAN)
+    else:
+        banner("[1/3] Backend Deployment Guide", CYAN)
+        print("  SafeLauncher stores encrypted game saves on your private Convex cloud.")
+        print("  Convex provides 1 GB free cloud storage without monthly fees.\n")
+        print(f"  {BOLD}Quick deployment steps:{RESET}")
+        print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git{RESET}")
+        print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherCloud && npm install && npx convex deploy{RESET}")
+        print(f"   {DIM}3.{RESET} Copy your project's {BOLD}.convex.site{RESET} URL from the terminal output.")
+        footer(CYAN)
 
-    default_url = current_url or discovered_url or ""
-
-    if discovered_url and not current_url:
-        print(f"\n  {YELLOW}● Detected local deployment:{RESET} {discovered_url}")
-        use_detected = input(f"  {CYAN}{BOLD}➜{RESET} Use this detected endpoint? [Y/n]: ").strip().lower()
-        if use_detected not in ("n", "no"):
-            default_url = discovered_url
+    default_url = current_url or (local_info.get("site_url") if local_info else "") or ""
 
     # Step 2: Connection settings
     banner("[2/3] Connection Configuration", CYAN)
