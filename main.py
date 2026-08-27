@@ -6,7 +6,6 @@ from core.bootstrap import setup_application_environment, check_already_running,
 from database import GameDatabase
 from core.firejail_runner import FirejailSandboxRunner
 from core.zip_backup import ZipBackupManager
-from ui.main_window import MainWindow
 from core.dependency_checker import install_requirements, missing_requirements
 
 # Single source of truth for the application version.
@@ -108,6 +107,7 @@ def main():
     backup = ZipBackupManager()
 
     # 3. Create main window & bind single-instance listener
+    from ui.main_window import MainWindow
     window = MainWindow(db, runner, backup)
     server = create_single_instance_server(window._show_and_raise)
 

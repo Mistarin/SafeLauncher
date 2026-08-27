@@ -1,4 +1,5 @@
 import os
+from typing import Optional, List, Tuple, Dict, Any
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QWidget
 from PyQt6.QtCore import Qt, QSize, QPoint, QPointF, pyqtSignal, QVariantAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QPixmapCache
