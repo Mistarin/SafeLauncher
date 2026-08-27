@@ -153,6 +153,13 @@ class MainWindow(QMainWindow):
         self.games_by_id = {}
         self.library_selection = LibrarySelectionModel()
 
+        # Background maintenance: prune orphaned temp files
+        try:
+            from core.prefix_sanitizer import cleanup_global_temp_files
+            threading.Thread(target=cleanup_global_temp_files, daemon=True, name="SafeLauncher-TempPrune").start()
+        except Exception:
+            pass
+
         self.search_query = ""
         self.settings = QSettings("SafeLauncher", "SafeLauncher")
         self.library_view_mode = self.settings.value("library_view_mode", "grid", type=str)

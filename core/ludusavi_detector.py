@@ -192,28 +192,31 @@ class LudusaviDetector:
         cached = cls._LOCATION_CACHE.get(cache_key)
         if cached is not None:
             if not cached:
-                # Fast-path for games known to have no saves yet
-                return []
-            # Fast-path: refresh file counts and mtimes in < 0.1ms without spawning CLI subprocess
-            refreshed: List[SaveLocation] = []
-            all_valid = True
-            for loc in cached:
-                if not os.path.exists(loc.path):
-                    all_valid = False
-                    break
-                count, size, mtime = _scan_folder_stats(loc.path)
-                refreshed.append(SaveLocation(
-                    display_name=loc.display_name,
-                    path=loc.path,
-                    is_directory=loc.is_directory,
-                    file_count=count,
-                    total_size_bytes=size,
-                    last_modified=mtime,
-                    relative_to_prefix=loc.relative_to_prefix,
-                    source=loc.source
-                ))
-            if all_valid:
-                return refreshed
+                # Fast heuristic check to see if a save folder was newly created
+                heuristic_hit = cls._detect_via_heuristics(game_name, game_path, steam_id)
+                if not heuristic_hit:
+                    return []
+            else:
+                # Fast-path: refresh file counts and mtimes in < 0.1ms without spawning CLI subprocess
+                refreshed: List[SaveLocation] = []
+                all_valid = True
+                for loc in cached:
+                    if not os.path.exists(loc.path):
+                        all_valid = False
+                        break
+                    count, size, mtime = _scan_folder_stats(loc.path)
+                    refreshed.append(SaveLocation(
+                        display_name=loc.display_name,
+                        path=loc.path,
+                        is_directory=loc.is_directory,
+                        file_count=count,
+                        total_size_bytes=size,
+                        last_modified=mtime,
+                        relative_to_prefix=loc.relative_to_prefix,
+                        source=loc.source
+                    ))
+                if all_valid:
+                    return refreshed
 
         cli_results: List[SaveLocation] = []
         if cls.is_cli_available():

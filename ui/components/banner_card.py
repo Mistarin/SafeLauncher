@@ -1,7 +1,10 @@
 import os
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QWidget
 from PyQt6.QtCore import Qt, QSize, QPoint, QPointF, pyqtSignal, QVariantAnimation, QEasingCurve
-from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter
+from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QPixmapCache
+
+# Allocate 64MB LRU cache budget for decoded pixmaps
+QPixmapCache.setCacheLimit(64 * 1024)
 
 from ui.icons import get_app_icon, get_icon
 
@@ -444,20 +447,36 @@ class GameBannerWidget(QFrame):
         except (RuntimeError, AttributeError):
             pass
 
+    def _get_source_pixmap(self) -> Optional[QPixmap]:
+        """Fetch base decoded source pixmap using QPixmapCache."""
+        if not self.banner_path or self.banner_path == "none" or not os.path.exists(self.banner_path):
+            return None
+        cache_key = f"src_{self.game_id}_{self.banner_path}"
+        pix = QPixmapCache.find(cache_key)
+        if pix and not pix.isNull():
+            return pix
+        pix = QPixmap(self.banner_path)
+        if not pix.isNull():
+            QPixmapCache.insert(cache_key, pix)
+            return pix
+        return None
+
     def set_icon(self, icon_path: str):
         """Set game icon path and re-render."""
         self.icon_path = str(icon_path).strip() if icon_path else ""
         self.render_frame(self._hover_progress)
 
     def render_frame(self, progress: float):
-        """Render cover art with LERP zoom & hover overlay"""
+        """Render cover art with LERP zoom & hover overlay using QPixmapCache."""
         target_w, target_h = self.card_width, self.card_height
         
         # 2. Missing game state (greyed out fallback)
         if self.is_missing:
-            if self.banner_path and self.banner_path != "none" and os.path.exists(self.banner_path):
-                pixmap = QPixmap(self.banner_path)
-                if not pixmap.isNull():
+            pixmap = self._get_source_pixmap()
+            if pixmap:
+                cache_key = f"grey_{self.game_id}_{target_w}_{target_h}"
+                greyed = QPixmapCache.find(cache_key)
+                if not greyed or greyed.isNull():
                     scaled = pixmap.scaled(
                         QSize(target_w, target_h),
                         Qt.AspectRatioMode.KeepAspectRatioByExpanding,
@@ -473,13 +492,14 @@ class GameBannerWidget(QFrame):
                     painter.drawPixmap(0, 0, cropped)
                     painter.fillRect(greyed.rect(), QColor(20, 20, 20, 175))
                     painter.end()
-                    
-                    self.image_label.setPixmap(greyed)
-                    self.image_label.setText("")
-                    if hasattr(self, 'update_indicator') and self.is_update_available:
-                        self.update_indicator.raise_()
-                    self._position_version_badge()
-                    return
+                    QPixmapCache.insert(cache_key, greyed)
+                
+                self.image_label.setPixmap(greyed)
+                self.image_label.setText("")
+                if hasattr(self, 'update_indicator') and self.is_update_available:
+                    self.update_indicator.raise_()
+                self._position_version_badge()
+                return
             
             placeholder = QPixmap(target_w, target_h)
             placeholder.fill(QColor("#111318"))
@@ -493,38 +513,50 @@ class GameBannerWidget(QFrame):
             return
 
         # 3. Normal game state with LERP hover zoom + smooth hover darkening!
-        if self.banner_path and self.banner_path != "none" and os.path.exists(self.banner_path):
-            pixmap = QPixmap(self.banner_path)
-            if not pixmap.isNull():
-                scale_factor = 1.0 + (0.04 * progress)
-                zoom_w = int(target_w * scale_factor)
-                zoom_h = int(target_h * scale_factor)
-                
-                scaled = pixmap.scaled(
-                    QSize(zoom_w, zoom_h),
-                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                crop_x = max(0, (scaled.width() - target_w) // 2)
-                crop_y = max(0, (scaled.height() - target_h) // 2)
-                cropped = scaled.copy(crop_x, crop_y, target_w, target_h)
+        pixmap = self._get_source_pixmap()
+        if pixmap:
+            if progress == 0.0:
+                cache_key = f"card_idle_{self.game_id}_{target_w}_{target_h}"
+                cached = QPixmapCache.find(cache_key)
+                if cached and not cached.isNull():
+                    self.image_label.setPixmap(cached)
+                    self.image_label.setText("")
+                    if hasattr(self, 'update_indicator') and self.is_update_available:
+                        self.update_indicator.raise_()
+                    self._position_version_badge()
+                    return
 
-                # Apply smooth dark tint overlay on hover
-                if progress > 0.0:
-                    darkened = QPixmap(cropped.size())
-                    darkened.fill(Qt.GlobalColor.transparent)
-                    p = QPainter(darkened)
-                    p.drawPixmap(0, 0, cropped)
-                    p.fillRect(darkened.rect(), QColor(0, 0, 0, int(70 * progress)))
-                    p.end()
-                    cropped = darkened
+            scale_factor = 1.0 + (0.04 * progress)
+            zoom_w = int(target_w * scale_factor)
+            zoom_h = int(target_h * scale_factor)
+            
+            scaled = pixmap.scaled(
+                QSize(zoom_w, zoom_h),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            crop_x = max(0, (scaled.width() - target_w) // 2)
+            crop_y = max(0, (scaled.height() - target_h) // 2)
+            cropped = scaled.copy(crop_x, crop_y, target_w, target_h)
 
-                self.image_label.setPixmap(cropped)
-                self.image_label.setText("")
-                if hasattr(self, 'update_indicator') and self.is_update_available:
-                    self.update_indicator.raise_()
-                self._position_version_badge()
-                return
+            # Apply smooth dark tint overlay on hover
+            if progress > 0.0:
+                darkened = QPixmap(cropped.size())
+                darkened.fill(Qt.GlobalColor.transparent)
+                p = QPainter(darkened)
+                p.drawPixmap(0, 0, cropped)
+                p.fillRect(darkened.rect(), QColor(0, 0, 0, int(70 * progress)))
+                p.end()
+                cropped = darkened
+            elif progress == 0.0:
+                QPixmapCache.insert(f"card_idle_{self.game_id}_{target_w}_{target_h}", cropped)
+
+            self.image_label.setPixmap(cropped)
+            self.image_label.setText("")
+            if hasattr(self, 'update_indicator') and self.is_update_available:
+                self.update_indicator.raise_()
+            self._position_version_badge()
+            return
 
         # 4. Placeholder card when cover art is cleared ('none') or missing
         placeholder = QPixmap(target_w, target_h)

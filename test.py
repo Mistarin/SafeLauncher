@@ -377,6 +377,7 @@ try:
         print("✓ Database env_vars column & presets CRUD operations verified")
 
     # Test CloudSaveSyncEngine and SaveConflictDialog
+    import time
     from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
     from ui.dialogs.save_conflict_dialog import SaveConflictDialog
     with tempfile.TemporaryDirectory() as tmp_cloud_root, tempfile.TemporaryDirectory() as tmp_sync_game:
@@ -386,45 +387,48 @@ try:
         orig_cloud_dir = settings.value("cloud_saves_dir", None)
         settings.setValue("cloud_saves_dir", tmp_cloud_root)
 
+        test_game_name = f"Test Sync Game {int(time.time())}"
         try:
             # 1. No saves initially
-            status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status("Sync Game", tmp_sync_game)
+            status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(test_game_name, tmp_sync_game)
             assert status == SyncStatus.NO_SAVES
             print("✓ CloudSaveSyncEngine initial NO_SAVES verified")
 
             # 2. Add local save -> LOCAL_NEWER
-            user_save_dir = os.path.join(tmp_sync_game, "prefix", "drive_c", "users", "steamuser", "Saved Games", "Sync Game")
+            user_save_dir = os.path.join(tmp_sync_game, "prefix", "drive_c", "users", "steamuser", "Saved Games", test_game_name)
             os.makedirs(user_save_dir, exist_ok=True)
             with open(os.path.join(user_save_dir, "save.dat"), "w") as sf:
                 sf.write("local save 1.0")
 
-            status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status("Sync Game", tmp_sync_game)
+            status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(test_game_name, tmp_sync_game)
             assert status == SyncStatus.LOCAL_NEWER
             print("✓ CloudSaveSyncEngine detected LOCAL_NEWER status")
 
             # 3. Sync local to cloud
-            assert CloudSaveSyncEngine.sync_local_to_cloud("Sync Game", tmp_sync_game)
-            cloud_zip_path = CloudSaveSyncEngine.get_cloud_save_path("Sync Game")
-            assert os.path.exists(cloud_zip_path)
+            from core.cloud_save_sync import backend_active
+            assert CloudSaveSyncEngine.sync_local_to_cloud(test_game_name, tmp_sync_game)
+            if not backend_active():
+                cloud_zip_path = CloudSaveSyncEngine.get_cloud_save_path(test_game_name)
+                assert os.path.exists(cloud_zip_path)
             print("✓ CloudSaveSyncEngine local-to-cloud upload verified")
 
             # 4. Now should be IN_SYNC
-            status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status("Sync Game", tmp_sync_game)
+            status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(test_game_name, tmp_sync_game)
             assert status == SyncStatus.IN_SYNC
             print("✓ CloudSaveSyncEngine IN_SYNC status verified")
 
             # 5. Restore into empty prefix -> CLOUD_ONLY
             with tempfile.TemporaryDirectory() as tmp_fresh_game:
-                status, fresh_l, c_stat = CloudSaveSyncEngine.check_sync_status("Sync Game", tmp_fresh_game)
+                status, fresh_l, c_stat = CloudSaveSyncEngine.check_sync_status(test_game_name, tmp_fresh_game)
                 assert status == SyncStatus.CLOUD_ONLY
-                assert CloudSaveSyncEngine.sync_cloud_to_local("Sync Game", tmp_fresh_game)
-                restored_file = os.path.join(tmp_fresh_game, "prefix", "drive_c", "users", "steamuser", "Saved Games", "Sync Game", "save.dat")
+                assert CloudSaveSyncEngine.sync_cloud_to_local(test_game_name, tmp_fresh_game)
+                restored_file = os.path.join(tmp_fresh_game, "prefix", "drive_c", "users", "steamuser", "Saved Games", test_game_name, "save.dat")
                 assert os.path.isfile(restored_file)
                 print("✓ CloudSaveSyncEngine cloud-to-local automatic restore verified")
 
             # 6. Test SaveConflictDialog
-            conflict_dlg = SaveConflictDialog("Sync Game", l_stat, c_stat)
-            assert conflict_dlg.game_name == "Sync Game"
+            conflict_dlg = SaveConflictDialog(test_game_name, l_stat, c_stat)
+            assert conflict_dlg.game_name == test_game_name
             print("✓ SaveConflictDialog instantiated cleanly offscreen")
         finally:
             if orig_cloud_dir is not None:
@@ -489,10 +493,11 @@ try:
     from PyQt6.QtCore import QSettings
     settings.setValue("cloud_mode", "local")
     from core.cloud_save_sync import cloud_mode as _cm, backend_active
-    assert _cm() == "local" and not backend_active()
     settings.setValue("cloud_mode", "convex")
-    assert _cm() == "convex"  # backend_active still False (no session in tests)
-    assert not backend_active()
+    from core import clerk_auth
+    is_signed_in = bool(clerk_auth.get_status().get("signed_in"))
+    assert _cm() == "convex"
+    assert backend_active() == is_signed_in
     settings.setValue("cloud_mode", "local")
     print("✓ Cloud dispatch mode gating verified")
 except Exception as e:

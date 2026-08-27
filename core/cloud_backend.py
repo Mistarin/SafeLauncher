@@ -26,8 +26,8 @@ from core.logger import get_logger
 
 logger = get_logger("CloudBackend")
 
-MAX_SAVE_BYTES = 10 * 1024 * 1024   # mirrors convex/lib/limits.ts
-QUOTA_BYTES = 200 * 1024 * 1024
+MAX_SAVE_BYTES = 50 * 1024 * 1024   # 50 MB max per save archive
+QUOTA_BYTES = 500 * 1024 * 1024
 _DOWNLOAD_STREAM_TIMEOUT = (10, 60)
 
 # Publishable default endpoints (dev deployment); override via QSettings
