@@ -7,6 +7,61 @@ from PyQt6.QtCore import QSettings
 from core.cloud_detector import discover_local_cloud_backend, detect_local_cloud_installation
 
 
+def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
+    """Interactively build and deploy Convex backend functions."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    root_dir = Path(__file__).resolve().parent.parent
+    parent_dir = root_dir.parent
+
+    server_dir = Path(existing_path) if existing_path else None
+    if not server_dir or not server_dir.is_dir():
+        candidates = [
+            parent_dir / "SafeLauncherCloud",
+            parent_dir / "SafeLauncherDatabase",
+            Path.home() / "Main" / "Programming" / "SafeLauncherCloud",
+            Path.home() / "Main" / "Programming" / "SafeLauncherDatabase",
+        ]
+        for c in candidates:
+            if c.is_dir():
+                server_dir = c
+                break
+
+    if not server_dir or not server_dir.is_dir():
+        server_dir = parent_dir / "SafeLauncherCloud"
+        print(f"  Cloning SafeLauncherCloud repository into {server_dir}...")
+        try:
+            res = subprocess.run(["git", "clone", "https://github.com/Mistarin/SafeLauncherCloud.git", str(server_dir)])
+            if res.returncode != 0:
+                print("  [✖] Git clone failed.")
+                return None
+        except Exception as e:
+            print(f"  [✖] Git clone failed: {e}")
+            return None
+
+    if not shutil.which("npm"):
+        print("  [✖] Node.js & npm are required. Please install Node.js (e.g. sudo apt install nodejs npm).")
+        return None
+
+    print(f"\n  [Deploy] Installing dependencies in {server_dir}...")
+    try:
+        subprocess.run(["npm", "install"], cwd=str(server_dir), check=True)
+        print("  [Deploy] Running 'npx convex deploy'...")
+        subprocess.run(["npx", "convex", "deploy"], cwd=str(server_dir), check=True)
+    except Exception as e:
+        print(f"  [✖] Deployment encountered an error: {e}")
+        return None
+
+    from core.cloud_detector import detect_local_cloud_installation
+    info = detect_local_cloud_installation()
+    if info and info.get("site_url"):
+        print(f"\n  [✔] Deployment complete! Found site URL: {info['site_url']}")
+        return info["site_url"]
+    return None
+
+
 def run_cloud_setup_wizard() -> int:
     """Run interactive terminal setup wizard for private cloud save backend."""
     # Terminal ANSI styling
@@ -79,16 +134,26 @@ def run_cloud_setup_wizard() -> int:
                 print(f"  {DIM}• Convex deployment:{RESET}        {local_info['deployment']}")
         else:
             print(f"  {YELLOW}● Server folder found, but .env.local is not initialized yet.{RESET}")
-            print(f"    Run {YELLOW}npx convex deploy{RESET} inside that directory to deploy.")
+            redeploy = input(f"\n  {CYAN}{BOLD}➜{RESET} Deploy Convex backend now? [Y/n]: ").strip().lower()
+            if redeploy not in ("n", "no"):
+                deployed_url = deploy_convex_backend(local_info["path"])
+                if deployed_url:
+                    local_info["site_url"] = deployed_url
         footer(CYAN)
     else:
-        banner("[1/3] Backend Deployment Guide", CYAN)
+        banner("[1/3] Backend Deployment", CYAN)
         print("  SafeLauncher stores encrypted game saves on your private Convex cloud.")
         print("  Convex provides 1 GB free cloud storage without monthly fees.\n")
-        print(f"  {BOLD}Quick deployment steps:{RESET}")
-        print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git{RESET}")
-        print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherCloud && npm install && npx convex deploy{RESET}")
-        print(f"   {DIM}3.{RESET} Copy your project's {BOLD}.convex.site{RESET} URL from the terminal output.")
+        redeploy = input(f"  {CYAN}{BOLD}➜{RESET} Deploy a new private Convex backend now? [y/N]: ").strip().lower()
+        if redeploy in ("y", "yes"):
+            deployed_url = deploy_convex_backend()
+            if deployed_url:
+                local_info = {"site_url": deployed_url}
+        else:
+            print(f"\n  {BOLD}Manual deployment steps:{RESET}")
+            print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git{RESET}")
+            print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherCloud && npm install && npx convex deploy{RESET}")
+            print(f"   {DIM}3.{RESET} Copy your project's {BOLD}.convex.site{RESET} URL from the terminal output.")
         footer(CYAN)
 
     default_url = current_url or (local_info.get("site_url") if local_info else "") or ""
