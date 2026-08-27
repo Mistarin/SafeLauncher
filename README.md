@@ -34,20 +34,39 @@ cd SafeLauncher
 
 ---
 
-## AppImage Installation
+## AppImage (Standalone Binary)
 
-If you prefer using prebuilt binaries without managing a Python environment:
+If you prefer prebuilt binaries without setting up Python:
 
-1. Download the latest release from [Releases](https://github.com/Mistarin/SafeLauncher/releases/latest).
-2. Mark executable and run:
+1. Download [`SafeLauncher-x86_64.AppImage`](https://github.com/Mistarin/SafeLauncher/releases/latest).
+2. Mark executable:
    ```bash
    chmod +x SafeLauncher-x86_64.AppImage
+   ```
+3. Run GUI:
+   ```bash
    ./SafeLauncher-x86_64.AppImage
    ```
 
-### Host Requirements
+### AppImage Built-in Commands
+All terminal utilities are embedded directly inside the AppImage:
 
-SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, or `umu-run`) on the host system:
+```bash
+# Register application menu entry and icon
+./SafeLauncher-x86_64.AppImage --install-desktop
+
+# Run host hardware, distro, and driver diagnostics
+./SafeLauncher-x86_64.AppImage --doctor
+
+# Run interactive cloud save backend setup wizard
+./SafeLauncher-x86_64.AppImage --setup-cloud
+```
+
+---
+
+## Host Requirements
+
+SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, or `umu-run`) on the host:
 
 * **Arch Linux / CachyOS / Manjaro**:
   ```bash
@@ -68,9 +87,9 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 
 ---
 
-## CLI Commands
+## CLI Reference (Source Code)
 
-SafeLauncher supports direct terminal flags for diagnostics and setup:
+When running from source, equivalent flags are available via `main.py`:
 
 ```bash
 # Run host system and driver diagnostics
@@ -78,6 +97,9 @@ python3 main.py --doctor
 
 # Run interactive terminal cloud save setup wizard
 python3 main.py --setup-cloud
+
+# Install system desktop entry
+python3 main.py --install-desktop
 
 # Run test suite
 python3 test.py

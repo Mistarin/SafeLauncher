@@ -27,6 +27,17 @@ def main():
         from core.cloud_cli_wizard import run_cloud_setup_wizard
         sys.exit(run_cloud_setup_wizard())
 
+    # Handle desktop shortcut registration
+    if any(arg in sys.argv for arg in ("--install-desktop", "install-desktop", "-i")):
+        from core.desktop_integration import install_safelauncher_desktop_entry
+        ok, msg = install_safelauncher_desktop_entry()
+        if ok:
+            print(f"\033[92m✔ {msg}\033[0m")
+            sys.exit(0)
+        else:
+            print(f"\033[91m✖ {msg}\033[0m")
+            sys.exit(1)
+
     setup_application_environment()
 
     # Anonymous player heartbeat to measure active installations
