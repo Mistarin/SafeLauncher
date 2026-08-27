@@ -15,13 +15,14 @@ logger = get_logger("OverlayHUD")
 
 _ACTIVE_OVERLAY = None
 
-# Path to the notification sound file
-_SOUND_FILE = "/home/martin/Stažené/koiroylers-bell-notification-sound-1-355740.mp3"
+# Optional path to notification sound file
+_BUNDLED_SOUND = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets", "notification.mp3")
+_SOUND_FILE = _BUNDLED_SOUND if os.path.exists(_BUNDLED_SOUND) else ""
 
 
 def play_notification_sound():
-    """Play the bell notification sound using mpv (non-blocking, silent)."""
-    if not os.path.exists(_SOUND_FILE):
+    """Play the notification sound if available (non-blocking, silent)."""
+    if not _SOUND_FILE or not os.path.exists(_SOUND_FILE):
         return
     try:
         mpv = shutil.which("mpv")

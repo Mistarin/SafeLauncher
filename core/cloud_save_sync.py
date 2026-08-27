@@ -77,11 +77,18 @@ def backend_active() -> bool:
     """True when the Convex backend should serve sync operations."""
     if cloud_mode() != "convex":
         return False
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    if settings.value("cloud_secret_key", "", type=str).strip():
+        return True
     try:
         from core import clerk_auth
-        return bool(clerk_auth.get_status().get("signed_in"))
+        if clerk_auth.get_status().get("signed_in"):
+            return True
     except Exception:
-        return False
+        pass
+    # If a custom convex endpoint is configured, activate it
+    site = settings.value("convex_site_url", "", type=str).strip()
+    return bool(site)
 
 
 _backend_singleton = None
