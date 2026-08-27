@@ -24,21 +24,44 @@ def install_safelauncher_desktop_entry() -> tuple[bool, str]:
     """
     try:
         apps_dir = os.path.expanduser("~/.local/share/applications")
+        icons_dir = os.path.expanduser("~/.local/share/icons/hicolor/256x256/apps")
         os.makedirs(apps_dir, exist_ok=True)
+        os.makedirs(icons_dir, exist_ok=True)
 
         project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         main_py = os.path.join(project_dir, "main.py")
         logo_path = os.path.join(project_dir, "assets", "logo.png")
 
-        # Resolve best python interpreter (prefer current virtual environment or sys.executable)
-        python_bin = sys.executable or "python3"
-        for venv_candidate in (
-            os.path.join(project_dir, ".venv", "bin", "python"),
-            os.path.join(project_dir, "venv", "bin", "python"),
-        ):
-            if os.path.isfile(venv_candidate) and os.access(venv_candidate, os.X_OK):
-                python_bin = venv_candidate
-                break
+        # Copy icon to standard XDG hicolor location if logo exists
+        installed_icon = "safelauncher"
+        if os.path.isfile(logo_path):
+            try:
+                shutil.copyfile(logo_path, os.path.join(icons_dir, "safelauncher.png"))
+            except Exception:
+                installed_icon = logo_path
+        else:
+            installed_icon = "safelauncher"
+
+        # If running inside an AppImage, point Exec directly to the AppImage file
+        appimage_path = os.environ.get("APPIMAGE", "").strip()
+        if appimage_path and os.path.isfile(appimage_path):
+            exec_line = f'Exec="{appimage_path}" %U'
+            work_dir = os.path.dirname(appimage_path)
+        else:
+            launch_script = os.path.join(project_dir, "setup", "02-launch.sh")
+            if os.path.isfile(launch_script) and os.access(launch_script, os.X_OK):
+                exec_line = f'Exec="{launch_script}" %U'
+            else:
+                python_bin = sys.executable or "python3"
+                for venv_candidate in (
+                    os.path.join(project_dir, ".venv", "bin", "python"),
+                    os.path.join(project_dir, "venv", "bin", "python"),
+                ):
+                    if os.path.isfile(venv_candidate) and os.access(venv_candidate, os.X_OK):
+                        python_bin = venv_candidate
+                        break
+                exec_line = f'Exec="{python_bin}" "{main_py}" %U'
+            work_dir = project_dir
 
         desktop_path = get_desktop_file_path()
         content = (
@@ -48,13 +71,14 @@ def install_safelauncher_desktop_entry() -> tuple[bool, str]:
             "Name=SafeLauncher\n"
             "GenericName=Game Sandbox Launcher\n"
             "Comment=Secure isolated game launcher and library manager\n"
-            f'Exec="{python_bin}" "{main_py}"\n'
-            f"Path={project_dir}\n"
-            f"Icon={logo_path}\n"
+            f"{exec_line}\n"
+            f"Path={work_dir}\n"
+            f"Icon={installed_icon}\n"
             "Terminal=false\n"
             "Categories=Game;Utility;\n"
             "Keywords=game;launcher;sandbox;firejail;steam;proton;wine;\n"
             "StartupWMClass=SafeLauncher\n"
+            "MimeType=x-scheme-handler/safelauncher;\n"
         )
 
         with open(desktop_path, "w", encoding="utf-8") as f:
