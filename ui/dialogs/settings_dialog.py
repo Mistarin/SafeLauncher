@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
     QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
 from PyQt6.QtWidgets import QKeySequenceEdit
 
@@ -37,6 +37,7 @@ class UserSettingsDialog(QDialog):
     runtime_manager_requested = pyqtSignal()
     proton_manager_requested = pyqtSignal()
     _sandbox_size_ready = pyqtSignal(int)  # emitted from worker thread
+    accountStatusReady = pyqtSignal(str)   # cloud account status from workers
 
     def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None):
         super().__init__(parent)
@@ -447,7 +448,65 @@ class UserSettingsDialog(QDialog):
         cloud_row.addWidget(btn_browse_cloud)
         form_disk.addRow("Cloud Saves Root Directory:", cloud_row)
 
+        # ---- Cloud account (Convex backend) --------------------------------
         layout.addLayout(form_disk)
+
+        sec_account = QLabel("Cloud Account")
+        sec_account.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_account.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        layout.addWidget(sec_account)
+
+        from core.cloud_save_sync import cloud_mode as current_cloud_mode, set_cloud_mode
+
+        self.combo_cloud_mode = QComboBox()
+        self.combo_cloud_mode.addItem("Local folder sync", "local")
+        self.combo_cloud_mode.addItem("Convex account (sign-in required)", "convex")
+        self.combo_cloud_mode.setCurrentIndex(
+            1 if current_cloud_mode() == "convex" else 0
+        )
+        self.combo_cloud_mode.currentIndexChanged.connect(self._on_cloud_mode_changed)
+        form_mode = QFormLayout()
+        form_mode.addRow("Cloud Backend:", self.combo_cloud_mode)
+
+        self.lbl_account_status = QLabel("Not signed in.")
+        self.lbl_account_status.setStyleSheet("color: #9ca3af;")
+        form_mode.addRow("Status:", self.lbl_account_status)
+        layout.addLayout(form_mode)
+
+        acct_btns = QHBoxLayout()
+        acct_btns.setSpacing(8)
+        self.btn_sign_in = QPushButton("Sign In…")
+        self.btn_sign_in.clicked.connect(self._cloud_sign_in)
+        acct_btns.addWidget(self.btn_sign_in)
+        self.btn_refresh_quota = QPushButton("Refresh Quota")
+        self.btn_refresh_quota.clicked.connect(self._refresh_account_status)
+        acct_btns.addWidget(self.btn_refresh_quota)
+        self.btn_logout = QPushButton("Sign Out")
+        self.btn_logout.clicked.connect(self._cloud_sign_out)
+        acct_btns.addWidget(self.btn_logout)
+        acct_btns.addStretch()
+        layout.addLayout(acct_btns)
+
+        endpoint_form = QFormLayout()
+        self.edit_clerk_domain = QLineEdit()
+        self.edit_clerk_domain.setPlaceholderText("https://your-instance.clerk.accounts.dev")
+        self.edit_clerk_domain.setText(QSettings().value("clerk_domain", "", type=str))
+        self.edit_clerk_domain.editingFinished.connect(self._persist_clerk_settings)
+        endpoint_form.addRow("Clerk Frontend API Domain:", self.edit_clerk_domain)
+        self.edit_clerk_client_id = QLineEdit()
+        self.edit_clerk_client_id.setPlaceholderText("OAuth application client id (test_…)")
+        self.edit_clerk_client_id.setText(QSettings().value("clerk_client_id", "", type=str))
+        self.edit_clerk_client_id.editingFinished.connect(self._persist_clerk_settings)
+        endpoint_form.addRow("Clerk OAuth Client ID:", self.edit_clerk_client_id)
+        self.edit_convex_site_url = QLineEdit()
+        self.edit_convex_site_url.setPlaceholderText("https://<deployment>.convex.site")
+        self.edit_convex_site_url.setText(QSettings().value("convex_site_url", "", type=str))
+        self.edit_convex_site_url.editingFinished.connect(self._persist_clerk_settings)
+        endpoint_form.addRow("Convex Site URL:", self.edit_convex_site_url)
+        layout.addLayout(endpoint_form)
+
+        self.accountStatusReady.connect(self._apply_account_status)
+        self._refresh_account_status()
 
         sec_logs = QLabel("Logs & Diagnostics")
         sec_logs.setFont(QFont("Arial", 12, QFont.Weight.Bold))
@@ -741,6 +800,75 @@ class UserSettingsDialog(QDialog):
         path = QFileDialog.getExistingDirectory(self, "Select Cloud Saves Root Directory", self.edit_cloud_saves_dir.text() or os.path.expanduser("~"))
         if path:
             self.edit_cloud_saves_dir.setText(path)
+
+    # ---- Cloud account handlers --------------------------------------------
+
+    def _on_cloud_mode_changed(self, index: int):
+        from core.cloud_save_sync import set_cloud_mode
+        set_cloud_mode(self.combo_cloud_mode.itemData(index) or "local")
+
+    def _persist_clerk_settings(self):
+        qs = QSettings("SafeLauncher", "SafeLauncher")
+        qs.setValue("clerk_domain", self.edit_clerk_domain.text().strip())
+        qs.setValue("clerk_client_id", self.edit_clerk_client_id.text().strip())
+        qs.setValue("convex_site_url", self.edit_convex_site_url.text().strip())
+
+    def _cloud_sign_in(self):
+        """Run the browser PKCE flow on a worker thread; report via signal."""
+        import threading
+
+        def _work():
+            try:
+                from core import clerk_auth
+                tokens = clerk_auth.login()
+                email = tokens.get("email") or "signed in"
+                self.accountStatusReady.emit(f"Signed in: {email}")
+            except Exception as e:
+                self.accountStatusReady.emit(f"Sign-in failed: {e}")
+
+        self.btn_sign_in.setEnabled(False)
+        self.lbl_account_status.setText("Waiting for browser sign-in…")
+        threading.Thread(target=_work, daemon=True, name="SafeLauncher-Login").start()
+
+    def _cloud_sign_out(self):
+        from core import clerk_auth
+        clerk_auth.clear_stored_session()
+        self._refresh_account_status()
+
+    def _refresh_account_status(self):
+        import threading
+
+        def _probe():
+            try:
+                from core import clerk_auth
+                status = clerk_auth.get_status()
+                if not status.get("signed_in"):
+                    self.accountStatusReady.emit("Not signed in.")
+                    return
+                email = status.get("email") or "account"
+                try:
+                    from core.cloud_backend import ConvexSaveBackend
+                    overview = ConvexSaveBackend().account()
+                    used = overview.get("bytesUsed", 0)
+                    quota = overview.get("quotaBytes", 1)
+                    games = len(overview.get("games", []))
+                    msg = f"{email} — {format_bytes(used)} / {format_bytes(quota)} used · {games} game(s)"
+                except Exception as e:
+                    msg = f"{email} (cloud unreachable: {e})"
+                self.accountStatusReady.emit(msg)
+            except Exception as e:
+                self.accountStatusReady.emit(f"Status error: {e}")
+
+        threading.Thread(target=_probe, daemon=True, name="SafeLauncher-AccountProbe").start()
+
+    def _apply_account_status(self, message: str):
+        try:
+            self.lbl_account_status.setText(message)
+            signed_out = message.startswith(("Not signed in", "Sign-in failed"))
+            self.btn_sign_in.setEnabled(True)
+            self.btn_logout.setEnabled(not signed_out)
+        except RuntimeError:
+            pass  # dialog already destroyed
 
     def get_cloud_saves_dir(self) -> str:
         return self.edit_cloud_saves_dir.text().strip()
