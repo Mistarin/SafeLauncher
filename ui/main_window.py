@@ -117,6 +117,7 @@ class MainWindow(QMainWindow):
     # Queued-signal carriers for save-sync work performed off the GUI thread.
     _save_op_done = pyqtSignal(object)      # exit-upload payload dict
     _prelaunch_resolved = pyqtSignal(object)  # pre-launch sync payload dict
+    _startup_sync_done = pyqtSignal(object)   # startup cloud sync sweep payload dict
 
     def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager):
         super().__init__()
@@ -726,6 +727,7 @@ class MainWindow(QMainWindow):
         self._setup_tray_icon()
         self._refresh_library()
         QTimer.singleShot(300, self._check_all_steam_updates)
+        QTimer.singleShot(800, self._start_background_cloud_sync)
 
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
         if show_wizard:
@@ -2757,6 +2759,66 @@ class MainWindow(QMainWindow):
                 f"Skipping exit upload for '{name}': cloud save is newer "
                 f"({payload['reason']}); use the Save Manager to resolve manually."
             )
+
+    def _start_background_cloud_sync(self):
+        """Run startup cloud save check & sync sweep across library on a daemon thread."""
+        games_snapshot = list(self.games)
+        if not games_snapshot:
+            return
+
+        def _work():
+            payload = {
+                "uploaded": [],
+                "newer_in_cloud": [],
+                "checked_count": 0,
+            }
+            try:
+                for g in games_snapshot:
+                    if len(g) < 5:
+                        continue
+                    game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
+                    steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
+                    try:
+                        status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(name, path, steam_id)
+                        payload["checked_count"] += 1
+                        if status == SyncStatus.LOCAL_NEWER:
+                            # Auto-upload unsynced local saves to cloud
+                            if CloudSaveSyncEngine.sync_local_to_cloud(name, path, steam_id):
+                                payload["uploaded"].append(name)
+                        elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
+                            payload["newer_in_cloud"].append(name)
+                    except Exception as ge:
+                        logger.debug(f"Startup cloud check failed for '{name}': {ge}")
+            except Exception as e:
+                logger.warning(f"Startup cloud sync sweep failed: {e}")
+
+            return payload
+
+        self._startup_sync_done.connect(self._on_startup_cloud_sync_done)
+        threading.Thread(
+            target=lambda: self._startup_sync_done.emit(_work()),
+            daemon=True,
+            name="SafeLauncher-StartupCloudSync",
+        ).start()
+
+    def _on_startup_cloud_sync_done(self, payload: dict):
+        """GUI-thread handler for library startup cloud sweep results."""
+        try:
+            self._startup_sync_done.disconnect(self._on_startup_cloud_sync_done)
+        except TypeError:
+            pass
+
+        uploaded = payload.get("uploaded", [])
+        newer_in_cloud = payload.get("newer_in_cloud", [])
+
+        if uploaded:
+            names = ", ".join(uploaded[:2])
+            extra = f" (+{len(uploaded)-2} more)" if len(uploaded) > 2 else ""
+            self._show_toast(f"☁️ Cloud Sync: Backed up {names}{extra}.")
+        elif newer_in_cloud:
+            names = ", ".join(newer_in_cloud[:2])
+            extra = f" (+{len(newer_in_cloud)-2} more)" if len(newer_in_cloud) > 2 else ""
+            self._show_toast(f"☁️ Newer cloud save(s) available for: {names}{extra}")
 
     def closeEvent(self, event):
         """Stop all background workers, then destroy the main window.
