@@ -41,3 +41,7 @@ Thumbs.db
 
 # KDE folder metadata
 .directory
+
+# Cloud saves
+*.zip.enc
+auth.json

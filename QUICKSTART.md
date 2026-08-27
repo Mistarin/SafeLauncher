@@ -17,6 +17,22 @@ Or use the included launcher script:
 bash launcher.sh
 ```
 
+## Cloud Save Account (optional)
+
+Saves sync to a local folder by default. To store them (encrypted) in your own
+online account instead:
+
+1. Set up the backend once — see `../SafeLauncherDatabase/README.md`
+   (Clerk account + one `npx convex deploy`).
+2. In SafeLauncher: **Settings → Cloud**: enter your Clerk domain, OAuth client
+   id and Convex site URL, then **Sign In…** (opens your browser) and switch
+   *Cloud Backend* to **Convex account**.
+
+Each save upload is AES-256-GCM encrypted on your PC; 10 MB max per save,
+200 MB per account, last 3 versions kept per game. Sign-out or a lost
+connection falls back to local folder syncing automatically.
+
+
 ## What's Included
 
 - **PyQt6 GUI**: Desktop interface with game list, add/remove dialogs, and save backup tools.

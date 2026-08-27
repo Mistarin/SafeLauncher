@@ -1,13 +1,22 @@
 """
 Automatic Cloud / Local Save Synchronization Engine for SafeLauncher.
-Syncs game save states between local Wine/UMU prefixes and a centralized cloud root directory
-(e.g., Syncthing, Nextcloud, Dropbox, Rclone, or local backup directory).
+
+Two interchangeable backends sit behind this single API:
+
+* "convex"  — real accounts + encrypted storage on Convex (core.cloud_backend),
+              active when QSettings cloud_mode == "convex" and a Clerk session
+              exists. Archives are byte-compatible with…
+* "local"   — the legacy watched-folder engine (Syncthing/Nextcloud/whatever).
+
+Every public method degrades gracefully: a cloud failure logs and falls back
+to the local folder behaviour rather than losing data.
 """
 
 import os
 import time
 import json
 import zipfile
+import tempfile
 from enum import Enum
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
@@ -40,6 +49,43 @@ class SaveStats:
     display_path: str = ""
 
 
+# --------------------------------------------------------------------------- #
+# Backend dispatch                                                            #
+# --------------------------------------------------------------------------- #
+
+def cloud_mode() -> str:
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    return str(settings.value("cloud_mode", "local", type=str) or "local")
+
+
+def set_cloud_mode(mode: str) -> None:
+    if mode not in ("local", "convex"):
+        raise ValueError(f"Unknown cloud mode: {mode}")
+    QSettings("SafeLauncher", "SafeLauncher").setValue("cloud_mode", mode)
+
+
+def backend_active() -> bool:
+    """True when the Convex backend should serve sync operations."""
+    if cloud_mode() != "convex":
+        return False
+    try:
+        from core import clerk_auth
+        return bool(clerk_auth.get_status().get("signed_in"))
+    except Exception:
+        return False
+
+
+_backend_singleton = None
+
+
+def _backend():
+    global _backend_singleton
+    if _backend_singleton is None:
+        from core.cloud_backend import ConvexSaveBackend
+        _backend_singleton = ConvexSaveBackend()
+    return _backend_singleton
+
+
 class CloudSaveSyncEngine:
     """Manages comparison and bi-directional synchronization between local and cloud save files."""
 
@@ -60,6 +106,10 @@ class CloudSaveSyncEngine:
         game_folder = os.path.join(cls.get_cloud_root(), clean_name)
         os.makedirs(game_folder, exist_ok=True)
         return os.path.join(game_folder, "save_cloud.zip")
+
+    # ------------------------------------------------------------------ #
+    # Stats / conflict detection                                         #
+    # ------------------------------------------------------------------ #
 
     @classmethod
     def get_local_save_stats(cls, game_name: str, game_path: str, steam_id: str = "") -> Tuple[SaveStats, List[SaveLocation]]:
@@ -85,9 +135,43 @@ class CloudSaveSyncEngine:
         )
         return stats, locations
 
+    @staticmethod
+    def _remote_game_snapshot(name_key: str) -> Optional[dict]:
+        """Cloud metadata for one game via the Convex backend, or None."""
+        listing = _backend().list_games()
+        for game in listing.get("games", []):
+            if game.get("nameKey") == name_key:
+                return game
+        return None
+
+    @classmethod
+    def _remote_stats(cls, name_key: str) -> Tuple[SaveStats, Optional[dict]]:
+        """Best-effort cloud stats; returns None on any backend failure."""
+        try:
+            snapshot = cls._remote_game_snapshot(name_key)
+        except Exception as e:
+            logger.warning(f"Cloud stats unavailable for '{name_key}': {e}")
+            return None, None
+        if not snapshot:
+            return SaveStats(exists=False), None
+        versions = snapshot.get("versions") or []
+        if not versions:
+            return SaveStats(exists=False), snapshot
+        top = versions[0]
+        stats = SaveStats(
+            exists=True,
+            # Content clock: manifest source_max_mtime recorded at upload,
+            # directly comparable with local file mtimes across machines.
+            last_modified=float(top["sourceMaxMtime"]),
+            size_bytes=int(top["sizeBytes"]),
+            file_count=len(versions),
+            display_path=f"☁️ {snapshot.get('displayName', name_key)} (v{top['version']})",
+        )
+        return stats, snapshot
+
     @classmethod
     def get_cloud_save_stats(cls, game_name: str) -> Tuple[SaveStats, str]:
-        """Read metadata and stats of the game's cloud save archive."""
+        """Read metadata and stats of the game's cloud save archive (local-folder engine)."""
         cloud_zip = cls.get_cloud_save_path(game_name)
         if not os.path.isfile(cloud_zip) or os.path.getsize(cloud_zip) == 0:
             return SaveStats(exists=False, display_path=cloud_zip), cloud_zip
@@ -131,18 +215,27 @@ class CloudSaveSyncEngine:
     def check_sync_status(cls, game_name: str, game_path: str, steam_id: str = "") -> Tuple[SyncStatus, SaveStats, SaveStats]:
         """Compare local and cloud save timestamps to determine sync action required."""
         local_stats, _ = cls.get_local_save_stats(game_name, game_path, steam_id)
-        cloud_stats, _ = cls.get_cloud_save_stats(game_name)
 
+        if backend_active():
+            from core.cloud_backend import normalize_name_key
+            key = normalize_name_key(game_name)
+            cloud_stats, _snap = cls._remote_stats(key)
+            if cloud_stats is not None:
+                return cls._decide(local_stats, cloud_stats)
+            # Cloud unreachable → fall through to local-folder semantics.
+
+        cloud_stats, _zip = cls.get_cloud_save_stats(game_name)
+        return cls._decide(local_stats, cloud_stats)
+
+    @staticmethod
+    def _decide(local_stats: SaveStats, cloud_stats: SaveStats) -> Tuple[SyncStatus, SaveStats, SaveStats]:
         if not local_stats.exists and not cloud_stats.exists:
             return SyncStatus.NO_SAVES, local_stats, cloud_stats
-
         if not local_stats.exists and cloud_stats.exists:
             return SyncStatus.CLOUD_ONLY, local_stats, cloud_stats
-
         if local_stats.exists and not cloud_stats.exists:
             return SyncStatus.LOCAL_NEWER, local_stats, cloud_stats
 
-        # Both exist: compare timestamps (with a 2-second tolerance for filesystem differences)
         diff = local_stats.last_modified - cloud_stats.last_modified
         if abs(diff) <= 2.0:
             return SyncStatus.IN_SYNC, local_stats, cloud_stats
@@ -151,6 +244,10 @@ class CloudSaveSyncEngine:
         else:
             return SyncStatus.CLOUD_NEWER, local_stats, cloud_stats
 
+    # ------------------------------------------------------------------ #
+    # Transfers                                                          #
+    # ------------------------------------------------------------------ #
+
     @classmethod
     def sync_local_to_cloud(cls, game_name: str, game_path: str, steam_id: str = "") -> bool:
         """Archive latest local save state directly into cloud save repository."""
@@ -158,6 +255,39 @@ class CloudSaveSyncEngine:
         if not local_stats.exists or not locations:
             logger.info(f"No local save files to upload for '{game_name}'")
             return False
+
+        if backend_active():
+            from core.cloud_backend import normalize_name_key, CloudBackendError
+            backup_mgr = ZipBackupManager()
+            tmp_fd, tmp_zip = tempfile.mkstemp(prefix=".sl-up-", suffix=".zip",
+                                               dir=cls.get_cloud_root())
+            os.close(tmp_fd)
+            try:
+                if not backup_mgr.export_save_locations(
+                        locations, tmp_zip, game_name=game_name, game_path=game_path):
+                    return False
+                result = _backend().upload_plaintext_zip(
+                    normalize_name_key(game_name), game_name,
+                    tmp_zip, source_max_mtime=local_stats.last_modified)
+                if result.get("skipped"):
+                    logger.info(f"Cloud already up-to-date for '{game_name}'.")
+                    return True
+                evicted = result.get("evictedVersions") or []
+                if evicted:
+                    logger.info(f"Pruned old cloud generations {evicted} for '{game_name}'.")
+                logger.info(
+                    f"Uploaded encrypted save to cloud for '{game_name}' "
+                    f"(v{result.get('version')})."
+                )
+                return True
+            except CloudBackendError as e:
+                logger.warning(f"Cloud upload failed ({e.code}); save kept locally.")
+                return False
+            finally:
+                try:
+                    os.unlink(tmp_zip)
+                except OSError:
+                    pass
 
         cloud_zip = cls.get_cloud_save_path(game_name)
         backup_mgr = ZipBackupManager()
@@ -176,12 +306,38 @@ class CloudSaveSyncEngine:
     @classmethod
     def sync_cloud_to_local(cls, game_name: str, game_path: str) -> bool:
         """Extract and restore cloud save archive into local game/prefix."""
+        target_dest = os.path.join(game_path, "prefix")
+
+        if backend_active():
+            from core.cloud_backend import normalize_name_key
+            key = normalize_name_key(game_name)
+            try:
+                plain_zip, meta = _backend().download_to_temp(key)
+            except Exception as e:
+                logger.warning(f"Cloud download failed for '{game_name}': {e}")
+                return False
+            try:
+                backup_mgr = ZipBackupManager()
+                success = backup_mgr.import_save(plain_zip, target_dest)
+            finally:
+                try:
+                    os.unlink(plain_zip)
+                except OSError:
+                    pass
+            if success:
+                logger.info(
+                    f"Restored cloud save v{meta['version']} for '{game_name}' "
+                    f"into {target_dest}"
+                )
+            else:
+                logger.error(f"Failed to restore cloud save for '{game_name}'")
+            return success
+
         cloud_stats, cloud_zip = cls.get_cloud_save_stats(game_name)
         if not cloud_stats.exists:
             logger.warning(f"No cloud save available to restore for '{game_name}'")
             return False
 
-        target_dest = os.path.join(game_path, "prefix")
         os.makedirs(target_dest, exist_ok=True)
 
         backup_mgr = ZipBackupManager()

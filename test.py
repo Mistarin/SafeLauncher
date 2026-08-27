@@ -423,6 +423,69 @@ except Exception as e:
     print(f"✗ Security diagnostics test error: {e}")
     sys.exit(1)
 
+# ---------------------------------------------------------------------- #
+# Cloud backend primitives (offline): crypto envelope, PKCE, name keys    #
+# ---------------------------------------------------------------------- #
+try:
+    import base64
+    import hashlib
+    from core.save_crypto import encrypt_save, decrypt_save, generate_data_key_b64, SaveCryptoError
+    from core.clerk_auth import make_pkce_pair
+    from core.cloud_backend import normalize_name_key
+
+    # Envelope round-trip + tamper rejection
+    key = generate_data_key_b64()
+    payload = b"SAVE-ARCHIVE-BYTES-\x00\xff" * 1024
+    sealed = encrypt_save(payload, key)
+    assert len(sealed) == 1 + 12 + len(payload) + 16
+    assert decrypt_save(sealed, key) == payload
+    print("✓ Save crypto envelope round-trip verified")
+
+    other = generate_data_key_b64()
+    for bad in ((sealed, other), (sealed[:-2] + b"\x00\x00", key)):
+        try:
+            decrypt_save(*bad)
+            raise AssertionError("invalid envelope/key decrypt must fail")
+        except SaveCryptoError:
+            pass
+    print("✓ Save crypto rejects wrong keys and corrupted envelopes")
+
+    # PKCE: challenge must equal base64url(sha256(verifier)) per S256 spec
+    verifier, challenge = make_pkce_pair()
+    derived = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()
+    ).decode().rstrip("=")
+    assert len(verifier) <= 128
+    assert all(ch not in challenge for ch in "+/=")  # base64url alphabet
+    assert challenge == derived
+    print("✓ Clerk PKCE S256 challenge derivation verified")
+
+    # Name-key parity with server sanitizeNameKey ([A-Za-z0-9-_ space])
+    assert normalize_name_key("X4: Foundations") == "X4 Foundations"
+    assert normalize_name_key("SIGNALIS!") == "SIGNALIS"
+    assert "é" not in normalize_name_key("ünïcodé title")
+    assert normalize_name_key("   ") == ""
+    print("✓ Cloud name-key sanitization parity verified")
+
+except Exception as e:
+    print(f"✗ Cloud backend primitive test error: {e}")
+    sys.exit(1)
+
+# Dispatch fallback: cloud_mode stays 'local' by default → local engine path.
+try:
+    from PyQt6.QtCore import QSettings
+    settings.setValue("cloud_mode", "local")
+    from core.cloud_save_sync import cloud_mode as _cm, backend_active
+    assert _cm() == "local" and not backend_active()
+    settings.setValue("cloud_mode", "convex")
+    assert _cm() == "convex"  # backend_active still False (no session in tests)
+    assert not backend_active()
+    settings.setValue("cloud_mode", "local")
+    print("✓ Cloud dispatch mode gating verified")
+except Exception as e:
+    print(f"✗ Cloud dispatch test error: {e}")
+    sys.exit(1)
+
 print("\n✅ All SafeLauncher components tested and working cleanly!")
 
 
