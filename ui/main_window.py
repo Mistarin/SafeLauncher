@@ -2821,9 +2821,29 @@ class MainWindow(QMainWindow):
                 worker.terminate()
                 worker.wait(1000)
 
+        if hasattr(self, "tray_icon") and self.tray_icon:
+            try:
+                self.tray_icon.hide()
+            except Exception:
+                pass
+
+        try:
+            from core.plugins.gpu_screen_recorder import GpuRecorderService
+            GpuRecorderService.instance().stop_recording()
+        except Exception:
+            pass
+
         if hasattr(self, "discord_rpc") and self.discord_rpc:
-            self.discord_rpc.clear_activity()
+            try:
+                self.discord_rpc.clear_activity()
+            except Exception:
+                pass
+
         super().closeEvent(event)
+
+        app = QApplication.instance()
+        if app:
+            app.quit()
 
     def _on_add(self):
         dialog = AddGameDialog(self, self.sgdb_client)
