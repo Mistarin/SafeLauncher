@@ -1090,6 +1090,43 @@ class SafeLaunchDialog(QDialog):
             if "parent is shutting down" in text.lower() and not self.handoff_shown:
                 QTimer.singleShot(350, self._check_process_state)
 
+            # Detect UMU runtime download or extraction in progress
+            lower_text = text.lower()
+            if ("downloading umu-proton" in lower_text or "downloading proton" in lower_text or
+                ("downloading" in lower_text and any(ext in lower_text for ext in (".tar.gz", ".sha512", ".tar.xz", "runtime"))) or
+                "umu is downloading" in lower_text):
+                self.requires_proton_setup = True
+                self._is_downloading_runtime = True
+                if hasattr(self, "gif_timer") and self.gif_timer.isActive():
+                    self.gif_timer.stop()
+                    self._goto_console_stage()
+                if hasattr(self, "progress_anim") and self.progress_anim.state() == QVariantAnimation.State.Running:
+                    self.progress_anim.stop()
+                self.header_title.setText("Downloading Proton Runtime...")
+                self.header_sub.setText("UMU is downloading the Proton compatibility layer (one-time setup). Please wait...")
+                self.progress_bar.setRange(0, 0)  # Indeterminate pulse animation
+
+            elif "extracting" in lower_text and ("proton" in lower_text or "umu" in lower_text or "tar" in lower_text or "runtime" in lower_text):
+                self._is_downloading_runtime = True
+                if hasattr(self, "gif_timer") and self.gif_timer.isActive():
+                    self.gif_timer.stop()
+                    self._goto_console_stage()
+                if hasattr(self, "progress_anim") and self.progress_anim.state() == QVariantAnimation.State.Running:
+                    self.progress_anim.stop()
+                self.header_title.setText("Extracting Proton Runtime...")
+                self.header_sub.setText("Configuring Proton compatibility files in Steam compatibility directory...")
+                self.progress_bar.setRange(0, 0)
+
+            elif getattr(self, "_is_downloading_runtime", False):
+                if any(k in lower_text for k in (
+                    "fsync: up and running", "esync: up and running", "wine: created prefix",
+                    "setting up wine prefix", "wine: configuration in", "proton: ", "wine server:"
+                )):
+                    self._is_downloading_runtime = False
+                    self.progress_bar.setRange(0, 100)
+                    self.progress_bar.setValue(100)
+                    self._goto_confirmation_stage()
+
     def _poll_process_log(self):
         path = getattr(self, "process_log_path", None)
         paths = []
@@ -1136,6 +1173,9 @@ class SafeLaunchDialog(QDialog):
     def _goto_confirmation_stage(self):
         if self.launch_finished:
             return
+        if getattr(self, "_is_downloading_runtime", False):
+            # Defer confirmation while Proton runtime is downloading/extracting
+            return
         if self.process and self.process.poll() is not None:
             self._check_process_state()
             return
@@ -1156,6 +1196,7 @@ class SafeLaunchDialog(QDialog):
 
         self.header_title.setText("Game running — launch log")
         self.header_sub.setText(f"'{self.game_name}' is running in the sandbox container")
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100)
         self.stack.setCurrentWidget(self.page_console)
 
