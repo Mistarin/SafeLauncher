@@ -220,18 +220,17 @@ class AccountDialog(QDialog):
 
     def _load_worker(self):
         try:
-            from core import clerk_auth
-            status = clerk_auth.get_status()
-            if not status.get("signed_in"):
-                self._data_ready.emit({"ok": None})   # signed-out state
+            from core.cloud_backend import ConvexSaveBackend, get_site_url
+            site = get_site_url()
+            if not site:
+                self._data_ready.emit({"ok": None})   # not connected state
                 return
-            from core.cloud_backend import ConvexSaveBackend
             backend = ConvexSaveBackend()
             listing = backend.list_games()
             overview = backend.account()
             self._data_ready.emit({
                 "ok": {
-                    "email": status.get("email"),
+                    "email": overview.get("email") or "SafeLauncher Cloud",
                     "listing": listing,
                     "overview": overview,
                 },
@@ -372,31 +371,24 @@ class AccountDialog(QDialog):
         self.lbl_quota_text.setText(f"Deleted old generation for '{name_key}'.")
 
     def _auth_action(self):
-        from core import clerk_auth
-        if clerk_auth.get_status().get("signed_in"):
+        from core.cloud_backend import get_site_url
+        if get_site_url():
             confirm = QMessageBox.question(
-                self, "Sign out",
-                "Remove this device's session token?",
+                self, "Disconnect Cloud",
+                "Disconnect from this Convex cloud save backend?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
             if confirm == QMessageBox.StandardButton.Yes:
-                clerk_auth.clear_stored_session()
+                from core.cloud_save_sync import set_cloud_mode
+                set_cloud_mode("local")
+                from PyQt6.QtCore import QSettings
+                settings = QSettings("SafeLauncher", "SafeLauncher")
+                settings.remove("convex_site_url")
+                settings.remove("cloud_secret_key")
                 self.reload()
         else:
-            self.btn_auth_toggle.setEnabled(False)
-            threading.Thread(target=self._login_worker, daemon=True,
-                             name="SafeLauncher-DlgLogin").start()
-
-    def _login_worker(self):
-        try:
-            from core import clerk_auth
-            tokens = clerk_auth.login()
-            from core.cloud_save_sync import set_cloud_mode
-            set_cloud_mode("convex")
-            self._data_ready.emit({"ok_login": tokens.get("email", "signed in")})
-        except Exception as e:
-            self._data_ready.emit({"error": f"Sign-in failed: {e}"})
+            self.reload()
 
     def _on_backend_changed(self, index: int):
         from core.cloud_save_sync import set_cloud_mode

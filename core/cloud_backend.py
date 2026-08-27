@@ -47,11 +47,20 @@ class CloudBackendError(Exception):
 
 def get_site_url() -> str:
     settings = QSettings("SafeLauncher", "SafeLauncher")
-    return str(
+    url = str(
         os.environ.get("SAFELAUNCHER_CONVEX_SITE_URL", "")
         or settings.value("convex_site_url", "", type=str)
         or DEFAULT_SITE_URL
     ).strip().rstrip("/")
+    if not url:
+        try:
+            from core.cloud_detector import discover_local_cloud_backend
+            discovered = discover_local_cloud_backend()
+            if discovered:
+                return discovered.rstrip("/")
+        except Exception:
+            pass
+    return url
 
 
 def normalize_name_key(game_name: str) -> str:
