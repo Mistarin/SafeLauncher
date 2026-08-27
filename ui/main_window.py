@@ -49,7 +49,7 @@ from ui.threads import (
     BannerFetcher, BannerDownloader, BannerAutoFetcher, ArchiveExtractorThread,
     GitHubReleasesFetcherThread, UmuBootstrapWorker, SafeLaunchLogReader,
     DiskSizeFetcherThread, HeroFetcherThread, IconAutoFetcherThread,
-    CloudSaveStatusFetcherThread
+    CloudSaveStatusFetcherThread, CloudSaveBatchQueueWorker
 )
 from core.archive_installer import find_executables
 from core.host_process import host_process_env
@@ -2815,69 +2815,23 @@ class MainWindow(QMainWindow):
             )
 
     def _start_background_cloud_sync(self):
-        """Run startup cloud save check & sync sweep across library on a daemon thread."""
+        """Run startup cloud save check & sync queue across library with a concurrency pool of 3."""
         games_snapshot = list(self.games)
         if not games_snapshot:
             return
 
-        def _work():
-            payload = {
-                "uploaded": [],
-                "newer_in_cloud": [],
-                "checked_count": 0,
-                "game_statuses": {},
-            }
-            try:
-                for g in games_snapshot:
-                    if len(g) < 5:
-                        continue
-                    game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
-                    steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
-                    try:
-                        status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(name, path, steam_id)
-                        payload["checked_count"] += 1
-                        if status == SyncStatus.LOCAL_NEWER:
-                            # Auto-upload unsynced local saves to cloud
-                            if CloudSaveSyncEngine.sync_local_to_cloud(name, path, steam_id):
-                                payload["uploaded"].append(name)
-                                status = SyncStatus.IN_SYNC
-                        elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
-                            payload["newer_in_cloud"].append(name)
-                        payload["game_statuses"][game_id] = status
-                    except Exception as ge:
-                        logger.debug(f"Startup cloud check failed for '{name}': {ge}")
-            except Exception as e:
-                logger.warning(f"Startup cloud sync sweep failed: {e}")
+        # Prioritize games not yet in cache
+        uncached = [g for g in games_snapshot if len(g) > 0 and g[0] not in self.cloud_save_status_cache]
+        games_to_process = uncached if uncached else games_snapshot
 
-            return payload
+        worker = CloudSaveBatchQueueWorker(games_to_process, max_workers=3, parent=self)
+        worker.game_status_ready.connect(self._on_cloud_save_status_calculated)
+        worker.batch_finished.connect(self._on_cloud_batch_finished)
+        self._track_metadata_fetcher(worker)
+        worker.start()
 
-        self._startup_sync_done.connect(self._on_startup_cloud_sync_done)
-        threading.Thread(
-            target=lambda: self._startup_sync_done.emit(_work()),
-            daemon=True,
-            name="SafeLauncher-StartupCloudSync",
-        ).start()
-
-    def _on_startup_cloud_sync_done(self, payload: dict):
-        """GUI-thread handler for library startup cloud sweep results."""
-        try:
-            self._startup_sync_done.disconnect(self._on_startup_cloud_sync_done)
-        except TypeError:
-            pass
-
-        # Update each visible card badge in library and cache
-        for game_id, status in payload.get("game_statuses", {}).items():
-            self.cloud_save_status_cache[game_id] = (status, None, None)
-            if game_id in self.banner_widgets:
-                self.banner_widgets[game_id].set_cloud_status(status)
-
-        if self.selected_game and self.selected_game[0] in self.cloud_save_status_cache:
-            sel_id = self.selected_game[0]
-            self._render_cloud_status(sel_id, self.cloud_save_status_cache[sel_id][0])
-
-        uploaded = payload.get("uploaded", [])
-        newer_in_cloud = payload.get("newer_in_cloud", [])
-
+    def _on_cloud_batch_finished(self, uploaded: list, newer_in_cloud: list):
+        """GUI-thread slot when library background cloud batch queue completes."""
         if uploaded:
             names = ", ".join(uploaded[:2])
             extra = f" (+{len(uploaded)-2} more)" if len(uploaded) > 2 else ""
