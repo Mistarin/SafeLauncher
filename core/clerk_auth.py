@@ -145,15 +145,26 @@ def make_pkce_pair() -> tuple[str, str]:
 # --------------------------------------------------------------------------- #
 
 class _CallbackServer(http.server.BaseHTTPRequestHandler):
-    result: dict = {}
-
     def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
         parsed = urllib.parse.urlparse(self.path)
+        if not hasattr(self.server, "result"):
+            self.server.result = {}
         self.server.result.update(  # type: ignore[attr-defined]
             params=dict(urllib.parse.parse_qsl(parsed.query)),
             path=parsed.path,
         )
-        ok = b"<html><body><h3>SafeLauncher connected.</h3>You can close this tab.</body></html>"
+        ok = (
+            b"<!DOCTYPE html><html><head><meta charset='utf-8'><title>SafeLauncher</title>"
+            b"<style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; "
+            b"background: #121214; color: #f4f4f5; display: flex; align-items: center; "
+            b"justify-content: center; height: 100vh; margin: 0; } .card { background: #18181b; "
+            b"border: 1px solid #27272a; border-radius: 12px; padding: 32px 48px; text-align: center; "
+            b"box-shadow: 0 4px 24px rgba(0,0,0,0.5); } h2 { color: #38bdf8; margin: 0 0 12px; } "
+            b"p { color: #a1a1aa; margin: 0; font-size: 15px; }</style></head>"
+            b"<body><div class='card'><h2>SafeLauncher Connected!</h2>"
+            b"<p>You are successfully signed in. You can close this tab and return to the application.</p>"
+            b"</div></body></html>"
+        )
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(ok)))
@@ -175,12 +186,11 @@ def login() -> dict:
     verifier, challenge = make_pkce_pair()
     state = secrets.token_urlsafe(24)
 
-    # One-shot loopback listener; the OS picks a free port.
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.bind(("127.0.0.1", 0))
-    port = listener.getsockname()[1]
+    # Let HTTPServer bind directly to port 0 (OS assigns an unused loopback port)
+    server = http.server.HTTPServer(("127.0.0.1", 0), _CallbackServer)
+    server.result = {}
+    port = server.server_address[1]
     redirect_uri = f"http://127.0.0.1:{port}/callback"
-    listener.listen(1)
 
     authorize_url = urllib.parse.urlencode({
         "client_id": client_id,
@@ -197,7 +207,6 @@ def login() -> dict:
     webbrowser.open(full_url)
     logger.info(f"Opened system browser for sign-in (loopback port {port}).")
 
-    server = http.server.HTTPServer(("127.0.0.1", port), _CallbackServer)
     server.timeout = 300  # five minutes to finish sign-in
     try:
         # Blocks until the browser hits the callback or the timeout expires.
