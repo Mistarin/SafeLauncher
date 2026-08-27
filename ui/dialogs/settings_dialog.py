@@ -498,18 +498,32 @@ class UserSettingsDialog(QDialog):
         layout.addWidget(sec_account)
 
         from core.cloud_save_sync import cloud_mode as current_cloud_mode
+        from core.cloud_backend import get_site_url
 
         form_mode = QFormLayout()
         form_mode.setSpacing(10)
 
         self.combo_cloud_mode = QComboBox()
         self.combo_cloud_mode.addItem("Local folder sync", "local")
-        self.combo_cloud_mode.addItem("Convex account (sign-in required)", "convex")
+        self.combo_cloud_mode.addItem("Private Convex Cloud (SafeLauncherCloud)", "convex")
         self.combo_cloud_mode.setCurrentIndex(
             1 if current_cloud_mode() == "convex" else 0
         )
         self.combo_cloud_mode.currentIndexChanged.connect(self._on_cloud_mode_changed)
         form_mode.addRow("Cloud Backend:", self.combo_cloud_mode)
+
+        # Convex Site URL
+        self.edit_convex_url = QLineEdit(get_site_url())
+        self.edit_convex_url.setPlaceholderText("https://your-project.convex.site")
+        form_mode.addRow("Convex Site URL:", self.edit_convex_url)
+
+        # Secret Access Key
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        saved_key = settings.value("cloud_secret_key", "", type=str)
+        self.edit_cloud_secret_key = QLineEdit(saved_key)
+        self.edit_cloud_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.edit_cloud_secret_key.setPlaceholderText("Optional secret key")
+        form_mode.addRow("Secret Key:", self.edit_cloud_secret_key)
 
         # Local fallback directory used when the backend is 'local' or offline.
         cloud_row = QHBoxLayout()
@@ -520,7 +534,7 @@ class UserSettingsDialog(QDialog):
         cloud_row.addWidget(btn_browse_cloud)
         form_mode.addRow("Local Sync Folder:", cloud_row)
 
-        self.lbl_account_status = QLabel("Not signed in.")
+        self.lbl_account_status = QLabel("Not connected.")
         self.lbl_account_status.setStyleSheet("color: #9ca3af;")
         form_mode.addRow("Status:", self.lbl_account_status)
 
@@ -543,17 +557,17 @@ class UserSettingsDialog(QDialog):
 
         acct_btns = QHBoxLayout()
         acct_btns.setSpacing(8)
-        self.btn_sign_in = QPushButton("Sign In…")
-        self.btn_sign_in.clicked.connect(self._cloud_sign_in)
+        self.btn_sign_in = QPushButton("Test & Connect…")
+        self.btn_sign_in.clicked.connect(self._cloud_connect)
         acct_btns.addWidget(self.btn_sign_in)
-        btn_account_mgr = QPushButton("Open Account Manager…")
+        btn_account_mgr = QPushButton("Save History Manager…")
         btn_account_mgr.clicked.connect(self._open_account_manager)
         acct_btns.addWidget(btn_account_mgr)
         self.btn_refresh_quota = QPushButton("Refresh Quota")
         self.btn_refresh_quota.clicked.connect(self._refresh_account_status)
         acct_btns.addWidget(self.btn_refresh_quota)
-        self.btn_logout = QPushButton("Sign Out")
-        self.btn_logout.clicked.connect(self._cloud_sign_out)
+        self.btn_logout = QPushButton("Disconnect")
+        self.btn_logout.clicked.connect(self._cloud_disconnect)
         acct_btns.addWidget(self.btn_logout)
         acct_btns.addStretch()
         layout.addLayout(acct_btns)
@@ -872,53 +886,57 @@ class UserSettingsDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "Account Manager", f"Could not open: {e}")
 
-    def _cloud_sign_in(self):
-        """Run the browser PKCE flow on a worker thread; report via signal."""
-        import threading
+    def _cloud_connect(self):
+        """Test and save Convex cloud backend connection."""
+        url = self.edit_convex_url.text().strip().rstrip("/")
+        key = self.edit_cloud_secret_key.text().strip()
+        if not url:
+            QMessageBox.warning(self, "Cloud Setup", "Please enter your Convex Site URL.")
+            return
 
-        def _work():
-            try:
-                from core import clerk_auth
-                tokens = clerk_auth.login()
-                from core.cloud_save_sync import set_cloud_mode
-                set_cloud_mode("convex")
-                email = tokens.get("email") or "signed in"
-                self.accountStatusReady.emit(f"Signed in: {email}")
-            except Exception as e:
-                self.accountStatusReady.emit(f"Sign-in failed: {e}")
+        if not url.startswith("http://") and not url.startswith("https://"):
+            url = "https://" + url
+            self.edit_convex_url.setText(url)
 
-        self.btn_sign_in.setEnabled(False)
-        self.lbl_account_status.setText("Waiting for browser sign-in…")
-        threading.Thread(target=_work, daemon=True, name="SafeLauncher-Login").start()
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        settings.setValue("convex_site_url", url)
+        if key:
+            settings.setValue("cloud_secret_key", key)
+        else:
+            settings.remove("cloud_secret_key")
 
-    def _cloud_sign_out(self):
-        from core import clerk_auth
-        clerk_auth.clear_stored_session()
+        from core.cloud_save_sync import set_cloud_mode
+        set_cloud_mode("convex")
+        self.combo_cloud_mode.setCurrentIndex(1)
+        self.lbl_account_status.setText("Connecting to cloud…")
         self._refresh_account_status()
+
+    def _cloud_disconnect(self):
+        """Revert cloud backend to local folder sync."""
+        from core.cloud_save_sync import set_cloud_mode
+        set_cloud_mode("local")
+        self.combo_cloud_mode.setCurrentIndex(0)
+        self.accountStatusReady.emit("Disconnected (using Local sync).")
 
     def _refresh_account_status(self):
         import threading
 
         def _probe():
             try:
-                from core import clerk_auth
-                status = clerk_auth.get_status()
-                if not status.get("signed_in"):
-                    self.accountStatusReady.emit("Not signed in.")
+                from core.cloud_backend import ConvexSaveBackend, get_site_url
+                site = get_site_url()
+                if not site:
+                    self.accountStatusReady.emit("Not connected.")
                     return
-                email = status.get("email") or "account"
-                try:
-                    from core.cloud_backend import ConvexSaveBackend
-                    overview = ConvexSaveBackend().account()
-                    used = overview.get("bytesUsed", 0)
-                    quota = overview.get("quotaBytes", 1)
-                    games = len(overview.get("games", []))
-                    msg = f"{email} — {format_bytes(used)} / {format_bytes(quota)} used · {games} game(s)"
-                except Exception as e:
-                    msg = f"{email} (cloud unreachable: {e})"
+                backend = ConvexSaveBackend()
+                overview = backend.account()
+                used = overview.get("bytesUsed", 0)
+                quota = overview.get("quotaBytes", 1)
+                games = len(overview.get("games", []))
+                msg = f"Connected ({format_bytes(used)} / {format_bytes(quota)} used · {games} game(s))"
                 self.accountStatusReady.emit(msg)
             except Exception as e:
-                self.accountStatusReady.emit(f"Status error: {e}")
+                self.accountStatusReady.emit(f"Cloud unreachable: {e}")
 
         threading.Thread(target=_probe, daemon=True, name="SafeLauncher-AccountProbe").start()
 
