@@ -30,6 +30,7 @@ from ui.icons import LOGO_PATH
 from ui.components.sidebar import DialogTitleBar
 from ui.maintenance_dialogs import RuntimeInventoryDialog
 from ui.dialogs.game_dialogs import ensure_sandbox_dir
+from ui.dialogs.save_conflict_dialog import format_bytes
 
 
 class UserSettingsDialog(QDialog):
