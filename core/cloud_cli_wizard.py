@@ -1,6 +1,16 @@
 """Terminal-based setup wizard for SafeLauncher private cloud saves."""
 
+from __future__ import annotations
+
+import os
 import sys
+import shutil
+import subprocess
+import tempfile
+import zipfile
+from pathlib import Path
+from typing import Optional, List, Dict, Tuple, Any
+
 import requests
 from PyQt6.QtCore import QSettings
 
