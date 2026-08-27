@@ -558,30 +558,6 @@ class UserSettingsDialog(QDialog):
         acct_btns.addStretch()
         layout.addLayout(acct_btns)
 
-        sec_endpoint = QLabel("Endpoints (pre-filled defaults; edit only for another deployment)")
-        sec_endpoint.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_endpoint.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
-        layout.addWidget(sec_endpoint)
-
-        endpoint_form = QFormLayout()
-        endpoint_form.setSpacing(10)
-        self.edit_clerk_domain = QLineEdit()
-        self.edit_clerk_domain.setPlaceholderText("https://your-instance.clerk.accounts.dev")
-        self.edit_clerk_domain.setText(QSettings().value("clerk_domain", "", type=str))
-        self.edit_clerk_domain.editingFinished.connect(self._persist_clerk_settings)
-        endpoint_form.addRow("Clerk Frontend API Domain:", self.edit_clerk_domain)
-        self.edit_clerk_client_id = QLineEdit()
-        self.edit_clerk_client_id.setPlaceholderText("OAuth application client id")
-        self.edit_clerk_client_id.setText(QSettings().value("clerk_client_id", "", type=str))
-        self.edit_clerk_client_id.editingFinished.connect(self._persist_clerk_settings)
-        endpoint_form.addRow("Clerk OAuth Client ID:", self.edit_clerk_client_id)
-        self.edit_convex_site_url = QLineEdit()
-        self.edit_convex_site_url.setPlaceholderText("https://<deployment>.convex.site")
-        self.edit_convex_site_url.setText(QSettings().value("convex_site_url", "", type=str))
-        self.edit_convex_site_url.editingFinished.connect(self._persist_clerk_settings)
-        endpoint_form.addRow("Convex Site URL:", self.edit_convex_site_url)
-        layout.addLayout(endpoint_form)
-
         layout.addStretch()
 
         self.accountStatusReady.connect(self._apply_account_status)
@@ -885,12 +861,6 @@ class UserSettingsDialog(QDialog):
     def _on_cloud_mode_changed(self, index: int):
         from core.cloud_save_sync import set_cloud_mode
         set_cloud_mode(self.combo_cloud_mode.itemData(index) or "local")
-
-    def _persist_clerk_settings(self):
-        qs = QSettings("SafeLauncher", "SafeLauncher")
-        qs.setValue("clerk_domain", self.edit_clerk_domain.text().strip())
-        qs.setValue("clerk_client_id", self.edit_clerk_client_id.text().strip())
-        qs.setValue("convex_site_url", self.edit_convex_site_url.text().strip())
 
     def _open_account_manager(self):
         """Launch the full profile/quota/version manager dialog."""
