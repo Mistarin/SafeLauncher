@@ -301,3 +301,59 @@ class CloudSaveStatusFetcherThread(SafeQThread):
         except Exception as e:
             logger.debug(f"CloudSaveStatusFetcherThread error for game {self.game_id}: {e}")
 
+
+class CloudSaveBatchQueueWorker(SafeQThread):
+    """Background worker that processes uncached game cloud save statuses with a concurrency pool of 3."""
+    game_status_ready = pyqtSignal(int, object, object, object)  # (game_id, status, local_stats, cloud_stats)
+    batch_finished = pyqtSignal(list, list)  # (uploaded_names, newer_in_cloud_names)
+
+    def __init__(self, games: list, max_workers: int = 3, parent=None):
+        super().__init__(parent)
+        self.games = list(games)
+        self.max_workers = max(1, min(max_workers, 5))
+
+    def safe_run(self):
+        if self.isInterruptionRequested() or not self.games:
+            return
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
+
+        uploaded_names = []
+        newer_in_cloud_names = []
+
+        def _check_game(g):
+            if self.isInterruptionRequested() or len(g) < 5:
+                return None
+            game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
+            steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
+            try:
+                status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(name, path, steam_id)
+                if status == SyncStatus.LOCAL_NEWER:
+                    if CloudSaveSyncEngine.sync_local_to_cloud(name, path, steam_id):
+                        status = SyncStatus.IN_SYNC
+                        uploaded_names.append(name)
+                elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
+                    newer_in_cloud_names.append(name)
+                return (game_id, status, l_stat, c_stat)
+            except Exception as e:
+                logger.debug(f"CloudSaveBatchQueueWorker error for '{name}': {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="SafeLauncher-CloudQueue") as executor:
+            future_to_game = {executor.submit(_check_game, g): g for g in self.games}
+            for future in as_completed(future_to_game):
+                if self.isInterruptionRequested():
+                    break
+                try:
+                    res = future.result()
+                    if res and not self.isInterruptionRequested():
+                        gid, stat, l_stat, c_stat = res
+                        self.game_status_ready.emit(gid, stat, l_stat, c_stat)
+                except Exception as e:
+                    logger.debug(f"Failed processing game cloud status future: {e}")
+
+        if not self.isInterruptionRequested():
+            self.batch_finished.emit(uploaded_names, newer_in_cloud_names)
+
+
