@@ -244,7 +244,7 @@ class AccountDialog(QDialog):
         self._busy = False
         if "error" in payload:
             self.lbl_email.setText("Cloud unreachable")
-            self.lbl_quota_text.setText(f"⚠️ {payload['error']}")
+            self.lbl_quota_text.setText(payload["error"])
             self.btn_auth_toggle.setText("Retry")
             return
 

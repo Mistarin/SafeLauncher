@@ -81,7 +81,7 @@ class SaveConflictDialog(QDialog):
         cc_layout = QVBoxLayout(cloud_card)
         cc_layout.setSpacing(6)
 
-        tag_cloud = QLabel("☁️ CLOUD SAVE (NEWER)")
+        tag_cloud = QLabel("CLOUD SAVE (NEWER)")
         tag_cloud.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         tag_cloud.setStyleSheet("color: #3B9FE8;")
         cc_layout.addWidget(tag_cloud)
@@ -110,7 +110,7 @@ class SaveConflictDialog(QDialog):
         lc_layout = QVBoxLayout(local_card)
         lc_layout.setSpacing(6)
 
-        tag_local = QLabel("💻 LOCAL SAVE (OLDER)")
+        tag_local = QLabel("LOCAL SAVE (OLDER)")
         tag_local.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         tag_local.setStyleSheet("color: #A7ADB8;")
         lc_layout.addWidget(tag_local)

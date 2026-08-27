@@ -1589,7 +1589,8 @@ class CustomRemoveDialog(QDialog):
         btn_box = QVBoxLayout()
         btn_box.setSpacing(10)
 
-        btn_archive = QPushButton("📦 Archive (Keep Files on Disk, Preserve History)")
+        btn_archive = QPushButton(" Archive (Keep Files on Disk, Preserve History)")
+        btn_archive.setIcon(get_app_icon("export"))
         btn_archive.setStyleSheet("""
             QPushButton {
                 background-color: #1A1E26;
@@ -1604,7 +1605,8 @@ class CustomRemoveDialog(QDialog):
         """)
         btn_archive.clicked.connect(self._select_archive_keep)
 
-        btn_disk = QPushButton("🗑 Archive & Force Delete Game Files from Disk")
+        btn_disk = QPushButton(" Archive & Force Delete Game Files from Disk")
+        btn_disk.setIcon(get_app_icon("remove"))
         btn_disk.setToolTip("Deletes game files directly without trash, keeping playtime statistics and history in archive.")
         btn_disk.setStyleSheet("""
             QPushButton {
@@ -1620,7 +1622,8 @@ class CustomRemoveDialog(QDialog):
         """)
         btn_disk.clicked.connect(self._select_archive_disk)
 
-        btn_purge = QPushButton("✕ Permanently Remove from Launcher (Force Delete Files & Records)")
+        btn_purge = QPushButton(" Permanently Remove from Launcher (Force Delete Files & Records)")
+        btn_purge.setIcon(get_app_icon("remove", color="#F05D6C"))
         btn_purge.setToolTip("Permanently deletes all game files from disk without going to trash, and purges all launcher database records.")
         btn_purge.setStyleSheet("""
             QPushButton {
@@ -1733,7 +1736,7 @@ class ManageCollectionGamesDialog(QDialog):
         layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(12)
 
-        header = QLabel(f"📁 Manage Collection: {collection_name}")
+        header = QLabel(f"Manage Collection: {collection_name}")
         header.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         header.setStyleSheet("color: #38bdf8;")
         layout.addWidget(header)

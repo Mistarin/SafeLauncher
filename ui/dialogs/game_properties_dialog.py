@@ -436,10 +436,10 @@ class GamePropertiesDialog(QDialog):
 
         # Status badge
         status_text_map = {
-            SyncStatus.IN_SYNC: "<font color='#35C98A'><b>● Synced with Cloud</b></font> (Local & Cloud versions match)",
-            SyncStatus.LOCAL_NEWER: "<font color='#3B9FE8'><b>▲ Local Save is Newer</b></font> (Ready to upload)",
-            SyncStatus.CLOUD_NEWER: "<font color='#E5A93D'><b>▼ Cloud Save is Newer</b></font> (Cloud contains newer save)",
-            SyncStatus.CLOUD_ONLY: "<font color='#3B9FE8'><b>▼ Cloud Save Available</b></font> (No local save found)",
+            SyncStatus.IN_SYNC: "<font color='#35C98A'><b>Synced with Cloud</b></font> (Local & Cloud versions match)",
+            SyncStatus.LOCAL_NEWER: "<font color='#3B9FE8'><b>Local Save is Newer</b></font> (Ready to upload)",
+            SyncStatus.CLOUD_NEWER: "<font color='#E5A93D'><b>Cloud Save is Newer</b></font> (Cloud contains newer save)",
+            SyncStatus.CLOUD_ONLY: "<font color='#3B9FE8'><b>Cloud Save Available</b></font> (No local save found)",
             SyncStatus.NO_SAVES: "<font color='#6F7682'>No local or cloud save files found</font>"
         }
         self.lbl_cloud_status = QLabel(status_text_map.get(status, "Unknown"))

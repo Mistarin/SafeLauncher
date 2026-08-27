@@ -910,7 +910,7 @@ class MainWindow(QMainWindow):
         # Quick Launch Section: Favorites
         fav_games = [g for g in self.games if len(g) > 8 and g[8]]
         if fav_games:
-            lbl_fav = self.tray_menu.addAction("⭐ Favorites Quick Launch")
+            lbl_fav = self.tray_menu.addAction(get_app_icon("favorite"), "Favorites Quick Launch")
             lbl_fav.setEnabled(False)
             for g in fav_games[:5]:
                 game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
@@ -922,7 +922,7 @@ class MainWindow(QMainWindow):
         rec_games = [g for g in self.games if len(g) > 9 and g[9] > 0]
         rec_games.sort(key=lambda x: x[9], reverse=True)
         if rec_games:
-            lbl_rec = self.tray_menu.addAction("⏱ Recently Played")
+            lbl_rec = self.tray_menu.addAction(get_icon("ph.clock-bold", color="#A7ADB8"), "Recently Played")
             lbl_rec.setEnabled(False)
             for g in rec_games[:5]:
                 game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
@@ -1190,14 +1190,14 @@ class MainWindow(QMainWindow):
             return
         game_id = game[0]
         new_fav = self.db.toggle_favorite(game_id)
-        self._show_toast("⭐ Added to Favorites!" if new_fav else "Removed from Favorites")
+        self._show_toast("Added to Favorites" if new_fav else "Removed from Favorites")
         self._refresh_library()
         self._select_game_by_id(game_id)
 
     def _on_card_favorite_clicked(self, game_id: int):
         """Toggle a game's favorite directly from its library card."""
         new_fav = self.db.toggle_favorite(game_id)
-        self._show_toast("⭐ Added to Favorites!" if new_fav else "Removed from Favorites")
+        self._show_toast("Added to Favorites" if new_fav else "Removed from Favorites")
         self._refresh_library()
 
     def _refresh_library(self):
@@ -2109,7 +2109,7 @@ class MainWindow(QMainWindow):
 
     def _on_disk_size_calculated(self, game_id: int, size_bytes: int):
         if self.selected_game and self.selected_game[0] == game_id:
-            self.detail_disk_size.setText(f"💾 Size: {format_size(size_bytes)}")
+            self.detail_disk_size.setText(f"Size: {format_size(size_bytes)}")
 
     def _update_detail_panel(self):
         """Update left panel with current selected game details and trigger smooth slide animation."""
@@ -2159,13 +2159,13 @@ class MainWindow(QMainWindow):
         self.detail_last_played.setText(self._format_last_played(last_played_ts))
 
         # Disk Size calculation in background thread to prevent UI freezing
-        self.detail_disk_size.setText("💾 Size: Calculating...")
+        self.detail_disk_size.setText("Size: Calculating...")
         if path and os.path.exists(path):
             disk_thread = DiskSizeFetcherThread(game_id, path, parent=self)
             disk_thread.disk_size_calculated.connect(self._on_disk_size_calculated)
             self._track_metadata_fetcher(disk_thread)
         else:
-            self.detail_disk_size.setText("💾 Size: --")
+            self.detail_disk_size.setText("Size: --")
 
         local_build_id = game[11] if len(game) > 11 and game[11] else ""
         local_build_date = game[14] if len(game) > 14 and game[14] else 0
@@ -2449,13 +2449,13 @@ class MainWindow(QMainWindow):
                 if status == SyncStatus.CLOUD_ONLY:
                     ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path)
                     if ok:
-                        payload["toast"] = f"⬇️ Restored cloud save for '{game_name}'."
+                        payload["toast"] = f"Restored cloud save for '{game_name}'."
                 elif status == SyncStatus.CLOUD_NEWER:
                     auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
                     if auto_newer:
                         ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path)
                         if ok:
-                            payload["toast"] = f"⬇️ Updated to newer cloud save for '{game_name}'."
+                            payload["toast"] = f"Updated to newer cloud save for '{game_name}'."
                     else:
                         payload["needs_conflict"] = True
                         payload["local_stats"] = local_stats
@@ -2486,10 +2486,10 @@ class MainWindow(QMainWindow):
                     self.settings.setValue("auto_prefer_newer_saves", True)
                 if conflict_dlg.choice == "cloud":
                     if CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"]):
-                        self._show_toast(f"⬇️ Restored newer cloud save for '{ctx['game_name']}'.")
+                        self._show_toast(f"Restored newer cloud save for '{ctx['game_name']}'.")
                 else:
                     CloudSaveSyncEngine.sync_local_to_cloud(ctx["game_name"], ctx["path"], ctx["steam_id"])
-                    self._show_toast("⬆️ Overwrote cloud save with local version.")
+                    self._show_toast("Overwrote cloud save with local version.")
             else:
                 return
         elif payload.get("toast"):
@@ -2751,7 +2751,7 @@ class MainWindow(QMainWindow):
         name = payload.get("game", "")
         outcome = payload.get("outcome")
         if outcome == "uploaded":
-            self._show_toast(f"☁️ Cloud save synced for '{name}'.")
+            self._show_toast(f"Cloud save synced for '{name}'.")
         elif outcome == "failed":
             logger.warning(f"Exit cloud-save upload failed for '{name}'.")
         elif payload.get("reason") in ("cloud_newer", "cloud_only"):
@@ -2814,11 +2814,11 @@ class MainWindow(QMainWindow):
         if uploaded:
             names = ", ".join(uploaded[:2])
             extra = f" (+{len(uploaded)-2} more)" if len(uploaded) > 2 else ""
-            self._show_toast(f"☁️ Cloud Sync: Backed up {names}{extra}.")
+            self._show_toast(f"Cloud Sync: Backed up {names}{extra}.")
         elif newer_in_cloud:
             names = ", ".join(newer_in_cloud[:2])
             extra = f" (+{len(newer_in_cloud)-2} more)" if len(newer_in_cloud) > 2 else ""
-            self._show_toast(f"☁️ Newer cloud save(s) available for: {names}{extra}")
+            self._show_toast(f"Newer cloud save(s) available for: {names}{extra}")
 
     def closeEvent(self, event):
         """Stop all background workers, then destroy the main window.
