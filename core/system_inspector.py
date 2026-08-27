@@ -288,6 +288,21 @@ def audit_host_system() -> HostSystemAudit:
     for t in tools_to_check:
         bin_name = "gamemoderun" if t == "gamemode" else t
         is_inst = bool(shutil.which(bin_name) or shutil.which(t))
+        if not is_inst:
+            # Check user-level and app-managed paths (e.g. ~/.local/share/safelauncher/bin/ludusavi)
+            home = os.path.expanduser("~")
+            custom_locations = [
+                os.path.join(home, ".local", "share", "safelauncher", "bin", t),
+                os.path.join(home, ".local", "bin", t),
+                os.path.join(home, ".cargo", "bin", t),
+                os.path.join(home, ".local", "share", "flatpak", "exports", "bin", t),
+                f"/var/lib/flatpak/exports/bin/{t}",
+            ]
+            for loc in custom_locations:
+                if os.path.isfile(loc) and os.access(loc, os.X_OK):
+                    is_inst = True
+                    break
+
         installed[t] = is_inst
         if not is_inst and t in _PACKAGE_NAME_ALIASES:
             missing_keys.append(t)
