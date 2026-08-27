@@ -7,6 +7,70 @@ from PyQt6.QtCore import QSettings
 from core.cloud_detector import discover_local_cloud_backend, detect_local_cloud_installation
 
 
+def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Path]:
+    """Download or clone the SafeLauncherDatabase/SafeLauncherCloud backend repository."""
+    import shutil
+    import subprocess
+    import tempfile
+    import zipfile
+    from pathlib import Path
+
+    root_dir = Path(__file__).resolve().parent.parent
+    parent_dir = root_dir.parent
+    target = target_dir or (parent_dir / "SafeLauncherDatabase")
+
+    print(f"  Downloading server files into {target}...")
+
+    # Method 1: git clone
+    if shutil.which("git"):
+        try:
+            res = subprocess.run(
+                ["git", "clone", "https://github.com/Mistarin/SafeLauncherCloud.git", str(target)],
+                capture_output=True,
+                text=True,
+            )
+            if res.returncode == 0 and target.is_dir():
+                marker = target / "ImHereJustToExist.txt"
+                if not marker.exists():
+                    marker.touch()
+                return target
+        except Exception:
+            pass
+
+    # Method 2: HTTP ZIP download fallback
+    try:
+        import requests
+        zip_url = "https://github.com/Mistarin/SafeLauncherCloud/archive/refs/heads/main.zip"
+        resp = requests.get(zip_url, timeout=30)
+        resp.raise_for_status()
+
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
+            tf.write(resp.content)
+            tmp_zip = tf.name
+
+        target.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(tmp_zip, "r") as zf:
+            for member in zf.infolist():
+                parts = member.filename.split("/", 1)
+                if len(parts) > 1 and parts[1]:
+                    dest_file = target / parts[1]
+                    if member.is_dir():
+                        dest_file.mkdir(parents=True, exist_ok=True)
+                    else:
+                        dest_file.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(member) as src, open(dest_file, "wb") as dst:
+                            dst.write(src.read())
+
+        Path(tmp_zip).unlink(missing_ok=True)
+        marker = target / "ImHereJustToExist.txt"
+        if not marker.exists():
+            marker.touch()
+        return target
+    except Exception as e:
+        print(f"  [✖] Download failed: {e}")
+        return None
+
+
 def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
     """Interactively build and deploy Convex backend functions."""
     import shutil
@@ -19,10 +83,12 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
     server_dir = Path(existing_path) if existing_path else None
     if not server_dir or not server_dir.is_dir():
         candidates = [
-            parent_dir / "SafeLauncherCloud",
             parent_dir / "SafeLauncherDatabase",
-            Path.home() / "Main" / "Programming" / "SafeLauncherCloud",
+            parent_dir / "SafeLauncherCloud",
             Path.home() / "Main" / "Programming" / "SafeLauncherDatabase",
+            Path.home() / "Main" / "Programming" / "SafeLauncherCloud",
+            Path.home() / "SafeLauncherDatabase",
+            Path.home() / "SafeLauncherCloud",
         ]
         for c in candidates:
             if c.is_dir():
@@ -30,16 +96,10 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
                 break
 
     if not server_dir or not server_dir.is_dir():
-        server_dir = parent_dir / "SafeLauncherCloud"
-        print(f"  Cloning SafeLauncherCloud repository into {server_dir}...")
-        try:
-            res = subprocess.run(["git", "clone", "https://github.com/Mistarin/SafeLauncherCloud.git", str(server_dir)])
-            if res.returncode != 0:
-                print("  [✖] Git clone failed.")
-                return None
-        except Exception as e:
-            print(f"  [✖] Git clone failed: {e}")
+        downloaded = download_server_repository()
+        if not downloaded:
             return None
+        server_dir = downloaded
 
     if not shutil.which("npm"):
         print("  [✖] Node.js & npm are required. Please install Node.js (e.g. sudo apt install nodejs npm).")
@@ -141,18 +201,25 @@ def run_cloud_setup_wizard() -> int:
                     local_info["site_url"] = deployed_url
         footer(CYAN)
     else:
-        banner("[1/3] Backend Deployment", CYAN)
+        banner("[1/3] Backend Setup & Download", CYAN)
         print("  SafeLauncher stores encrypted game saves on your private Convex cloud.")
         print("  Convex provides 1 GB free cloud storage without monthly fees.\n")
-        redeploy = input(f"  {CYAN}{BOLD}➜{RESET} Deploy a new private Convex backend now? [y/N]: ").strip().lower()
-        if redeploy in ("y", "yes"):
-            deployed_url = deploy_convex_backend()
-            if deployed_url:
-                local_info = {"site_url": deployed_url}
+        print(f"  {YELLOW}● SafeLauncherDatabase files not found on this system.{RESET}")
+        download_choice = input(f"  {CYAN}{BOLD}➜{RESET} Download SafeLauncherDatabase now? [Y/n]: ").strip().lower()
+        if download_choice not in ("n", "no"):
+            downloaded_dir = download_server_repository()
+            if downloaded_dir:
+                local_info = detect_local_cloud_installation() or {"path": str(downloaded_dir), "site_url": ""}
+                print(f"  {GREEN}{BOLD}✔ Server files ready in:{RESET} {downloaded_dir}")
+                deploy_choice = input(f"\n  {CYAN}{BOLD}➜{RESET} Deploy Convex backend now with 'npx convex deploy'? [Y/n]: ").strip().lower()
+                if deploy_choice not in ("n", "no"):
+                    deployed_url = deploy_convex_backend(str(downloaded_dir))
+                    if deployed_url:
+                        local_info["site_url"] = deployed_url
         else:
             print(f"\n  {BOLD}Manual deployment steps:{RESET}")
-            print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git{RESET}")
-            print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherCloud && npm install && npx convex deploy{RESET}")
+            print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git SafeLauncherDatabase{RESET}")
+            print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherDatabase && npm install && npx convex deploy{RESET}")
             print(f"   {DIM}3.{RESET} Copy your project's {BOLD}.convex.site{RESET} URL from the terminal output.")
         footer(CYAN)
 
