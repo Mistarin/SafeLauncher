@@ -31,9 +31,17 @@ def missing_requirements(path: Path | None = None) -> list[str]:
     Newer installed versions are accepted; automatic startup prompts should
     not downgrade a working environment just because requirements are pinned.
     """
+    if getattr(sys, "frozen", False):
+        return []
     path = path or requirements_path()
+    if not path.is_file():
+        return []
     missing: list[str] = []
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        content = path.read_text(encoding="utf-8")
+    except Exception:
+        return []
+    for raw_line in content.splitlines():
         line = raw_line.split("#", 1)[0].strip()
         if not line or line.startswith(("-", "http:" , "https:")):
             continue
