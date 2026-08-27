@@ -85,6 +85,7 @@ def backend_active() -> bool:
 
 
 _backend_singleton = None
+_LISTING_CACHE = {"ts": 0.0, "data": None}
 
 
 def _backend():
@@ -93,6 +94,26 @@ def _backend():
         from core.cloud_backend import ConvexSaveBackend
         _backend_singleton = ConvexSaveBackend()
     return _backend_singleton
+
+
+def _get_cloud_listing(force_refresh: bool = False) -> dict:
+    global _LISTING_CACHE
+    import time
+    now = time.time()
+    if not force_refresh and _LISTING_CACHE["data"] and (now - _LISTING_CACHE["ts"] < 30.0):
+        return _LISTING_CACHE["data"]
+    try:
+        data = _backend().list_games()
+        _LISTING_CACHE = {"ts": now, "data": data}
+        return data
+    except Exception as e:
+        logger.debug(f"Failed to fetch cloud game listing: {e}")
+        return _LISTING_CACHE["data"] or {"games": []}
+
+
+def _invalidate_cloud_listing():
+    global _LISTING_CACHE
+    _LISTING_CACHE = {"ts": 0.0, "data": None}
 
 
 class CloudSaveSyncEngine:
@@ -147,7 +168,7 @@ class CloudSaveSyncEngine:
     @staticmethod
     def _remote_game_snapshot(name_key: str) -> Optional[dict]:
         """Cloud metadata for one game via the Convex backend, or None."""
-        listing = _backend().list_games()
+        listing = _get_cloud_listing()
         for game in listing.get("games", []):
             if game.get("nameKey") == name_key:
                 return game
@@ -174,7 +195,7 @@ class CloudSaveSyncEngine:
             last_modified=float(top["sourceMaxMtime"]),
             size_bytes=int(top["sizeBytes"]),
             file_count=len(versions),
-            display_path=f"☁️ {snapshot.get('displayName', name_key)} (v{top['version']})",
+            display_path=f"{snapshot.get('displayName', name_key)} (v{top['version']})",
         )
         return stats, snapshot
 
@@ -284,6 +305,7 @@ class CloudSaveSyncEngine:
                 evicted = result.get("evictedVersions") or []
                 if evicted:
                     logger.info(f"Pruned old cloud generations {evicted} for '{game_name}'.")
+                _invalidate_cloud_listing()
                 logger.info(
                     f"Uploaded encrypted save to cloud for '{game_name}' "
                     f"(v{result.get('version')})."

@@ -172,6 +172,20 @@ class GameBannerWidget(QFrame):
         """)
         self.version_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.set_version(self.version)
+
+        # Pure cloud save status badge positioned at bottom-right of the banner cover
+        self.cloud_badge = QLabel(self)
+        self.cloud_badge.setFixedSize(24, 24)
+        self.cloud_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cloud_badge.setStyleSheet("""
+            QLabel {
+                background: rgba(20, 23, 29, 0.88);
+                border: 1px solid #252A33;
+                border-radius: 6px;
+            }
+        """)
+        self.cloud_badge.hide()
+        self._position_cloud_badge()
         
         # Footer container for Title & Playtime (vertically & horizontally centered)
         self.footer_widget = QWidget(self)
@@ -200,6 +214,44 @@ class GameBannerWidget(QFrame):
         layout.addWidget(self.footer_widget)
         
         self.update_appearance()
+
+    def set_cloud_status(self, status):
+        """Update cloud save status badge at bottom-right of card."""
+        from core.cloud_save_sync import SyncStatus
+        self.cloud_status = status
+        if status == SyncStatus.IN_SYNC:
+            self.cloud_badge.setPixmap(get_icon("ph.cloud-check-fill", color="#35C98A").pixmap(QSize(15, 15)))
+            self.cloud_badge.setToolTip("Cloud save is up to date")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(53, 201, 138, 0.40); border-radius: 6px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.LOCAL_NEWER:
+            self.cloud_badge.setPixmap(get_icon("ph.cloud-arrow-up-fill", color="#3B9FE8").pixmap(QSize(15, 15)))
+            self.cloud_badge.setToolTip("Local save is newer (ready to upload)")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(59, 159, 232, 0.40); border-radius: 6px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.CLOUD_NEWER:
+            self.cloud_badge.setPixmap(get_icon("ph.cloud-arrow-down-fill", color="#E5A93D").pixmap(QSize(15, 15)))
+            self.cloud_badge.setToolTip("Cloud save is newer")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(229, 169, 61, 0.40); border-radius: 6px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.CLOUD_ONLY:
+            self.cloud_badge.setPixmap(get_icon("ph.cloud-arrow-down-fill", color="#3B9FE8").pixmap(QSize(15, 15)))
+            self.cloud_badge.setToolTip("Cloud save available")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(59, 159, 232, 0.40); border-radius: 6px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.NO_SAVES:
+            self.cloud_badge.setPixmap(get_icon("ph.cloud-slash-bold", color="#F05D6C").pixmap(QSize(15, 15)))
+            self.cloud_badge.setToolTip("Game save not found")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(240, 93, 108, 0.40); border-radius: 6px; }")
+            self.cloud_badge.show()
+        else:
+            self.cloud_badge.hide()
+        self._position_cloud_badge()
+
+    def _position_cloud_badge(self):
+        if hasattr(self, 'cloud_badge') and self.cloud_badge:
+            self.cloud_badge.move(self.card_width - self.cloud_badge.width() - 8, self.card_height - self.cloud_badge.height() - 8)
+            self.cloud_badge.raise_()
 
     @staticmethod
     def _format_playtime(seconds: int) -> str:
@@ -387,6 +439,7 @@ class GameBannerWidget(QFrame):
             self._position_favorite_button()
             self._position_play_button()
             self._position_version_badge()
+            self._position_cloud_badge()
             self.render_frame(self._hover_progress)
         except (RuntimeError, AttributeError):
             pass
