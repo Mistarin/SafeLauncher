@@ -14,6 +14,7 @@ from typing import Optional, List, Dict, Tuple, Any
 import requests
 from PyQt6.QtCore import QSettings
 
+from core.host_process import host_process_env
 from core.cloud_detector import discover_local_cloud_backend, detect_local_cloud_installation
 
 
@@ -25,19 +26,27 @@ def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Pa
     import zipfile
     from pathlib import Path
 
-    root_dir = Path(__file__).resolve().parent.parent
-    parent_dir = root_dir.parent
-    target = target_dir or (parent_dir / "SafeLauncherDatabase")
+    if target_dir:
+        target = target_dir
+    else:
+        root_dir = Path(__file__).resolve().parent.parent
+        parent_dir = root_dir.parent
+        # Avoid downloading into /tmp when running inside AppImage (_MEIPASS)
+        if getattr(sys, "frozen", False) or str(parent_dir).startswith(("/tmp", "/var/tmp")):
+            target = Path.home() / "SafeLauncherCloud"
+        else:
+            target = parent_dir / "SafeLauncherDatabase"
 
     print(f"  Downloading server files into {target}...")
 
-    # Method 1: git clone
+    # Method 1: git clone using host environment
     if shutil.which("git"):
         try:
             res = subprocess.run(
                 ["git", "clone", "https://github.com/Mistarin/SafeLauncherCloud.git", str(target)],
                 capture_output=True,
                 text=True,
+                env=host_process_env(),
             )
             if res.returncode == 0 and target.is_dir():
                 marker = target / "ImHereJustToExist.txt"
@@ -49,7 +58,6 @@ def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Pa
 
     # Method 2: HTTP ZIP download fallback
     try:
-        import requests
         zip_url = "https://github.com/Mistarin/SafeLauncherCloud/archive/refs/heads/main.zip"
         resp = requests.get(zip_url, timeout=30)
         resp.raise_for_status()
@@ -82,7 +90,7 @@ def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Pa
 
 
 def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
-    """Interactively build and deploy Convex backend functions."""
+    """Interactively build, connect, and deploy Convex backend functions."""
     import shutil
     import subprocess
     from pathlib import Path
@@ -112,14 +120,22 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
         server_dir = downloaded
 
     if not shutil.which("npm"):
-        print("  [✖] Node.js & npm are required. Please install Node.js (e.g. sudo apt install nodejs npm).")
+        print("  [✖] Node.js & npm are required. Please install Node.js (e.g. sudo pacman -S nodejs npm or sudo apt install nodejs npm).")
         return None
+
+    clean_env = host_process_env()
 
     print(f"\n  [Deploy] Installing dependencies in {server_dir}...")
     try:
-        subprocess.run(["npm", "install"], cwd=str(server_dir), check=True)
-        print("  [Deploy] Running 'npx convex deploy'...")
-        subprocess.run(["npx", "convex", "deploy"], cwd=str(server_dir), check=True)
+        subprocess.run(["npm", "install"], cwd=str(server_dir), check=True, env=clean_env)
+        
+        env_local = server_dir / ".env.local"
+        if not env_local.is_file():
+            print("\n  [Convex] First-time setup: Linking your Convex project...")
+            print("  (A browser window or terminal prompt will open to authenticate with Convex)")
+        
+        print("  [Deploy] Deploying backend functions with 'npx convex deploy'...")
+        subprocess.run(["npx", "convex", "deploy"], cwd=str(server_dir), check=True, env=clean_env)
     except Exception as e:
         print(f"  [✖] Deployment encountered an error: {e}")
         return None
@@ -221,15 +237,15 @@ def run_cloud_setup_wizard() -> int:
             if downloaded_dir:
                 local_info = detect_local_cloud_installation() or {"path": str(downloaded_dir), "site_url": ""}
                 print(f"  {GREEN}{BOLD}✔ Server files ready in:{RESET} {downloaded_dir}")
-                deploy_choice = input(f"\n  {CYAN}{BOLD}➜{RESET} Deploy Convex backend now with 'npx convex deploy'? [Y/n]: ").strip().lower()
+                deploy_choice = input(f"\n  {CYAN}{BOLD}➜{RESET} Link and deploy Convex backend now? [Y/n]: ").strip().lower()
                 if deploy_choice not in ("n", "no"):
                     deployed_url = deploy_convex_backend(str(downloaded_dir))
                     if deployed_url:
                         local_info["site_url"] = deployed_url
         else:
             print(f"\n  {BOLD}Manual deployment steps:{RESET}")
-            print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git SafeLauncherDatabase{RESET}")
-            print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherDatabase && npm install && npx convex deploy{RESET}")
+            print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git SafeLauncherCloud{RESET}")
+            print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherCloud && npm install && npx convex deploy{RESET}")
             print(f"   {DIM}3.{RESET} Copy your project's {BOLD}.convex.site{RESET} URL from the terminal output.")
         footer(CYAN)
 
