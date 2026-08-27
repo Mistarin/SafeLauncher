@@ -112,7 +112,8 @@ class UserSettingsDialog(QDialog):
             ("General & Profile", 0),
             ("Container Security", 1),
             ("Storage & Logs", 2),
-            ("Plugins & Addons", 3),
+            ("Cloud", 3),
+            ("Plugins & Addons", 4),
         ]
 
         for title, idx in tabs:
@@ -152,11 +153,13 @@ class UserSettingsDialog(QDialog):
         self.page_general = self._create_general_page()
         self.page_security = self._create_security_page()
         self.page_storage = self._create_storage_page()
+        self.page_cloud = self._create_cloud_page()
         self.page_plugins = self._create_plugins_page()
 
         self.stack.addWidget(self.page_general)
         self.stack.addWidget(self.page_security)
         self.stack.addWidget(self.page_storage)
+        self.stack.addWidget(self.page_cloud)
         self.stack.addWidget(self.page_plugins)
 
         body_layout.addWidget(self.stack, 1)
@@ -438,75 +441,9 @@ class UserSettingsDialog(QDialog):
         self.combo_screenshot_screen.setCurrentIndex(selected_ss_idx)
         form_disk.addRow("Screenshot Monitor / Display:", self.combo_screenshot_screen)
 
-        # Cloud Saves Root Directory
-        cloud_row = QHBoxLayout()
-        self.edit_cloud_saves_dir = QLineEdit(self.cloud_saves_dir)
-        cloud_row.addWidget(self.edit_cloud_saves_dir, 1)
-
-        btn_browse_cloud = QPushButton("Browse...")
-        btn_browse_cloud.clicked.connect(self._browse_cloud_dir)
-        cloud_row.addWidget(btn_browse_cloud)
-        form_disk.addRow("Cloud Saves Root Directory:", cloud_row)
-
-        # ---- Cloud account (Convex backend) --------------------------------
+        # Cloud saves directory moved to the dedicated Cloud tab (index 3);
+        # Storage keeps only local disk widgets.
         layout.addLayout(form_disk)
-
-        sec_account = QLabel("Cloud Account")
-        sec_account.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_account.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
-        layout.addWidget(sec_account)
-
-        from core.cloud_save_sync import cloud_mode as current_cloud_mode, set_cloud_mode
-
-        self.combo_cloud_mode = QComboBox()
-        self.combo_cloud_mode.addItem("Local folder sync", "local")
-        self.combo_cloud_mode.addItem("Convex account (sign-in required)", "convex")
-        self.combo_cloud_mode.setCurrentIndex(
-            1 if current_cloud_mode() == "convex" else 0
-        )
-        self.combo_cloud_mode.currentIndexChanged.connect(self._on_cloud_mode_changed)
-        form_mode = QFormLayout()
-        form_mode.addRow("Cloud Backend:", self.combo_cloud_mode)
-
-        self.lbl_account_status = QLabel("Not signed in.")
-        self.lbl_account_status.setStyleSheet("color: #9ca3af;")
-        form_mode.addRow("Status:", self.lbl_account_status)
-        layout.addLayout(form_mode)
-
-        acct_btns = QHBoxLayout()
-        acct_btns.setSpacing(8)
-        self.btn_sign_in = QPushButton("Sign In…")
-        self.btn_sign_in.clicked.connect(self._cloud_sign_in)
-        acct_btns.addWidget(self.btn_sign_in)
-        self.btn_refresh_quota = QPushButton("Refresh Quota")
-        self.btn_refresh_quota.clicked.connect(self._refresh_account_status)
-        acct_btns.addWidget(self.btn_refresh_quota)
-        self.btn_logout = QPushButton("Sign Out")
-        self.btn_logout.clicked.connect(self._cloud_sign_out)
-        acct_btns.addWidget(self.btn_logout)
-        acct_btns.addStretch()
-        layout.addLayout(acct_btns)
-
-        endpoint_form = QFormLayout()
-        self.edit_clerk_domain = QLineEdit()
-        self.edit_clerk_domain.setPlaceholderText("https://your-instance.clerk.accounts.dev")
-        self.edit_clerk_domain.setText(QSettings().value("clerk_domain", "", type=str))
-        self.edit_clerk_domain.editingFinished.connect(self._persist_clerk_settings)
-        endpoint_form.addRow("Clerk Frontend API Domain:", self.edit_clerk_domain)
-        self.edit_clerk_client_id = QLineEdit()
-        self.edit_clerk_client_id.setPlaceholderText("OAuth application client id (test_…)")
-        self.edit_clerk_client_id.setText(QSettings().value("clerk_client_id", "", type=str))
-        self.edit_clerk_client_id.editingFinished.connect(self._persist_clerk_settings)
-        endpoint_form.addRow("Clerk OAuth Client ID:", self.edit_clerk_client_id)
-        self.edit_convex_site_url = QLineEdit()
-        self.edit_convex_site_url.setPlaceholderText("https://<deployment>.convex.site")
-        self.edit_convex_site_url.setText(QSettings().value("convex_site_url", "", type=str))
-        self.edit_convex_site_url.editingFinished.connect(self._persist_clerk_settings)
-        endpoint_form.addRow("Convex Site URL:", self.edit_convex_site_url)
-        layout.addLayout(endpoint_form)
-
-        self.accountStatusReady.connect(self._apply_account_status)
-        self._refresh_account_status()
 
         sec_logs = QLabel("Logs & Diagnostics")
         sec_logs.setFont(QFont("Arial", 12, QFont.Weight.Bold))
@@ -542,7 +479,148 @@ class UserSettingsDialog(QDialog):
         return scroll
 
     # -------------------------------------------------------------
-    # TAB 4: Plugins & Addons (wl-screenrec)
+    # TAB 4: Cloud (account, backend mode, endpoints)
+    # -------------------------------------------------------------
+    def _create_cloud_page(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(14)
+
+        sec_account = QLabel("Cloud Account")
+        sec_account.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_account.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
+        layout.addWidget(sec_account)
+
+        from core.cloud_save_sync import cloud_mode as current_cloud_mode
+
+        form_mode = QFormLayout()
+        form_mode.setSpacing(10)
+
+        self.combo_cloud_mode = QComboBox()
+        self.combo_cloud_mode.addItem("Local folder sync", "local")
+        self.combo_cloud_mode.addItem("Convex account (sign-in required)", "convex")
+        self.combo_cloud_mode.setCurrentIndex(
+            1 if current_cloud_mode() == "convex" else 0
+        )
+        self.combo_cloud_mode.currentIndexChanged.connect(self._on_cloud_mode_changed)
+        form_mode.addRow("Cloud Backend:", self.combo_cloud_mode)
+
+        # Local fallback directory used when the backend is 'local' or offline.
+        cloud_row = QHBoxLayout()
+        self.edit_cloud_saves_dir = QLineEdit(self.cloud_saves_dir)
+        cloud_row.addWidget(self.edit_cloud_saves_dir, 1)
+        btn_browse_cloud = QPushButton("Browse...")
+        btn_browse_cloud.clicked.connect(self._browse_cloud_dir)
+        cloud_row.addWidget(btn_browse_cloud)
+        form_mode.addRow("Local Sync Folder:", cloud_row)
+
+        self.lbl_account_status = QLabel("Not signed in.")
+        self.lbl_account_status.setStyleSheet("color: #9ca3af;")
+        form_mode.addRow("Status:", self.lbl_account_status)
+
+        # Visual quota meter (server-enforced budget).
+        self.bar_quota_settings = QProgressBar()
+        self.bar_quota_settings.setFixedHeight(14)
+        self.bar_quota_settings.setTextVisible(False)
+        self.bar_quota_settings.setRange(0, 1000)
+        self.bar_quota_settings.setValue(0)
+        self.bar_quota_settings.setStyleSheet("""
+            QProgressBar { background: #18181B; border: 1px solid #27272A; border-radius: 7px; }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #3B9FE8, stop:1 #7C5CFF);
+                border-radius: 6px;
+            }
+        """)
+        form_mode.addRow("Quota:", self.bar_quota_settings)
+        layout.addLayout(form_mode)
+
+        acct_btns = QHBoxLayout()
+        acct_btns.setSpacing(8)
+        self.btn_sign_in = QPushButton("Sign In…")
+        self.btn_sign_in.clicked.connect(self._cloud_sign_in)
+        acct_btns.addWidget(self.btn_sign_in)
+        btn_account_mgr = QPushButton("Open Account Manager…")
+        btn_account_mgr.clicked.connect(self._open_account_manager)
+        acct_btns.addWidget(btn_account_mgr)
+        self.btn_refresh_quota = QPushButton("Refresh Quota")
+        self.btn_refresh_quota.clicked.connect(self._refresh_account_status)
+        acct_btns.addWidget(self.btn_refresh_quota)
+        self.btn_logout = QPushButton("Sign Out")
+        self.btn_logout.clicked.connect(self._cloud_sign_out)
+        acct_btns.addWidget(self.btn_logout)
+        acct_btns.addStretch()
+        layout.addLayout(acct_btns)
+
+        sec_endpoint = QLabel("Endpoints (pre-filled defaults; edit only for another deployment)")
+        sec_endpoint.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_endpoint.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        layout.addWidget(sec_endpoint)
+
+        endpoint_form = QFormLayout()
+        endpoint_form.setSpacing(10)
+        self.edit_clerk_domain = QLineEdit()
+        self.edit_clerk_domain.setPlaceholderText("https://your-instance.clerk.accounts.dev")
+        self.edit_clerk_domain.setText(QSettings().value("clerk_domain", "", type=str))
+        self.edit_clerk_domain.editingFinished.connect(self._persist_clerk_settings)
+        endpoint_form.addRow("Clerk Frontend API Domain:", self.edit_clerk_domain)
+        self.edit_clerk_client_id = QLineEdit()
+        self.edit_clerk_client_id.setPlaceholderText("OAuth application client id")
+        self.edit_clerk_client_id.setText(QSettings().value("clerk_client_id", "", type=str))
+        self.edit_clerk_client_id.editingFinished.connect(self._persist_clerk_settings)
+        endpoint_form.addRow("Clerk OAuth Client ID:", self.edit_clerk_client_id)
+        self.edit_convex_site_url = QLineEdit()
+        self.edit_convex_site_url.setPlaceholderText("https://<deployment>.convex.site")
+        self.edit_convex_site_url.setText(QSettings().value("convex_site_url", "", type=str))
+        self.edit_convex_site_url.editingFinished.connect(self._persist_clerk_settings)
+        endpoint_form.addRow("Convex Site URL:", self.edit_convex_site_url)
+        layout.addLayout(endpoint_form)
+
+        layout.addStretch()
+
+        self.accountStatusReady.connect(self._apply_account_status)
+        self._refresh_account_status()
+
+        scroll.setWidget(page)
+        return scroll
+
+    def _apply_account_status(self, message: str):
+        try:
+            self.lbl_account_status.setText(message)
+            signed_out = message.startswith(("Not signed in", "Sign-in failed"))
+            self.btn_sign_in.setEnabled(True)
+            self.btn_logout.setEnabled(not signed_out)
+            if not signed_out and hasattr(self, "bar_quota_settings"):
+                import re as _re
+                match = _re.search(r"([\d.]+ [KMG]?B) / ([\d.]+ [KMG]?B)", message)
+                if match:
+                    def _to_bytes(text: str) -> float:
+                        value, unit = text.split()
+                        factor = {"B": 1, "KB": 1024, "MB": 1024**2,
+                                  "GB": 1024**3}.get(unit, 1)
+                        return float(value) * factor
+                    used = _to_bytes(match.group(1))
+                    total = _to_bytes(match.group(2)) or 1
+                    pct = min(1.0, used / total)
+                    bar = self.bar_quota_settings
+                    color = "#3B9FE8" if pct < 0.75 else ("#EAB308" if pct < 0.92 else "#EF4444")
+                    style = (
+                        "QProgressBar { background: #18181B; border: 1px solid #27272A;"
+                        " border-radius: 7px; }\n"
+                        f"QProgressBar::chunk {{ background: {color}; border-radius: 6px; }}"
+                    )
+                    bar.setValue(int(pct * 1000))
+                    bar.setStyleSheet(style)
+        except RuntimeError:
+            pass  # dialog already destroyed
+
+    # -------------------------------------------------------------
+    # TAB 5: Plugins & Addons (wl-screenrec)
     # -------------------------------------------------------------
     def _create_plugins_page(self) -> QWidget:
         scroll = QScrollArea()
@@ -813,6 +891,16 @@ class UserSettingsDialog(QDialog):
         qs.setValue("clerk_client_id", self.edit_clerk_client_id.text().strip())
         qs.setValue("convex_site_url", self.edit_convex_site_url.text().strip())
 
+    def _open_account_manager(self):
+        """Launch the full profile/quota/version manager dialog."""
+        try:
+            from ui.dialogs.account_dialog import AccountDialog
+            dialog = AccountDialog(self)
+            dialog.exec()
+            self._refresh_account_status()  # picker may have changed session/state
+        except Exception as e:
+            QMessageBox.warning(self, "Account Manager", f"Could not open: {e}")
+
     def _cloud_sign_in(self):
         """Run the browser PKCE flow on a worker thread; report via signal."""
         import threading
@@ -860,15 +948,6 @@ class UserSettingsDialog(QDialog):
                 self.accountStatusReady.emit(f"Status error: {e}")
 
         threading.Thread(target=_probe, daemon=True, name="SafeLauncher-AccountProbe").start()
-
-    def _apply_account_status(self, message: str):
-        try:
-            self.lbl_account_status.setText(message)
-            signed_out = message.startswith(("Not signed in", "Sign-in failed"))
-            self.btn_sign_in.setEnabled(True)
-            self.btn_logout.setEnabled(not signed_out)
-        except RuntimeError:
-            pass  # dialog already destroyed
 
     def get_cloud_saves_dir(self) -> str:
         return self.edit_cloud_saves_dir.text().strip()
