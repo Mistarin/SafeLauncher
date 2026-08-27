@@ -151,17 +151,19 @@ The resulting binary is placed at `dist/SafeLauncher-x86_64.AppImage`.
 2. Browse to any supported archive file (`.zip`, `.7z`, `.tar.gz`).
 3. Choose the installation directory. SafeLauncher extracts the files, finds likely executables, and creates the game entry.
 
-### Managing Save States & Private Cloud Sync
+### Save Management and Private Cloud Sync
 
-* **Automatic Save Detection**: SafeLauncher automatically discovers save game directories across Wine/UMU prefixes and native Linux folders using Ludusavi heuristics.
-* **Local Snapshots**: Export and import save snapshots as compressed, tamper-safe ZIP archives.
-* **Private Cloud Saves (Self-Hosted Convex)**: Sync game saves with zero-knowledge AES-256-GCM encryption to your own private Convex backend.
-  * Backend repo: [SafeLauncherCloud](https://github.com/Mistarin/SafeLauncherCloud.git)
-  * Set up your private cloud in 2 minutes:
+SafeLauncher detects save directories automatically using Ludusavi heuristics across Wine prefixes, Proton prefixes, and native Linux folders.
+
+* **Local ZIP snapshots**: Export and restore save backups directly from the game card or save manager.
+* **Private cloud sync**: Sync saves to your own Convex deployment using AES-256-GCM client-side encryption.
+  * Backend repository: [SafeLauncherCloud](https://github.com/Mistarin/SafeLauncherCloud.git)
+  * Terminal setup:
     ```bash
     safelauncher --setup-cloud
     ```
-  * Free 1 GB cloud storage via Convex free tier with 3-generation version rollback and conflict resolution.
+  * GUI setup: Open **Settings -> Cloud -> Setup Wizard** to configure your Convex endpoint.
+  * Free 1 GiB storage quota on Convex with 3-generation version rollback and conflict resolution.
 
 ---
 
