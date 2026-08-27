@@ -880,6 +880,8 @@ class UserSettingsDialog(QDialog):
             try:
                 from core import clerk_auth
                 tokens = clerk_auth.login()
+                from core.cloud_save_sync import set_cloud_mode
+                set_cloud_mode("convex")
                 email = tokens.get("email") or "signed in"
                 self.accountStatusReady.emit(f"Signed in: {email}")
             except Exception as e:

@@ -392,6 +392,8 @@ class AccountDialog(QDialog):
         try:
             from core import clerk_auth
             tokens = clerk_auth.login()
+            from core.cloud_save_sync import set_cloud_mode
+            set_cloud_mode("convex")
             self._data_ready.emit({"ok_login": tokens.get("email", "signed in")})
         except Exception as e:
             self._data_ready.emit({"error": f"Sign-in failed: {e}"})

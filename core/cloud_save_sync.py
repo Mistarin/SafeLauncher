@@ -55,7 +55,16 @@ class SaveStats:
 
 def cloud_mode() -> str:
     settings = QSettings("SafeLauncher", "SafeLauncher")
-    return str(settings.value("cloud_mode", "local", type=str) or "local")
+    mode = settings.value("cloud_mode", None)
+    if mode is not None and str(mode).strip():
+        return str(mode).strip()
+    try:
+        from core import clerk_auth
+        if clerk_auth.get_status().get("signed_in"):
+            return "convex"
+    except Exception:
+        pass
+    return "local"
 
 
 def set_cloud_mode(mode: str) -> None:

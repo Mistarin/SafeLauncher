@@ -1,8 +1,7 @@
-"""Unified Game Properties dialog for managing runtime, presets, prefix maintenance, and save snapshots."""
-
 import os
 import json
 import subprocess
+import threading
 from typing import Optional, Dict
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
@@ -10,7 +9,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QCheckBox, QSlider, QComboBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 
 from ui.icons import get_icon, get_app_icon
@@ -25,6 +24,8 @@ logger = get_logger("GamePropertiesDialog")
 
 class GamePropertiesDialog(QDialog):
     """Clean, consolidated Game Properties dialog with Performance Presets and Save Manager."""
+
+    _save_stats_ready = pyqtSignal(object)
 
     def __init__(self, game: tuple, parent=None):
         super().__init__(parent)
@@ -44,6 +45,8 @@ class GamePropertiesDialog(QDialog):
         self.env_vars: Dict[str, str] = {}
         if self.parent_window and hasattr(self.parent_window, "db"):
             self.env_vars = self.parent_window.db.get_game_env_vars(self.game_id)
+
+        self._save_stats_ready.connect(self._on_save_stats_ready)
 
         self.setWindowTitle(f"Properties - {self.game_name}")
         self.setMinimumSize(640, 560)
@@ -388,38 +391,26 @@ class GamePropertiesDialog(QDialog):
         sec_detected.setStyleSheet("color: #F5F7FA; border-bottom: 1px solid #252A33; padding-bottom: 4px;")
         body_layout.addWidget(sec_detected)
 
-        from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
-        status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(self.game_name, self.game_path, self.steam_id)
-
         save_card = QFrame()
         save_card.setStyleSheet("QFrame { background: #14171D; border: 1px solid #252A33; border-radius: 8px; padding: 12px; }")
         sc_layout = QVBoxLayout(save_card)
         sc_layout.setSpacing(8)
 
-        if local_stats.exists:
-            from ui.dialogs.save_conflict_dialog import format_bytes
-            from datetime import datetime
-            date_str = datetime.fromtimestamp(local_stats.last_modified).strftime("%Y-%m-%d %H:%M:%S")
+        row_path = QHBoxLayout()
+        self.lbl_folder_path = QLabel("<b>Path:</b> <font color='#6F7682'>Scanning save directory…</font>")
+        self.lbl_folder_path.setWordWrap(True)
+        row_path.addWidget(self.lbl_folder_path, 1)
 
-            row_path = QHBoxLayout()
-            lbl_folder_path = QLabel(f"<b>Path:</b> <font color='#3B9FE8' face='monospace'>{local_stats.display_path}</font>")
-            lbl_folder_path.setWordWrap(True)
-            row_path.addWidget(lbl_folder_path, 1)
+        self.btn_open_save_folder = QPushButton(" Open Folder")
+        self.btn_open_save_folder.setIcon(get_icon("ph.folder-open-bold"))
+        self.btn_open_save_folder.setEnabled(False)
+        self.btn_open_save_folder.setStyleSheet("QPushButton { background: #1A1E26; color: #F5F7FA; border: 1px solid #252A33; border-radius: 4px; padding: 4px 10px; font-size: 11px; } QPushButton:hover { background: #252A33; border-color: #3B9FE8; } QPushButton:disabled { color: #6F7682; border-color: #20242C; }")
+        row_path.addWidget(self.btn_open_save_folder)
+        sc_layout.addLayout(row_path)
 
-            btn_open_save_folder = QPushButton(" Open Folder")
-            btn_open_save_folder.setIcon(get_icon("ph.folder-open-bold"))
-            btn_open_save_folder.setStyleSheet("QPushButton { background: #1A1E26; color: #F5F7FA; border: 1px solid #252A33; border-radius: 4px; padding: 4px 10px; font-size: 11px; } QPushButton:hover { background: #252A33; border-color: #3B9FE8; }")
-            btn_open_save_folder.clicked.connect(lambda: subprocess.Popen(["xdg-open", os.path.dirname(local_stats.display_path) if os.path.isfile(local_stats.display_path) else local_stats.display_path], env=host_process_env()))
-            row_path.addWidget(btn_open_save_folder)
-            sc_layout.addLayout(row_path)
-
-            lbl_details = QLabel(f"<font color='#6F7682'>Files:</font> {local_stats.file_count} &nbsp;|&nbsp; <font color='#6F7682'>Total Size:</font> {format_bytes(local_stats.size_bytes)} &nbsp;|&nbsp; <font color='#6F7682'>Last Modified:</font> <font color='#35C98A'>{date_str}</font>")
-            lbl_details.setStyleSheet("font-size: 11px; color: #F5F7FA;")
-            sc_layout.addWidget(lbl_details)
-        else:
-            lbl_none = QLabel("<font color='#6F7682'>No save folder discovered yet. Save directory will be auto-detected after first launch.</font>")
-            lbl_none.setStyleSheet("font-size: 11px;")
-            sc_layout.addWidget(lbl_none)
+        self.lbl_save_details = QLabel("<font color='#6F7682'>Scanning save metadata…</font>")
+        self.lbl_save_details.setStyleSheet("font-size: 11px; color: #F5F7FA;")
+        sc_layout.addWidget(self.lbl_save_details)
 
         body_layout.addWidget(save_card)
 
@@ -435,17 +426,11 @@ class GamePropertiesDialog(QDialog):
         syc_layout.setSpacing(10)
 
         # Status badge
-        status_text_map = {
-            SyncStatus.IN_SYNC: "<font color='#35C98A'><b>Synced with Cloud</b></font> (Local & Cloud versions match)",
-            SyncStatus.LOCAL_NEWER: "<font color='#3B9FE8'><b>Local Save is Newer</b></font> (Ready to upload)",
-            SyncStatus.CLOUD_NEWER: "<font color='#E5A93D'><b>Cloud Save is Newer</b></font> (Cloud contains newer save)",
-            SyncStatus.CLOUD_ONLY: "<font color='#3B9FE8'><b>Cloud Save Available</b></font> (No local save found)",
-            SyncStatus.NO_SAVES: "<font color='#6F7682'>No local or cloud save files found</font>"
-        }
-        self.lbl_cloud_status = QLabel(status_text_map.get(status, "Unknown"))
+        self.lbl_cloud_status = QLabel("<font color='#6F7682'>Checking cloud status…</font>")
         self.lbl_cloud_status.setStyleSheet("font-size: 12px;")
         syc_layout.addWidget(self.lbl_cloud_status)
 
+        from core.cloud_save_sync import CloudSaveSyncEngine
         cloud_root = CloudSaveSyncEngine.get_cloud_root()
         lbl_cloud_dir = QLabel(f"<font color='#6F7682'>Cloud Root:</font> <font color='#A7ADB8' face='monospace'>{cloud_root}</font>")
         lbl_cloud_dir.setStyleSheet("font-size: 10px;")
@@ -453,18 +438,18 @@ class GamePropertiesDialog(QDialog):
         syc_layout.addWidget(lbl_cloud_dir)
 
         sync_btn_row = QHBoxLayout()
-        btn_sync_up = QPushButton(" Upload to Cloud Now")
-        btn_sync_up.setIcon(get_app_icon("export"))
-        btn_sync_up.setStyleSheet("QPushButton { background: #1A1E26; color: #3B9FE8; border: 1px solid #252A33; border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #252A33; border-color: #3B9FE8; }")
-        btn_sync_up.clicked.connect(self._sync_up_now)
-        sync_btn_row.addWidget(btn_sync_up)
+        self.btn_sync_up = QPushButton(" Upload to Cloud Now")
+        self.btn_sync_up.setIcon(get_app_icon("export"))
+        self.btn_sync_up.setStyleSheet("QPushButton { background: #1A1E26; color: #3B9FE8; border: 1px solid #252A33; border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #252A33; border-color: #3B9FE8; }")
+        self.btn_sync_up.clicked.connect(self._sync_up_now)
+        sync_btn_row.addWidget(self.btn_sync_up)
 
-        if cloud_stats.exists:
-            btn_sync_down = QPushButton(" Download from Cloud")
-            btn_sync_down.setIcon(get_app_icon("import"))
-            btn_sync_down.setStyleSheet("QPushButton { background: #1A1E26; color: #35C98A; border: 1px solid #252A33; border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #252A33; border-color: #35C98A; }")
-            btn_sync_down.clicked.connect(self._sync_down_now)
-            sync_btn_row.addWidget(btn_sync_down)
+        self.btn_sync_down = QPushButton(" Download from Cloud")
+        self.btn_sync_down.setIcon(get_app_icon("import"))
+        self.btn_sync_down.setStyleSheet("QPushButton { background: #1A1E26; color: #35C98A; border: 1px solid #252A33; border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #252A33; border-color: #35C98A; }")
+        self.btn_sync_down.clicked.connect(self._sync_down_now)
+        self.btn_sync_down.hide()
+        sync_btn_row.addWidget(self.btn_sync_down)
 
         sync_btn_row.addStretch()
         syc_layout.addLayout(sync_btn_row)
@@ -494,12 +479,80 @@ class GamePropertiesDialog(QDialog):
 
         body_layout.addStretch()
         scroll.setWidget(body)
+
+        # Trigger async save status load
+        self._load_save_stats_async()
+
         return scroll
+
+    def _load_save_stats_async(self):
+        """Asynchronously load save detection & cloud status on worker thread."""
+        def _worker():
+            try:
+                from core.cloud_save_sync import CloudSaveSyncEngine
+                status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
+                    self.game_name, self.game_path, self.steam_id
+                )
+                self._save_stats_ready.emit((status, local_stats, cloud_stats))
+            except Exception as e:
+                logger.warning(f"Async save stats check failed for '{self.game_name}': {e}")
+                self._save_stats_ready.emit((None, None, None))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-PropSave-{self.game_id}").start()
+
+    def _on_save_stats_ready(self, payload):
+        """GUI-thread handler to populate Save tab metadata without blocking dialog opening."""
+        status, local_stats, cloud_stats = payload
+        if status is None or local_stats is None:
+            self.lbl_cloud_status.setText("<font color='#F05D6C'>Save status check failed.</font>")
+            return
+
+        from ui.dialogs.save_conflict_dialog import format_bytes
+        from datetime import datetime
+        from core.cloud_save_sync import SyncStatus
+
+        if local_stats.exists:
+            date_str = datetime.fromtimestamp(local_stats.last_modified).strftime("%Y-%m-%d %H:%M:%S")
+            self.lbl_folder_path.setText(f"<b>Path:</b> <font color='#3B9FE8' face='monospace'>{local_stats.display_path}</font>")
+            self.lbl_save_details.setText(
+                f"<font color='#6F7682'>Files:</font> {local_stats.file_count} &nbsp;|&nbsp; "
+                f"<font color='#6F7682'>Total Size:</font> {format_bytes(local_stats.size_bytes)} &nbsp;|&nbsp; "
+                f"<font color='#6F7682'>Last Modified:</font> <font color='#35C98A'>{date_str}</font>"
+            )
+            self.btn_open_save_folder.setEnabled(True)
+            try:
+                self.btn_open_save_folder.clicked.disconnect()
+            except TypeError:
+                pass
+            p = local_stats.display_path
+            self.btn_open_save_folder.clicked.connect(
+                lambda: subprocess.Popen(["xdg-open", os.path.dirname(p) if os.path.isfile(p) else p], env=host_process_env())
+            )
+        else:
+            self.lbl_folder_path.setText("<b>Path:</b> <font color='#6F7682'>Not found</font>")
+            self.lbl_save_details.setText("<font color='#6F7682'>No save folder discovered yet. Save directory will be auto-detected after first launch.</font>")
+            self.btn_open_save_folder.setEnabled(False)
+
+        status_text_map = {
+            SyncStatus.IN_SYNC: "<font color='#35C98A'><b>Synced with Cloud</b></font> (Local & Cloud versions match)",
+            SyncStatus.LOCAL_NEWER: "<font color='#3B9FE8'><b>Local Save is Newer</b></font> (Ready to upload)",
+            SyncStatus.CLOUD_NEWER: "<font color='#E5A93D'><b>Cloud Save is Newer</b></font> (Cloud contains newer save)",
+            SyncStatus.CLOUD_ONLY: "<font color='#3B9FE8'><b>Cloud Save Available</b></font> (No local save found)",
+            SyncStatus.NO_SAVES: "<font color='#6F7682'>No local or cloud save files found</font>"
+        }
+        self.lbl_cloud_status.setText(status_text_map.get(status, "Unknown"))
+
+        if cloud_stats and cloud_stats.exists:
+            self.btn_sync_down.show()
+        else:
+            self.btn_sync_down.hide()
 
     def _sync_up_now(self):
         from core.cloud_save_sync import CloudSaveSyncEngine
         if CloudSaveSyncEngine.sync_local_to_cloud(self.game_name, self.game_path, self.steam_id):
             QMessageBox.information(self, "Cloud Sync", "Local save successfully uploaded to Cloud save repository.")
+            self._load_save_stats_async()
         else:
             QMessageBox.warning(self, "Cloud Sync", "No local save files found to upload.")
 
@@ -507,6 +560,7 @@ class GamePropertiesDialog(QDialog):
         from core.cloud_save_sync import CloudSaveSyncEngine
         if CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path):
             QMessageBox.information(self, "Cloud Sync", "Cloud save successfully restored to game prefix.")
+            self._load_save_stats_async()
         else:
             QMessageBox.critical(self, "Cloud Sync", "Failed to restore cloud save.")
 
