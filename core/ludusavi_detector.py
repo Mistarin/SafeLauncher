@@ -13,11 +13,45 @@ import os
 import shutil
 import subprocess
 import re
-from dataclasses import dataclass
-from typing import List, Optional
+import json
+from dataclasses import dataclass, asdict
+from typing import List, Optional, Dict
 from core.logger import get_logger
 
 logger = get_logger("SaveDetector")
+
+_CACHE_FILE = os.path.expanduser("~/.local/share/safelauncher/save_locations_cache.json")
+
+
+def _load_persisted_cache() -> Dict[tuple, List['SaveLocation']]:
+    cache: Dict[tuple, List['SaveLocation']] = {}
+    if not os.path.exists(_CACHE_FILE):
+        return cache
+    try:
+        with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+            for k_str, locs_raw in raw.items():
+                parts = tuple(k_str.split("|||"))
+                if len(parts) == 3:
+                    locs = [SaveLocation(**item) for item in locs_raw]
+                    cache[parts] = locs
+    except Exception as e:
+        logger.debug(f"Could not load save location cache: {e}")
+    return cache
+
+
+def _save_persisted_cache(cache: Dict[tuple, List['SaveLocation']]):
+    try:
+        os.makedirs(os.path.dirname(_CACHE_FILE), exist_ok=True)
+        raw = {}
+        for k_tuple, locs in cache.items():
+            k_str = f"{k_tuple[0]}|||{k_tuple[1]}|||{k_tuple[2]}"
+            raw[k_str] = [asdict(l) for l in locs]
+        with open(_CACHE_FILE + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2)
+        os.replace(_CACHE_FILE + ".tmp", _CACHE_FILE)
+    except Exception as e:
+        logger.debug(f"Could not save save location cache: {e}")
 
 
 @dataclass
@@ -59,19 +93,24 @@ def _scan_folder_stats(folder_path: str) -> tuple[int, int, float]:
             stat = os.stat(folder_path)
             return 1, stat.st_size, stat.st_mtime
         except OSError:
-            return 1, 0, 0.0
+            return 0, 0, 0.0
 
-    for root, _, files in os.walk(folder_path):
-        for f in files:
-            fp = os.path.join(root, f)
-            try:
-                stat = os.stat(fp)
-                count += 1
-                total_size += stat.st_size
-                if stat.st_mtime > latest_mtime:
-                    latest_mtime = stat.st_mtime
-            except OSError:
-                continue
+    try:
+        for root, _, files in os.walk(folder_path):
+            for file in files:
+                if any(file.endswith(sfx) for sfx in CLI_JUNK_SUFFIXES):
+                    continue
+                fp = os.path.join(root, file)
+                try:
+                    stat = os.stat(fp)
+                    count += 1
+                    total_size += stat.st_size
+                    if stat.st_mtime > latest_mtime:
+                        latest_mtime = stat.st_mtime
+                except OSError:
+                    pass
+    except OSError:
+        pass
 
     return count, total_size, latest_mtime
 
@@ -79,7 +118,7 @@ def _scan_folder_stats(folder_path: str) -> tuple[int, int, float]:
 class LudusaviDetector:
     """Finds exact game save paths inside isolated Wine/UMU prefixes and game folders."""
 
-    _LOCATION_CACHE: Dict[tuple, List[SaveLocation]] = {}
+    _LOCATION_CACHE: Dict[tuple, List[SaveLocation]] = _load_persisted_cache()
 
     @classmethod
     def clear_cache(cls, game_name: Optional[str] = None):
@@ -88,6 +127,7 @@ class LudusaviDetector:
             cls._LOCATION_CACHE.clear()
         else:
             cls._LOCATION_CACHE = {k: v for k, v in cls._LOCATION_CACHE.items() if k[0] != game_name}
+        _save_persisted_cache(cls._LOCATION_CACHE)
 
     # ------------------------------------------------------------------ #
     # Binary discovery                                                   #
@@ -151,6 +191,9 @@ class LudusaviDetector:
         cache_key = (game_name, game_path, steam_id)
         cached = cls._LOCATION_CACHE.get(cache_key)
         if cached is not None:
+            if not cached:
+                # Fast-path for games known to have no saves yet
+                return []
             # Fast-path: refresh file counts and mtimes in < 0.1ms without spawning CLI subprocess
             refreshed: List[SaveLocation] = []
             all_valid = True
@@ -169,7 +212,7 @@ class LudusaviDetector:
                     relative_to_prefix=loc.relative_to_prefix,
                     source=loc.source
                 ))
-            if all_valid and refreshed:
+            if all_valid:
                 return refreshed
 
         cli_results: List[SaveLocation] = []
@@ -225,8 +268,8 @@ class LudusaviDetector:
             if not covered:
                 kept.append(loc)
 
-        if kept:
-            cls._LOCATION_CACHE[cache_key] = kept
+        cls._LOCATION_CACHE[cache_key] = kept
+        _save_persisted_cache(cls._LOCATION_CACHE)
 
         return kept
 

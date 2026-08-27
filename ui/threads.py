@@ -317,7 +317,12 @@ class CloudSaveBatchQueueWorker(SafeQThread):
             return
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
+        from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus, _get_cloud_listing
+
+        try:
+            _get_cloud_listing(force_refresh=True)
+        except Exception:
+            pass
 
         uploaded_names = []
         newer_in_cloud_names = []
