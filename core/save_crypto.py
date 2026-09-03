@@ -35,8 +35,9 @@ def encrypt_save(plaintext: bytes, data_key_b64: str) -> bytes:
     try:
         key = _key_from_b64(data_key_b64)
         nonce = os.urandom(NONCE_LEN)
-        sealed = AESGCM(key).encrypt(nonce, plaintext, None)
-        return _HEADER.pack(ENVELOPE_VERSION) + nonce + sealed
+        header = _HEADER.pack(ENVELOPE_VERSION)
+        sealed = AESGCM(key).encrypt(nonce, plaintext, header)
+        return header + nonce + sealed
     except SaveCryptoError:
         raise
     except Exception as e:  # defensive: never leak half-ciphertexts silently
@@ -52,8 +53,9 @@ def decrypt_save(envelope: bytes, data_key_b64: str) -> bytes:
         raise SaveCryptoError(f"Unsupported envelope version {version}.")
     nonce = envelope[_HEADER.size:_HEADER.size + NONCE_LEN]
     ciphertext = envelope[_HEADER.size + NONCE_LEN:]
+    header = _HEADER.pack(version)
     try:
-        return AESGCM(_key_from_b64(data_key_b64)).decrypt(nonce, ciphertext, None)
+        return AESGCM(_key_from_b64(data_key_b64)).decrypt(nonce, ciphertext, header)
     except Exception as e:
         raise SaveCryptoError(f"Decryption failed (wrong key or corrupt data): {e}") from e
 

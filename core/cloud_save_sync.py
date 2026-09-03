@@ -3,9 +3,8 @@ Automatic Cloud / Local Save Synchronization Engine for SafeLauncher.
 
 Two interchangeable backends sit behind this single API:
 
-* "convex"  — real accounts + encrypted storage on Convex (core.cloud_backend),
-              active when QSettings cloud_mode == "convex" and a Clerk session
-              exists. Archives are byte-compatible with…
+* "convex"  — private cloud storage on personal Convex instance (core.cloud_backend),
+              active when QSettings cloud_mode == "convex" and a site URL is configured.
 * "local"   — the legacy watched-folder engine (Syncthing/Nextcloud/whatever).
 
 Every public method degrades gracefully: a cloud failure logs and falls back
@@ -53,17 +52,13 @@ class SaveStats:
 # Backend dispatch                                                            #
 # --------------------------------------------------------------------------- #
 
+import threading
+
 def cloud_mode() -> str:
     settings = QSettings("SafeLauncher", "SafeLauncher")
     mode = settings.value("cloud_mode", None)
     if mode is not None and str(mode).strip():
         return str(mode).strip()
-    try:
-        from core import clerk_auth
-        if clerk_auth.get_status().get("signed_in"):
-            return "convex"
-    except Exception:
-        pass
     return "local"
 
 
@@ -77,22 +72,13 @@ def backend_active() -> bool:
     """True when the Convex backend should serve sync operations."""
     if cloud_mode() != "convex":
         return False
-    settings = QSettings("SafeLauncher", "SafeLauncher")
-    if settings.value("cloud_secret_key", "", type=str).strip():
-        return True
-    try:
-        from core import clerk_auth
-        if clerk_auth.get_status().get("signed_in"):
-            return True
-    except Exception:
-        pass
-    # If a custom convex endpoint is configured, activate it
-    site = settings.value("convex_site_url", "", type=str).strip()
-    return bool(site)
+    from core.cloud_backend import get_site_url
+    return bool(get_site_url())
 
 
 _backend_singleton = None
 _LISTING_CACHE = {"ts": 0.0, "data": None}
+_LISTING_LOCK = threading.Lock()
 
 
 def _backend():
@@ -107,20 +93,24 @@ def _get_cloud_listing(force_refresh: bool = False) -> dict:
     global _LISTING_CACHE
     import time
     now = time.time()
-    if not force_refresh and _LISTING_CACHE["data"] and (now - _LISTING_CACHE["ts"] < 30.0):
-        return _LISTING_CACHE["data"]
+    with _LISTING_LOCK:
+        if not force_refresh and _LISTING_CACHE["data"] and (now - _LISTING_CACHE["ts"] < 30.0):
+            return _LISTING_CACHE["data"]
     try:
         data = _backend().list_games()
-        _LISTING_CACHE = {"ts": now, "data": data}
+        with _LISTING_LOCK:
+            _LISTING_CACHE = {"ts": now, "data": data}
         return data
     except Exception as e:
         logger.debug(f"Failed to fetch cloud game listing: {e}")
-        return _LISTING_CACHE["data"] or {"games": []}
+        with _LISTING_LOCK:
+            return _LISTING_CACHE["data"] or {"games": []}
 
 
 def _invalidate_cloud_listing():
     global _LISTING_CACHE
-    _LISTING_CACHE = {"ts": 0.0, "data": None}
+    with _LISTING_LOCK:
+        _LISTING_CACHE = {"ts": 0.0, "data": None}
 
 
 class CloudSaveSyncEngine:

@@ -17,20 +17,19 @@ Or use the included launcher script:
 bash launcher.sh
 ```
 
-## Cloud Save Account (optional)
+## Private Cloud Saves (optional)
 
-Saves sync to a local folder by default. To store them (encrypted) in your own
-online account instead:
+Saves sync to a local folder by default. To store them encrypted on your own private Convex backend:
 
-1. Set up the backend once — see `../SafeLauncherDatabase/README.md`
-   (Clerk account + one `npx convex deploy`).
-2. In SafeLauncher: **Settings → Cloud**: enter your Clerk domain, OAuth client
-   id and Convex site URL, then **Sign In…** (opens your browser) and switch
-   *Cloud Backend* to **Convex account**.
+1. Run the interactive setup wizard:
+   ```bash
+   ./SafeLauncher-x86_64.AppImage --setup-cloud
+   ```
+   or in SafeLauncher: **Settings → Cloud → Setup Wizard…**
+2. Deploy or connect your private Convex instance (1 GB free storage on Convex without monthly fees).
+3. Optionally set a secret key (`SAFELAUNCHER_SECRET_KEY`) for secure single-tenant access.
 
-Each save upload is AES-256-GCM encrypted on your PC; 10 MB max per save,
-200 MB per account, last 3 versions kept per game. Sign-out or a lost
-connection falls back to local folder syncing automatically.
+Each save upload is AES-256-GCM encrypted on your PC (50 MB max per save, 1 GB storage limit, last 3 versions retained per game).
 
 
 ## What's Included

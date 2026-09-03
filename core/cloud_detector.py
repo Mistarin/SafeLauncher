@@ -8,7 +8,6 @@ def detect_local_cloud_installation() -> Optional[Dict[str, Any]]:
     """Scan the system for a local SafeLauncherDatabase / SafeLauncherCloud directory."""
     home = os.path.expanduser("~")
     candidates = [
-        "/home/martin/Main/Programming/SafeLauncherDatabase",
         os.path.join(home, "Main", "Programming", "SafeLauncherDatabase"),
         os.path.join(home, "Main", "Programming", "SafeLauncherCloud"),
         os.path.join(home, "SafeLauncherDatabase"),

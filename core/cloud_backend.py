@@ -2,14 +2,13 @@
 Convex-backed cloud save transport for SafeLauncher.
 
 All HTTP happens here: function endpoints on the deployment's .convex.site
-domain with `Authorization: Bearer <clerk jwt>` headers. Saves are uploaded as
+domain with optional `Authorization: Bearer <secret_key>` headers. Saves are uploaded as
 client-encrypted AES-256-GCM envelopes of the standard safelauncher_manifest
 v1 zip produced by ZipBackupManager — byte-compatible with the local-folder
 engine's archives so restore semantics stay identical across backends.
 
 Every request carries an explicit timeout; downloads are streamed through a
-temp file with a hard size cap and atomic rename; tokens refresh single-flight
-via core.clerk_auth.
+temp file with a hard size cap and atomic rename; data keys are cached in memory.
 """
 
 import hashlib
@@ -21,13 +20,19 @@ from typing import Optional
 import requests
 from PyQt6.QtCore import QSettings
 
-from core import clerk_auth, save_crypto
+import threading
+from typing import Optional
+
+import requests
+from PyQt6.QtCore import QSettings
+
+from core import save_crypto
 from core.logger import get_logger
 
 logger = get_logger("CloudBackend")
 
 MAX_SAVE_BYTES = 50 * 1024 * 1024   # 50 MB max per save archive
-QUOTA_BYTES = 500 * 1024 * 1024
+QUOTA_BYTES = 1024 * 1024 * 1024    # 1 GB per private deployment
 _DOWNLOAD_STREAM_TIMEOUT = (10, 60)
 
 # Default endpoint (configured per-user via QSettings or 'safelauncher --setup-cloud')
@@ -63,6 +68,25 @@ def get_site_url() -> str:
     return url
 
 
+import platform
+import uuid
+
+def get_device_identity() -> tuple[str, str, str]:
+    """Return (device_id, device_name, platform_name) persisted in QSettings."""
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    dev_id = str(settings.value("cloud_device_id", "") or "").strip()
+    if not dev_id:
+        dev_id = str(uuid.uuid4())[:8]
+        settings.setValue("cloud_device_id", dev_id)
+
+    dev_name = str(settings.value("cloud_device_name", "") or "").strip()
+    if not dev_name:
+        dev_name = platform.node() or "SafeLauncher Device"
+
+    dev_plat = platform.system() or "Linux"
+    return dev_id, dev_name, dev_plat
+
+
 def normalize_name_key(game_name: str) -> str:
     """Mirror of server-side lib/api.ts sanitizeNameKey ([A-Za-z0-9-_ ])."""
     cleaned = "".join(
@@ -75,61 +99,62 @@ def normalize_name_key(game_name: str) -> str:
 class ConvexSaveBackend:
     def __init__(self):
         self.session = requests.Session()
+        self._lock = threading.Lock()
+        self._data_key_cache: Optional[str] = None
 
     # ------------------------------------------------------------------ #
     # Low-level request plumbing                                         #
     # ------------------------------------------------------------------ #
 
-    def _request(self, method: str, path: str, *, json_body=None,
-                 retry_auth: bool = True, **kwargs) -> requests.Response:
+    def _request(self, method: str, path: str, *, json_body=None, **kwargs) -> requests.Response:
         site = get_site_url()
         if not site:
             raise CloudBackendError("Convex endpoint not configured.", "no_endpoint")
-        
-        # 1. Use configured secret key if present (self-hosted SafeLauncherCloud)
+
         secret_key = QSettings("SafeLauncher", "SafeLauncher").value("cloud_secret_key", "", type=str).strip() or os.environ.get("SAFELAUNCHER_SECRET_KEY", "")
         headers = kwargs.pop("headers", {})
         if secret_key:
             headers["X-SafeLauncher-Key"] = secret_key
             headers["Authorization"] = f"Bearer {secret_key}"
-        else:
-            # 2. Fall back to Clerk auth or default owner for self-hosted instances
-            try:
-                token = clerk_auth.get_access_token()
-                headers["Authorization"] = f"Bearer {token}"
-            except clerk_auth.AuthError:
-                headers["Authorization"] = "Bearer default_owner"
 
-        resp = self.session.request(
-            method,
-            f"{site}{path}",
-            headers=headers,
-            timeout=kwargs.pop("timeout", 20),
-            json=json_body,
-            **kwargs,
-        )
-        if resp.status_code == 401 and retry_auth and not secret_key:
-            clerk_auth.refresh_now(force=True)
-            return self._request(method, path, json_body=json_body,
-                                 retry_auth=False, **kwargs)
+        dev_id, dev_name, dev_plat = get_device_identity()
+        headers["X-SafeLauncher-Device-Id"] = dev_id
+        headers["X-SafeLauncher-Device-Name"] = dev_name
+        headers["X-SafeLauncher-Platform"] = dev_plat
+
+        timeout = kwargs.pop("timeout", 20)
+        with self._lock:
+            resp = self.session.request(
+                method,
+                f"{site}{path}",
+                headers=headers,
+                timeout=timeout,
+                json=json_body,
+                **kwargs,
+            )
         return resp
 
     @staticmethod
     def _check(resp: requests.Response, context: str) -> dict:
-        if resp.status_code == 401:
-            clerk_auth.clear_stored_session()
-            raise CloudBackendError("Sign-in expired.", "auth", 401)
         try:
             payload = resp.json()
         except ValueError:
             payload = {}
+
+        if resp.status_code in (401, 403):
+            raise CloudBackendError(
+                str(payload.get("error") or f"{context}: Authentication failed (check Secret Key)."),
+                "auth",
+                resp.status_code,
+                payload,
+            )
+
         if resp.status_code >= 400:
             raise CloudBackendError(
                 str(payload.get("error") or f"{context} failed ({resp.status_code})"),
                 str(payload.get("code") or "http_error"),
                 resp.status_code,
-                {k: v for k, v in payload.items()
-                 if k not in ("error", "code")},
+                {k: v for k, v in payload.items() if k not in ("error", "code")},
             )
         return payload
 
@@ -138,11 +163,28 @@ class ConvexSaveBackend:
     # ------------------------------------------------------------------ #
 
     def account(self) -> dict:
-        """Quota overview: {bytesUsed, quotaBytes, games:[…], email,…}."""
+        """Quota overview: {bytesUsed, quotaBytes, games:[…], concurrentDevices, devices:[…]}."""
         return self._check(self._request("GET", "/api/me"), "Account fetch")
 
+    def heartbeat(self) -> dict:
+        """Send a lightweight heartbeat ping to register presence."""
+        dev_id, dev_name, dev_plat = get_device_identity()
+        return self._check(
+            self._request(
+                "POST",
+                "/api/heartbeat",
+                json_body={"deviceId": dev_id, "deviceName": dev_name, "platform": dev_plat},
+            ),
+            "Heartbeat",
+        )
+
     def data_key_b64(self) -> str:
-        return self._check(self._request("GET", "/api/key"), "Key fetch")["dataKeyB64"]
+        if not self._data_key_cache:
+            self._data_key_cache = self._check(self._request("GET", "/api/key"), "Key fetch")["dataKeyB64"]
+        return self._data_key_cache
+
+    def invalidate_key_cache(self) -> None:
+        self._data_key_cache = None
 
     def list_games(self) -> dict:
         return self._check(self._request("GET", "/api/games"), "Listing")
@@ -170,12 +212,11 @@ class ConvexSaveBackend:
 
         listing = self.list_games()
         existing = next((g for g in listing.get("games", []) if g.get("nameKey") == name_key), None)
-        current_version = None
         if existing and existing.get("versions"):
             top = existing["versions"][0]
-            if (top.get("plainSha256") == plain_sha
-                    or top.get("sourceMaxMtime", 0) >= int(source_max_mtime)):
-                logger.info(f"Cloud already holds identical saves for '{name_key}'.")
+            # ONLY skip if the payload content hash matches identically
+            if top.get("plainSha256") == plain_sha:
+                logger.info(f"Cloud already holds identical save for '{name_key}'.")
                 return {"skipped": True}
 
         envelope = save_crypto.encrypt_save(plaintext, self.data_key_b64())
@@ -195,12 +236,13 @@ class ConvexSaveBackend:
             "Upload init",
         )
 
-        post = self.session.post(
-            init["uploadUrl"],
-            data=envelope,
-            headers={"Content-Type": "application/octet-stream"},
-            timeout=(10, 120),
-        )
+        with self._lock:
+            post = self.session.post(
+                init["uploadUrl"],
+                data=envelope,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=(10, 120),
+            )
         if post.status_code != 200:
             raise CloudBackendError(
                 f"Save upload rejected ({post.status_code}).", "upload_failed",
@@ -237,13 +279,16 @@ class ConvexSaveBackend:
             "Download resolve",
         )
 
-        dest_dir = os.path.join(tempfile.gettempdir(), "safelauncher-dl")
+        uid = os.getuid() if hasattr(os, "getuid") else "u"
+        dest_dir = os.path.join(tempfile.gettempdir(), f"safelauncher-dl-{uid}")
         os.makedirs(dest_dir, mode=0o700, exist_ok=True)
         fd, enc_path = tempfile.mkstemp(prefix=".sl-save-", suffix=".enc", dir=dest_dir)
 
         try:
-            with self.session.get(ref["url"], stream=True,
-                                  timeout=_DOWNLOAD_STREAM_TIMEOUT) as resp:
+            with self._lock:
+                stream_req = self.session.get(ref["url"], stream=True,
+                                              timeout=_DOWNLOAD_STREAM_TIMEOUT)
+            with stream_req as resp:
                 if resp.status_code != 200:
                     raise CloudBackendError("Blob fetch failed.", "download_failed",
                                             resp.status_code)

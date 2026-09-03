@@ -4,7 +4,8 @@ import threading
 import requests
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QStackedWidget, QWidget, QMessageBox, QApplication
+    QPushButton, QStackedWidget, QWidget, QMessageBox, QApplication,
+    QRadioButton, QButtonGroup, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 
@@ -13,14 +14,14 @@ from core.cloud_backend import get_site_url
 
 
 class CloudWizardDialog(QDialog):
-    """3-step wizard to guide users through deploying and connecting their Convex cloud backend."""
+    """Interactive wizard to guide users through choosing setup mode, deploying, and connecting Convex cloud saves."""
 
     test_completed = pyqtSignal(bool, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Cloud Save Setup Wizard")
-        self.resize(560, 420)
+        self.resize(580, 460)
         self.setStyleSheet("""
             QDialog {
                 background-color: #121214;
@@ -61,6 +62,15 @@ class CloudWizardDialog(QDialog):
             QPushButton#primaryBtn:hover {
                 background-color: #1D4ED8;
             }
+            QRadioButton {
+                color: #FFFFFF;
+                font-size: 13px;
+                spacing: 8px;
+            }
+            QRadioButton::indicator {
+                width: 16px;
+                height: 16px;
+            }
         """)
 
         self.layout = QVBoxLayout(self)
@@ -72,14 +82,15 @@ class CloudWizardDialog(QDialog):
         self.title_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #FFFFFF;")
         self.layout.addWidget(self.title_lbl)
 
-        self.subtitle_lbl = QLabel("Step 1 of 2: Deploy your free Convex backend")
+        self.subtitle_lbl = QLabel("Choose your setup mode")
         self.subtitle_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px;")
         self.layout.addWidget(self.subtitle_lbl)
 
         # Stacked Pages
         self.pages = QStackedWidget()
-        self.pages.addWidget(self._create_step1_widget())
-        self.pages.addWidget(self._create_step2_widget())
+        self.pages.addWidget(self._create_mode_page())      # Page 0: Mode selection
+        self.pages.addWidget(self._create_deploy_page())    # Page 1: Deploy backend
+        self.pages.addWidget(self._create_connect_page())   # Page 2: Connect URL & Key
         self.layout.addWidget(self.pages, 1)
 
         # Bottom Buttons
@@ -109,24 +120,113 @@ class CloudWizardDialog(QDialog):
         if discovered and not self.edit_url.text().strip():
             self.edit_url.setText(discovered)
 
-    def _create_step1_widget(self) -> QWidget:
+    def _create_mode_page(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(14)
+
+        intro = QLabel("Choose how you would like to set up cloud synchronization on this device:")
+        intro.setStyleSheet("color: #EDEDED; font-size: 13px;")
+        layout.addWidget(intro)
+
+        self.mode_group = QButtonGroup(self)
+
+        # Option 1: Connect to existing cloud database (Secondary device / Already deployed)
+        frame_connect = QFrame()
+        frame_connect.setObjectName("optionBox")
+        frame_connect.setStyleSheet("""
+            QFrame#optionBox {
+                background-color: #18181B;
+                border: 1px solid #27272A;
+                border-radius: 8px;
+                padding: 14px;
+            }
+            QFrame#optionBox:hover {
+                border: 1px solid #3B82F6;
+            }
+        """)
+        f1_layout = QVBoxLayout(frame_connect)
+        f1_layout.setContentsMargins(4, 4, 4, 4)
+        f1_layout.setSpacing(6)
+
+        self.radio_connect = QRadioButton("🔗 Connect to an already created cloud database")
+        self.radio_connect.setStyleSheet("font-weight: bold; font-size: 14px; color: #38BDF8;")
+        self.radio_connect.setChecked(True)
+        self.mode_group.addButton(self.radio_connect, 0)
+        f1_layout.addWidget(self.radio_connect)
+
+        desc1 = QLabel(
+            "<b>Recommended for secondary devices</b> (such as a laptop, Steam Deck, or another PC).<br>"
+            "You do <b>not</b> need Node.js, npm, git, or the SafeLauncherCloud server files at all! "
+            "Simply enter your <code>.convex.site</code> URL (and optional Secret Key) and SafeLauncher will start syncing your AES-256-GCM encrypted saves immediately."
+        )
+        desc1.setWordWrap(True)
+        desc1.setStyleSheet("color: #A1A1AA; font-size: 12px; margin-left: 24px;")
+        f1_layout.addWidget(desc1)
+        layout.addWidget(frame_connect)
+
+        # Option 2: Set up a new private cloud database from scratch
+        frame_new = QFrame()
+        frame_new.setObjectName("optionBox")
+        frame_new.setStyleSheet("""
+            QFrame#optionBox {
+                background-color: #18181B;
+                border: 1px solid #27272A;
+                border-radius: 8px;
+                padding: 14px;
+            }
+            QFrame#optionBox:hover {
+                border: 1px solid #3B82F6;
+            }
+        """)
+        f2_layout = QVBoxLayout(frame_new)
+        f2_layout.setContentsMargins(4, 4, 4, 4)
+        f2_layout.setSpacing(6)
+
+        self.radio_new = QRadioButton("🚀 Set up a new private cloud database from scratch")
+        self.radio_new.setStyleSheet("font-weight: bold; font-size: 14px; color: #10B981;")
+        self.mode_group.addButton(self.radio_new, 1)
+        f2_layout.addWidget(self.radio_new)
+
+        desc2 = QLabel(
+            "<b>First-time setup</b>: Deploy a brand new private Convex cloud backend "
+            "(1 GB free cloud storage without monthly fees). SafeLauncher can download the repository and guide deployment automatically, or provide terminal commands."
+        )
+        desc2.setWordWrap(True)
+        desc2.setStyleSheet("color: #A1A1AA; font-size: 12px; margin-left: 24px;")
+        f2_layout.addWidget(desc2)
+        layout.addWidget(frame_new)
+
+        layout.addStretch()
+        return widget
+
+    def _create_deploy_page(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(12)
 
         desc = QLabel(
-            "SafeLauncher stores game saves encrypted on your personal Convex instance.\n"
-            "Convex provides 1 GB free storage without monthly costs or credit cards."
+            "<b>Step 1: Deploy your private Convex backend</b><br>"
+            "Convex provides 1 GB free cloud storage without monthly fees or credit card requirements.<br><br>"
+            "SafeLauncher can download the repository and launch deployment automatically in your terminal, "
+            "or you can run the manual commands below:"
         )
         desc.setWordWrap(True)
         layout.addWidget(desc)
 
+        btn_auto = QPushButton("🚀 Launch Automated Setup Terminal…")
+        btn_auto.setStyleSheet("background: #0284C7; font-weight: bold; padding: 10px;")
+        btn_auto.clicked.connect(self._launch_automated_terminal)
+        layout.addWidget(btn_auto)
+
         cmd_box = QLabel(
+            "# 1. Deploy Convex backend (Node.js required):\n"
             "git clone https://github.com/Mistarin/SafeLauncherCloud.git\n"
-            "cd SafeLauncherCloud\n"
-            "npm install\n"
-            "npx convex deploy"
+            "cd SafeLauncherCloud && npm install && npx convex deploy\n\n"
+            "# 2. (Recommended) Set a secret key to lock your storage:\n"
+            "npx convex env set SAFELAUNCHER_SECRET_KEY \"your-secret-passphrase\""
         )
         cmd_box.setStyleSheet("""
             background-color: #18181B;
@@ -139,25 +239,64 @@ class CloudWizardDialog(QDialog):
         """)
         layout.addWidget(cmd_box)
 
-        btn_copy = QPushButton("Copy Deploy Commands to Clipboard")
+        btn_copy = QPushButton("Copy Manual Commands to Clipboard")
         btn_copy.clicked.connect(lambda: self._copy_commands(cmd_box.text()))
         layout.addWidget(btn_copy)
 
-        hint = QLabel("Once 'npx convex deploy' finishes, it will print your project's .convex.site URL. Click Next to connect.")
-        hint.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        hint = QLabel("💡 Setting a secret key is recommended to protect your 1 GB free quota from unauthorized uploads.")
+        hint.setStyleSheet("color: #FBBF24; font-size: 12px;")
         hint.setWordWrap(True)
         layout.addWidget(hint)
         layout.addStretch()
 
         return widget
 
-    def _create_step2_widget(self) -> QWidget:
+    def _launch_automated_terminal(self):
+        import shutil
+        import subprocess
+        import sys
+        main_py = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "main.py"))
+        cmd_args = [sys.executable, main_py, "--setup-cloud"]
+        terms = [
+            ["ptyxis", "--", *cmd_args],
+            ["gnome-terminal", "--", *cmd_args],
+            ["konsole", "-e", *cmd_args],
+            ["xfce4-terminal", "-e", " ".join(cmd_args)],
+            ["kitty", *cmd_args],
+            ["alacritty", "-e", *cmd_args],
+            ["foot", *cmd_args],
+            ["wezterm", "start", "--", *cmd_args],
+            ["x-terminal-emulator", "-e", *cmd_args],
+            ["xterm", "-e", *cmd_args],
+        ]
+        launched = False
+        for term in terms:
+            if shutil.which(term[0]):
+                try:
+                    subprocess.Popen(term)
+                    launched = True
+                    break
+                except Exception:
+                    pass
+        if not launched:
+            QMessageBox.information(
+                self, "Terminal Setup",
+                f"Could not automatically detect terminal emulator.\nPlease run in your terminal:\n\n{sys.executable} {main_py} --setup-cloud"
+            )
+
+    def _create_connect_page(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 8, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
 
-        layout.addWidget(QLabel("Paste your Convex Site URL below:"))
+        info_lbl = QLabel(
+            "Enter your Convex backend details to start syncing saves encrypted with client-side AES-256-GCM:"
+        )
+        info_lbl.setWordWrap(True)
+        layout.addWidget(info_lbl)
+
+        layout.addWidget(QLabel("<b>Convex Site URL:</b>"))
 
         settings = QSettings("SafeLauncher", "SafeLauncher")
         existing_url = settings.value("convex_site_url", "", type=str) or get_site_url()
@@ -166,12 +305,49 @@ class CloudWizardDialog(QDialog):
         self.edit_url.setPlaceholderText("https://your-project.convex.site")
         layout.addWidget(self.edit_url)
 
-        layout.addWidget(QLabel("Secret Access Key (optional, if configured via SAFELAUNCHER_SECRET_KEY):"))
+        # Secret Access Key explanation & field
+        secret_box = QFrame()
+        secret_box.setStyleSheet("""
+            QFrame {
+                background-color: #18181B;
+                border: 1px solid #27272A;
+                border-left: 3px solid #F59E0B;
+                border-radius: 6px;
+                padding: 8px 10px;
+            }
+        """)
+        sb_layout = QVBoxLayout(secret_box)
+        sb_layout.setContentsMargins(4, 4, 4, 4)
+        sb_layout.setSpacing(4)
+
+        sb_title = QLabel("🔐 <b>Secret Access Key</b> (Recommended)")
+        sb_title.setStyleSheet("color: #FBBF24; font-size: 13px;")
+        sb_layout.addWidget(sb_title)
+
+        sb_desc = QLabel(
+            "Acts as a private password for your server endpoint. It stops anyone else on the internet "
+            "who discovers your public <code>.convex.site</code> URL from uploading files and filling up your 1 GB storage quota.<br>"
+            "<span style='color: #9CA3AF; font-size: 11px;'>• If you set <code>SAFELAUNCHER_SECRET_KEY</code> on your backend, enter it below.<br>"
+            "• If you did not set a secret key on your server, you can leave this blank.</span>"
+        )
+        sb_desc.setWordWrap(True)
+        sb_desc.setStyleSheet("color: #D1D5DB; font-size: 12px;")
+        sb_layout.addWidget(sb_desc)
+        layout.addWidget(secret_box)
+
+        key_row = QHBoxLayout()
         existing_key = settings.value("cloud_secret_key", "", type=str)
         self.edit_key = QLineEdit(existing_key)
         self.edit_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.edit_key.setPlaceholderText("Leave blank if none")
-        layout.addWidget(self.edit_key)
+        self.edit_key.setPlaceholderText("Enter your secret key (or leave blank if none)")
+        key_row.addWidget(self.edit_key, 1)
+
+        self.btn_toggle_key = QPushButton("👁")
+        self.btn_toggle_key.setFixedWidth(38)
+        self.btn_toggle_key.setToolTip("Show / Hide Secret Key")
+        self.btn_toggle_key.clicked.connect(self._toggle_key_visibility)
+        key_row.addWidget(self.btn_toggle_key)
+        layout.addLayout(key_row)
 
         self.status_lbl = QLabel("")
         self.status_lbl.setWordWrap(True)
@@ -180,6 +356,14 @@ class CloudWizardDialog(QDialog):
         layout.addStretch()
         return widget
 
+    def _toggle_key_visibility(self):
+        if self.edit_key.echoMode() == QLineEdit.EchoMode.Password:
+            self.edit_key.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.btn_toggle_key.setText("🙈")
+        else:
+            self.edit_key.setEchoMode(QLineEdit.EchoMode.Password)
+            self.btn_toggle_key.setText("👁")
+
     def _copy_commands(self, text: str):
         clipboard = QApplication.clipboard()
         if clipboard:
@@ -187,15 +371,40 @@ class CloudWizardDialog(QDialog):
             QMessageBox.information(self, "Copied", "Commands copied to clipboard!")
 
     def _go_back(self):
-        self.pages.setCurrentIndex(0)
-        self.subtitle_lbl.setText("Step 1 of 2: Deploy your free Convex backend")
-        self.btn_back.setEnabled(False)
-        self.btn_next.setText("Next")
+        cur = self.pages.currentIndex()
+        if cur == 1:
+            self.pages.setCurrentIndex(0)
+            self.subtitle_lbl.setText("Choose your setup mode")
+            self.btn_back.setEnabled(False)
+            self.btn_next.setText("Next")
+        elif cur == 2:
+            if self.radio_new.isChecked():
+                self.pages.setCurrentIndex(1)
+                self.subtitle_lbl.setText("Deploy your free Convex backend")
+                self.btn_back.setEnabled(True)
+                self.btn_next.setText("Next")
+            else:
+                self.pages.setCurrentIndex(0)
+                self.subtitle_lbl.setText("Choose your setup mode")
+                self.btn_back.setEnabled(False)
+                self.btn_next.setText("Next")
 
     def _go_next(self):
-        if self.pages.currentIndex() == 0:
-            self.pages.setCurrentIndex(1)
-            self.subtitle_lbl.setText("Step 2 of 2: Connect SafeLauncher")
+        cur = self.pages.currentIndex()
+        if cur == 0:
+            if self.radio_new.isChecked():
+                self.pages.setCurrentIndex(1)
+                self.subtitle_lbl.setText("Deploy your free Convex backend")
+                self.btn_back.setEnabled(True)
+                self.btn_next.setText("Next")
+            else:
+                self.pages.setCurrentIndex(2)
+                self.subtitle_lbl.setText("Connect to your cloud database")
+                self.btn_back.setEnabled(True)
+                self.btn_next.setText("Test & Connect")
+        elif cur == 1:
+            self.pages.setCurrentIndex(2)
+            self.subtitle_lbl.setText("Connect to your cloud database")
             self.btn_back.setEnabled(True)
             self.btn_next.setText("Test & Connect")
         else:

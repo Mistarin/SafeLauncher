@@ -11,7 +11,7 @@
 
 SafeLauncher isolates Windows and Linux games inside dedicated Firejail sandboxes. Every game runs in its own prefix with custom launch policies, network isolation, and runtime controls.
 
-It combines Proton/UMU/Wine runtime management, SteamGridDB artwork sync, direct archive installation (`.zip`, `.7z`, `.tar.gz`), local save backups, and zero-knowledge client-side encrypted cloud saves on Convex.
+It combines Proton/UMU/Wine runtime management, SteamGridDB artwork sync, direct archive installation (`.zip`, `.7z`, `.tar.gz`), local save backups, and client-side AES-256-GCM encrypted cloud saves on Convex.
 
 ---
 
