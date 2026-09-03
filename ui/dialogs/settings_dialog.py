@@ -6,7 +6,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox
+    QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox, QSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
@@ -520,10 +520,45 @@ class UserSettingsDialog(QDialog):
         # Secret Access Key
         settings = QSettings("SafeLauncher", "SafeLauncher")
         saved_key = settings.value("cloud_secret_key", "", type=str)
+        key_row = QHBoxLayout()
         self.edit_cloud_secret_key = QLineEdit(saved_key)
         self.edit_cloud_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.edit_cloud_secret_key.setPlaceholderText("Optional secret key")
-        form_mode.addRow("Secret Key:", self.edit_cloud_secret_key)
+        self.edit_cloud_secret_key.setPlaceholderText("Optional (Recommended to lock storage quota)")
+        self.edit_cloud_secret_key.setToolTip("Recommended: Private password for your Convex server endpoint so only your devices can use your 1 GB storage quota.")
+        key_row.addWidget(self.edit_cloud_secret_key, 1)
+
+        btn_toggle_key = QPushButton("👁")
+        btn_toggle_key.setFixedWidth(36)
+        btn_toggle_key.setToolTip("Show / Hide Secret Key")
+
+        def _toggle_key():
+            if self.edit_cloud_secret_key.echoMode() == QLineEdit.EchoMode.Password:
+                self.edit_cloud_secret_key.setEchoMode(QLineEdit.EchoMode.Normal)
+                btn_toggle_key.setText("🙈")
+            else:
+                self.edit_cloud_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
+                btn_toggle_key.setText("👁")
+
+        btn_toggle_key.clicked.connect(_toggle_key)
+        key_row.addWidget(btn_toggle_key)
+        form_mode.addRow("Secret Key (Recommended):", key_row)
+
+        # Device Identity & Concurrent Devices
+        from core.cloud_backend import get_device_identity
+        _, current_dev_name, _ = get_device_identity()
+        self.edit_device_name = QLineEdit(current_dev_name)
+        self.edit_device_name.setPlaceholderText("Device Name (e.g. Steam Deck, Main Gaming PC)")
+        form_mode.addRow("This Device Name:", self.edit_device_name)
+
+        self.lbl_connected_devices = QLabel("1 active device (this machine)")
+        self.lbl_connected_devices.setStyleSheet("color: #38BDF8; font-weight: bold;")
+        form_mode.addRow("Concurrent Devices:", self.lbl_connected_devices)
+
+        self.spin_sync_workers = QSpinBox()
+        self.spin_sync_workers.setRange(1, 5)
+        self.spin_sync_workers.setValue(settings.value("cloud_sync_workers", 3, type=int))
+        self.spin_sync_workers.setToolTip("Simultaneous background worker threads for checking and syncing cloud saves.")
+        form_mode.addRow("Concurrent Sync Workers:", self.spin_sync_workers)
 
         # Local fallback directory used when the backend is 'local' or offline.
         cloud_row = QHBoxLayout()
@@ -610,6 +645,15 @@ class UserSettingsDialog(QDialog):
                     )
                     bar.setValue(int(pct * 1000))
                     bar.setStyleSheet(style)
+
+            if hasattr(self, "lbl_connected_devices"):
+                import re as _re
+                match_dev = _re.search(r"(\d+) concurrent device\(s\) online", message)
+                if match_dev:
+                    count = match_dev.group(1)
+                    self.lbl_connected_devices.setText(f"{count} active online (shared backend)")
+                elif message.startswith(("Not connected", "Disconnected")):
+                    self.lbl_connected_devices.setText("Not connected")
         except RuntimeError:
             pass  # dialog already destroyed
 
@@ -861,6 +905,31 @@ class UserSettingsDialog(QDialog):
 
     def _save(self):
         if self.name_input.text().strip():
+            settings = QSettings("SafeLauncher", "SafeLauncher")
+            url = self.edit_convex_url.text().strip().rstrip("/")
+            if url and not url.startswith(("http://", "https://")):
+                url = "https://" + url
+            settings.setValue("convex_site_url", url)
+
+            key = self.edit_cloud_secret_key.text().strip()
+            if key:
+                settings.setValue("cloud_secret_key", key)
+            else:
+                settings.remove("cloud_secret_key")
+
+            from core.cloud_save_sync import set_cloud_mode
+            mode = self.combo_cloud_mode.currentData() or "local"
+            set_cloud_mode(mode)
+
+            cloud_dir = self.edit_cloud_saves_dir.text().strip()
+            if cloud_dir:
+                settings.setValue("cloud_saves_dir", cloud_dir)
+
+            dev_name = self.edit_device_name.text().strip()
+            if dev_name:
+                settings.setValue("cloud_device_name", dev_name)
+            settings.setValue("cloud_sync_workers", self.spin_sync_workers.value())
+
             self.accept()
 
     def _browse_proton(self):
@@ -951,7 +1020,9 @@ class UserSettingsDialog(QDialog):
                 used = overview.get("bytesUsed", 0)
                 quota = overview.get("quotaBytes", 1)
                 games = len(overview.get("games", []))
-                msg = f"Connected ({format_bytes(used)} / {format_bytes(quota)} used · {games} game(s))"
+                concurrent = overview.get("concurrentDevices", 1)
+                devices_total = overview.get("totalDevices", 1)
+                msg = f"Connected ({format_bytes(used)} / {format_bytes(quota)} used · {games} game(s) · {concurrent} concurrent device(s) online)"
                 self.accountStatusReady.emit(msg)
             except Exception as e:
                 self.accountStatusReady.emit(f"Cloud unreachable: {e}")

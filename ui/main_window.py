@@ -3007,7 +3007,7 @@ class MainWindow(QMainWindow):
         if uploaded:
             names = ", ".join(uploaded[:2])
             extra = f" (+{len(uploaded)-2} more)" if len(uploaded) > 2 else ""
-            self._show_toast(f"Cloud Sync: Backed up {names}{extra}.")
+            self._show_toast(f"Cloud Sync: Local save(s) ready to sync: {names}{extra}.")
         elif newer_in_cloud:
             names = ", ".join(newer_in_cloud[:2])
             extra = f" (+{len(newer_in_cloud)-2} more)" if len(newer_in_cloud) > 2 else ""

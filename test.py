@@ -385,7 +385,9 @@ try:
         from PyQt6.QtCore import QSettings
         settings = QSettings("SafeLauncher", "SafeLauncher")
         orig_cloud_dir = settings.value("cloud_saves_dir", None)
+        orig_cloud_mode = settings.value("cloud_mode", None)
         settings.setValue("cloud_saves_dir", tmp_cloud_root)
+        settings.setValue("cloud_mode", "local")
 
         test_game_name = f"Test Sync Game {int(time.time())}"
         try:
@@ -435,6 +437,10 @@ try:
                 settings.setValue("cloud_saves_dir", orig_cloud_dir)
             else:
                 settings.remove("cloud_saves_dir")
+            if orig_cloud_mode is not None:
+                settings.setValue("cloud_mode", orig_cloud_mode)
+            else:
+                settings.remove("cloud_mode")
 
 except Exception as e:
     print(f"✗ Security diagnostics test error: {e}")
@@ -447,8 +453,7 @@ try:
     import base64
     import hashlib
     from core.save_crypto import encrypt_save, decrypt_save, generate_data_key_b64, SaveCryptoError
-    from core.clerk_auth import make_pkce_pair
-    from core.cloud_backend import normalize_name_key
+    from core.cloud_backend import normalize_name_key, ConvexSaveBackend
 
     # Envelope round-trip + tamper rejection
     key = generate_data_key_b64()
@@ -459,23 +464,14 @@ try:
     print("✓ Save crypto envelope round-trip verified")
 
     other = generate_data_key_b64()
-    for bad in ((sealed, other), (sealed[:-2] + b"\x00\x00", key)):
+    bad_version = b"\x02" + sealed[1:]
+    for bad in ((sealed, other), (sealed[:-2] + b"\x00\x00", key), (bad_version, key)):
         try:
             decrypt_save(*bad)
             raise AssertionError("invalid envelope/key decrypt must fail")
         except SaveCryptoError:
             pass
-    print("✓ Save crypto rejects wrong keys and corrupted envelopes")
-
-    # PKCE: challenge must equal base64url(sha256(verifier)) per S256 spec
-    verifier, challenge = make_pkce_pair()
-    derived = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode()).digest()
-    ).decode().rstrip("=")
-    assert len(verifier) <= 128
-    assert all(ch not in challenge for ch in "+/=")  # base64url alphabet
-    assert challenge == derived
-    print("✓ Clerk PKCE S256 challenge derivation verified")
+    print("✓ Save crypto rejects wrong keys, corrupted envelopes, and tampered version headers (AEAD)")
 
     # Name-key parity with server sanitizeNameKey ([A-Za-z0-9-_ space])
     assert normalize_name_key("X4: Foundations") == "X4 Foundations"
@@ -491,13 +487,24 @@ except Exception as e:
 # Dispatch fallback: cloud_mode stays 'local' by default → local engine path.
 try:
     from PyQt6.QtCore import QSettings
+    settings = QSettings("SafeLauncher", "SafeLauncher")
     settings.setValue("cloud_mode", "local")
     from core.cloud_save_sync import cloud_mode as _cm, backend_active
+    assert _cm() == "local"
+    assert not backend_active()
+
     settings.setValue("cloud_mode", "convex")
-    from core import clerk_auth
-    is_signed_in = bool(clerk_auth.get_status().get("signed_in"))
     assert _cm() == "convex"
-    assert backend_active() == is_signed_in
+    import core.cloud_backend
+    orig_get_site = core.cloud_backend.get_site_url
+    try:
+        core.cloud_backend.get_site_url = lambda: "https://test.convex.site"
+        assert backend_active()
+        core.cloud_backend.get_site_url = lambda: ""
+        assert not backend_active()
+    finally:
+        core.cloud_backend.get_site_url = orig_get_site
+
     settings.setValue("cloud_mode", "local")
     print("✓ Cloud dispatch mode gating verified")
 except Exception as e:

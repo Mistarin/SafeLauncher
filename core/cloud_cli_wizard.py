@@ -209,45 +209,63 @@ def run_cloud_setup_wizard() -> int:
         except Exception:
             pass
 
-    # Step 1: Deployment & Auto-Detection
-    local_info = detect_local_cloud_installation()
-    if local_info:
-        banner("[1/3] Backend Auto-Detection", CYAN)
-        print(f"  {GREEN}{BOLD}✔ Found local server files:{RESET} {local_info['path']}")
-        if local_info.get("site_url"):
-            print(f"  {GREEN}{BOLD}✔ Extracted from .env.local:{RESET}  {local_info['site_url']}")
-            if local_info.get("deployment"):
-                print(f"  {DIM}• Convex deployment:{RESET}        {local_info['deployment']}")
-        else:
-            print(f"  {YELLOW}● Server folder found, but .env.local is not initialized yet.{RESET}")
-            redeploy = input(f"\n  {CYAN}{BOLD}➜{RESET} Deploy Convex backend now? [Y/n]: ").strip().lower()
-            if redeploy not in ("n", "no"):
-                deployed_url = deploy_convex_backend(local_info["path"])
-                if deployed_url:
-                    local_info["site_url"] = deployed_url
-        footer(CYAN)
-    else:
-        banner("[1/3] Backend Setup & Download", CYAN)
-        print("  SafeLauncher stores encrypted game saves on your private Convex cloud.")
-        print("  Convex provides 1 GB free cloud storage without monthly fees.\n")
-        print(f"  {YELLOW}● SafeLauncherDatabase files not found on this system.{RESET}")
-        download_choice = input(f"  {CYAN}{BOLD}➜{RESET} Download SafeLauncherDatabase now? [Y/n]: ").strip().lower()
-        if download_choice not in ("n", "no"):
-            downloaded_dir = download_server_repository()
-            if downloaded_dir:
-                local_info = detect_local_cloud_installation() or {"path": str(downloaded_dir), "site_url": ""}
-                print(f"  {GREEN}{BOLD}✔ Server files ready in:{RESET} {downloaded_dir}")
-                deploy_choice = input(f"\n  {CYAN}{BOLD}➜{RESET} Link and deploy Convex backend now? [Y/n]: ").strip().lower()
-                if deploy_choice not in ("n", "no"):
-                    deployed_url = deploy_convex_backend(str(downloaded_dir))
+    # Step 1: Choose Setup Mode
+    banner("[1/3] Choose Setup Mode", CYAN)
+    print("  SafeLauncher stores game saves encrypted on your personal Convex cloud (1 GB free storage).\n")
+    print(f"  {BOLD}1) Connect to an already created cloud database{RESET}  {GREEN}(Recommended){RESET}")
+    print(f"     {DIM}• For secondary devices (such as a laptop, Steam Deck, or another PC).{RESET}")
+    print(f"     {DIM}• You do NOT need Node.js, npm, git, or server files on this machine!{RESET}")
+    print(f"     {DIM}• Simply enter your .convex.site URL and start syncing immediately.{RESET}\n")
+    print(f"  {BOLD}2) Set up a new private cloud database from scratch{RESET}")
+    print(f"     {DIM}• First-time setup: Downloads server repository and guides 'npx convex deploy'.{RESET}")
+    footer(CYAN)
+
+    mode_choice = input(f"  {CYAN}{BOLD}➜{RESET} Choose setup mode [1/2] (default: 1): ").strip()
+    is_new_setup = mode_choice in ("2", "new", "deploy")
+
+    local_info = None
+    if is_new_setup:
+        # Deployment & Auto-Detection
+        local_info = detect_local_cloud_installation()
+        if local_info:
+            banner("[1b/3] Backend Auto-Detection", CYAN)
+            print(f"  {GREEN}{BOLD}✔ Found local server files:{RESET} {local_info['path']}")
+            if local_info.get("site_url"):
+                print(f"  {GREEN}{BOLD}✔ Extracted from .env.local:{RESET}  {local_info['site_url']}")
+                if local_info.get("deployment"):
+                    print(f"  {DIM}• Convex deployment:{RESET}        {local_info['deployment']}")
+            else:
+                print(f"  {YELLOW}● Server folder found, but .env.local is not initialized yet.{RESET}")
+                redeploy = input(f"\n  {CYAN}{BOLD}➜{RESET} Deploy Convex backend now? [Y/n]: ").strip().lower()
+                if redeploy not in ("n", "no"):
+                    deployed_url = deploy_convex_backend(local_info["path"])
                     if deployed_url:
                         local_info["site_url"] = deployed_url
+            footer(CYAN)
         else:
-            print(f"\n  {BOLD}Manual deployment steps:{RESET}")
-            print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git SafeLauncherCloud{RESET}")
-            print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherCloud && npm install && npx convex deploy{RESET}")
-            print(f"   {DIM}3.{RESET} Copy your project's {BOLD}.convex.site{RESET} URL from the terminal output.")
-        footer(CYAN)
+            banner("[1b/3] Backend Setup & Download", CYAN)
+            print("  SafeLauncher stores encrypted game saves on your private Convex cloud.")
+            print("  Convex provides 1 GB free cloud storage without monthly fees.\n")
+            print(f"  {YELLOW}● SafeLauncherDatabase files not found on this system.{RESET}")
+            download_choice = input(f"  {CYAN}{BOLD}➜{RESET} Download SafeLauncherDatabase now? [Y/n]: ").strip().lower()
+            if download_choice not in ("n", "no"):
+                downloaded_dir = download_server_repository()
+                if downloaded_dir:
+                    local_info = detect_local_cloud_installation() or {"path": str(downloaded_dir), "site_url": ""}
+                    print(f"  {GREEN}{BOLD}✔ Server files ready in:{RESET} {downloaded_dir}")
+                    deploy_choice = input(f"\n  {CYAN}{BOLD}➜{RESET} Link and deploy Convex backend now? [Y/n]: ").strip().lower()
+                    if deploy_choice not in ("n", "no"):
+                        deployed_url = deploy_convex_backend(str(downloaded_dir))
+                        if deployed_url:
+                            local_info["site_url"] = deployed_url
+            else:
+                print(f"\n  {BOLD}Manual deployment steps:{RESET}")
+                print(f"   {DIM}1.{RESET} Clone:  {YELLOW}git clone https://github.com/Mistarin/SafeLauncherCloud.git SafeLauncherCloud{RESET}")
+                print(f"   {DIM}2.{RESET} Deploy: {YELLOW}cd SafeLauncherCloud && npm install && npx convex deploy{RESET}")
+                print(f"   {DIM}3.{RESET} Copy your project's {BOLD}.convex.site{RESET} URL from the terminal output.")
+            footer(CYAN)
+    else:
+        local_info = detect_local_cloud_installation()
 
     default_url = current_url or (local_info.get("site_url") if local_info else "") or ""
 
@@ -265,9 +283,33 @@ def run_cloud_setup_wizard() -> int:
     if not site_url.startswith("http://") and not site_url.startswith("https://"):
         site_url = "https://" + site_url
 
-    key_prompt = f"  {CYAN}{BOLD}➜{RESET} Secret Access Key [{current_key}]: " if current_key else f"  {CYAN}{BOLD}➜{RESET} Secret Access Key (optional, press Enter to skip): "
+    print(f"\n  {BOLD}🔐 Secret Access Key (Recommended):{RESET}")
+    print(f"     {DIM}Acts as a private password for your server endpoint. It stops anyone else{RESET}")
+    print(f"     {DIM}who finds your public .convex.site URL from uploading files and filling{RESET}")
+    print(f"     {DIM}up your 1 GB free Convex storage quota.{RESET}")
+    print(f"     {DIM}• If you configured a secret key on your server, enter it below.{RESET}")
+    print(f"     {DIM}• If this is a new setup, enter a passphrase to configure it on Convex now.{RESET}")
+    print(f"     {DIM}• Press Enter to skip (leaves the server open to anyone with the URL).{RESET}\n")
+
+    key_prompt = f"  {CYAN}{BOLD}➜{RESET} Secret Access Key [{current_key}]: " if current_key else f"  {CYAN}{BOLD}➜{RESET} Secret Access Key (press Enter to skip): "
     entered_key = input(key_prompt).strip()
     secret_key = entered_key if entered_key else (current_key if entered_url == "" else "")
+
+    if is_new_setup and secret_key and local_info and local_info.get("path") and shutil.which("npx"):
+        try:
+            print(f"\n  {DIM}Configuring SAFELAUNCHER_SECRET_KEY on your Convex deployment...{RESET}")
+            subprocess.run(
+                ["npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY", secret_key],
+                cwd=local_info["path"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=25,
+            )
+            print(f"  {GREEN}✔ Configured SAFELAUNCHER_SECRET_KEY in Convex environment!{RESET}")
+        except Exception as e:
+            print(f"  {YELLOW}⚠ Could not auto-set secret in Convex: {e}{RESET}")
+
     footer(CYAN)
 
     # Step 3: Verification

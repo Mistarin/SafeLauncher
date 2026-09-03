@@ -307,9 +307,12 @@ class CloudSaveBatchQueueWorker(SafeQThread):
     game_status_ready = pyqtSignal(int, object, object, object)  # (game_id, status, local_stats, cloud_stats)
     batch_finished = pyqtSignal(list, list)  # (uploaded_names, newer_in_cloud_names)
 
-    def __init__(self, games: list, max_workers: int = 3, parent=None):
+    def __init__(self, games: list, max_workers: Optional[int] = None, parent=None):
         super().__init__(parent)
         self.games = list(games)
+        if max_workers is None:
+            from PyQt6.QtCore import QSettings
+            max_workers = QSettings("SafeLauncher", "SafeLauncher").value("cloud_sync_workers", 3, type=int)
         self.max_workers = max(1, min(max_workers, 5))
 
     def safe_run(self):
@@ -335,9 +338,7 @@ class CloudSaveBatchQueueWorker(SafeQThread):
             try:
                 status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(name, path, steam_id)
                 if status == SyncStatus.LOCAL_NEWER:
-                    if CloudSaveSyncEngine.sync_local_to_cloud(name, path, steam_id):
-                        status = SyncStatus.IN_SYNC
-                        uploaded_names.append(name)
+                    uploaded_names.append(name)
                 elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
                     newer_in_cloud_names.append(name)
                 return (game_id, status, l_stat, c_stat)

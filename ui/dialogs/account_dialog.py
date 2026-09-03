@@ -256,10 +256,13 @@ class AccountDialog(QDialog):
         listing = snapshot["listing"]
         self._quota = {"used": listing.get("bytesUsed", 0),
                        "total": listing.get("quotaBytes", 1)}
-        email = overview.get("email") or snapshot.get("email") or "cloud account"
-        self.lbl_email.setText(email)
-        self.lbl_subject.setText(f"Subject: {overview.get('subject', '')[:24]}… · Quota enforced server-side")
-        self._style_avatar(email[0].upper() if email else "?", ok=True)
+        from core.cloud_backend import get_site_url
+        site = get_site_url()
+        concurrent = overview.get("concurrentDevices", 1)
+        dev_summary = f" · {concurrent} device(s) online" if concurrent else ""
+        self.lbl_email.setText("Private Cloud Connected")
+        self.lbl_subject.setText(f"Endpoint: {site}{dev_summary} · Server-enforced quota")
+        self._style_avatar("☁", ok=True)
 
         pct = min(1.0, self._quota["used"] / max(1, self._quota["total"]))
         self.bar_quota.setValue(int(pct * 1000))
@@ -273,19 +276,19 @@ class AccountDialog(QDialog):
             f"keeping last {overview.get('keepVersions', '?')} generations"
         )
 
-        self.btn_auth_toggle.setText("Sign Out")
+        self.btn_auth_toggle.setText("Disconnect")
         self._populate_games(listing.get("games", []))
 
     def _render_signed_out(self):
-        self.lbl_email.setText("Not signed in")
-        self.lbl_subject.setText("")
+        self.lbl_email.setText("Not connected")
+        self.lbl_subject.setText("Convex backend not configured")
         self._style_avatar("?", ok=False)
         self.bar_quota.setValue(0)
         self.lbl_quota_text.setText(
-            "Sign in to store your saves (encrypted end-to-end from this PC) "
-            "and manage them across machines."
+            "Configure your private Convex cloud in Settings → Cloud or via "
+            "'safelauncher --setup-cloud' to store encrypted saves."
         )
-        self.btn_auth_toggle.setText("Sign In…")
+        self.btn_auth_toggle.setText("Setup Wizard…")
         self._populate_games([])
 
     def _populate_games(self, games):
@@ -388,7 +391,10 @@ class AccountDialog(QDialog):
                 settings.remove("cloud_secret_key")
                 self.reload()
         else:
-            self.reload()
+            from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
+            wizard = CloudWizardDialog(self)
+            if wizard.exec():
+                self.reload()
 
     def _on_backend_changed(self, index: int):
         from core.cloud_save_sync import set_cloud_mode
