@@ -330,10 +330,10 @@ class ConvexSaveBackend:
         )
         return bool(self._check(resp, "Delete").get("deleted"))
 
-    def import_cloud_save_local(self, cloud_zip_path: str, destination: str) -> bool:
+    def import_cloud_save_local(self, cloud_zip_path: str, destination: str, game_path: str = "") -> bool:
         """Extract a downloaded plaintext zip using the shared importer."""
         from core.zip_backup import ZipBackupManager
-        ok = ZipBackupManager().import_save(cloud_zip_path, destination)
+        ok = ZipBackupManager().import_save(cloud_zip_path, destination, game_path=game_path)
         return ok
 
 
