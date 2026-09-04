@@ -62,6 +62,11 @@ class GpuRecorderService:
             cls._instance = GpuRecorderService()
         return cls._instance
 
+    def apply_config(self, config: GpuRecorderConfig) -> None:
+        """Install a configuration. Safe mid-session: an active recording
+        already captured its command line when it started."""
+        self.config = config
+
     @staticmethod
     def _flatpak_available() -> bool:
         """True when gpu-screen-recorder is installed as a Flathub flatpak."""

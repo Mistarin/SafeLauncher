@@ -90,12 +90,19 @@ def _backend():
     return _backend_singleton
 
 
-def _get_cloud_listing(force_refresh: bool = False) -> dict:
+def _get_cloud_listing(force_refresh: bool = False, max_age_seconds: float = 30.0) -> dict:
+    """Shared cloud listing with an explicit freshness policy.
+
+    Callers declare the staleness they tolerate: launch-path decisions use the
+    30 s default, while force_refresh=True (polls, diffs) always re-fetch. The
+    clock is time.monotonic() so wall-clock changes (NTP jumps, suspend) can
+    neither extend nor truncate the freshness window.
+    """
     global _LISTING_CACHE
     import time
-    now = time.time()
+    now = time.monotonic()
     with _LISTING_LOCK:
-        if not force_refresh and _LISTING_CACHE["data"] and (now - _LISTING_CACHE["ts"] < 30.0):
+        if not force_refresh and _LISTING_CACHE["data"] and (now - _LISTING_CACHE["ts"] < max_age_seconds):
             return _LISTING_CACHE["data"]
     try:
         data = _backend().list_games()
@@ -109,7 +116,7 @@ def _get_cloud_listing(force_refresh: bool = False) -> dict:
         # that could be hours old. Within the freshness window the cache is
         # still the best-known state; beyond it, the cloud is unreachable.
         with _LISTING_LOCK:
-            if _LISTING_CACHE["data"] and (time.time() - _LISTING_CACHE["ts"] < 30.0):
+            if _LISTING_CACHE["data"] and (time.monotonic() - _LISTING_CACHE["ts"] < max_age_seconds):
                 return _LISTING_CACHE["data"]
         raise
 
@@ -136,8 +143,8 @@ def resolve_name_key(game_name: str) -> str:
             legacy = legacy_name_key(game_name)
             if legacy and legacy != key and legacy in keys:
                 return legacy
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Cloud listing unavailable for key resolution, using '{key}': {e}")
     return key
 
 
@@ -249,8 +256,8 @@ class CloudSaveSyncEngine:
                             mtime = float(content_mtime)
                         else:
                             mtime = float(manifest.get("created_at", mtime))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Legacy manifest mtime fallback failed: {e}")
                 file_count = len([m for m in zipf.infolist() if not m.is_dir() and m.filename != "safelauncher_manifest.json"])
 
             stats = SaveStats(
