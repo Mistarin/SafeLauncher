@@ -8,7 +8,7 @@ from typing import Tuple
 APP_VERSION = "0.5.5"
 __version__ = APP_VERSION
 
-MIN_CONVEX_BACKEND_VERSION = "1.2.0"
+MIN_CONVEX_BACKEND_VERSION = "1.3.0"
 GITHUB_REPO = "Mistarin/SafeLauncher"
 BACKEND_GITHUB_REPO = "Mistarin/SafeLauncherCloud"
 
@@ -57,11 +57,11 @@ def set_version(new_version: str, backend_version: str = "") -> None:
     content = file_path.read_text(encoding="utf-8")
 
     clean_v = new_version.strip().lstrip("vV")
-    content = re.sub(r'APP_VERSION\s*=\s*"[^"]*"', f'APP_VERSION = "{clean_v}"', content)
+    content = re.sub(r'APP_VERSION\s*=\s*"[^"]*"', f'APP_VERSION = "0.5.5"', content)
 
     if backend_version:
         clean_b = backend_version.strip().lstrip("vV")
-        content = re.sub(r'MIN_CONVEX_BACKEND_VERSION\s*=\s*"[^"]*"', f'MIN_CONVEX_BACKEND_VERSION = "{clean_b}"', content)
+        content = re.sub(r'MIN_CONVEX_BACKEND_VERSION\s*=\s*"[^"]*"', f'MIN_CONVEX_BACKEND_VERSION = "1.3.0"', content)
 
     file_path.write_text(content, encoding="utf-8")
     print(f"✔ Updated SafeLauncher APP_VERSION to: {clean_v}")
