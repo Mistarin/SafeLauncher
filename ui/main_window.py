@@ -822,6 +822,7 @@ class MainWindow(QMainWindow):
         dialog.runtime_manager_requested.connect(self._open_runtime_manager)
         dialog.proton_manager_requested.connect(self._open_proton_manager)
         if dialog.exec() == QDialog.DialogCode.Accepted:
+            previous_name = self.user_name
             self.user_name = dialog.get_user_name()
             self.proton_path = dialog.get_proton_path()
             self.settings.setValue("user_name", self.user_name)
@@ -857,7 +858,10 @@ class MainWindow(QMainWindow):
             self._update_global_hotkeys()
             self._refresh_record_button_state()
 
-            self._show_toast(f"Display name changed to {self.user_name}.")
+            # Only announce an actual rename — this handler also runs when the
+            # user only touched recorder/screenshot settings.
+            if self.user_name != previous_name:
+                self._show_toast(f"Display name changed to {self.user_name}.")
 
     def _open_proton_manager(self):
         if isinstance(self.selected_game, tuple):
@@ -1365,7 +1369,13 @@ class MainWindow(QMainWindow):
             game_id, name, path, executable, mode, banner_url, steam_id = g[:7]
             version_override = g[15] if len(g) > 15 and g[15] else ""
             icon_url = g[18] if len(g) > 18 and g[18] else ""
-            
+
+            # DB points at a banner file that no longer exists (cache wiped,
+            # cleanup tool, new disk): drop it so the auto-fetcher re-downloads
+            # instead of showing a name placeholder forever.
+            if banner_url and not os.path.exists(banner_url):
+                banner_url = None
+
             # Check local icons cache if not yet set in DB
             if not icon_url:
                 cached_icon = os.path.join(self.sgdb_client.cache_dir.parent, "icons", f"icon_{game_id}.png")
@@ -1380,6 +1390,11 @@ class MainWindow(QMainWindow):
             widget.set_update_available(self.update_status_by_game_id.get(game_id, False))
             widget.set_favorite(is_fav)
             widget.set_selected(game_id in self.library_selection.ids)
+            # Instant badge: apply the persisted cloud save status so badges are
+            # visible immediately, before any background worker reports back.
+            cached_cloud = self.cloud_save_status_cache.get(game_id)
+            if cached_cloud:
+                widget.set_cloud_status(cached_cloud[0])
             widget.clicked.connect(self._select_game_by_id)
             widget.doubleClicked.connect(self._on_double_click_game)
             widget.favoriteClicked.connect(self._on_card_favorite_clicked)
@@ -2997,21 +3012,31 @@ class MainWindow(QMainWindow):
         if not games_snapshot:
             return
 
-        # Prioritize games not yet in persistent cache or whose check is stale (> 2 hours)
+        # Queue the whole library, most important first: games with no cached
+        # status, then games whose last check failed offline (retry), then
+        # stale (> 2 h) ones, and finally fresh ones so every badge still gets
+        # a live confirmation. Cached values are already displayed instantly
+        # via _refresh_library, so this only ever refines what the user sees.
+        from core.cloud_save_sync import SyncStatus
         now = time.time()
-        games_to_process = []
+        uncached, offline, stale, fresh = [], [], [], []
         for g in games_snapshot:
-            if len(g) > 0:
-                gid = g[0]
-                if gid not in self.cloud_save_status_cache:
-                    games_to_process.append(g)
-                else:
-                    checked_at = getattr(self, "_cloud_save_checked_ts", {}).get(gid, 0)
-                    if (now - checked_at) > 7200:
-                        games_to_process.append(g)
+            if not g:
+                continue
+            gid = g[0]
+            cached = self.cloud_save_status_cache.get(gid)
+            if cached is None:
+                uncached.append(g)
+            elif cached[0] == SyncStatus.CLOUD_OFFLINE:
+                offline.append(g)
+            elif (now - getattr(self, "_cloud_save_checked_ts", {}).get(gid, 0)) > 7200:
+                stale.append(g)
+            else:
+                fresh.append(g)
 
+        games_to_process = uncached + offline + stale + fresh
         if not games_to_process:
-            logger.info("All library games have active persistent cloud save cache. Skipping startup batch scan.")
+            logger.info("No games to scan for cloud save status.")
             return
 
         worker = CloudSaveBatchQueueWorker(games_to_process, max_workers=3, parent=self)

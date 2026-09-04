@@ -63,9 +63,27 @@ class GpuRecorderService:
         return cls._instance
 
     @staticmethod
+    def _flatpak_available() -> bool:
+        """True when gpu-screen-recorder is installed as a Flathub flatpak."""
+        if not shutil.which("flatpak"):
+            return False
+        try:
+            probe = subprocess.run(
+                ["flatpak", "info", "com.dec05eba.gpu_screen_recorder"],
+                capture_output=True, timeout=8,
+                env={**os.environ, "FLATPAK_SKIP_UPDATE_CHECK": "1"},
+            )
+            return probe.returncode == 0
+        except Exception:
+            return False
+
+    @staticmethod
     def get_backend_type() -> str:
         """Detect best available recording backend for the current desktop environment."""
         if shutil.which("gpu-screen-recorder"):
+            return "gpu-screen-recorder"
+        # Flathub install: same CLI, wrapped in `flatpak run`.
+        if GpuRecorderService._flatpak_available():
             return "gpu-screen-recorder"
 
         # Only use wl-screenrec if running under a supported wlroots compositor (Hyprland, Sway, River, Wayfire)
@@ -80,9 +98,24 @@ class GpuRecorderService:
         return "none"
 
     @classmethod
+    def get_command_prefix(cls) -> List[str]:
+        """ argv prefix for spawning gpu-screen-recorder (empty for native installs)."""
+        if shutil.which("gpu-screen-recorder"):
+            return []
+        if cls._flatpak_available():
+            return ["flatpak", "run", "--command=gpu-screen-recorder",
+                    "com.dec05eba.gpu_screen_recorder"]
+        return []
+
+    @classmethod
     def get_executable_path(cls) -> Optional[str]:
         backend = cls.get_backend_type()
-        return shutil.which(backend) if backend != "none" else None
+        if backend == "none":
+            return None
+        prefix = cls.get_command_prefix()
+        if prefix:
+            return " ".join(prefix)
+        return shutil.which(backend)
 
     @classmethod
     def is_installed(cls) -> bool:
@@ -91,6 +124,15 @@ class GpuRecorderService:
     @staticmethod
     def get_install_command() -> str:
         return "paru -S gpu-screen-recorder"
+
+    @staticmethod
+    def get_install_options() -> List[tuple[str, str]]:
+        """Install paths the settings UI offers, in preference order."""
+        return [
+            ("paru (AUR)", "paru -S gpu-screen-recorder"),
+            ("yay (AUR)", "yay -S gpu-screen-recorder"),
+            ("flatpak (Flathub)", "flatpak install flathub com.dec05eba.gpu_screen_recorder"),
+        ]
 
     @staticmethod
     def get_available_monitors() -> List[tuple[str, str]]:
@@ -162,8 +204,15 @@ class GpuRecorderService:
 
     @staticmethod
     def launch_terminal_installer(parent=None) -> bool:
-        """Launches an interactive terminal to install gpu-screen-recorder via paru/yay."""
-        cmd_str = "paru -S gpu-screen-recorder" if shutil.which("paru") else ("yay -S gpu-screen-recorder" if shutil.which("yay") else "sudo pacman -S gpu-screen-recorder")
+        """Launches an interactive terminal to install gpu-screen-recorder (paru/yay/flatpak)."""
+        if shutil.which("paru"):
+            cmd_str = "paru -S gpu-screen-recorder"
+        elif shutil.which("yay"):
+            cmd_str = "yay -S gpu-screen-recorder"
+        elif shutil.which("flatpak"):
+            cmd_str = "flatpak install flathub com.dec05eba.gpu_screen_recorder"
+        else:
+            cmd_str = "sudo pacman -S gpu-screen-recorder"
         terminal_candidates = [
             ["konsole", "-e", "bash", "-c", f"{cmd_str}; echo; read -p 'Press Enter to close...'"],
             ["alacritty", "-e", "bash", "-c", f"{cmd_str}; echo; read -p 'Press Enter to close...'"],
@@ -187,7 +236,7 @@ class GpuRecorderService:
 
         if active_backend == "gpu-screen-recorder":
             target_w = self.config.target_screen or "screen"
-            cmd = ["gpu-screen-recorder", "-w", target_w, "-f", "60", "-c", "mp4"]
+            cmd = self.get_command_prefix() + ["gpu-screen-recorder", "-w", target_w, "-f", "60", "-c", "mp4"]
 
             # Codec
             if self.config.codec and self.config.codec != "auto":

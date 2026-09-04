@@ -701,7 +701,7 @@ class UserSettingsDialog(QDialog):
             status_text = f"Active: Built-in Universal ffmpeg fallback ({WlScreenrecService.get_executable_path()})"
         else:
             bg_col = "#9a3412"
-            status_text = "No recorder backend found. Install gpu-screen-recorder via paru to enable hardware NVENC recording."
+            status_text = "No recorder backend found. Install gpu-screen-recorder via paru, yay, or flatpak to enable hardware NVENC recording."
 
         banner = QLabel(status_text)
         banner.setWordWrap(True)
@@ -711,7 +711,13 @@ class UserSettingsDialog(QDialog):
         # Installation Helper (if gpu-screen-recorder not installed)
         if backend != "gpu-screen-recorder":
             install_row = QHBoxLayout()
-            self.install_cmd_box = QLineEdit("paru -S gpu-screen-recorder")
+            self.install_option_combo = QComboBox()
+            for label, cmd in WlScreenrecService.get_install_options():
+                self.install_option_combo.addItem(label, cmd)
+            self.install_option_combo.currentIndexChanged.connect(self._on_install_option_changed)
+            install_row.addWidget(self.install_option_combo)
+
+            self.install_cmd_box = QLineEdit(WlScreenrecService.get_install_options()[0][1])
             self.install_cmd_box.setReadOnly(True)
             install_row.addWidget(self.install_cmd_box)
 
@@ -861,9 +867,14 @@ class UserSettingsDialog(QDialog):
         dlg = PluginInstallNoticeDialog(self)
         dlg.exec()
 
+    def _on_install_option_changed(self, index: int):
+        cmd = self.install_option_combo.itemData(index)
+        if cmd:
+            self.install_cmd_box.setText(cmd)
+
     def _copy_install_command(self):
         from PyQt6.QtWidgets import QApplication
-        QApplication.clipboard().setText("paru -S gpu-screen-recorder")
+        QApplication.clipboard().setText(self.install_cmd_box.text())
 
     def _browse_recordings_dir(self):
         path = QFileDialog.getExistingDirectory(self, "Select Recordings Directory", os.path.expanduser("~/Videos"))
@@ -1127,16 +1138,24 @@ class PluginInstallNoticeDialog(QDialog):
             "Why privileges are required:\n"
             "Building and installing places the compiled binary and capture capabilities into /usr/bin/gpu-screen-recorder, "
             "which requires administrator (sudo) privileges on your system.\n\n"
-            "You can choose to install automatically via your terminal AUR helper (paru), "
-            "or copy the command and install it manually."
+            "You can choose to install automatically via your terminal AUR helper (paru/yay), "
+            "via flatpak, or copy the command and install it manually."
         )
         msg = QLabel(notice_text)
         msg.setWordWrap(True)
         msg.setStyleSheet("color: #a1a1aa;")
         layout.addWidget(msg)
 
-        cmd_box = QLineEdit("paru -S gpu-screen-recorder")
+        self.notice_option_combo = QComboBox()
+        for label, cmd in WlScreenrecService.get_install_options():
+            self.notice_option_combo.addItem(label, cmd)
+        layout.addWidget(self.notice_option_combo)
+
+        cmd_box = QLineEdit(WlScreenrecService.get_install_options()[0][1])
         cmd_box.setReadOnly(True)
+        self.notice_cmd_box = cmd_box
+        self.notice_option_combo.currentIndexChanged.connect(
+            lambda idx: cmd_box.setText(self.notice_option_combo.itemData(idx) or ""))
         layout.addWidget(cmd_box)
 
         layout.addStretch()
@@ -1152,7 +1171,7 @@ class PluginInstallNoticeDialog(QDialog):
         btn_copy.clicked.connect(self._copy_and_close)
         btn_box.addWidget(btn_copy)
 
-        btn_install = QPushButton("Install via Terminal (paru)")
+        btn_install = QPushButton("Install via Terminal")
         btn_install.setStyleSheet("QPushButton { background: #2563eb; color: #ffffff; border: none; } QPushButton:hover { background: #1d4ed8; }")
         btn_install.clicked.connect(self._launch_install)
         btn_box.addWidget(btn_install)
@@ -1161,7 +1180,7 @@ class PluginInstallNoticeDialog(QDialog):
 
     def _copy_and_close(self):
         from PyQt6.QtWidgets import QApplication
-        QApplication.clipboard().setText("paru -S gpu-screen-recorder")
+        QApplication.clipboard().setText(self.notice_cmd_box.text())
         self.accept()
 
     def _launch_install(self):

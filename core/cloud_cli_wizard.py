@@ -329,12 +329,37 @@ def run_cloud_setup_wizard() -> int:
         print(f"  {GREEN}✔ Backend health probe passed.{RESET}")
 
         # 2. Account overview probe
+        def _fmt_bytes(n: float) -> str:
+            n = float(n)
+            for unit in ("B", "KB", "MB", "GB"):
+                if n < 1024 or unit == "GB":
+                    return f"{int(n)} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+                n /= 1024
+            return f"{n:.1f} GB"
+
         resp_me = requests.get(f"{site_url}/api/me", headers=headers, timeout=6)
+        if resp_me.status_code in (401, 403):
+            print(f"\n  {RED}✖ Quota verification failed: the backend rejected the credentials "
+                  f"(HTTP {resp_me.status_code}). The Secret Key is missing or wrong — "
+                  f"cloud sync will not work until it matches.{RESET}\n")
+            return 1
         if resp_me.status_code == 200:
             data = resp_me.json()
-            quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
-            used_mb = data.get("bytesUsed", 0) / (1024 * 1024)
-            print(f"  {GREEN}✔ Quota verification:{RESET} {used_mb:.1f} MB used of {quota_mb:.0f} MB")
+            print(f"  {GREEN}✔ Quota verification:{RESET} "
+                  f"{_fmt_bytes(data.get('bytesUsed', 0))} used of {_fmt_bytes(data.get('quotaBytes', 0))} · "
+                  f"max {_fmt_bytes(data.get('maxSaveBytes', 0))} per save · "
+                  f"keeping last {data.get('keepVersions', '?')} generations")
+
+            # 3. Data key probe — save payloads are encrypted client-side with it.
+            try:
+                resp_key = requests.get(f"{site_url}/api/key", headers=headers, timeout=6)
+                if resp_key.status_code == 200 and resp_key.json().get("dataKeyB64"):
+                    print(f"  {GREEN}✔ Data encryption key available.{RESET}")
+                else:
+                    print(f"  {YELLOW}● Warning: /api/key returned HTTP {resp_key.status_code}; "
+                          f"save uploads will fail until it succeeds.{RESET}")
+            except requests.RequestException as key_err:
+                print(f"  {YELLOW}● Warning: data key probe failed ({key_err}).{RESET}")
         else:
             print(f"  {YELLOW}● Warning: /api/me returned HTTP {resp_me.status_code}. (Check secret key if configured).{RESET}")
 

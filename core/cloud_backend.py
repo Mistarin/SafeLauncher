@@ -356,6 +356,15 @@ class ConvexSaveBackend:
         )
         return bool(self._check(resp, "Delete").get("deleted"))
 
+    def revoke_device(self, device_id: str) -> bool:
+        """Revoke a device on the backend so it no longer registers or counts."""
+        resp = self._request(
+            "DELETE",
+            "/api/devices",
+            json_body={"deviceId": device_id},
+        )
+        return bool(self._check(resp, "Revoke device").get("revoked"))
+
     def import_cloud_save_local(self, cloud_zip_path: str, destination: str, game_path: str = "") -> bool:
         """Extract a downloaded plaintext zip using the shared importer."""
         from core.zip_backup import ZipBackupManager
