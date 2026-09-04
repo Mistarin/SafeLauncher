@@ -250,6 +250,11 @@ class GameBannerWidget(QFrame):
             self.cloud_badge.setToolTip("Game save not found")
             self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(240, 93, 108, 0.40); border-radius: 6px; }")
             self.cloud_badge.show()
+        elif status == SyncStatus.CLOUD_OFFLINE:
+            self.cloud_badge.setPixmap(get_icon("ph.cloud-slash-bold", color="#6F7682").pixmap(QSize(15, 15)))
+            self.cloud_badge.setToolTip("Cloud not connected (offline or Secret Key problem) — cloud status unknown")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(111, 118, 130, 0.40); border-radius: 6px; }")
+            self.cloud_badge.show()
         else:
             self.cloud_badge.hide()
         self._position_cloud_badge()
