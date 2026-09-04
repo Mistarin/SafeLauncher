@@ -2739,6 +2739,8 @@ class MainWindow(QMainWindow):
                     ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path)
                     if ok:
                         payload["toast"] = f"Restored cloud save for '{game_name}'."
+                    else:
+                        payload["toast"] = f"Cloud save could not be restored for '{game_name}' — launching with local state."
                 elif status == SyncStatus.CLOUD_NEWER:
                     auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
                     if auto_newer:
@@ -2776,6 +2778,9 @@ class MainWindow(QMainWindow):
                 if conflict_dlg.choice == "cloud":
                     if CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"]):
                         self._show_toast(f"Restored newer cloud save for '{ctx['game_name']}' — your previous save was kept as a cloud backup.")
+                    else:
+                        # Never silently launch with the losing side of the conflict.
+                        self._show_toast(f"Could not restore the cloud save for '{ctx['game_name']}' (local backup upload failed) — launched with local saves.")
                 else:
                     CloudSaveSyncEngine.sync_local_to_cloud(ctx["game_name"], ctx["path"], ctx["steam_id"])
                     self._show_toast("Overwrote cloud save with local version.")
