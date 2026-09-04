@@ -573,7 +573,9 @@ try:
     assert is_version_outdated("0.4.9", "0.5.5") is True
     assert is_version_outdated("0.5.5", "0.5.5") is False
     assert is_version_outdated("1.0.0", MIN_CONVEX_BACKEND_VERSION) is True
-    assert is_version_outdated("1.2.0", MIN_CONVEX_BACKEND_VERSION) is False
+    # A backend exactly at the minimum is fine; below it is outdated.
+    assert is_version_outdated(MIN_CONVEX_BACKEND_VERSION, MIN_CONVEX_BACKEND_VERSION) is False
+    assert is_version_outdated("1.2.0", MIN_CONVEX_BACKEND_VERSION) is True
     assert is_version_outdated("2.0.0", MIN_CONVEX_BACKEND_VERSION) is False
     print("✓ Single-source version definitions and semver comparison verified")
 
@@ -730,14 +732,15 @@ try:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.text = '{"status": "ok", "version": "1.2.0"}'
-        mock_resp.json = lambda: {"status": "ok", "version": "1.2.0"}
+        # Report exactly the minimum so the parity assertion survives bumps.
+        mock_resp.json = lambda: {"status": "ok", "version": MIN_CONVEX_BACKEND_VERSION}
         return mock_resp
 
     with patch("requests.get", side_effect=mock_health_200):
         h_ok = check_backend_health("https://mytest.convex.site")
         assert h_ok["healthy"] is True
         assert h_ok["status"] == "connected"
-        assert h_ok["version"] == "1.2.0"
+        assert h_ok["version"] == MIN_CONVEX_BACKEND_VERSION
         assert h_ok["is_outdated"] is False
         assert h_ok["latency_ms"] >= 0
 
@@ -791,7 +794,8 @@ try:
         assert url.startswith("https://scheme-less.convex.site"), f"URL did not get https prefix: {url}"
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.json = lambda: {"status": "ok", "version": "1.2.0"}
+        # Report exactly the minimum so the parity assertion survives bumps.
+        mock_resp.json = lambda: {"status": "ok", "version": MIN_CONVEX_BACKEND_VERSION}
         return mock_resp
 
     with patch("requests.get", side_effect=mock_health_scheme_check):
@@ -804,7 +808,7 @@ try:
     with patch("requests.get", side_effect=mock_health_200):
         res_m = backend_obj.check_health()
         assert res_m["healthy"] is True
-        assert res_m["version"] == "1.2.0"
+        assert res_m["version"] == MIN_CONVEX_BACKEND_VERSION
 
     print("✓ Backend health check probe, roundtrip latency, and version synchronization verified")
 
