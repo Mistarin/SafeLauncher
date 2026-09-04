@@ -33,12 +33,25 @@ from ui.dialogs.game_dialogs import ensure_sandbox_dir
 from ui.dialogs.save_conflict_dialog import format_bytes
 
 
+from core.version import APP_VERSION, MIN_CONVEX_BACKEND_VERSION
+from core.updater import check_for_updates, download_and_apply_appimage_update, restart_application, is_appimage
+from core.cloud_backend import check_backend_health
+from core.cloud_detector import detect_local_cloud_installation
+from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QUrl
+
+
 class UserSettingsDialog(QDialog):
     """Clean, resizable settings, plugins and security diagnostics center."""
     runtime_manager_requested = pyqtSignal()
     proton_manager_requested = pyqtSignal()
-    _sandbox_size_ready = pyqtSignal(int)  # emitted from worker thread
-    accountStatusReady = pyqtSignal(str)   # cloud account status from workers
+    _sandbox_size_ready = pyqtSignal(int)      # emitted from worker thread
+    accountStatusReady = pyqtSignal(str)       # cloud account status from workers
+    backendHealthReady = pyqtSignal(dict)      # live backend health probe result
+    appUpdateReady = pyqtSignal(dict)          # manual app update check result
+    appDownloadProgress = pyqtSignal(int, int) # (downloaded, total)
+    appDownloadFinished = pyqtSignal(str)      # target path
+    appDownloadFailed = pyqtSignal(str)        # error message
 
     def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None):
         super().__init__(parent)
@@ -271,6 +284,27 @@ class UserSettingsDialog(QDialog):
         self.chk_welcome = QCheckBox("Show introduction wizard on startup")
         self.chk_welcome.setChecked(self.show_welcome_wizard)
         layout.addWidget(self.chk_welcome)
+
+        sec_updates = QLabel("Application Updates")
+        sec_updates.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_updates.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        layout.addWidget(sec_updates)
+
+        update_row = QHBoxLayout()
+        lbl_version_info = QLabel(f"Current SafeLauncher Version: <b>v{APP_VERSION}</b>")
+        lbl_version_info.setStyleSheet("color: #A1A1AA; font-size: 13px;")
+        update_row.addWidget(lbl_version_info)
+        update_row.addStretch()
+
+        self.btn_check_app_updates = QPushButton("Check for SafeLauncher Updates")
+        self.btn_check_app_updates.clicked.connect(self._manual_check_updates)
+        update_row.addWidget(self.btn_check_app_updates)
+        layout.addLayout(update_row)
+
+        self.lbl_update_status = QLabel("")
+        self.lbl_update_status.setWordWrap(True)
+        self.lbl_update_status.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        layout.addWidget(self.lbl_update_status)
 
         layout.addStretch()
 
@@ -610,10 +644,91 @@ class UserSettingsDialog(QDialog):
         acct_btns.addStretch()
         layout.addLayout(acct_btns)
 
+        # ── Live Backend Health & Version Synchronization Card ───────────────
+        self.card_backend_health = QFrame()
+        self.card_backend_health.setStyleSheet("""
+            QFrame {
+                background-color: #18181B;
+                border: 1px solid #27272A;
+                border-radius: 8px;
+                padding: 12px;
+                margin-top: 6px;
+            }
+        """)
+        bh_layout = QVBoxLayout(self.card_backend_health)
+        bh_layout.setContentsMargins(10, 10, 10, 10)
+        bh_layout.setSpacing(8)
+
+        bh_header = QHBoxLayout()
+        bh_title = QLabel("📡 <b>Convex Backend Health & Synchronization</b>")
+        bh_title.setStyleSheet("color: #FFFFFF; font-size: 13px;")
+        bh_header.addWidget(bh_title)
+        bh_header.addStretch()
+
+        self.lbl_health_latency = QLabel("⚡ -- ms")
+        self.lbl_health_latency.setStyleSheet("""
+            background: #27272A;
+            color: #A1A1AA;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+        """)
+        bh_header.addWidget(self.lbl_health_latency)
+
+        self.btn_probe_health = QPushButton("Check Health")
+        self.btn_probe_health.setStyleSheet("padding: 4px 10px; font-size: 11px;")
+        self.btn_probe_health.clicked.connect(self._refresh_backend_health)
+        bh_header.addWidget(self.btn_probe_health)
+        bh_layout.addLayout(bh_header)
+
+        bh_grid = QGridLayout()
+        bh_grid.setSpacing(6)
+        bh_grid.addWidget(QLabel("Connection Status:"), 0, 0)
+        self.lbl_health_status = QLabel("Probing…")
+        self.lbl_health_status.setStyleSheet("color: #9CA3AF; font-weight: 500;")
+        bh_grid.addWidget(self.lbl_health_status, 0, 1)
+
+        bh_grid.addWidget(QLabel("Backend Version:"), 1, 0)
+        self.lbl_health_version = QLabel("Checking…")
+        self.lbl_health_version.setStyleSheet("color: #9CA3AF; font-weight: 500;")
+        bh_grid.addWidget(self.lbl_health_version, 1, 1)
+        bh_layout.addLayout(bh_grid)
+
+        self.lbl_version_warning = QLabel("")
+        self.lbl_version_warning.setWordWrap(True)
+        self.lbl_version_warning.setStyleSheet("font-size: 12px;")
+        bh_layout.addWidget(self.lbl_version_warning)
+
+        self.health_action_row = QHBoxLayout()
+        self.btn_redeploy = QPushButton("🚀 One-Click Redeploy Backend")
+        self.btn_redeploy.setStyleSheet("background: #0284C7; font-weight: bold; padding: 6px 14px;")
+        self.btn_redeploy.clicked.connect(self._redeploy_backend)
+        self.btn_redeploy.setVisible(False)
+        self.health_action_row.addWidget(self.btn_redeploy)
+
+        self.btn_open_dashboard = QPushButton("Open Convex Dashboard ↗")
+        self.btn_open_dashboard.setStyleSheet("padding: 6px 14px;")
+        self.btn_open_dashboard.clicked.connect(self._open_convex_dashboard)
+        self.btn_open_dashboard.setVisible(False)
+        self.health_action_row.addWidget(self.btn_open_dashboard)
+
+        self.health_action_row.addStretch()
+        bh_layout.addLayout(self.health_action_row)
+
+        layout.addWidget(self.card_backend_health)
+
         layout.addStretch()
 
         self.accountStatusReady.connect(self._apply_account_status)
+        self.backendHealthReady.connect(self._apply_backend_health)
+        self.appUpdateReady.connect(self._apply_manual_update_result)
+        self.appDownloadProgress.connect(self._on_app_download_progress)
+        self.appDownloadFinished.connect(self._on_app_download_finished)
+        self.appDownloadFailed.connect(self._on_app_download_failed)
+
         self._refresh_account_status()
+        self._refresh_backend_health()
 
         scroll.setWidget(page)
         return scroll
@@ -971,6 +1086,7 @@ class UserSettingsDialog(QDialog):
                 self.edit_cloud_secret_key.setText(settings.value("cloud_secret_key", "", type=str))
                 self.combo_cloud_mode.setCurrentIndex(1)
                 self._refresh_account_status()
+                self._refresh_backend_health()
         except Exception as e:
             QMessageBox.warning(self, "Setup Wizard", f"Could not open wizard: {e}")
 
@@ -981,6 +1097,7 @@ class UserSettingsDialog(QDialog):
             dialog = AccountDialog(self)
             dialog.exec()
             self._refresh_account_status()  # picker may have changed session/state
+            self._refresh_backend_health()
         except Exception as e:
             QMessageBox.warning(self, "Account Manager", f"Could not open: {e}")
 
@@ -1008,6 +1125,7 @@ class UserSettingsDialog(QDialog):
         self.combo_cloud_mode.setCurrentIndex(1)
         self.lbl_account_status.setText("Connecting to cloud…")
         self._refresh_account_status()
+        self._refresh_backend_health()
 
     def _cloud_disconnect(self):
         """Revert cloud backend to local folder sync."""
@@ -1015,6 +1133,7 @@ class UserSettingsDialog(QDialog):
         set_cloud_mode("local")
         self.combo_cloud_mode.setCurrentIndex(0)
         self.accountStatusReady.emit("Disconnected (using Local sync).")
+        self._refresh_backend_health()
 
     def _refresh_account_status(self):
         import threading
@@ -1039,6 +1158,192 @@ class UserSettingsDialog(QDialog):
                 self.accountStatusReady.emit(f"Cloud unreachable: {e}")
 
         threading.Thread(target=_probe, daemon=True, name="SafeLauncher-AccountProbe").start()
+
+    def _refresh_backend_health(self):
+        """Probe backend health endpoint, measure latency, and check version parity."""
+        url = self.edit_convex_url.text().strip().rstrip("/")
+        key = self.edit_cloud_secret_key.text().strip()
+        if not url:
+            from core.cloud_backend import get_site_url
+            url = get_site_url()
+
+        self.lbl_health_status.setText("Probing backend…")
+        self.lbl_health_latency.setText("⚡ ...")
+        self.lbl_health_latency.setStyleSheet("background: #27272A; color: #A1A1AA; padding: 3px 8px; border-radius: 4px; font-size: 11px;")
+
+        def _worker():
+            res = check_backend_health(url, key)
+            self.backendHealthReady.emit(res)
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="SafeLauncher-HealthProbe").start()
+
+    def _apply_backend_health(self, health: dict):
+        """Update live health card with latency, status, and version parity badges."""
+        status = health.get("status", "unreachable")
+        lat = health.get("latency_ms", -1)
+        ver = health.get("version", "unknown")
+        is_outdated = health.get("is_outdated", False)
+        min_ver = health.get("min_version", MIN_CONVEX_BACKEND_VERSION)
+
+        if lat >= 0:
+            color = "#34D399" if lat < 150 else ("#FBBF24" if lat < 400 else "#F87171")
+            self.lbl_health_latency.setText(f"⚡ {lat} ms")
+            self.lbl_health_latency.setStyleSheet(
+                f"background: #1F2937; color: {color}; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold;"
+            )
+        else:
+            self.lbl_health_latency.setText("⚡ -- ms")
+            self.lbl_health_latency.setStyleSheet(
+                "background: #27272A; color: #6B7280; padding: 3px 8px; border-radius: 4px; font-size: 11px;"
+            )
+
+        if status == "connected":
+            self.lbl_health_status.setText("<font color='#10B981'>● Connected & Healthy</font>")
+        elif status == "legacy":
+            self.lbl_health_status.setText("<font color='#F59E0B'>● Legacy Backend (Missing /api/health)</font>")
+        elif status == "unauthorized":
+            self.lbl_health_status.setText("<font color='#EF4444'>● Unauthorized (Secret Key required or invalid)</font>")
+        elif status == "unconfigured":
+            self.lbl_health_status.setText("<font color='#9CA3AF'>● Not Configured</font>")
+        else:
+            err = health.get("error") or "Unreachable"
+            self.lbl_health_status.setText(f"<font color='#EF4444'>● Unreachable ({err})</font>")
+
+        local_install = detect_local_cloud_installation()
+        has_local_repo = bool(local_install and local_install.get("path"))
+
+        if ver != "unknown":
+            self.lbl_health_version.setText(f"v{ver}")
+            if is_outdated:
+                self.lbl_version_warning.setText(
+                    f"<font color='#F59E0B'>⚠️ Backend update recommended: installed <b>v{ver}</b> is older than minimum supported <b>v{min_ver}</b>.</font>"
+                )
+                self.btn_redeploy.setVisible(has_local_repo)
+                self.btn_open_dashboard.setVisible(True)
+            else:
+                self.lbl_version_warning.setText(
+                    f"<font color='#10B981'>✔ Backend functions are up to date (v{ver} >= v{min_ver}).</font>"
+                )
+                self.btn_redeploy.setVisible(has_local_repo)
+                self.btn_open_dashboard.setVisible(True)
+        else:
+            self.lbl_health_version.setText("Unknown")
+            self.lbl_version_warning.setText("")
+            self.btn_redeploy.setVisible(False)
+            self.btn_open_dashboard.setVisible(False)
+
+    def _redeploy_backend(self):
+        """Redeploy Convex backend functions from local source repository."""
+        info = detect_local_cloud_installation()
+        if not info or not info.get("path"):
+            QMessageBox.warning(self, "Redeploy", "Local backend repository folder not found.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Redeploy Backend",
+            f"Redeploy Convex backend from local files at:\n{info['path']}?\n\nThis will update your backend functions to the latest version.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            from core.cloud_cli_wizard import deploy_convex_backend
+            self.lbl_version_warning.setText("<font color='#3B82F6'>Deploying backend functions…</font>")
+            self.btn_redeploy.setEnabled(False)
+
+            def _worker():
+                deployed_url = deploy_convex_backend(info["path"])
+                self.btn_redeploy.setEnabled(True)
+                if deployed_url:
+                    self._refresh_backend_health()
+
+            import threading
+            threading.Thread(target=_worker, daemon=True, name="SafeLauncher-Redeploy").start()
+
+    def _open_convex_dashboard(self):
+        """Open Convex dashboard in browser."""
+        QDesktopServices.openUrl(QUrl("https://dashboard.convex.dev"))
+
+    # ---- Application Updater handlers ---------------------------------------
+
+    def _manual_check_updates(self):
+        """Manual trigger to check for SafeLauncher application updates."""
+        self.btn_check_app_updates.setEnabled(False)
+        self.lbl_update_status.setText("<font color='#3B82F6'>Checking GitHub Releases for updates…</font>")
+
+        def _worker():
+            info = check_for_updates()
+            self.appUpdateReady.emit(info)
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="SafeLauncher-ManualUpdate").start()
+
+    def _apply_manual_update_result(self, info: dict):
+        """Handle result of manual update check."""
+        self.btn_check_app_updates.setEnabled(True)
+        if info.get("error"):
+            self.lbl_update_status.setText(f"<font color='#EF4444'>Update check failed: {info['error']}</font>")
+            return
+
+        latest = info.get("latest_version", "")
+        if info.get("update_available"):
+            self.lbl_update_status.setText(
+                f"<font color='#10B981'><b>Update available:</b> v{latest} (Current: v{info['current_version']})</font>"
+            )
+            if info.get("is_appimage") and info.get("appimage_asset"):
+                reply = QMessageBox.question(
+                    self, "Update Available",
+                    f"A new version of SafeLauncher is available: {latest}\n\nWould you like to download and install this update now?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self._start_appimage_download(info["appimage_asset"]["download_url"])
+            else:
+                QMessageBox.information(
+                    self, "Update Available",
+                    f"SafeLauncher {latest} is available on GitHub!\n\nRunning from source/git. Please pull the latest changes or download the latest release from GitHub."
+                )
+        else:
+            self.lbl_update_status.setText(
+                f"<font color='#10B981'>SafeLauncher is up to date (v{info['current_version']}).</font>"
+            )
+
+    def _start_appimage_download(self, asset_url: str):
+        """Download new AppImage in background thread with progress reporting."""
+        self.lbl_update_status.setText("<font color='#3B82F6'>Downloading update…</font>")
+
+        def _worker():
+            try:
+                target = download_and_apply_appimage_update(
+                    asset_url,
+                    progress_callback=lambda d, t: self.appDownloadProgress.emit(d, t)
+                )
+                self.appDownloadFinished.emit(target)
+            except Exception as e:
+                self.appDownloadFailed.emit(str(e))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="SafeLauncher-AppImageDownload").start()
+
+    def _on_app_download_progress(self, downloaded: int, total: int):
+        if total > 0:
+            pct = int((downloaded / total) * 100)
+            self.lbl_update_status.setText(
+                f"<font color='#3B82F6'>Downloading update: {pct}% ({downloaded // (1024*1024)} MB / {total // (1024*1024)} MB)…</font>"
+            )
+
+    def _on_app_download_finished(self, target_path: str):
+        self.lbl_update_status.setText("<font color='#10B981'><b>Update Ready!</b> Restart required.</font>")
+        reply = QMessageBox.question(
+            self, "Update Installed",
+            "The update has been downloaded and verified.\n\nRestart SafeLauncher now to apply the update?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            restart_application()
+
+    def _on_app_download_failed(self, error: str):
+        self.lbl_update_status.setText(f"<font color='#EF4444'>Download failed: {error}</font>")
+        QMessageBox.critical(self, "Update Failed", f"Failed to download AppImage update:\n{error}")
 
     def get_cloud_saves_dir(self) -> str:
         return self.edit_cloud_saves_dir.text().strip()

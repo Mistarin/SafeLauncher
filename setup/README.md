@@ -10,3 +10,5 @@ Ordered scripts for configuring, launching, building, and deploying SafeLauncher
 | `04-install-desktop-entry.sh` | Install the desktop application menu icon and launcher entry. |
 | `05-build-appimage.sh` | Build the standalone Linux AppImage package (`dist/SafeLauncher-x86_64.AppImage`). |
 | `06-run-tests.sh` | Run the complete automated test suite. |
+| `07-version-wizard.sh` | Interactive CLI Version Wizard to inspect & bump App or Backend versions. |
+

@@ -242,6 +242,62 @@ class MainWindow(QMainWindow):
         self.title_bar.export_save_requested.connect(self._on_export)
         self.title_bar.import_save_requested.connect(self._on_import)
         self.title_bar.disk_manager_requested.connect(self._open_disk_manager)
+
+        # Non-intrusive Update Notification Banner (Hidden by default)
+        self.update_banner = QFrame()
+        self.update_banner.setVisible(False)
+        self.update_banner.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1E3A8A, stop:1 #1D4ED8);
+                border-bottom: 1px solid #3B82F6;
+            }
+        """)
+        ub_layout = QHBoxLayout(self.update_banner)
+        ub_layout.setContentsMargins(16, 6, 16, 6)
+        ub_layout.setSpacing(10)
+
+        self.lbl_update_banner_msg = QLabel("SafeLauncher update available")
+        self.lbl_update_banner_msg.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: bold;")
+        ub_layout.addWidget(self.lbl_update_banner_msg)
+
+        ub_layout.addStretch()
+
+        self.btn_update_banner_action = QPushButton("Download & Apply")
+        self.btn_update_banner_action.setStyleSheet("""
+            QPushButton {
+                background: #2563EB;
+                color: #FFFFFF;
+                border: 1px solid #60A5FA;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #1D4ED8;
+            }
+        """)
+        ub_layout.addWidget(self.btn_update_banner_action)
+
+        self.btn_update_banner_dismiss = QPushButton("✕")
+        self.btn_update_banner_dismiss.setFixedSize(22, 22)
+        self.btn_update_banner_dismiss.setToolTip("Dismiss notification")
+        self.btn_update_banner_dismiss.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #93C5FD;
+                border: none;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                color: #FFFFFF;
+            }
+        """)
+        self.btn_update_banner_dismiss.clicked.connect(lambda: self.update_banner.setVisible(False))
+        ub_layout.addWidget(self.btn_update_banner_dismiss)
+
+        root_vbox.addWidget(self.update_banner)
         
         # Body Container Layout (Left Sidebar + Center/Right Splitter)
         body_widget = QWidget()
@@ -778,11 +834,113 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         QTimer.singleShot(300, self._check_all_steam_updates)
         QTimer.singleShot(800, self._start_background_cloud_sync)
+        QTimer.singleShot(3000, self._check_app_updates)
         self._start_cloud_poll_timer()
 
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
         if show_wizard:
             QTimer.singleShot(150, self._show_welcome_wizard)
+
+    def _check_app_updates(self):
+        """Check GitHub Releases for new SafeLauncher versions in background."""
+        try:
+            from core.updater import UpdateCheckWorker
+            self._update_worker = UpdateCheckWorker(parent=self)
+            self._update_worker.check_finished.connect(self._on_app_update_check_finished)
+            self._update_worker.start()
+        except Exception as e:
+            logger.debug(f"Failed to start update worker: {e}")
+
+    def _on_app_update_check_finished(self, info: dict):
+        """Display non-intrusive update banner if a new release is detected."""
+        if not info.get("update_available"):
+            return
+
+        self._latest_update_info = info
+        latest = info.get("latest_version", "")
+
+        try:
+            self.btn_update_banner_action.clicked.disconnect()
+        except Exception:
+            pass
+
+        if info.get("is_appimage") and info.get("appimage_asset"):
+            self.lbl_update_banner_msg.setText(f"🎉 SafeLauncher {latest} is available!")
+            self.btn_update_banner_action.setText("Download & Apply")
+            self.btn_update_banner_action.clicked.connect(self._on_banner_download_clicked)
+            self.update_banner.setVisible(True)
+        else:
+            self.lbl_update_banner_msg.setText(f"🎉 SafeLauncher {latest} is available on GitHub (source checkout).")
+            self.btn_update_banner_action.setText("View Release ↗")
+            rel_url = info.get("release_url") or "https://github.com/Mistarin/SafeLauncher/releases"
+            self.btn_update_banner_action.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(rel_url)))
+            self.update_banner.setVisible(True)
+
+    def _on_banner_download_clicked(self):
+        """Initiate AppImage download from banner."""
+        info = getattr(self, "_latest_update_info", None)
+        if not info or not info.get("appimage_asset"):
+            return
+
+        asset_url = info["appimage_asset"]["download_url"]
+        self.btn_update_banner_action.setEnabled(False)
+        self.btn_update_banner_action.setText("Downloading…")
+
+        from core.updater import UpdateDownloadWorker
+        self._dl_worker = UpdateDownloadWorker(asset_url, parent=self)
+        self._dl_worker.progress.connect(self._on_banner_download_progress)
+        self._dl_worker.finished.connect(self._on_banner_download_finished)
+        self._dl_worker.failed.connect(self._on_banner_download_failed)
+        self._dl_worker.start()
+
+    def _on_banner_download_progress(self, downloaded: int, total: int):
+        if total > 0:
+            pct = int((downloaded / total) * 100)
+            self.lbl_update_banner_msg.setText(f"Downloading SafeLauncher update: {pct}%…")
+
+    def _on_banner_download_finished(self, target_path: str):
+        self.lbl_update_banner_msg.setText("✔ Update verified and ready to apply!")
+        self.btn_update_banner_action.setText("Restart Now")
+        self.btn_update_banner_action.setEnabled(True)
+        try:
+            self.btn_update_banner_action.clicked.disconnect()
+        except Exception:
+            pass
+        self.btn_update_banner_action.clicked.connect(self._on_banner_restart_clicked)
+
+        reply = QMessageBox.question(
+            self, "Update Ready",
+            "SafeLauncher has been successfully updated.\n\nRestart now to apply?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._on_banner_restart_clicked()
+
+    def _on_banner_download_failed(self, error: str):
+        self.lbl_update_banner_msg.setText(f"Update failed: {error}")
+        self.btn_update_banner_action.setText("Retry")
+        self.btn_update_banner_action.setEnabled(True)
+        try:
+            self.btn_update_banner_action.clicked.disconnect()
+        except Exception:
+            pass
+        self.btn_update_banner_action.clicked.connect(self._on_banner_download_clicked)
+
+    def _on_banner_restart_clicked(self):
+        # exec() replaces this process: playtime tracking and exit-uploads for
+        # running games would be lost (the games themselves keep running).
+        if self.running_game_ids:
+            names = ", ".join(
+                self.games_by_id.get(gid, (None, f"Game {gid}"))[1]
+                for gid in self.running_game_ids)
+            QMessageBox.warning(
+                self, "Games Still Running",
+                "Restarting SafeLauncher now would lose playtime tracking and "
+                f"the exit save-upload for: {names}.\n\nClose the game(s) first, "
+                "then restart. The update is already applied and survives the restart.")
+            return
+        from core.updater import restart_application
+        restart_application()
 
     def _show_welcome_wizard(self):
         from ui.dialogs.welcome_wizard import WelcomeWizardDialog

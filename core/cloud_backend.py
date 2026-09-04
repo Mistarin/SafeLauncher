@@ -15,19 +15,16 @@ import hashlib
 import json
 import os
 import tempfile
-from typing import Optional
-
-import requests
-from PyQt6.QtCore import QSettings
-
+import time
 import threading
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import requests
 from PyQt6.QtCore import QSettings
 
 from core import save_crypto
 from core.logger import get_logger
+from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 
 logger = get_logger("CloudBackend")
 
@@ -123,21 +120,36 @@ def normalize_name_key(game_name: str) -> str:
 
 
 class ConvexSaveBackend:
-    def __init__(self):
+    def __init__(self, site_url: Optional[str] = None, secret_key: Optional[str] = None):
+        self._site_url = site_url
+        self._secret_key = secret_key
         self.session = requests.Session()
         self._lock = threading.Lock()
         self._data_key_cache: Optional[str] = None
+
+    @property
+    def site_url(self) -> str:
+        if self._site_url is not None:
+            return self._site_url.rstrip("/")
+        return get_site_url()
+
+    @property
+    def secret_key(self) -> str:
+        if self._secret_key is not None:
+            return self._secret_key.strip()
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        return str(settings.value("cloud_secret_key", "", type=str) or os.environ.get("SAFELAUNCHER_SECRET_KEY", "")).strip()
 
     # ------------------------------------------------------------------ #
     # Low-level request plumbing                                         #
     # ------------------------------------------------------------------ #
 
     def _request(self, method: str, path: str, *, json_body=None, **kwargs) -> requests.Response:
-        site = get_site_url()
+        site = self.site_url
         if not site:
             raise CloudBackendError("Convex endpoint not configured.", "no_endpoint")
 
-        secret_key = QSettings("SafeLauncher", "SafeLauncher").value("cloud_secret_key", "", type=str).strip() or os.environ.get("SAFELAUNCHER_SECRET_KEY", "")
+        secret_key = self.secret_key
         headers = kwargs.pop("headers", {})
         if secret_key:
             headers["X-SafeLauncher-Key"] = secret_key
@@ -365,6 +377,10 @@ class ConvexSaveBackend:
         )
         return bool(self._check(resp, "Revoke device").get("revoked"))
 
+    def check_health(self, timeout: float = 5.0) -> Dict[str, Any]:
+        """Ping backend health endpoint and return latency, status, and version parity."""
+        return check_backend_health(self.site_url, self.secret_key, timeout=timeout)
+
     def import_cloud_save_local(self, cloud_zip_path: str, destination: str, game_path: str = "") -> bool:
         """Extract a downloaded plaintext zip using the shared importer."""
         from core.zip_backup import ZipBackupManager
@@ -372,7 +388,118 @@ class ConvexSaveBackend:
         return ok
 
 
+def check_backend_health(
+    url: Optional[str] = None,
+    secret_key: Optional[str] = None,
+    timeout: float = 5.0,
+) -> Dict[str, Any]:
+    """Probe /api/health on Convex backend, measuring roundtrip latency and verifying version parity."""
+    if url is None:
+        endpoint = get_site_url().rstrip("/")
+    else:
+        endpoint = url.strip().rstrip("/")
+
+    if endpoint and not endpoint.startswith(("http://", "https://")):
+        endpoint = f"https://{endpoint}"
+
+    if not endpoint:
+        return {
+            "healthy": False,
+            "status": "unconfigured",
+            "latency_ms": -1,
+            "version": "unknown",
+            "is_outdated": False,
+            "min_version": MIN_CONVEX_BACKEND_VERSION,
+            "error": "No Convex site URL configured",
+        }
+
+    key = secret_key
+    if key is None:
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        key = str(settings.value("cloud_secret_key", "") or "").strip()
+
+    headers = {}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+        headers["X-SafeLauncher-Key"] = key
+
+    t0 = time.monotonic()
+    try:
+        resp = requests.get(f"{endpoint}/api/health", headers=headers, timeout=timeout)
+        latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+
+        if resp.status_code == 200:
+            data = {}
+            try:
+                data = resp.json()
+            except Exception:
+                pass
+            ver = str(data.get("version") or "").strip()
+            if not ver:
+                try:
+                    vresp = requests.get(f"{endpoint}/api/version", headers=headers, timeout=2.0)
+                    if vresp.status_code == 200:
+                        ver = str(vresp.json().get("version") or "").strip()
+                except Exception:
+                    pass
+            if not ver:
+                ver = "1.0.0"
+
+            outdated = is_version_outdated(ver, MIN_CONVEX_BACKEND_VERSION)
+            return {
+                "healthy": True,
+                "status": "connected",
+                "latency_ms": latency_ms,
+                "version": ver,
+                "is_outdated": outdated,
+                "min_version": MIN_CONVEX_BACKEND_VERSION,
+                "error": None,
+            }
+        elif resp.status_code == 404:
+            # Pre-health-check legacy deployment
+            return {
+                "healthy": True,
+                "status": "legacy",
+                "latency_ms": latency_ms,
+                "version": "1.0.0",
+                "is_outdated": is_version_outdated("1.0.0", MIN_CONVEX_BACKEND_VERSION),
+                "min_version": MIN_CONVEX_BACKEND_VERSION,
+                "error": "Legacy backend: /api/health not implemented",
+            }
+        elif resp.status_code in (401, 403):
+            return {
+                "healthy": False,
+                "status": "unauthorized",
+                "latency_ms": latency_ms,
+                "version": "unknown",
+                "is_outdated": False,
+                "min_version": MIN_CONVEX_BACKEND_VERSION,
+                "error": f"Unauthorized (HTTP {resp.status_code}): Secret Key is missing or invalid",
+            }
+        else:
+            return {
+                "healthy": False,
+                "status": "error",
+                "latency_ms": latency_ms,
+                "version": "unknown",
+                "is_outdated": False,
+                "min_version": MIN_CONVEX_BACKEND_VERSION,
+                "error": f"Backend returned HTTP {resp.status_code}",
+            }
+    except Exception as e:
+        return {
+            "healthy": False,
+            "status": "unreachable",
+            "latency_ms": -1,
+            "version": "unknown",
+            "is_outdated": False,
+            "min_version": MIN_CONVEX_BACKEND_VERSION,
+            "error": str(e),
+        }
+
+
 __all__ = [
     "CloudBackendError", "ConvexSaveBackend", "get_site_url",
     "normalize_name_key", "MAX_SAVE_BYTES", "QUOTA_BYTES",
+    "check_backend_health",
 ]
