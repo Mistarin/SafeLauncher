@@ -2000,6 +2000,7 @@ class MainWindow(QMainWindow):
         """Check every Steam-linked game once, used on startup and from the tools menu."""
         games = self.db.get_all_games()
         pending = [0]
+        self._updates_offline = False
         self._show_toast("Checking Steam for updates...")
         if hasattr(self, "nav_updates") and self.nav_updates is not None:
             self.nav_updates.setEnabled(False)
@@ -2010,8 +2011,12 @@ class MainWindow(QMainWindow):
             if pending[0] <= 0:
                 if hasattr(self, "nav_updates") and self.nav_updates is not None:
                     self.nav_updates.setEnabled(True)
-                    self.nav_updates.setText(" Check for Updates")
-                self._show_toast("Steam update check complete.")
+                    if getattr(self, "_updates_offline", False):
+                        self.nav_updates.setText(" Check for Updates (offline)")
+                        self._show_toast("Update check finished — offline, results unavailable.")
+                    else:
+                        self.nav_updates.setText(" Check for Updates")
+                        self._show_toast("Steam update check complete.")
 
         for game in games:
             game_id, _, path, _, _, _, steam_id = game[:7]
@@ -2036,6 +2041,7 @@ class MainWindow(QMainWindow):
             fetcher = SteamBuildFetcher(game_id, steam_id, local_build_id, local_build_date, parent=self)
             fetcher.update_checked.connect(self._on_steam_build_checked)
             fetcher.check_failed.connect(self._on_steam_check_failed)
+            fetcher.offline_detected.connect(self._on_update_check_offline)
             fetcher.finished.connect(finished_one)
             self.metadata_fetchers.append(fetcher)
             self.metadata_attempted_builds.add(game_id)
@@ -2140,6 +2146,18 @@ class MainWindow(QMainWindow):
         self.steam_check_results[game_id] = ("", 0, False, reason)
         if self.selected_game and self.selected_game[0] == game_id:
             self.lbl_detail_update.setText("Steam check failed")
+
+    def _on_update_check_offline(self, game_id: int):
+        """Network unreachable: show an explicit offline state, never a
+        false 'up to date' or a generic failure."""
+        if not getattr(self, "_updates_offline", False):
+            self._updates_offline = True
+            self._show_toast("No internet connection — update checks are unavailable.")
+            if hasattr(self, "nav_updates") and self.nav_updates is not None:
+                self.nav_updates.setText(" Check for Updates (offline)")
+        self.steam_check_results[game_id] = ("", 0, False, "offline")
+        if self.selected_game and self.selected_game[0] == game_id:
+            self.lbl_detail_update.setText("<font color='#6F7682'>⚪ Offline — update check not performed</font>")
             self.lbl_detail_update.setStyleSheet("background: #1A1E26; color: #A7ADB8; border: 1px solid #252A33; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 500;")
             self.lbl_detail_versions.setText(reason)
             self.lbl_detail_versions.setToolTip(reason)
@@ -3124,10 +3142,10 @@ class MainWindow(QMainWindow):
             self._show_toast(f"Newer cloud save(s) available for: {names}{extra}")
 
     def _start_cloud_poll_timer(self):
-        """Poll the cloud every 10 minutes so saves uploaded from another
+        """Poll the cloud every 5 minutes so saves uploaded from another
         device surface mid-session instead of only at launch/exit."""
         self._cloud_poll_timer = QTimer(self)
-        self._cloud_poll_timer.setInterval(10 * 60 * 1000)
+        self._cloud_poll_timer.setInterval(5 * 60 * 1000)
         self._cloud_poll_timer.timeout.connect(self._poll_cloud_for_changes)
         self._cloud_poll_changed.connect(self._on_cloud_poll_changed)
         self._cloud_poll_timer.start()

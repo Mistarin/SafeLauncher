@@ -38,6 +38,7 @@ class SteamBuildFetcher(SafeQThread):
     """Fetch the public Steam branch build and compare it with the local build."""
     update_checked = pyqtSignal(int, str, int, bool)  # game_id, build, updated_at, needs_update
     check_failed = pyqtSignal(int, str)  # game_id, human-readable reason
+    offline_detected = pyqtSignal(int)  # game_id — no internet connection
 
     def __init__(self, game_id: int, steam_id: str, local_build_id: str = "", local_build_date: int = 0, parent=None):
         super().__init__(parent)
@@ -91,6 +92,12 @@ class SteamBuildFetcher(SafeQThread):
                 self.update_checked.emit(self.game_id, latest_build_id, latest_build_date, is_update)
                 return
             self._fail("Steam returned no public branch build for this AppID")
+        except requests.exceptions.RequestException as e:
+            # No route / DNS / timeout: an offline machine, not a check that
+            # "failed" — the UI must show an offline state, not an error.
+            logger.info(f"Offline while checking Steam build for AppID {self.steam_id}: {e}")
+            if not self.isInterruptionRequested():
+                self.offline_detected.emit(self.game_id)
         except Exception as e:
             logger.warning(f"Failed to check Steam build for AppID {self.steam_id}: {e}")
             self._fail(f"Steam check failed: {e}")

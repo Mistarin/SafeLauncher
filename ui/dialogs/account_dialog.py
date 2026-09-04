@@ -232,6 +232,9 @@ class AccountDialog(QDialog):
 
         self._data_ready.connect(self._apply_data)
         self._op_done.connect(self._apply_op)
+        # The manager fetches a fresh listing while open; when it closes,
+        # push a status re-check so badges reflect anything new immediately.
+        self.finished.connect(self._notify_ancestor_poll)
         self.reload()
 
     # ------------------------------------------------------------------ #
@@ -467,6 +470,14 @@ class AccountDialog(QDialog):
         while parent is not None:
             if hasattr(parent, "_refresh_cloud_after_config_change"):
                 parent._refresh_cloud_after_config_change()
+                return
+            parent = parent.parent()
+
+    def _notify_ancestor_poll(self, *_):
+        parent = self.parent()
+        while parent is not None:
+            if hasattr(parent, "_poll_cloud_for_changes"):
+                parent._poll_cloud_for_changes()
                 return
             parent = parent.parent()
 
