@@ -146,7 +146,8 @@ class MainWindow(QMainWindow):
         self._hero_attempted = set()
         self._icon_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
-        self.running_game_ids = set()
+        # running_game_ids is a derived property over playtime_trackers — it
+        # can never go stale, unlike the old manually-maintained add/discard set.
         self.topbar_extractor_thread = None
         self._size_fetch_scheduled = set()  # game dirs queued for background sizing
         self._size_resort_timer = QTimer(self)
@@ -156,6 +157,12 @@ class MainWindow(QMainWindow):
         self.games_by_id = {}
         self.library_selection = LibrarySelectionModel()
         self._load_persistent_cache()
+
+        # Always-connected signal carriers. A connect/disconnect dance around
+        # each use mis-orders or drops payloads when two events overlap (two
+        # games exiting at once, rapid consecutive launches).
+        self._save_op_done.connect(self._on_exit_save_sync_done)
+        self._prelaunch_resolved.connect(self._finish_prelaunch_sync)
 
         # Background maintenance: prune orphaned temp files
         try:
@@ -2138,6 +2145,19 @@ class MainWindow(QMainWindow):
         if self.selected_game and self.selected_game[0] == game_id:
             self.lbl_detail_update.setText("Steam check failed")
 
+    @property
+    def running_game_ids(self) -> set:
+        """Game ids with a live process right now, derived from the playtime
+        trackers. A derived value can never go stale the way the old
+        manually-maintained set did (trackers that outlived their game window
+        left phantom 'running' entries behind)."""
+        live = set()
+        for tracker in getattr(self, "playtime_trackers", []):
+            proc = getattr(tracker, "process", None)
+            if proc is not None and proc.poll() is None:
+                live.add(tracker.game_id)
+        return live
+
     def _on_update_check_offline(self, game_id: int):
         """Network unreachable: show an explicit offline state, never a
         false 'up to date' or a generic failure."""
@@ -2679,7 +2699,6 @@ class MainWindow(QMainWindow):
             self._show_toast("Stopping game container...")
             logger.info(f"Stop signal sent to Game ID {game_id}")
         else:
-            self.running_game_ids.discard(game_id)
             self._update_detail_launch_button(game_id)
 
     def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True):
@@ -2768,15 +2787,10 @@ class MainWindow(QMainWindow):
                 pass
             self._prelaunch_resolved.emit(payload)
 
-        self._prelaunch_resolved.connect(self._finish_prelaunch_sync)
         threading.Thread(target=_work, daemon=True, name="SafeLauncher-PrelaunchSync").start()
 
     def _finish_prelaunch_sync(self, payload: dict):
         """GUI-thread continuation after the pre-launch sync worker resolves."""
-        try:
-            self._prelaunch_resolved.disconnect(self._finish_prelaunch_sync)
-        except TypeError:
-            pass
         ctx = payload.get("ctx", {})
 
         if payload.get("needs_conflict"):
@@ -2820,19 +2834,19 @@ class MainWindow(QMainWindow):
             process = self.runner.launch(path, exe, selected_mode, steam_id, sandbox=sandbox, env_vars=env_vars)
             if process:
                 logger.info(f"Successfully launched '{game_name}' (PID: {process.pid})")
-                self.running_game_ids.add(game_id)
+                # Register the tracker before refreshing UI so the derived
+                # running_game_ids already contains this game.
+                tracker = PlaytimeTrackerThread(game_id, process, parent=self)
+                tracker.playtime_recorded.connect(self._on_playtime_recorded)
+                tracker.finished.connect(lambda t=tracker: self._cleanup_tracker(t))
+                self.playtime_trackers.append(tracker)
+                tracker.start()
                 if self.selected_game and self.selected_game[0] == game_id:
                     self._update_detail_launch_button(game_id)
                 # Update Discord Rich Presence
                 if hasattr(self, 'discord_rpc') and self.discord_rpc:
                     import time
                     self.discord_rpc.set_activity(game_name, start_timestamp=int(time.time()), details="Playing in Sandbox")
-
-                tracker = PlaytimeTrackerThread(game_id, process, parent=self)
-                tracker.playtime_recorded.connect(self._on_playtime_recorded)
-                tracker.finished.connect(lambda t=tracker: self._cleanup_tracker(t))
-                tracker.start()
-                self.playtime_trackers.append(tracker)
 
                 # Auto-start GPU recorder / replay buffer on game launch if configured
                 if getattr(self, "gpu_recorder_config", None) and self.gpu_recorder_config.enabled:
@@ -2994,7 +3008,6 @@ class MainWindow(QMainWindow):
         """Remove finished tracker from the list so it can be garbage collected."""
         if tracker in self.playtime_trackers:
             self.playtime_trackers.remove(tracker)
-        self.running_game_ids.discard(tracker.game_id)
         if self.selected_game and self.selected_game[0] == tracker.game_id:
             self._update_detail_launch_button(tracker.game_id)
         if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
@@ -3039,21 +3052,18 @@ class MainWindow(QMainWindow):
                         payload["reason"] = str(err)
                     return payload
 
-                self._save_op_done.connect(self._on_exit_save_sync_done)
                 threading.Thread(
                     target=lambda: self._save_op_done.emit(_exit_sync()),
                     daemon=True,
                     name="SafeLauncher-ExitSync",
                 ).start()
+                # _save_op_done → _on_exit_save_sync_done is connected once in
+                # __init__; concurrent exits each carry their own payload.
         except Exception as sync_exit_err:
             logger.warning(f"Auto cloud save sync on game exit failed: {sync_exit_err}")
 
     def _on_exit_save_sync_done(self, payload: dict):
         """GUI-thread slot reporting the outcome of the background exit upload."""
-        try:
-            self._save_op_done.disconnect(self._on_exit_save_sync_done)
-        except TypeError:
-            pass
         name = payload.get("game", "")
         outcome = payload.get("outcome")
         if outcome == "uploaded":
