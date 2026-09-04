@@ -667,7 +667,19 @@ class GamePropertiesDialog(QDialog):
         else:
             QMessageBox.warning(self, "Cloud Sync", "No local save files found to upload.")
 
+    def _is_game_running(self) -> bool:
+        p = self.parent_window
+        running = getattr(p, "running_game_ids", None) if p is not None else None
+        return bool(running and self.game_id in running)
+
     def _sync_down_now(self):
+        if self._is_game_running():
+            QMessageBox.warning(
+                self, "Game Is Running",
+                f"'{self.game_name}' appears to be running. Its in-memory state overwrites the "
+                "save files when it exits, so restoring the cloud save now would be undone.\n\n"
+                "Close the game first, then download the cloud save.")
+            return
         from core.cloud_save_sync import CloudSaveSyncEngine
         if CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path):
             QMessageBox.information(self, "Cloud Sync", "Cloud save successfully restored to game prefix.")
