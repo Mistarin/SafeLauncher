@@ -133,6 +133,34 @@ class AccountDialog(QDialog):
         quota_layout.addWidget(self.lbl_quota_text)
         body_layout.addWidget(quota_box)
 
+        # --- devices -----------------------------------------------------------
+        devices_row = QHBoxLayout()
+        devices_row.setSpacing(8)
+        lbl_devices = QLabel("Devices")
+        lbl_devices.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        lbl_devices.setStyleSheet("color: #FFFFFF;")
+        devices_row.addWidget(lbl_devices)
+
+        self.lst_devices = QListWidget()
+        self.lst_devices.setMaximumHeight(86)
+        self.lst_devices.setStyleSheet(
+            "QListWidget { background:#121214; border:1px solid #27272A; border-radius:6px; color:#E5E7EB; }"
+            "QListWidget::item { padding:5px; }"
+            "QListWidget::item:selected { background:#3B9FE8; color:white; }"
+        )
+        devices_row.addWidget(self.lst_devices, 1)
+
+        self.btn_revoke_device = QPushButton("Revoke Selected")
+        self.btn_revoke_device.setStyleSheet(
+            "QPushButton { background:#27272A; color:#F05D6C; border:1px solid #3F3F46;"
+            "border-radius:5px; padding:6px 12px; }"
+            "QPushButton:hover { border-color:#F05D6C; }"
+        )
+        self.btn_revoke_device.clicked.connect(self._revoke_selected_device)
+        self.btn_revoke_device.hide()
+        devices_row.addWidget(self.btn_revoke_device)
+        body_layout.addLayout(devices_row)
+
         # --- games / versions -------------------------------------------------
         self.games_split = QSplitter(Qt.Orientation.Horizontal)
         self.games_split.setChildrenCollapsible(False)
@@ -245,6 +273,7 @@ class AccountDialog(QDialog):
             self.lbl_email.setText("Cloud unreachable")
             self.lbl_quota_text.setText(payload["error"])
             self.btn_auth_toggle.setText("Retry")
+            self._populate_devices([])
             return
 
         snapshot = payload.get("ok")
@@ -277,7 +306,59 @@ class AccountDialog(QDialog):
         )
 
         self.btn_auth_toggle.setText("Disconnect")
+        self._populate_devices(overview.get("devices", []))
         self._populate_games(listing.get("games", []))
+
+    def _populate_devices(self, devices):
+        """Fill the device list and expose revocation for remote entries."""
+        from datetime import datetime
+        self._devices = devices or []
+        self.lst_devices.clear()
+        if not self._devices:
+            item = QListWidgetItem("No registered devices.")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            self.lst_devices.addItem(item)
+            self.btn_revoke_device.hide()
+            return
+        for d in self._devices:
+            seen = datetime.fromtimestamp(d.get("lastSeenAt", 0) / 1000).strftime("%Y-%m-%d %H:%M")
+            state = "online" if d.get("isOnline") else "offline"
+            item = QListWidgetItem(
+                f"{d.get('deviceName', 'Device')} ({d.get('platform', '?')}) · "
+                f"{state} · last seen {seen} · id {d.get('deviceId', '')[:8]}"
+            )
+            item.setData(Qt.ItemDataRole.UserRole, d.get("deviceId", ""))
+            self.lst_devices.addItem(item)
+        self.btn_revoke_device.show()
+
+    def _revoke_selected_device(self):
+        row = self.lst_devices.currentRow()
+        if row < 0 or row >= len(self._devices):
+            return
+        device = self._devices[row]
+        device_id = device.get("deviceId", "")
+        if not device_id:
+            return
+        answer = QMessageBox.question(
+            self, "Revoke Device",
+            f"Revoke '{device.get('deviceName', device_id)}'?\n\nIt will be removed from the device "
+            "list and its heartbeats will no longer register it. (Note: all devices share this "
+            "deployment's Secret Key; rotating the key is required to block access completely.)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.btn_revoke_device.setEnabled(False)
+
+        def _work():
+            try:
+                from core.cloud_backend import ConvexSaveBackend
+                ConvexSaveBackend().revoke_device(device_id)
+            except Exception as e:
+                logger.warning(f"Device revocation failed: {e}")
+            self._op_done.emit({"revoked": device_id})
+
+        threading.Thread(target=_work, daemon=True,
+                         name="SafeLauncher-DeviceRevoke").start()
 
     def _render_signed_out(self):
         self.lbl_email.setText("Not connected")
@@ -289,6 +370,7 @@ class AccountDialog(QDialog):
             "'safelauncher --setup-cloud' to store encrypted saves."
         )
         self.btn_auth_toggle.setText("Setup Wizard…")
+        self._populate_devices([])
         self._populate_games([])
 
     def _populate_games(self, games):
@@ -366,6 +448,11 @@ class AccountDialog(QDialog):
         self._busy = False
         if "error" in payload:
             QMessageBox.warning(self, "Delete failed", payload["error"])
+            return
+        if "revoked" in payload:
+            self.btn_revoke_device.setEnabled(True)
+            self.lbl_quota_text.setText("Device revoked.")
+            self.reload()
             return
         self._show_toast_like(payload["name"])
         self.reload()
