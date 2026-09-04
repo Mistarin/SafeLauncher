@@ -332,7 +332,7 @@ class SaveManagerDialog(QDialog):
             if not os.path.isdir(target_dest):
                 target_dest = self.game_path
 
-            success = self.backup_mgr.import_save(import_path, target_dest)
+            success = self.backup_mgr.import_save(import_path, target_dest, game_path=self.game_path)
             if success:
                 QMessageBox.information(self, "Import Successful", "Game save snapshot restored successfully.")
                 self._scan_saves()

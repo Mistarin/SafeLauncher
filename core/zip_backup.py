@@ -4,7 +4,6 @@ import time
 import shutil
 import zipfile
 import tempfile
-import inspect
 from typing import List, Optional
 from core.interfaces import IBackupManager
 from core.logger import get_logger
@@ -19,6 +18,18 @@ def _is_within(parent: str, candidate: str) -> bool:
     parent_abs = os.path.abspath(parent)
     cand_abs = os.path.abspath(candidate)
     return cand_abs == parent_abs or cand_abs.startswith(parent_abs + os.sep)
+
+
+def _make_staging_dir(near_path: str) -> str:
+    """Temp dir placed beside the target (same filesystem) so merges are renames."""
+    probe = os.path.dirname(os.path.abspath(near_path)) or os.sep
+    while not os.path.isdir(probe):
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            probe = None
+            break
+        probe = parent
+    return tempfile.mkdtemp(prefix=".safelauncher-import-", dir=probe)
 
 
 def _write_zip_atomically(export_zip_path: str, writer) -> bool:
@@ -72,14 +83,40 @@ class ZipBackupManager(IBackupManager):
             return False
 
         max_source_mtime = 0.0
+        game_abs = os.path.abspath(game_path) if game_path else ""
+        prefix_dir = os.path.join(game_abs, "prefix") if game_abs else ""
+        home_dir = os.path.expanduser("~")
 
-        def archive_member(src_file: str) -> str:
+        def classify_location(src_path: str, fallback_rel: str) -> dict:
+            """Record where a location truly lives so import can map it back.
+
+            Legacy archives (no "base") restore into the prefix only; that was
+            wrong for game-folder and native (home) saves, so new exports name
+            the base explicitly.
+            """
+            if not game_abs:
+                return {}
+            if prefix_dir and _is_within(prefix_dir, src_path):
+                return {"base": "prefix", "relative_to_prefix": os.path.relpath(src_path, prefix_dir)}
+            if _is_within(game_abs, src_path):
+                return {"base": "game", "relative_to_prefix": os.path.relpath(src_path, game_abs)}
+            if _is_within(home_dir, src_path):
+                return {
+                    "base": "home",
+                    "relative_to_prefix": fallback_rel,
+                    "relative_to_home": os.path.relpath(src_path, home_dir),
+                }
+            return {}
+
+        def archive_member(src_file: str) -> tuple[str, float]:
             nonlocal max_source_mtime
+            mtime = 0.0
             try:
-                max_source_mtime = max(max_source_mtime, os.stat(src_file).st_mtime)
+                mtime = os.stat(src_file).st_mtime
+                max_source_mtime = max(max_source_mtime, mtime)
             except OSError:
                 pass
-            return src_file
+            return src_file, mtime
 
         def walk_files(src_path: str):
             if os.path.isfile(src_path):
@@ -98,30 +135,38 @@ class ZipBackupManager(IBackupManager):
                     items_meta = []
                     for idx, loc in enumerate(locations):
                         src_path = loc.path if hasattr(loc, "path") else str(loc)
-                        rel_prefix = loc.relative_to_prefix if hasattr(loc, "relative_to_prefix") else ""
                         disp_name = loc.display_name if hasattr(loc, "display_name") else os.path.basename(src_path)
 
                         if not os.path.exists(src_path):
                             continue
 
-                        items_meta.append({
+                        item_meta = {
                             "id": idx,
                             "display_name": disp_name,
-                            "relative_to_prefix": rel_prefix,
+                            "relative_to_prefix": (
+                                loc.relative_to_prefix if hasattr(loc, "relative_to_prefix") else ""
+                            ),
                             "is_directory": os.path.isdir(src_path),
-                            "archive_prefix": f"data/{idx}"
-                        })
+                            "archive_prefix": f"data/{idx}",
+                        }
+                        item_meta.update(classify_location(src_path, item_meta["relative_to_prefix"]))
 
-                        for full_path, rel in walk_files(src_path):
+                        file_mtimes = {}
+                        for (full_path, mtime), rel in walk_files(src_path):
                             zipf.write(full_path, f"data/{idx}/{rel}")
+                            file_mtimes[rel] = int(mtime)
                             written_any = True
+                        if file_mtimes:
+                            # True epoch mtimes so a restore keeps the original
+                            # content clock (zip headers alone lose the timezone).
+                            item_meta["files"] = file_mtimes
+                        items_meta.append(item_meta)
 
                     if not written_any:
                         raise ValueError("No save files found to archive")
 
                     manifest = {
                         "format_version": 1,
-                        "created_at": int(time.time()),
                         # Content timestamp: newest mtime among archived files. Unlike a
                         # wall-clock upload stamp this stays comparable to local save
                         # mtimes across machines (see SyncStatus comparison).
@@ -129,35 +174,50 @@ class ZipBackupManager(IBackupManager):
                         "game_name": game_name,
                         "items": items_meta
                     }
-                    zipf.writestr(_MANIFEST_NAME, json.dumps(manifest, indent=2))
+                    if int(max_source_mtime) <= 0:
+                        # Only archives without a usable content clock need a
+                        # creation stamp; omitting it keeps identical saves
+                        # byte-identical so the cloud can hash-skip re-uploads.
+                        manifest["created_at"] = int(time.time())
+                    # Fixed date for the manifest member, otherwise the wall
+                    # clock would leak into the archive hash.
+                    manifest_info = zipfile.ZipInfo(
+                        _MANIFEST_NAME, date_time=(1980, 1, 1, 0, 0, 0))
+                    manifest_info.compress_type = zipfile.ZIP_DEFLATED
+                    zipf.writestr(manifest_info, json.dumps(manifest, indent=2))
 
             return _write_zip_atomically(export_zip_path, writer)
         except Exception as e:
             logger.error(f"Multi-location save export failed: {e}")
             return False
 
-    def import_save(self, import_zip_path: str, destination_path: str) -> bool:
+    def import_save(self, import_zip_path: str, destination_path: str, game_path: str = "") -> bool:
         """Import save archive into destination path (supports both manifest & raw ZIP).
 
         Every member is unpacked into a staging directory first; live save data
         is only touched after the whole archive has been safely extracted and
         its paths validated, so an interrupted import cannot corrupt saves.
+
+        game_path lets manifest items recorded as living in the game folder or
+        the user's home (native games) resolve to their real location instead
+        of being dumped inside the prefix.
         """
         if not os.path.exists(import_zip_path):
             return False
 
         dest_abs = os.path.abspath(destination_path)
-        os.makedirs(dest_abs, exist_ok=True)
+        game_abs = os.path.abspath(game_path) if game_path else ""
+        home_dir = os.path.expanduser("~")
 
         staging_root = None
         try:
             with zipfile.ZipFile(import_zip_path, 'r') as zipf:
                 namelist = zipf.namelist()
 
-                # Planned transfers: list of (ZipInfo, final destination path).
+                # Planned transfers: list of (ZipInfo, final destination path, mtime).
                 planned = None
                 if _MANIFEST_NAME in namelist:
-                    planned = self._plan_manifest_import(zipf, dest_abs)
+                    planned = self._plan_manifest_import(zipf, dest_abs, game_abs, home_dir)
 
                 if planned is None:
                     # Standard / Legacy safe extraction of the whole archive.
@@ -166,38 +226,32 @@ class ZipBackupManager(IBackupManager):
                         if not _is_within(dest_abs, target_path):
                             logger.warning(f"Refusing to extract unsafe file: {member.filename}")
                             return False
+                    planned = [
+                        (member, os.path.normpath(os.path.join(dest_abs, member.filename)), None)
+                        for member in zipf.infolist() if not member.is_dir()
+                    ]
 
-                    staging_root = tempfile.mkdtemp(prefix=".safelauncher-import-", dir=os.path.dirname(dest_abs))
-                    extractall_params = inspect.signature(zipfile.ZipFile.extractall).parameters
-                    if "filter" in extractall_params:
-                        zipf.extractall(staging_root, filter='data')
-                    else:
-                        zipf.extractall(staging_root)
-                else:
-                    staging_root = tempfile.mkdtemp(prefix=".safelauncher-import-", dir=os.path.dirname(dest_abs))
-                    for member, final_path in planned:
-                        rel_dest = os.path.relpath(final_path, dest_abs)
-                        staged_path = os.path.normpath(os.path.join(staging_root, rel_dest))
-                        if not _is_within(staging_root, staged_path):
-                            logger.warning(f"Skipping unsafe archive member: {member.filename}")
-                            continue
-                        os.makedirs(os.path.dirname(staged_path), exist_ok=True)
-                        with zipf.open(member) as src_file, open(staged_path, "wb") as out_f:
-                            shutil.copyfileobj(src_file, out_f)
+                staging_root = _make_staging_dir(dest_abs)
+                staged = []
+                for idx, (member, final_path, mtime) in enumerate(planned):
+                    staged_path = os.path.join(staging_root, f"p{idx}")
+                    os.makedirs(os.path.dirname(staged_path), exist_ok=True)
+                    with zipf.open(member) as src_file, open(staged_path, "wb") as out_f:
+                        shutil.copyfileobj(src_file, out_f)
+                    if mtime and mtime > 0:
+                        try:
+                            os.utime(staged_path, (mtime, mtime))
+                        except OSError:
+                            pass
+                    staged.append((staged_path, final_path))
 
             # Archive fully materialized in staging; merge onto live data now.
             moved_any = False
-            for root, _, files in os.walk(staging_root):
-                for file in files:
-                    staged_file = os.path.join(root, file)
-                    rel = os.path.relpath(staged_file, staging_root)
-                    final_path = os.path.normpath(os.path.join(dest_abs, rel))
-                    if not _is_within(dest_abs, final_path):
-                        logger.warning(f"Refusing unsafe staged path: {rel}")
-                        continue
-                    os.makedirs(os.path.dirname(final_path), exist_ok=True)
-                    shutil.move(staged_file, final_path)
-                    moved_any = True
+            for staged_path, final_path in staged:
+                final_path = os.path.normpath(final_path)
+                os.makedirs(os.path.dirname(final_path), exist_ok=True)
+                shutil.move(staged_path, final_path)
+                moved_any = True
 
             if not moved_any:
                 logger.warning(f"Save archive contained no restorable files: {import_zip_path}")
@@ -209,8 +263,9 @@ class ZipBackupManager(IBackupManager):
             if staging_root and os.path.isdir(staging_root):
                 shutil.rmtree(staging_root, ignore_errors=True)
 
-    def _plan_manifest_import(self, zipf, dest_abs: str) -> Optional[list]:
-        """Resolve manifest items into (ZipInfo, final destination path) pairs.
+    def _plan_manifest_import(self, zipf, dest_abs: str, game_abs: str = "",
+                              home_dir: str = "") -> Optional[list]:
+        """Resolve manifest items into (ZipInfo, final destination path, mtime) triples.
 
         Returns None when the manifest is unusable so callers can fall back to
         plain whole-archive extraction.
@@ -220,30 +275,44 @@ class ZipBackupManager(IBackupManager):
             items = manifest_data.get("items", [])
             transfers = []
             for item in items:
-                rel_prefix = item.get("relative_to_prefix", "")
                 arc_prefix = item.get("archive_prefix", "")
                 if not arc_prefix:
                     continue
+                rel_prefix = item.get("relative_to_prefix", "") or ""
+                base = item.get("base")
+                file_mtimes = item.get("files") or {}
 
-                if rel_prefix:
-                    target_dir = os.path.normpath(os.path.join(dest_abs, rel_prefix))
+                if base == "home" and home_dir:
+                    if not item.get("relative_to_home"):
+                        continue
+                    target_dir = os.path.normpath(os.path.join(home_dir, item["relative_to_home"]))
+                    root = home_dir
+                elif base == "game" and game_abs:
+                    target_dir = os.path.normpath(os.path.join(game_abs, rel_prefix)) if rel_prefix else game_abs
+                    root = game_abs
                 else:
-                    target_dir = dest_abs
+                    # "prefix" items and legacy archives: relative to the import destination.
+                    target_dir = os.path.normpath(os.path.join(dest_abs, rel_prefix)) if rel_prefix else dest_abs
+                    root = dest_abs
 
-                # Escape attempts fall back to the destination root instead of executing.
-                if not _is_within(dest_abs, target_dir):
-                    logger.warning(f"Manifest item escapes destination ({rel_prefix}); clamping to {dest_abs}")
-                    target_dir = dest_abs
+                # Escape attempts fall back to the base root instead of executing.
+                if not _is_within(root, target_dir):
+                    logger.warning(f"Manifest item escapes {base or 'destination'} root ({rel_prefix}); clamping to {root}")
+                    target_dir = root
 
                 matched = 0
                 for member in zipf.infolist():
                     if member.filename.startswith(arc_prefix + "/") and not member.is_dir():
                         sub_rel = os.path.relpath(member.filename, arc_prefix)
                         final_out = os.path.normpath(os.path.join(target_dir, sub_rel))
-                        if not _is_within(dest_abs, final_out):
+                        if not _is_within(root, final_out):
                             logger.warning(f"Skipping unsafe archive member: {member.filename}")
                             continue
-                        transfers.append((member, final_out))
+                        try:
+                            mtime = float(file_mtimes.get(sub_rel)) if file_mtimes.get(sub_rel) else None
+                        except (TypeError, ValueError):
+                            mtime = None
+                        transfers.append((member, final_out, mtime))
                         matched += 1
                 if matched == 0:
                     logger.warning(f"No archive members found for manifest item '{arc_prefix}'")

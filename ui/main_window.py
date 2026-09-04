@@ -2701,6 +2701,9 @@ class MainWindow(QMainWindow):
                     CloudSaveSyncEngine.sync_local_to_cloud(ctx["game_name"], ctx["path"], ctx["steam_id"])
                     self._show_toast("Overwrote cloud save with local version.")
             else:
+                # Closing the conflict dialog cancels the launch — say so
+                # instead of silently dropping the user's Play click.
+                self._show_toast(f"Launch cancelled — resolve the save conflict for '{ctx.get('game_name', '')}' first.")
                 return
         elif payload.get("toast"):
             self._show_toast(payload["toast"])
@@ -2969,8 +2972,16 @@ class MainWindow(QMainWindow):
         elif payload.get("reason") in ("cloud_newer", "cloud_only"):
             logger.info(
                 f"Skipping exit upload for '{name}': cloud save is newer "
-                f"({payload['reason']}); use the Save Manager to resolve manually."
+                f"({payload['reason']}); SafeLauncher will ask which to keep on next launch."
             )
+            if payload.get("reason") == "cloud_newer":
+                # A newer save arrived from another device while this session
+                # was running. Keep the local progress safe locally and make
+                # the collision visible instead of silently skipping.
+                self._show_toast(
+                    f"Cloud save for '{name}' changed on another device — your session "
+                    f"wasn't uploaded. SafeLauncher will ask which to keep next launch."
+                )
 
     def _start_background_cloud_sync(self):
         """Run startup cloud save check & sync queue across library with a concurrency pool of 3."""

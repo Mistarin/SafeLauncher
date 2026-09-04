@@ -346,7 +346,7 @@ class CloudSaveSyncEngine:
                 return False
             try:
                 backup_mgr = ZipBackupManager()
-                success = backup_mgr.import_save(plain_zip, target_dest)
+                success = backup_mgr.import_save(plain_zip, target_dest, game_path=game_path)
             finally:
                 try:
                     os.unlink(plain_zip)
@@ -366,10 +366,8 @@ class CloudSaveSyncEngine:
             logger.warning(f"No cloud save available to restore for '{game_name}'")
             return False
 
-        os.makedirs(target_dest, exist_ok=True)
-
         backup_mgr = ZipBackupManager()
-        success = backup_mgr.import_save(cloud_zip, target_dest)
+        success = backup_mgr.import_save(cloud_zip, target_dest, game_path=game_path)
         if success:
             logger.info(f"Successfully restored cloud save archive for '{game_name}' into {target_dest}")
         else:

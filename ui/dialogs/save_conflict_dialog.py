@@ -91,8 +91,9 @@ class SaveConflictDialog(QDialog):
         lbl_cd.setStyleSheet("font-size: 11px; color: #F5F7FA;")
         cc_layout.addWidget(lbl_cd)
 
-        lbl_cs = QLabel(f"Size: {format_bytes(cloud_stats.size_bytes)}<br>Files: {cloud_stats.file_count}")
+        lbl_cs = QLabel(f"Size: {format_bytes(cloud_stats.size_bytes)}<br>Generations kept: {cloud_stats.file_count}")
         lbl_cs.setStyleSheet("font-size: 11px; color: #A7ADB8;")
+        lbl_cs.setToolTip("Older cloud generations are retained and can be recovered.")
         cc_layout.addWidget(lbl_cs)
 
         cards_row.addWidget(cloud_card, 1)
