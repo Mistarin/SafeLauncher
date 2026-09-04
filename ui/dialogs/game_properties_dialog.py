@@ -26,6 +26,7 @@ class GamePropertiesDialog(QDialog):
     """Clean, consolidated Game Properties dialog with Performance Presets and Save Manager."""
 
     _save_stats_ready = pyqtSignal(object)
+    _gen_restore_done = pyqtSignal(bool, int)
 
     def __init__(self, game: tuple, parent=None):
         super().__init__(parent)
@@ -47,6 +48,9 @@ class GamePropertiesDialog(QDialog):
             self.env_vars = self.parent_window.db.get_game_env_vars(self.game_id)
 
         self._save_stats_ready.connect(self._on_save_stats_ready)
+        self._gen_restore_done.connect(self._on_gen_restore_done)
+        self._cloud_versions = []
+        self._backup_version = None
 
         self.setWindowTitle(f"Properties - {self.game_name}")
         self.setMinimumSize(640, 560)
@@ -453,6 +457,28 @@ class GamePropertiesDialog(QDialog):
 
         sync_btn_row.addStretch()
         syc_layout.addLayout(sync_btn_row)
+
+        # Retained cloud generations (active + backup) with rollback action
+        self.lbl_generations = QLabel("")
+        self.lbl_generations.setStyleSheet("font-size: 11px; color: #A7ADB8;")
+        self.lbl_generations.setWordWrap(True)
+        self.lbl_generations.hide()
+        syc_layout.addWidget(self.lbl_generations)
+
+        self.btn_restore_backup = QPushButton(" Restore Backup Generation")
+        self.btn_restore_backup.setIcon(get_icon("ph.clock-counter-clockwise-bold"))
+        self.btn_restore_backup.setStyleSheet(
+            "QPushButton { background: #1A1E26; color: #E5A93D; border: 1px solid #252A33; "
+            "border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 11px; } "
+            "QPushButton:hover { background: #252A33; border-color: #E5A93D; } "
+            "QPushButton:disabled { color: #6F7682; border-color: #20242C; }")
+        self.btn_restore_backup.clicked.connect(self._restore_backup_now)
+        self.btn_restore_backup.hide()
+        restore_row = QHBoxLayout()
+        restore_row.addWidget(self.btn_restore_backup)
+        restore_row.addStretch()
+        syc_layout.addLayout(restore_row)
+
         body_layout.addWidget(sync_card)
 
         # ── 3. Interactive Save Manager Button ──
@@ -489,23 +515,33 @@ class GamePropertiesDialog(QDialog):
         """Asynchronously load save detection & cloud status on worker thread."""
         def _worker():
             try:
-                from core.cloud_save_sync import CloudSaveSyncEngine
+                from core.cloud_save_sync import CloudSaveSyncEngine, backend_active, resolve_name_key
                 status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
                     self.game_name, self.game_path, self.steam_id
                 )
-                self._save_stats_ready.emit((status, local_stats, cloud_stats))
+                versions = None
+                if backend_active():
+                    try:
+                        _stats, snapshot = CloudSaveSyncEngine._remote_stats(
+                            resolve_name_key(self.game_name))
+                        versions = (snapshot or {}).get("versions")
+                    except Exception:
+                        versions = None
+                self._save_stats_ready.emit((status, local_stats, cloud_stats, versions))
             except Exception as e:
                 logger.warning(f"Async save stats check failed for '{self.game_name}': {e}")
-                self._save_stats_ready.emit((None, None, None))
+                self._save_stats_ready.emit((None, None, None, None))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-PropSave-{self.game_id}").start()
 
     def _on_save_stats_ready(self, payload):
         """GUI-thread handler to populate Save tab metadata without blocking dialog opening."""
-        status, local_stats, cloud_stats = payload
+        status, local_stats, cloud_stats, versions = payload
         if status is None or local_stats is None:
             self.lbl_cloud_status.setText("<font color='#F05D6C'>Save status check failed.</font>")
+            self.lbl_generations.hide()
+            self.btn_restore_backup.hide()
             return
 
         from ui.dialogs.save_conflict_dialog import format_bytes
@@ -547,6 +583,71 @@ class GamePropertiesDialog(QDialog):
             self.btn_sync_down.show()
         else:
             self.btn_sync_down.hide()
+
+        self._render_generations(versions)
+
+    def _render_generations(self, versions):
+        """Show retained cloud generations (active + backup) with rollback."""
+        from datetime import datetime
+        from ui.dialogs.save_conflict_dialog import format_bytes
+        self._cloud_versions = list(versions or [])
+        if not self._cloud_versions:
+            self._backup_version = None
+            self.lbl_generations.hide()
+            self.btn_restore_backup.hide()
+            return
+
+        def gen_line(v):
+            d = datetime.fromtimestamp(v.get("sourceMaxMtime", 0)).strftime("%Y-%m-%d %H:%M")
+            return f"v{v.get('version')} · {d} · {format_bytes(int(v.get('sizeBytes', 0)))}"
+
+        lines = [f"<font color='#6F7682'>Cloud active:</font> {gen_line(self._cloud_versions[0])}"]
+        if len(self._cloud_versions) >= 2:
+            backup = self._cloud_versions[1]
+            self._backup_version = backup.get("version")
+            lines.append(f"<font color='#6F7682'>Cloud backup:</font> {gen_line(backup)}")
+            self.btn_restore_backup.setEnabled(True)
+            self.btn_restore_backup.setToolTip(
+                f"Roll back to v{self._backup_version}; the current active save is kept as the new backup.")
+        else:
+            self._backup_version = None
+            self.btn_restore_backup.setEnabled(False)
+        self.lbl_generations.setText("<br>".join(lines))
+        self.lbl_generations.show()
+        self.btn_restore_backup.show()
+
+    def _restore_backup_now(self):
+        from core.cloud_save_sync import CloudSaveSyncEngine
+        if not self._backup_version:
+            return
+        answer = QMessageBox.question(
+            self, "Restore Backup Generation",
+            f"Roll back '{self.game_name}' to cloud backup v{self._backup_version}?\n\n"
+            "Your local save is replaced by the backup, which then becomes the active "
+            "cloud save. The previously active save is retained as the new backup, so "
+            "this can be undone by restoring again.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        version = self._backup_version
+        self.btn_restore_backup.setEnabled(False)
+
+        def _work():
+            ok = CloudSaveSyncEngine.restore_cloud_generation(
+                self.game_name, self.game_path, self.steam_id, version=version)
+            self._gen_restore_done.emit(bool(ok), int(version or 0))
+
+        import threading
+        threading.Thread(target=_work, daemon=True, name=f"SafeLauncher-GenRestore-{self.game_id}").start()
+
+    def _on_gen_restore_done(self, ok: bool, version: int):
+        if ok:
+            QMessageBox.information(self, "Cloud Sync",
+                                    f"Backup v{version} restored and made the active save.")
+        else:
+            QMessageBox.critical(self, "Cloud Sync",
+                                 f"Failed to restore backup generation v{version}.")
+        self._load_save_stats_async()
 
     def _sync_up_now(self):
         from core.cloud_save_sync import CloudSaveSyncEngine

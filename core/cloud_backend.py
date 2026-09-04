@@ -87,13 +87,39 @@ def get_device_identity() -> tuple[str, str, str]:
     return dev_id, dev_name, dev_plat
 
 
-def normalize_name_key(game_name: str) -> str:
-    """Mirror of server-side lib/api.ts sanitizeNameKey ([A-Za-z0-9-_ ])."""
-    cleaned = "".join(
+def _sanitize_chars(game_name: str) -> str:
+    return "".join(
         c for c in game_name
         if ("a" <= c.lower() <= "z") or ("0" <= c <= "9") or c in "-_ "
     ).strip()
-    return cleaned[:128]
+
+
+def legacy_name_key(game_name: str) -> str:
+    """Original lossy key ([A-Za-z0-9-_ ], truncated) — kept to find saves
+    uploaded before collision-proof keys existed."""
+    return _sanitize_chars(game_name)[:128]
+
+
+def normalize_name_key(game_name: str) -> str:
+    """Collision-proof mirror of server-side lib/api.ts sanitizeNameKey.
+
+    Names that already fit the safe charset keep their historical key, so
+    existing cloud saves stay reachable. Names containing stripped characters
+    ("Dark Souls: Remastered") or truncation get a short raw-name hash suffix,
+    so two distinct game names can never sanitize to the same key.
+    """
+    cleaned = _sanitize_chars(game_name)
+    if not cleaned:
+        return ""
+    lossy = len(cleaned) > 128
+    for c in game_name:
+        if not (("a" <= c.lower() <= "z") or ("0" <= c <= "9") or c in "-_ "):
+            lossy = True
+            break
+    if lossy:
+        suffix = hashlib.sha256(game_name.encode("utf-8")).hexdigest()[:6]
+        cleaned = cleaned[:121] + "-" + suffix
+    return cleaned
 
 
 class ConvexSaveBackend:

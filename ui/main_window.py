@@ -119,6 +119,7 @@ class MainWindow(QMainWindow):
     _save_op_done = pyqtSignal(object)      # exit-upload payload dict
     _prelaunch_resolved = pyqtSignal(object)  # pre-launch sync payload dict
     _startup_sync_done = pyqtSignal(object)   # startup cloud sync sweep payload dict
+    _cloud_poll_changed = pyqtSignal(list)    # games whose cloud save changed mid-session
 
     def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager):
         super().__init__()
@@ -769,6 +770,7 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         QTimer.singleShot(300, self._check_all_steam_updates)
         QTimer.singleShot(800, self._start_background_cloud_sync)
+        self._start_cloud_poll_timer()
 
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
         if show_wizard:
@@ -2696,7 +2698,7 @@ class MainWindow(QMainWindow):
                     self.settings.setValue("auto_prefer_newer_saves", True)
                 if conflict_dlg.choice == "cloud":
                     if CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"]):
-                        self._show_toast(f"Restored newer cloud save for '{ctx['game_name']}'.")
+                        self._show_toast(f"Restored newer cloud save for '{ctx['game_name']}' — your previous save was kept as a cloud backup.")
                 else:
                     CloudSaveSyncEngine.sync_local_to_cloud(ctx["game_name"], ctx["path"], ctx["steam_id"])
                     self._show_toast("Overwrote cloud save with local version.")
@@ -2976,8 +2978,8 @@ class MainWindow(QMainWindow):
             )
             if payload.get("reason") == "cloud_newer":
                 # A newer save arrived from another device while this session
-                # was running. Keep the local progress safe locally and make
-                # the collision visible instead of silently skipping.
+                # was running. The local fork stays safe on disk and is kept
+                # as a backup generation next time the cloud side is accepted.
                 self._show_toast(
                     f"Cloud save for '{name}' changed on another device — your session "
                     f"wasn't uploaded. SafeLauncher will ask which to keep next launch."
@@ -3024,6 +3026,73 @@ class MainWindow(QMainWindow):
             extra = f" (+{len(newer_in_cloud)-2} more)" if len(newer_in_cloud) > 2 else ""
             self._show_toast(f"Newer cloud save(s) available for: {names}{extra}")
 
+    def _start_cloud_poll_timer(self):
+        """Poll the cloud every 10 minutes so saves uploaded from another
+        device surface mid-session instead of only at launch/exit."""
+        self._cloud_poll_timer = QTimer(self)
+        self._cloud_poll_timer.setInterval(10 * 60 * 1000)
+        self._cloud_poll_timer.timeout.connect(self._poll_cloud_for_changes)
+        self._cloud_poll_changed.connect(self._on_cloud_poll_changed)
+        self._cloud_poll_timer.start()
+
+    def _poll_cloud_for_changes(self):
+        from core.cloud_save_sync import backend_active
+        if not backend_active():
+            return
+        games_snapshot = [
+            (g[0], g[1], g[2], str(g[6]).strip() if len(g) > 6 and g[6] else "")
+            for g in list(self.games)
+        ]
+        cache_snapshot = dict(self.cloud_save_status_cache)
+
+        def _work():
+            from core.cloud_save_sync import CloudSaveSyncEngine, _get_cloud_listing, resolve_name_key
+            try:
+                _get_cloud_listing(force_refresh=True)
+            except Exception:
+                return
+            changed = []
+            for gid, name, path, steam_id in games_snapshot:
+                try:
+                    stats, _snap = CloudSaveSyncEngine._remote_stats(resolve_name_key(name))
+                    if stats is None or not stats.exists:
+                        continue
+                    cached = cache_snapshot.get(gid)
+                    cached_mtime = cached[2].last_modified if cached and cached[2] else None
+                    if cached_mtime is None or abs(stats.last_modified - cached_mtime) > 2.0:
+                        changed.append((gid, name, path, steam_id))
+                except Exception:
+                    continue
+            if changed:
+                self._cloud_poll_changed.emit(changed)
+
+        threading.Thread(target=_work, daemon=True, name="SafeLauncher-CloudPoll").start()
+
+    def _on_cloud_poll_changed(self, changed: list):
+        """GUI-thread: re-derive full status for games whose cloud copy changed."""
+        for gid, name, path, steam_id in changed:
+            if any(isinstance(f, CloudSaveStatusFetcherThread) and f.game_id == gid
+                   for f in self.metadata_fetchers):
+                continue
+            fetcher = CloudSaveStatusFetcherThread(gid, name, path or "", steam_id or "", parent=self)
+            fetcher.save_status_calculated.connect(self._on_polled_cloud_status)
+            self._track_metadata_fetcher(fetcher)
+            fetcher.start()
+
+    def _on_polled_cloud_status(self, game_id: int, status, local_stats, cloud_stats):
+        from core.cloud_save_sync import SyncStatus
+        prev = self.cloud_save_status_cache.get(game_id)
+        prev_status = prev[0] if prev else None
+        self._on_cloud_save_status_calculated(game_id, status, local_stats, cloud_stats)
+        if status == SyncStatus.CLOUD_NEWER and prev_status != SyncStatus.CLOUD_NEWER:
+            if game_id in self.running_game_ids:
+                return  # exit sync already surfaces the collision for this session
+            name = self.games_by_id.get(game_id, (None, ""))[1]
+            self._show_toast(
+                f"Newer cloud save for '{name}' — uploaded from another device. "
+                f"You'll be asked which to keep on launch."
+            )
+
     def closeEvent(self, event):
         """Stop all background workers, then destroy the main window.
 
@@ -3041,7 +3110,7 @@ class MainWindow(QMainWindow):
 
             # Halt every source that schedules new background work while we
             # are trying to shut down.
-            for timer_name in ("drive_check_timer", "_size_resort_timer"):
+            for timer_name in ("drive_check_timer", "_size_resort_timer", "_cloud_poll_timer"):
                 timer = getattr(self, timer_name, None)
                 if timer is not None:
                     try:
