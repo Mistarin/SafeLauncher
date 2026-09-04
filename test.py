@@ -473,11 +473,16 @@ try:
             pass
     print("✓ Save crypto rejects wrong keys, corrupted envelopes, and tampered version headers (AEAD)")
 
-    # Name-key parity with server sanitizeNameKey ([A-Za-z0-9-_ space])
-    assert normalize_name_key("X4: Foundations") == "X4 Foundations"
-    assert normalize_name_key("SIGNALIS!") == "SIGNALIS"
-    assert "é" not in normalize_name_key("ünïcodé title")
+    # Name-key parity with server charset ([A-Za-z0-9-_ space]); collision-proof
+    assert normalize_name_key("Game Name") == "Game Name"  # clean names keep their key
     assert normalize_name_key("   ") == ""
+    from core.cloud_backend import legacy_name_key
+    assert legacy_name_key("X4: Foundations") == "X4 Foundations"
+    assert normalize_name_key("X4: Foundations").startswith("X4 Foundations-")
+    assert normalize_name_key("X4: Foundations") == normalize_name_key("X4: Foundations")
+    # Distinct names must never sanitize to the same cloud key
+    assert normalize_name_key("Dark Souls: Remastered") != normalize_name_key("Dark Souls Remastered")
+    assert "é" not in normalize_name_key("ünïcodé title")
     print("✓ Cloud name-key sanitization parity verified")
 
 except Exception as e:

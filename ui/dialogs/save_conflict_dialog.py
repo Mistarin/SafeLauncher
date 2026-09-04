@@ -57,8 +57,10 @@ class SaveConflictDialog(QDialog):
 
         # Explanation
         lbl_info = QLabel(
-            f"A newer save file was found in your Cloud storage for <b>{game_name}</b>.<br>"
-            "Which save version would you like to keep?"
+            f"A newer save file was found in your Cloud storage for <b>{game_name}</b> — "
+            "uploaded from another device.<br>"
+            "Either choice is safe: the save you don't pick is kept as a cloud backup "
+            "generation and can be restored from Game Properties → Cloud Save Synchronization."
         )
         lbl_info.setStyleSheet("color: #F5F7FA; font-size: 12px; line-height: 1.4;")
         lbl_info.setWordWrap(True)
@@ -137,7 +139,7 @@ class SaveConflictDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
 
-        btn_keep_local = QPushButton("Keep Local Save (Overwrite Cloud)")
+        btn_keep_local = QPushButton("Keep Local Save (Cloud Copy → Backup)")
         btn_keep_local.setFixedHeight(38)
         btn_keep_local.setStyleSheet("""
             QPushButton {

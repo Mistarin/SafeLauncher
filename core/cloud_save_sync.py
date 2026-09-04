@@ -113,6 +113,27 @@ def _invalidate_cloud_listing():
         _LISTING_CACHE = {"ts": 0.0, "data": None}
 
 
+def resolve_name_key(game_name: str) -> str:
+    """Pick the cloud key a game's saves live under.
+
+    New uploads use the collision-proof key; games whose saves were uploaded
+    before that scheme existed are still found under their legacy key until
+    the first post-migration upload re-homes them.
+    """
+    from core.cloud_backend import normalize_name_key, legacy_name_key
+    key = normalize_name_key(game_name)
+    try:
+        listing = _get_cloud_listing()
+        keys = {g.get("nameKey") for g in listing.get("games", [])}
+        if key not in keys:
+            legacy = legacy_name_key(game_name)
+            if legacy and legacy != key and legacy in keys:
+                return legacy
+    except Exception:
+        pass
+    return key
+
+
 class CloudSaveSyncEngine:
     """Manages comparison and bi-directional synchronization between local and cloud save files."""
 
@@ -170,7 +191,6 @@ class CloudSaveSyncEngine:
             if game.get("nameKey") == name_key:
                 return game
         return None
-
     @classmethod
     def _remote_stats(cls, name_key: str) -> Tuple[SaveStats, Optional[dict]]:
         """Best-effort cloud stats; returns None on any backend failure."""
@@ -244,8 +264,7 @@ class CloudSaveSyncEngine:
         local_stats, _ = cls.get_local_save_stats(game_name, game_path, steam_id)
 
         if backend_active():
-            from core.cloud_backend import normalize_name_key
-            key = normalize_name_key(game_name)
+            key = resolve_name_key(game_name)
             cloud_stats, _snap = cls._remote_stats(key)
             if cloud_stats is not None:
                 return cls._decide(local_stats, cloud_stats)
@@ -332,15 +351,38 @@ class CloudSaveSyncEngine:
         return success
 
     @classmethod
-    def sync_cloud_to_local(cls, game_name: str, game_path: str) -> bool:
-        """Extract and restore cloud save archive into local game/prefix."""
+    def sync_cloud_to_local(cls, game_name: str, game_path: str,
+                            steam_id: str = "", preserve_local_fork: bool = True) -> bool:
+        """Extract and restore cloud save archive into local game/prefix.
+
+        With preserve_local_fork (the default), the current local save is kept
+        as a cloud backup generation before it is overwritten, so accepting
+        the cloud side of a conflict never destroys local progress. Restoring
+        then targets the generation that was active before that backup upload.
+        """
         target_dest = os.path.join(game_path, "prefix")
 
         if backend_active():
-            from core.cloud_backend import normalize_name_key
-            key = normalize_name_key(game_name)
+            key = resolve_name_key(game_name)
+            restore_version = None
+            if preserve_local_fork:
+                local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
+                if local_stats.exists and locations:
+                    snapshot = cls._remote_game_snapshot(key)
+                    pre_top = ((snapshot or {}).get("versions") or [{}])[0].get("version")
+                    if not cls.sync_local_to_cloud(game_name, game_path, steam_id):
+                        logger.warning(
+                            f"Could not back up the local save for '{game_name}' to the cloud; "
+                            f"refusing to overwrite it with the cloud copy."
+                        )
+                        return False
+                    if pre_top is None:
+                        # Nothing was in the cloud before; the fork upload is
+                        # now the latest save and there is nothing to restore.
+                        return True
+                    restore_version = int(pre_top)
             try:
-                plain_zip, meta = _backend().download_to_temp(key)
+                plain_zip, meta = _backend().download_to_temp(key, version=restore_version)
             except Exception as e:
                 logger.warning(f"Cloud download failed for '{game_name}': {e}")
                 return False
@@ -366,6 +408,21 @@ class CloudSaveSyncEngine:
             logger.warning(f"No cloud save available to restore for '{game_name}'")
             return False
 
+        if preserve_local_fork:
+            local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
+            if local_stats.exists and locations:
+                fork_zip = os.path.join(os.path.dirname(cloud_zip), "save_local_fork.zip")
+                backup_mgr = ZipBackupManager()
+                if backup_mgr.export_save_locations(locations, fork_zip,
+                                                    game_name=game_name, game_path=game_path):
+                    logger.info(f"Kept local save fork for '{game_name}' at {fork_zip}")
+                else:
+                    logger.warning(
+                        f"Could not back up the local save for '{game_name}' to "
+                        f"{fork_zip}; refusing to overwrite it with the cloud copy."
+                    )
+                    return False
+
         backup_mgr = ZipBackupManager()
         success = backup_mgr.import_save(cloud_zip, target_dest, game_path=game_path)
         if success:
@@ -373,3 +430,37 @@ class CloudSaveSyncEngine:
         else:
             logger.error(f"Failed to restore cloud save for '{game_name}'")
         return success
+
+    @classmethod
+    def restore_cloud_generation(cls, game_name: str, game_path: str,
+                                 steam_id: str = "", version: Optional[int] = None) -> bool:
+        """Roll the game back to a retained cloud generation.
+
+        Downloads the requested generation (latest when None), restores it
+        locally, and re-uploads it so the rollback becomes the active save
+        instead of being undone by the next conflict check.
+        """
+        if not backend_active():
+            logger.warning("Generation restore requires the Convex cloud backend.")
+            return False
+
+        key = resolve_name_key(game_name)
+        try:
+            plain_zip, meta = _backend().download_to_temp(key, version=version)
+        except Exception as e:
+            logger.warning(f"Generation download failed for '{game_name}': {e}")
+            return False
+        try:
+            ok = ZipBackupManager().import_save(
+                plain_zip, os.path.join(game_path, "prefix"), game_path=game_path)
+        finally:
+            try:
+                os.unlink(plain_zip)
+            except OSError:
+                pass
+        if not ok:
+            logger.error(f"Failed to restore generation v{meta.get('version')} for '{game_name}'")
+            return False
+        logger.info(f"Restored generation v{meta.get('version')} for '{game_name}' locally.")
+        cls.sync_local_to_cloud(game_name, game_path, steam_id)
+        return True
