@@ -37,6 +37,7 @@ class SyncStatus(Enum):
     CLOUD_ONLY = "cloud_only"
     CLOUD_NEWER = "cloud_newer"
     NO_SAVES = "no_saves"
+    CLOUD_OFFLINE = "cloud_offline"
 
 
 @dataclass
@@ -103,8 +104,14 @@ def _get_cloud_listing(force_refresh: bool = False) -> dict:
         return data
     except Exception as e:
         logger.debug(f"Failed to fetch cloud game listing: {e}")
+        # A stale listing must never masquerade as current cloud state —
+        # serving one made offline clients report sync statuses from data
+        # that could be hours old. Within the freshness window the cache is
+        # still the best-known state; beyond it, the cloud is unreachable.
         with _LISTING_LOCK:
-            return _LISTING_CACHE["data"] or {"games": []}
+            if _LISTING_CACHE["data"] and (time.time() - _LISTING_CACHE["ts"] < 30.0):
+                return _LISTING_CACHE["data"]
+        raise
 
 
 def _invalidate_cloud_listing():
@@ -268,7 +275,9 @@ class CloudSaveSyncEngine:
             cloud_stats, _snap = cls._remote_stats(key)
             if cloud_stats is not None:
                 return cls._decide(local_stats, cloud_stats)
-            # Cloud unreachable → fall through to local-folder semantics.
+            # Cloud unreachable (network or auth failure): say so instead of
+            # guessing a sync state from the local-folder engine's disk cache.
+            return SyncStatus.CLOUD_OFFLINE, local_stats, SaveStats(exists=False)
 
         cloud_stats, _zip = cls.get_cloud_save_stats(game_name)
         return cls._decide(local_stats, cloud_stats)
@@ -368,7 +377,11 @@ class CloudSaveSyncEngine:
             if preserve_local_fork:
                 local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
                 if local_stats.exists and locations:
-                    snapshot = cls._remote_game_snapshot(key)
+                    try:
+                        snapshot = cls._remote_game_snapshot(key)
+                    except Exception as e:
+                        logger.warning(f"Cloud unreachable for '{game_name}': {e}")
+                        return False
                     pre_top = ((snapshot or {}).get("versions") or [{}])[0].get("version")
                     if not cls.sync_local_to_cloud(game_name, game_path, steam_id):
                         logger.warning(

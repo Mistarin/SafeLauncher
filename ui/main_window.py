@@ -2285,6 +2285,9 @@ class MainWindow(QMainWindow):
             elif status == SyncStatus.CLOUD_ONLY:
                 self.detail_cloud_status.setText("<font color='#3B9FE8'><b>▼ Cloud Save: Available</b></font>")
                 self.detail_cloud_status.setToolTip("Cloud save exists and will be auto-restored on launch.")
+            elif status == SyncStatus.CLOUD_OFFLINE:
+                self.detail_cloud_status.setText("<font color='#6F7682'><b>○ Cloud Save: Not Connected</b></font>")
+                self.detail_cloud_status.setToolTip("Cloud backend unreachable (offline, or Secret Key not configured). Cloud status unknown.")
             elif status == SyncStatus.NO_SAVES or (local_stats is not None and not getattr(local_stats, "exists", False)):
                 self.detail_cloud_status.setText("<font color='#F05D6C'><b>✕ Cloud Save: Save not found</b></font>")
                 self.detail_cloud_status.setToolTip("Game save not found. SafeLauncher will not upload entire game files.")
@@ -2658,7 +2661,9 @@ class MainWindow(QMainWindow):
             payload = {"proceed": True, "needs_conflict": False, "toast": "", "ctx": ctx}
             try:
                 status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(game_name, path, steam_id)
-                if status == SyncStatus.CLOUD_ONLY:
+                if status == SyncStatus.CLOUD_OFFLINE:
+                    payload["toast"] = f"Cloud not connected — launching '{game_name}' with local saves."
+                elif status == SyncStatus.CLOUD_ONLY:
                     ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path)
                     if ok:
                         payload["toast"] = f"Restored cloud save for '{game_name}'."

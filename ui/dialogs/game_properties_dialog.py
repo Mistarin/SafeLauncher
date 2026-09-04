@@ -575,7 +575,8 @@ class GamePropertiesDialog(QDialog):
             SyncStatus.LOCAL_NEWER: "<font color='#3B9FE8'><b>Local Save is Newer</b></font> (Ready to upload)",
             SyncStatus.CLOUD_NEWER: "<font color='#E5A93D'><b>Cloud Save is Newer</b></font> (Cloud contains newer save)",
             SyncStatus.CLOUD_ONLY: "<font color='#3B9FE8'><b>Cloud Save Available</b></font> (No local save found)",
-            SyncStatus.NO_SAVES: "<font color='#6F7682'>No local or cloud save files found</font>"
+            SyncStatus.NO_SAVES: "<font color='#6F7682'>No local or cloud save files found</font>",
+            SyncStatus.CLOUD_OFFLINE: "<font color='#6F7682'><b>Cloud Not Connected</b></font> (Offline, or Secret Key not configured on this device)"
         }
         self.lbl_cloud_status.setText(status_text_map.get(status, "Unknown"))
 
