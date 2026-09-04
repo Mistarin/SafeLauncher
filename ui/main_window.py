@@ -902,20 +902,11 @@ class MainWindow(QMainWindow):
             self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: checking…</font>")
             self.detail_cloud_status.setToolTip("Cloud settings changed — re-checking.")
         self._save_persistent_cache()
-        self._start_background_cloud_sync()
+        self.request_cloud_recheck(None, "config-change")
 
     def refresh_cloud_status_for_game(self, game_id: int):
         """Re-check one game's cloud status and update its badge when done."""
-        game = self.games_by_id.get(game_id)
-        if not game:
-            return
-        name = game[1]
-        path = game[2]
-        steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
-        fetcher = CloudSaveStatusFetcherThread(game_id, name, path, steam_id, parent=self)
-        fetcher.save_status_calculated.connect(self._on_cloud_save_status_calculated)
-        self._track_metadata_fetcher(fetcher)
-        fetcher.start()
+        self.request_cloud_recheck([game_id], "explicit")
 
     def _open_proton_manager(self):
         if isinstance(self.selected_game, tuple):
@@ -3090,45 +3081,115 @@ class MainWindow(QMainWindow):
                     f"wasn't uploaded. SafeLauncher will ask which to keep next launch."
                 )
 
-    def _start_background_cloud_sync(self):
-        """Run startup cloud save check & sync queue across library with a concurrency pool of 3."""
+    def request_cloud_recheck(self, game_ids=None, reason: str = ""):
+        """THE single entry point for cloud status re-checks.
+
+        Every feature routes through here — startup scan, poll timer, settings
+        and account dialogs, game properties, exit uploads — so the re-check
+        policy (backend gating, duplicate suppression, in-flight limits,
+        prioritisation) is defined exactly once and behaves predictably.
+
+        game_ids=None  -> every game (startup, cloud config change)
+        game_ids=[]    -> only games whose cloud copy changed (listing diff)
+        game_ids=[…]   -> exactly these games (after uploads, restores, edits)
+        """
         import time
-        games_snapshot = list(self.games)
-        if not games_snapshot:
+        from core.cloud_save_sync import backend_active, SyncStatus
+        if not backend_active():
+            return
+        tag = f" ({reason})" if reason else ""
+        games_snapshot = [
+            (g[0], g[1], g[2], str(g[6]).strip() if len(g) > 6 and g[6] else "")
+            for g in list(self.games)
+        ]
+
+        if game_ids is None:
+            # Whole library, most important first: uncached, then games whose
+            # last check failed offline (retry), then stale (> 2 h), then
+            # fresh. Cached values are already displayed instantly via
+            # _refresh_library, so this only refines what the user sees.
+            now = time.time()
+            uncached, offline, stale, fresh = [], [], [], []
+            for g in games_snapshot:
+                cached = self.cloud_save_status_cache.get(g[0])
+                if cached is None:
+                    uncached.append(g)
+                elif cached[0] == SyncStatus.CLOUD_OFFLINE:
+                    offline.append(g)
+                elif (now - getattr(self, "_cloud_save_checked_ts", {}).get(g[0], 0)) > 7200:
+                    stale.append(g)
+                else:
+                    fresh.append(g)
+            targets = uncached + offline + stale + fresh
+            if not targets:
+                logger.info(f"Cloud recheck{tag}: nothing to scan.")
+                return
+            if any(isinstance(f, CloudSaveBatchQueueWorker) and f.isRunning()
+                   for f in self.metadata_fetchers):
+                logger.info(f"Cloud recheck{tag} skipped: batch worker already running.")
+                return
+            worker = CloudSaveBatchQueueWorker(targets, max_workers=3, parent=self)
+            worker.game_status_ready.connect(self._on_cloud_save_status_calculated)
+            worker.batch_finished.connect(self._on_cloud_batch_finished)
+            self._track_metadata_fetcher(worker)
+            worker.start()
             return
 
-        # Queue the whole library, most important first: games with no cached
-        # status, then games whose last check failed offline (retry), then
-        # stale (> 2 h) ones, and finally fresh ones so every badge still gets
-        # a live confirmation. Cached values are already displayed instantly
-        # via _refresh_library, so this only ever refines what the user sees.
-        from core.cloud_save_sync import SyncStatus
-        now = time.time()
-        uncached, offline, stale, fresh = [], [], [], []
-        for g in games_snapshot:
-            if not g:
+        if game_ids:
+            by_id = {g[0]: g for g in games_snapshot}
+            self._spawn_status_fetchers(
+                [by_id[gid] for gid in game_ids if gid in by_id],
+                self._on_cloud_save_status_calculated, tag)
+            return
+
+        # Changed-only: diff a fresh listing against the cached statuses on a
+        # worker thread, then fetch full statuses for the games that moved.
+        if getattr(self, "_cloud_poll_in_flight", False):
+            logger.info(f"Cloud recheck{tag} skipped: diff already in flight.")
+            return
+        self._cloud_poll_in_flight = True
+        cache_snapshot = dict(self.cloud_save_status_cache)
+
+        def _diff():
+            from core.cloud_save_sync import CloudSaveSyncEngine, _get_cloud_listing, resolve_name_key
+            try:
+                _get_cloud_listing(force_refresh=True)
+            except Exception:
+                self._cloud_poll_in_flight = False
+                return
+            changed = []
+            for gid, name, path, steam_id in games_snapshot:
+                try:
+                    stats, _snap = CloudSaveSyncEngine._remote_stats(resolve_name_key(name))
+                    if stats is None or not stats.exists:
+                        continue
+                    cached = cache_snapshot.get(gid)
+                    cached_mtime = cached[2].last_modified if cached and cached[2] else None
+                    if cached_mtime is None or abs(stats.last_modified - cached_mtime) > 2.0:
+                        changed.append((gid, name, path, steam_id))
+                except Exception:
+                    continue
+            self._cloud_poll_in_flight = False
+            if changed:
+                self._cloud_poll_changed.emit(changed)
+
+        threading.Thread(target=_diff, daemon=True, name="SafeLauncher-CloudRecheckDiff").start()
+
+    def _spawn_status_fetchers(self, targets: list, on_result, tag: str = ""):
+        """Spawn per-game status fetchers, skipping games already in flight."""
+        for gid, name, path, steam_id in targets:
+            if any(isinstance(f, CloudSaveStatusFetcherThread) and f.game_id == gid and f.isRunning()
+                   for f in self.metadata_fetchers):
+                logger.debug(f"Cloud recheck{tag}: fetcher for '{name}' already running.")
                 continue
-            gid = g[0]
-            cached = self.cloud_save_status_cache.get(gid)
-            if cached is None:
-                uncached.append(g)
-            elif cached[0] == SyncStatus.CLOUD_OFFLINE:
-                offline.append(g)
-            elif (now - getattr(self, "_cloud_save_checked_ts", {}).get(gid, 0)) > 7200:
-                stale.append(g)
-            else:
-                fresh.append(g)
+            fetcher = CloudSaveStatusFetcherThread(gid, name, path or "", steam_id or "", parent=self)
+            fetcher.save_status_calculated.connect(on_result)
+            self._track_metadata_fetcher(fetcher)
+            fetcher.start()
 
-        games_to_process = uncached + offline + stale + fresh
-        if not games_to_process:
-            logger.info("No games to scan for cloud save status.")
-            return
-
-        worker = CloudSaveBatchQueueWorker(games_to_process, max_workers=3, parent=self)
-        worker.game_status_ready.connect(self._on_cloud_save_status_calculated)
-        worker.batch_finished.connect(self._on_cloud_batch_finished)
-        self._track_metadata_fetcher(worker)
-        worker.start()
+    def _start_background_cloud_sync(self):
+        """Startup cloud save check & sync queue across the library."""
+        self.request_cloud_recheck(None, "startup")
 
     def _on_cloud_batch_finished(self, uploaded: list, newer_in_cloud: list):
         """GUI-thread slot when library background cloud batch queue completes."""
@@ -3144,6 +3205,7 @@ class MainWindow(QMainWindow):
     def _start_cloud_poll_timer(self):
         """Poll the cloud every 5 minutes so saves uploaded from another
         device surface mid-session instead of only at launch/exit."""
+        self._cloud_poll_in_flight = False
         self._cloud_poll_timer = QTimer(self)
         self._cloud_poll_timer.setInterval(5 * 60 * 1000)
         self._cloud_poll_timer.timeout.connect(self._poll_cloud_for_changes)
@@ -3151,48 +3213,11 @@ class MainWindow(QMainWindow):
         self._cloud_poll_timer.start()
 
     def _poll_cloud_for_changes(self):
-        from core.cloud_save_sync import backend_active
-        if not backend_active():
-            return
-        games_snapshot = [
-            (g[0], g[1], g[2], str(g[6]).strip() if len(g) > 6 and g[6] else "")
-            for g in list(self.games)
-        ]
-        cache_snapshot = dict(self.cloud_save_status_cache)
-
-        def _work():
-            from core.cloud_save_sync import CloudSaveSyncEngine, _get_cloud_listing, resolve_name_key
-            try:
-                _get_cloud_listing(force_refresh=True)
-            except Exception:
-                return
-            changed = []
-            for gid, name, path, steam_id in games_snapshot:
-                try:
-                    stats, _snap = CloudSaveSyncEngine._remote_stats(resolve_name_key(name))
-                    if stats is None or not stats.exists:
-                        continue
-                    cached = cache_snapshot.get(gid)
-                    cached_mtime = cached[2].last_modified if cached and cached[2] else None
-                    if cached_mtime is None or abs(stats.last_modified - cached_mtime) > 2.0:
-                        changed.append((gid, name, path, steam_id))
-                except Exception:
-                    continue
-            if changed:
-                self._cloud_poll_changed.emit(changed)
-
-        threading.Thread(target=_work, daemon=True, name="SafeLauncher-CloudPoll").start()
+        self.request_cloud_recheck([], "poll")
 
     def _on_cloud_poll_changed(self, changed: list):
         """GUI-thread: re-derive full status for games whose cloud copy changed."""
-        for gid, name, path, steam_id in changed:
-            if any(isinstance(f, CloudSaveStatusFetcherThread) and f.game_id == gid
-                   for f in self.metadata_fetchers):
-                continue
-            fetcher = CloudSaveStatusFetcherThread(gid, name, path or "", steam_id or "", parent=self)
-            fetcher.save_status_calculated.connect(self._on_polled_cloud_status)
-            self._track_metadata_fetcher(fetcher)
-            fetcher.start()
+        self._spawn_status_fetchers(changed, self._on_polled_cloud_status, "poll")
 
     def _on_polled_cloud_status(self, game_id: int, status, local_stats, cloud_stats):
         from core.cloud_save_sync import SyncStatus

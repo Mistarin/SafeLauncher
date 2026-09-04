@@ -476,8 +476,8 @@ class AccountDialog(QDialog):
     def _notify_ancestor_poll(self, *_):
         parent = self.parent()
         while parent is not None:
-            if hasattr(parent, "_poll_cloud_for_changes"):
-                parent._poll_cloud_for_changes()
+            if hasattr(parent, "request_cloud_recheck"):
+                parent.request_cloud_recheck([], "manager-close")
                 return
             parent = parent.parent()
 
