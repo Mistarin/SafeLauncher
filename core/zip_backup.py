@@ -3,6 +3,7 @@ import json
 import time
 import shutil
 import zipfile
+import hashlib
 import tempfile
 from typing import List, Optional
 from core.interfaces import IBackupManager
@@ -263,6 +264,38 @@ class ZipBackupManager(IBackupManager):
         finally:
             if staging_root and os.path.isdir(staging_root):
                 shutil.rmtree(staging_root, ignore_errors=True)
+
+    def verify_import(self, import_zip_path: str, destination_path: str, game_path: str = "") -> bool:
+        """Content-check a completed import: every archive member must exist on
+        disk with identical bytes at the location import_save would place it.
+
+        This is what makes a 'restore succeeded' claim trustworthy — a merge
+        that a concurrently running game immediately rewrote, or that silently
+        placed nothing, fails here instead of lying to the user.
+        """
+        home_dir = os.path.expanduser("~")
+        game_abs = os.path.abspath(game_path) if game_path else ""
+        try:
+            with zipfile.ZipFile(import_zip_path, 'r') as zipf:
+                planned = self._plan_manifest_import(
+                    zipf, os.path.abspath(destination_path), game_abs, home_dir)
+                if planned is None:
+                    return False
+                checked = 0
+                for member, final_path, _mtime in planned:
+                    final_path = os.path.normpath(final_path)
+                    if not os.path.isfile(final_path):
+                        logger.warning(f"Restore verification: missing {final_path}")
+                        return False
+                    if hashlib.sha256(zipf.read(member)).digest() != \
+                            hashlib.sha256(open(final_path, 'rb').read()).digest():
+                        logger.warning(f"Restore verification: content mismatch at {final_path}")
+                        return False
+                    checked += 1
+                return checked > 0
+        except Exception as e:
+            logger.warning(f"Restore verification failed: {e}")
+            return False
 
     def _plan_manifest_import(self, zipf, dest_abs: str, game_abs: str = "",
                               home_dir: str = "") -> Optional[list]:

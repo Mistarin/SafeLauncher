@@ -668,9 +668,22 @@ class GamePropertiesDialog(QDialog):
             QMessageBox.warning(self, "Cloud Sync", "No local save files found to upload.")
 
     def _is_game_running(self) -> bool:
+        """True only when a live process for this game is actually tracked.
+
+        running_game_ids alone is not trustworthy: a finished session whose
+        tracker got stuck (wrapper outliving the game window) would keep the
+        id forever and block restores with a phantom 'game is running'.
+        """
         p = self.parent_window
-        running = getattr(p, "running_game_ids", None) if p is not None else None
-        return bool(running and self.game_id in running)
+        if p is None:
+            return False
+        for tracker in getattr(p, "playtime_trackers", []):
+            if getattr(tracker, "game_id", None) != self.game_id:
+                continue
+            proc = getattr(tracker, "process", None)
+            if proc is not None and proc.poll() is None:
+                return True
+        return False
 
     def _sync_down_now(self):
         if self._is_game_running():
@@ -680,25 +693,10 @@ class GamePropertiesDialog(QDialog):
                 "save files when it exits, so restoring the cloud save now would be undone.\n\n"
                 "Close the game first, then download the cloud save.")
             return
-        from core.cloud_save_sync import CloudSaveSyncEngine, resolve_name_key
+        from core.cloud_save_sync import CloudSaveSyncEngine
+        # sync_cloud_to_local now content-verifies the restored files against
+        # the cloud archive — a success here means the bytes really landed.
         if CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path):
-            # Integrity check: the merge rewrote the save files with the
-            # cloud's content and original mtimes. If local state is suddenly
-            # NEWER than the cloud right after a restore, something (almost
-            # always a running game) overwrote the files again.
-            try:
-                local_stats, _ = CloudSaveSyncEngine.get_local_save_stats(
-                    self.game_name, self.game_path, self.steam_id)
-                _cs, snap = CloudSaveSyncEngine._remote_stats(resolve_name_key(self.game_name))
-                cloud_mtime = float(snap["versions"][0]["sourceMaxMtime"]) if snap and snap.get("versions") else 0.0
-                if local_stats.exists and cloud_mtime and local_stats.last_modified > cloud_mtime + 2.0:
-                    QMessageBox.warning(
-                        self, "Restore May Have Been Overwritten",
-                        f"The cloud save was extracted, but the local save files are already newer "
-                        f"than it again — a running game most likely rewrote them.\n\n"
-                        f"Close '{self.game_name}' completely and download the cloud save again.")
-            except Exception as e:
-                logger.debug(f"Post-restore integrity check failed: {e}")
             QMessageBox.information(self, "Cloud Sync", "Cloud save successfully restored to game prefix.")
             self._load_save_stats_async()
             self._notify_parent_cloud_changed()

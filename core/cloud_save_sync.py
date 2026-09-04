@@ -402,6 +402,9 @@ class CloudSaveSyncEngine:
             try:
                 backup_mgr = ZipBackupManager()
                 success = backup_mgr.import_save(plain_zip, target_dest, game_path=game_path)
+                if success and not backup_mgr.verify_import(plain_zip, target_dest, game_path=game_path):
+                    logger.warning(f"Restored files for '{game_name}' do not match the cloud archive.")
+                    success = False
             finally:
                 try:
                     os.unlink(plain_zip)
@@ -438,6 +441,9 @@ class CloudSaveSyncEngine:
 
         backup_mgr = ZipBackupManager()
         success = backup_mgr.import_save(cloud_zip, target_dest, game_path=game_path)
+        if success and not backup_mgr.verify_import(cloud_zip, target_dest, game_path=game_path):
+            logger.warning(f"Restored files for '{game_name}' do not match the cloud archive.")
+            success = False
         if success:
             logger.info(f"Successfully restored cloud save archive for '{game_name}' into {target_dest}")
         else:
