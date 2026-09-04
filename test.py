@@ -174,7 +174,19 @@ try:
 
     app = QApplication.instance() or QApplication([])
     db_mem = GameDatabase(":memory:")
+    # A fresh QSettings (like a CI runner) defaults show_welcome_wizard=True;
+    # its modal exec() would fire inside a later nested event loop and hang
+    # the suite forever. The offscreen tests simulate a returning user.
+    # MainWindow captures the flag in __init__, so restore right after.
+    from PyQt6.QtCore import QSettings as _QSettings
+    _qs = _QSettings("SafeLauncher", "SafeLauncher")
+    _old_wizard = _qs.value("show_welcome_wizard")
+    _qs.setValue("show_welcome_wizard", False)
     mw = MainWindow(db_mem, runner, backup)
+    if _old_wizard is None:
+        _qs.remove("show_welcome_wizard")
+    else:
+        _qs.setValue("show_welcome_wizard", _old_wizard)
     dlg = AddGameDialog(mw, mw.sgdb_client)
     print("✓ UI MainWindow and AddGameDialog instantiated cleanly offscreen")
 except Exception as e:
