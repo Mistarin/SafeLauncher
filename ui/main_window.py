@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
         self._hero_attempted = set()
         self._icon_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
+        self._background_workers = []  # authoritative registry for shutdown (see _register_worker)
         # running_game_ids is a derived property over playtime_trackers — it
         # can never go stale, unlike the old manually-maintained add/discard set.
         self.topbar_extractor_thread = None
@@ -202,7 +203,7 @@ class MainWindow(QMainWindow):
             in_game_overlay=self.settings.value("gpu_recorder_in_game_overlay", self.settings.value("wl_screenrec_in_game_overlay", True, type=bool), type=bool),
         )
         self.wl_recorder_config = self.gpu_recorder_config
-        GpuRecorderService.instance().config = self.gpu_recorder_config
+        GpuRecorderService.instance().apply_config(self.gpu_recorder_config)
 
         # Initialize background global hotkey daemon for in-game shortcuts
         self.global_hotkeys = GlobalHotkeyListener(self)
@@ -866,7 +867,7 @@ class MainWindow(QMainWindow):
             self.settings.setValue("gpu_recorder_capture_hotkey", self.gpu_recorder_config.capture_hotkey)
             self.settings.setValue("gpu_recorder_replay_hotkey", self.gpu_recorder_config.replay_hotkey)
             self.settings.setValue("gpu_recorder_in_game_overlay", self.gpu_recorder_config.in_game_overlay)
-            GpuRecorderService.instance().config = self.gpu_recorder_config
+            GpuRecorderService.instance().apply_config(self.gpu_recorder_config)
             self._update_global_hotkeys()
             self._refresh_record_button_state()
 
@@ -1466,6 +1467,7 @@ class MainWindow(QMainWindow):
                 if len(self.auto_fetchers) < self.max_concurrent_auto_fetchers:
                     fetcher.start()
                     self.auto_fetchers.append(fetcher)
+                    self._register_worker(fetcher)
                 else:
                     self._pending_auto_fetchers.append(fetcher)
             
@@ -1570,6 +1572,8 @@ class MainWindow(QMainWindow):
     def _cleanup_auto_fetcher(self, fetcher):
         if fetcher in self.auto_fetchers:
             self.auto_fetchers.remove(fetcher)
+        if fetcher in self._background_workers:
+            self._background_workers.remove(fetcher)
         # Defer Qt-side destruction to the event loop: finished fires while the
         # OS thread is still terminating, and dropping the last Python reference
         # here can destroy a running QThread.
@@ -1599,11 +1603,20 @@ class MainWindow(QMainWindow):
     def _track_metadata_fetcher(self, fetcher):
         fetcher.finished.connect(lambda f=fetcher: self._cleanup_metadata_fetcher(f))
         self.metadata_fetchers.append(fetcher)
+        self._register_worker(fetcher)
         fetcher.start()
+
+    def _register_worker(self, worker):
+        """Authoritative registry of every background worker. closeEvent stops
+        exactly this list, so a worker appended to a semantic list but missed
+        here can no longer survive shutdown."""
+        self._background_workers.append(worker)
 
     def _cleanup_metadata_fetcher(self, fetcher):
         if fetcher in self.metadata_fetchers:
             self.metadata_fetchers.remove(fetcher)
+        if fetcher in self._background_workers:
+            self._background_workers.remove(fetcher)
         try:
             fetcher.deleteLater()
         except RuntimeError:
@@ -2042,6 +2055,7 @@ class MainWindow(QMainWindow):
             fetcher.offline_detected.connect(self._on_update_check_offline)
             fetcher.finished.connect(finished_one)
             self.metadata_fetchers.append(fetcher)
+            self._register_worker(fetcher)
             self.metadata_attempted_builds.add(game_id)
             pending[0] += 1
             fetcher.finished.connect(lambda f=fetcher: self._cleanup_metadata_fetcher(f))
@@ -2058,6 +2072,7 @@ class MainWindow(QMainWindow):
         fetcher.check_failed.connect(lambda gid, reason: self.metadata_attempted_builds.discard(gid))
         fetcher.finished.connect(lambda f=fetcher: self._cleanup_metadata_fetcher(f))
         self.metadata_fetchers.append(fetcher)
+        self._register_worker(fetcher)
         fetcher.start()
 
     def _on_initial_steam_build_checked(self, game_id: int, build_id: str, build_date: int, _needs_update: bool):
@@ -3284,7 +3299,10 @@ class MainWindow(QMainWindow):
         for tracker in list(self.playtime_trackers):
             tracker.stop()
 
-        workers = list(self.metadata_fetchers) + list(self.auto_fetchers) + list(self.playtime_trackers)
+        # _background_workers is the authoritative registry (semantic lists may
+        # overlap); dedupe so a worker is stopped exactly once.
+        workers = list(dict.fromkeys(
+            list(self._background_workers) + list(self.playtime_trackers)))
         for worker in workers:
             if worker.isRunning():
                 # Network requests use short timeouts, but allow enough time

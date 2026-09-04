@@ -324,8 +324,8 @@ class CloudSaveBatchQueueWorker(SafeQThread):
 
         try:
             _get_cloud_listing(force_refresh=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Startup cloud listing refresh failed (offline?): {e}")
 
         uploaded_names = []
         newer_in_cloud_names = []

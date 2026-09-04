@@ -63,8 +63,8 @@ def get_site_url() -> str:
             discovered = discover_local_cloud_backend()
             if discovered:
                 return discovered.rstrip("/")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Local cloud backend discovery failed: {e}")
     return url
 
 
