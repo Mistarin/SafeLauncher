@@ -8,8 +8,7 @@ from core.firejail_runner import FirejailSandboxRunner
 from core.zip_backup import ZipBackupManager
 from core.dependency_checker import install_requirements, missing_requirements
 
-# Single source of truth for the application version.
-__version__ = "0.3.1"
+from core.version import APP_VERSION, __version__
 
 logger = get_logger("Main")
 

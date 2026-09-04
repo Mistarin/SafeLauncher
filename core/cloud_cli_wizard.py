@@ -15,7 +15,11 @@ import requests
 from PyQt6.QtCore import QSettings
 
 from core.host_process import host_process_env
-from core.cloud_detector import discover_local_cloud_backend, detect_local_cloud_installation
+from core.cloud_detector import (
+    discover_local_cloud_backend,
+    detect_local_cloud_installation,
+    inspect_system_compatibility,
+)
 
 
 def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Path]:
@@ -119,8 +123,22 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
             return None
         server_dir = downloaded
 
-    if not shutil.which("npm"):
-        print("  [✖] Node.js & npm are required. Please install Node.js (e.g. sudo pacman -S nodejs npm or sudo apt install nodejs npm).")
+    compat = inspect_system_compatibility()
+    if not compat["has_npm"]:
+        if compat["is_steamos"] or compat["is_immutable"]:
+            print("\n  \033[93m[!] Steam Deck / Immutable OS detected without Node.js & npm.\033[0m")
+            print("  Because rootfs is read-only, pacman cannot be used to install npm.")
+            print("\n  \033[1mRecommended Alternatives:\033[0m")
+            print("  1) \033[92m1-Click Web Deployment:\033[0m Deploy in your browser with zero CLI setup:")
+            print("     https://github.com/Mistarin/SafeLauncherCloud")
+            print("     Then re-run this wizard and select Option 1 (Connect to existing backend).")
+            print("\n  2) \033[96mUser-space NVM Installation\033[0m (installs Node.js in home directory):")
+            print("     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash")
+            print("     source ~/.bashrc && nvm install 20\n")
+        else:
+            print(f"  [✖] Node.js & npm are required for deployment. ({compat['reason']})")
+            print("      Install Node.js via your package manager (e.g. sudo pacman -S nodejs npm or sudo apt install nodejs npm),")
+            print("      or deploy via web browser at https://github.com/Mistarin/SafeLauncherCloud\n")
         return None
 
     clean_env = host_process_env()
@@ -212,6 +230,16 @@ def run_cloud_setup_wizard() -> int:
     # Step 1: Choose Setup Mode
     banner("[1/3] Choose Setup Mode", CYAN)
     print("  SafeLauncher stores game saves encrypted on your personal Convex cloud (1 GB free storage).\n")
+
+    compat = inspect_system_compatibility()
+    if compat["is_steamos"] or compat["is_immutable"]:
+        print(f"  {YELLOW}{BOLD}● Host Diagnostic:{RESET} Steam Deck / Immutable OS detected.")
+        if not compat["has_npm"]:
+            print(f"    {DIM}(Node.js not installed on host. Connect mode or Web deployment recommended){RESET}\n")
+        else:
+            print(f"    {GREEN}Node.js ({compat['node_version']}) available.{RESET}\n")
+    elif compat["can_deploy_locally"]:
+        print(f"  {GREEN}{BOLD}✔ Host Diagnostic:{RESET} Node.js ({compat['node_version'] or 'detected'}) & npm are ready.\n")
     print(f"  {BOLD}1) Connect to an already created cloud database{RESET}  {GREEN}(Recommended){RESET}")
     print(f"     {DIM}• For secondary devices (such as a laptop, Steam Deck, or another PC).{RESET}")
     print(f"     {DIM}• You do NOT need Node.js, npm, git, or server files on this machine!{RESET}")

@@ -1,15 +1,17 @@
 """Interactive setup wizard dialog for SafeLauncher private cloud saves."""
 
+import os
 import threading
 import requests
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QStackedWidget, QWidget, QMessageBox, QApplication,
-    QRadioButton, QButtonGroup, QFrame
+    QRadioButton, QButtonGroup, QFrame, QScrollArea
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSettings
+from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QUrl
+from PyQt6.QtGui import QDesktopServices
 
-from core.cloud_detector import discover_local_cloud_backend
+from core.cloud_detector import discover_local_cloud_backend, inspect_system_compatibility
 from core.cloud_backend import get_site_url
 
 
@@ -21,7 +23,7 @@ class CloudWizardDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Cloud Save Setup Wizard")
-        self.resize(580, 460)
+        self.resize(620, 520)
         self.setStyleSheet("""
             QDialog {
                 background-color: #121214;
@@ -71,11 +73,18 @@ class CloudWizardDialog(QDialog):
                 width: 16px;
                 height: 16px;
             }
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
         """)
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(24, 24, 24, 24)
         self.layout.setSpacing(16)
+
+        # Preflight system compatibility
+        self.compat = inspect_system_compatibility()
 
         # Header
         self.title_lbl = QLabel("Private Cloud Save Setup")
@@ -125,6 +134,47 @@ class CloudWizardDialog(QDialog):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
+
+        # Preflight Host Compatibility Diagnostic Banner
+        banner_box = QFrame()
+        bb_layout = QHBoxLayout(banner_box)
+        bb_layout.setContentsMargins(12, 10, 12, 10)
+
+        if self.compat["can_deploy_locally"]:
+            banner_box.setStyleSheet("""
+                QFrame {
+                    background-color: rgba(16, 185, 129, 0.12);
+                    border: 1px solid #10B981;
+                    border-radius: 8px;
+                }
+            """)
+            lbl_diag = QLabel(f"🟢 <b>Host Environment Ready:</b> Node.js ({self.compat['node_version'] or 'detected'}) & npm available for local deployment.")
+            lbl_diag.setStyleSheet("color: #6EE7B7; font-size: 12px;")
+        elif self.compat["is_steamos"] or self.compat["is_immutable"]:
+            banner_box.setStyleSheet("""
+                QFrame {
+                    background-color: rgba(245, 158, 11, 0.12);
+                    border: 1px solid #F59E0B;
+                    border-radius: 8px;
+                }
+            """)
+            lbl_diag = QLabel("⚠️ <b>Steam Deck / Immutable OS:</b> Rootfs is read-only. 1-Click web deployment or Connect mode is recommended.")
+            lbl_diag.setStyleSheet("color: #FCD34D; font-size: 12px;")
+            lbl_diag.setWordWrap(True)
+        else:
+            banner_box.setStyleSheet("""
+                QFrame {
+                    background-color: rgba(59, 130, 246, 0.12);
+                    border: 1px solid #3B82F6;
+                    border-radius: 8px;
+                }
+            """)
+            lbl_diag = QLabel("ℹ️ <b>Host Notice:</b> Node.js & npm not detected. 1-Click web deployment or Connect mode is recommended.")
+            lbl_diag.setStyleSheet("color: #93C5FD; font-size: 12px;")
+            lbl_diag.setWordWrap(True)
+
+        bb_layout.addWidget(lbl_diag)
+        layout.addWidget(banner_box)
 
         intro = QLabel("Choose how you would like to set up cloud synchronization on this device:")
         intro.setStyleSheet("color: #EDEDED; font-size: 13px;")
@@ -191,7 +241,7 @@ class CloudWizardDialog(QDialog):
 
         desc2 = QLabel(
             "<b>First-time setup</b>: Deploy a brand new private Convex cloud backend "
-            "(1 GB free cloud storage without monthly fees). SafeLauncher can download the repository and guide deployment automatically, or provide terminal commands."
+            "(1 GB free cloud storage without monthly fees). Supports 1-click web deployment or local automated CLI setup."
         )
         desc2.setWordWrap(True)
         desc2.setStyleSheet("color: #A1A1AA; font-size: 12px; margin-left: 24px;")
@@ -202,19 +252,56 @@ class CloudWizardDialog(QDialog):
         return widget
 
     def _create_deploy_page(self) -> QWidget:
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 8, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 4, 8, 8)
         layout.setSpacing(12)
 
-        desc = QLabel(
-            "<b>Step 1: Deploy your private Convex backend</b><br>"
-            "Convex provides 1 GB free cloud storage without monthly fees or credit card requirements.<br><br>"
-            "SafeLauncher can download the repository and launch deployment automatically in your terminal, "
-            "or you can run the manual commands below:"
+        # Section 1: Zero-CLI 1-Click Web Deployment
+        web_card = QFrame()
+        web_card.setStyleSheet("""
+            QFrame {
+                background-color: #18181B;
+                border: 1px solid #2563EB;
+                border-radius: 8px;
+                padding: 12px;
+            }
+        """)
+        wc_layout = QVBoxLayout(web_card)
+        wc_layout.setContentsMargins(6, 6, 6, 6)
+        wc_layout.setSpacing(8)
+
+        wc_title = QLabel("🌐 <b>1-Click Cloud Deploy (Recommended for Steam Deck & Zero-Terminal Users)</b>")
+        wc_title.setStyleSheet("color: #60A5FA; font-size: 13px;")
+        wc_layout.addWidget(wc_title)
+
+        wc_desc = QLabel(
+            "Deploy your personal Convex database directly in your browser with zero CLI setup.<br>"
+            "• 100% Free · 1 GB Storage · No credit card required · Zero Node.js or terminal required on this machine."
         )
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
+        wc_desc.setStyleSheet("color: #D1D5DB; font-size: 12px;")
+        wc_desc.setWordWrap(True)
+        wc_layout.addWidget(wc_desc)
+
+        btn_web_deploy = QPushButton("Deploy on Convex.dev (Free) ↗")
+        btn_web_deploy.setObjectName("primaryBtn")
+        btn_web_deploy.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_web_deploy.clicked.connect(self._open_web_deploy)
+        wc_layout.addWidget(btn_web_deploy)
+        layout.addWidget(web_card)
+
+        # Section 2: Automated Terminal Deployment (if Node.js available)
+        desc_cli = QLabel(
+            "<b>Option B: Automated or Manual Terminal Deployment</b><br>"
+            "If you have Node.js and npm installed, SafeLauncher can launch an automated setup terminal, "
+            "or you can run manual commands:"
+        )
+        desc_cli.setWordWrap(True)
+        desc_cli.setStyleSheet("color: #D1D5DB; font-size: 12px; margin-top: 4px;")
+        layout.addWidget(desc_cli)
 
         btn_auto = QPushButton("🚀 Launch Automated Setup Terminal…")
         btn_auto.setStyleSheet("background: #0284C7; font-weight: bold; padding: 10px;")
@@ -243,13 +330,62 @@ class CloudWizardDialog(QDialog):
         btn_copy.clicked.connect(lambda: self._copy_commands(cmd_box.text()))
         layout.addWidget(btn_copy)
 
-        hint = QLabel("💡 Setting a secret key is recommended to protect your 1 GB free quota from unauthorized uploads.")
+        # Section 3: Steam Deck NVM Fallback Instructions
+        nvm_card = QFrame()
+        nvm_card.setStyleSheet("""
+            QFrame {
+                background-color: #18181B;
+                border: 1px solid #3F3F46;
+                border-radius: 6px;
+                padding: 10px;
+            }
+        """)
+        nc_layout = QVBoxLayout(nvm_card)
+        nc_layout.setContentsMargins(6, 6, 6, 6)
+        nc_layout.setSpacing(6)
+
+        nc_title = QLabel("🎮 <b>Steam Deck / Immutable OS NVM Fallback</b>")
+        nc_title.setStyleSheet("color: #FBBF24; font-size: 12px;")
+        nc_layout.addWidget(nc_title)
+
+        nc_desc = QLabel(
+            "To use the CLI on Steam Deck without modifying the read-only partition, "
+            "install Node.js into your user profile via NVM:"
+        )
+        nc_desc.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        nc_desc.setWordWrap(True)
+        nc_layout.addWidget(nc_desc)
+
+        nvm_cmd = "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash && source ~/.bashrc && nvm install 20"
+        lbl_nvm = QLabel(nvm_cmd)
+        lbl_nvm.setStyleSheet("""
+            background-color: #121214;
+            border: 1px solid #27272A;
+            border-radius: 4px;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #34D399;
+        """)
+        lbl_nvm.setWordWrap(True)
+        nc_layout.addWidget(lbl_nvm)
+
+        btn_copy_nvm = QPushButton("Copy NVM Install Command")
+        btn_copy_nvm.clicked.connect(lambda: self._copy_commands(nvm_cmd))
+        nc_layout.addWidget(btn_copy_nvm)
+        layout.addWidget(nvm_card)
+
+        hint = QLabel("💡 After deploying, click 'Next' to enter your Convex Site URL.")
         hint.setStyleSheet("color: #FBBF24; font-size: 12px;")
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        layout.addStretch()
 
-        return widget
+        scroll.setWidget(content)
+        return scroll
+
+    def _open_web_deploy(self):
+        """Open browser to deploy SafeLauncherCloud repository on Convex."""
+        QDesktopServices.openUrl(QUrl("https://github.com/Mistarin/SafeLauncherCloud"))
 
     def _launch_automated_terminal(self):
         import shutil

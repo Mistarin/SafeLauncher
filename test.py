@@ -540,6 +540,296 @@ except Exception as e:
     print(f"✗ Account dialog test error: {e}")
     sys.exit(1)
 
+# ---------------------------------------------------------------------- #
+# Versioning, Updater, System Preflight, & Backend Health Verification     #
+# ---------------------------------------------------------------------- #
+try:
+    from unittest.mock import patch, MagicMock
+    from core.version import (
+        APP_VERSION,
+        MIN_CONVEX_BACKEND_VERSION,
+        parse_version,
+        compare_versions,
+        is_version_outdated,
+    )
+    from core.updater import (
+        is_appimage,
+        validate_appimage_header,
+        download_and_apply_appimage_update,
+        check_for_updates,
+    )
+    from core.cloud_detector import inspect_system_compatibility
+    from core.cloud_backend import check_backend_health, ConvexSaveBackend
+
+    # 1. Versioning assertions
+    assert APP_VERSION == "0.5.5", f"Expected APP_VERSION == 0.5.5, got {APP_VERSION}"
+    assert MIN_CONVEX_BACKEND_VERSION == "1.2.0"
+    assert parse_version("0.5.5") == (0, 5, 5)
+    assert parse_version("v1.2.0") == (1, 2, 0)
+    assert parse_version("1.2.0-rc1") == (1, 2, 0, 1)
+    assert compare_versions("0.5.5", "0.5.5") == 0
+    assert compare_versions("0.4.9", "0.5.5") == -1
+    assert compare_versions("0.5.6", "0.5.5") == 1
+    assert is_version_outdated("0.4.9", "0.5.5") is True
+    assert is_version_outdated("0.5.5", "0.5.5") is False
+    assert is_version_outdated("1.0.0", MIN_CONVEX_BACKEND_VERSION) is True
+    assert is_version_outdated("1.2.0", MIN_CONVEX_BACKEND_VERSION) is False
+    assert is_version_outdated("2.0.0", MIN_CONVEX_BACKEND_VERSION) is False
+    print("✓ Single-source version definitions and semver comparison verified")
+
+    # 2. Updater: AppImage detection & binary header validation
+    with tempfile.TemporaryDirectory() as td:
+        mock_appimage = os.path.join(td, "SafeLauncher-x86_64.AppImage")
+        with open(mock_appimage, "wb") as f:
+            # Valid ELF header (starts with \x7fELF)
+            f.write(b"\x7fELF\x02\x01\x01\x00AI\x02" + b"\x00" * 200000)
+
+        # Test header validator
+        assert validate_appimage_header(mock_appimage) is True
+
+        bad_binary = os.path.join(td, "corrupt.AppImage")
+        with open(bad_binary, "wb") as f:
+            f.write(b"NOT_AN_ELF_BINARY" * 1000)
+        assert validate_appimage_header(bad_binary) is False
+        assert validate_appimage_header("/nonexistent/file") is False
+
+        # Test is_appimage() with env
+        orig_env = os.environ.get("APPIMAGE")
+        try:
+            os.environ["APPIMAGE"] = mock_appimage
+            assert is_appimage() is True
+
+            # Test atomic download & apply simulation with valid ELF
+            def mock_get(url, **kwargs):
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_resp.headers = {"content-length": str(150000)}
+                mock_resp.iter_content = lambda chunk_size: [b"\x7fELF\x02\x01\x01\x00" + b"\x90" * 150000]
+                return mock_resp
+
+            with patch("requests.get", side_effect=mock_get):
+                res_path = download_and_apply_appimage_update(
+                    "https://mock.url/SafeLauncher.AppImage",
+                    target_appimage_path=mock_appimage,
+                    min_size_bytes=1024 * 100,
+                )
+                assert res_path == mock_appimage
+                mode = os.stat(mock_appimage).st_mode
+                assert mode & 0o111 != 0, "AppImage must have executable permissions"
+
+            # Test atomic download & apply rejection on invalid header
+            def mock_get_bad(url, **kwargs):
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_resp.headers = {"content-length": str(150000)}
+                mock_resp.iter_content = lambda chunk_size: [b"MALFORMED_HEADER" + b"\x00" * 150000]
+                return mock_resp
+
+            with patch("requests.get", side_effect=mock_get_bad):
+                try:
+                    download_and_apply_appimage_update(
+                        "https://mock.url/Bad.AppImage",
+                        target_appimage_path=mock_appimage
+                    )
+                    raise AssertionError("Should have rejected bad binary header")
+                except ValueError as ve:
+                    assert "valid Linux ELF" in str(ve)
+            # Test atomic download & apply rejection on suspicious small file
+            def mock_get_small(url, **kwargs):
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_resp.headers = {"content-length": "500"}
+                mock_resp.iter_content = lambda chunk_size: [b"\x7fELF" + b"\x00" * 496]
+                return mock_resp
+
+            with patch("requests.get", side_effect=mock_get_small):
+                try:
+                    download_and_apply_appimage_update(
+                        "https://mock.url/Small.AppImage",
+                        target_appimage_path=mock_appimage
+                    )
+                    raise AssertionError("Should have rejected suspiciously small file")
+                except ValueError as ve:
+                    assert "minimum plausible AppImage size" in str(ve)
+                assert not os.path.exists(mock_appimage + ".download")
+
+            # Test permission error on read-only directory
+            ro_dir = os.path.join(td, "ro_dir")
+            os.mkdir(ro_dir)
+            ro_target = os.path.join(ro_dir, "Target.AppImage")
+            os.chmod(ro_dir, 0o555)
+            try:
+                download_and_apply_appimage_update(
+                    "https://mock.url/SafeLauncher.AppImage",
+                    target_appimage_path=ro_target
+                )
+                raise AssertionError("Should have raised PermissionError for read-only directory")
+            except PermissionError as pe:
+                assert "not writable" in str(pe)
+            finally:
+                os.chmod(ro_dir, 0o755)
+
+            # Test asset preference: x86_64 AppImage preferred over arm64
+            def mock_release_assets(url, **kwargs):
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_resp.json = lambda: {
+                    "tag_name": "v0.5.6",
+                    "name": "Release 0.5.6",
+                    "body": "Bugfixes",
+                    "html_url": "https://github.com/Mistarin/SafeLauncher/releases/tag/v0.5.6",
+                    "assets": [
+                        {"name": "SafeLauncher-arm64.AppImage", "browser_download_url": "https://arm64.url", "size": 50000000},
+                        {"name": "SafeLauncher-x86_64.AppImage", "browser_download_url": "https://x86_64.url", "size": 52000000},
+                    ]
+                }
+                return mock_resp
+
+            with patch("requests.get", side_effect=mock_release_assets):
+                update_info = check_for_updates()
+                assert update_info["update_available"] is True
+                assert update_info["latest_version"] == "v0.5.6"
+                assert update_info["appimage_asset"] is not None
+                assert update_info["appimage_asset"]["name"] == "SafeLauncher-x86_64.AppImage"
+                assert update_info["appimage_asset"]["download_url"] == "https://x86_64.url"
+        finally:
+            if orig_env is not None:
+                os.environ["APPIMAGE"] = orig_env
+            else:
+                os.environ.pop("APPIMAGE", None)
+
+    print("✓ AppImage environment detection, header validation, and atomic update replacement verified")
+
+    # 3. System compatibility inspection
+    with tempfile.TemporaryDirectory() as td:
+        steamos_release = os.path.join(td, "steamos-release")
+        with open(steamos_release, "w") as f:
+            f.write('ID=steamos\nNAME="SteamOS"\nVARIANT_ID=steamdeck\n')
+
+        compat_deck = inspect_system_compatibility(os_release_path=steamos_release)
+        assert compat_deck["is_steamos"] is True
+        assert compat_deck["is_steam_deck"] is True
+        assert compat_deck["is_immutable"] is True
+        assert compat_deck["recommended_mode"] in ("web", "cli")
+
+        ubuntu_release = os.path.join(td, "ubuntu-release")
+        with open(ubuntu_release, "w") as f:
+            f.write('ID=ubuntu\nNAME="Ubuntu 24.04 LTS"\n')
+
+        compat_ubuntu = inspect_system_compatibility(os_release_path=ubuntu_release)
+        assert compat_ubuntu["is_steamos"] is False
+        assert compat_ubuntu["is_steam_deck"] is False
+    print("✓ System compatibility inspector (SteamOS, Steam Deck, immutable OS) verified")
+
+    # 4. Backend health check & version sync
+    h_unconf = check_backend_health(url="")
+    assert h_unconf["healthy"] is False
+    assert h_unconf["status"] == "unconfigured"
+
+    def mock_health_200(url, **kwargs):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = '{"status": "ok", "version": "1.2.0"}'
+        mock_resp.json = lambda: {"status": "ok", "version": "1.2.0"}
+        return mock_resp
+
+    with patch("requests.get", side_effect=mock_health_200):
+        h_ok = check_backend_health("https://mytest.convex.site")
+        assert h_ok["healthy"] is True
+        assert h_ok["status"] == "connected"
+        assert h_ok["version"] == "1.2.0"
+        assert h_ok["is_outdated"] is False
+        assert h_ok["latency_ms"] >= 0
+
+    def mock_health_outdated(url, **kwargs):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = '{"status": "ok", "version": "1.0.0"}'
+        mock_resp.json = lambda: {"status": "ok", "version": "1.0.0"}
+        return mock_resp
+
+    with patch("requests.get", side_effect=mock_health_outdated):
+        h_old = check_backend_health("https://mytest.convex.site")
+        assert h_old["healthy"] is True
+        assert h_old["status"] == "connected"
+        assert h_old["version"] == "1.0.0"
+        assert h_old["is_outdated"] is True
+
+    def mock_health_404(url, **kwargs):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        return mock_resp
+
+    with patch("requests.get", side_effect=mock_health_404):
+        h_legacy = check_backend_health("https://mytest.convex.site")
+        assert h_legacy["healthy"] is True
+        assert h_legacy["status"] == "legacy"
+        assert h_legacy["version"] == "1.0.0"
+        assert h_legacy["is_outdated"] is True
+
+    def mock_health_401(url, **kwargs):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 401
+        return mock_resp
+
+    with patch("requests.get", side_effect=mock_health_401):
+        h_unauth = check_backend_health("https://mytest.convex.site")
+        assert h_unauth["healthy"] is False
+        assert h_unauth["status"] == "unauthorized"
+
+    def mock_health_err(url, **kwargs):
+        raise requests.RequestException("Connection refused")
+
+    with patch("requests.get", side_effect=mock_health_err):
+        h_err = check_backend_health("https://mytest.convex.site")
+        assert h_err["healthy"] is False
+        assert h_err["status"] == "unreachable"
+        assert h_err["latency_ms"] == -1
+
+    # Test scheme-less URL auto-prefixed with https://
+    def mock_health_scheme_check(url, **kwargs):
+        assert url.startswith("https://scheme-less.convex.site"), f"URL did not get https prefix: {url}"
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json = lambda: {"status": "ok", "version": "1.2.0"}
+        return mock_resp
+
+    with patch("requests.get", side_effect=mock_health_scheme_check):
+        h_scheme = check_backend_health("scheme-less.convex.site")
+        assert h_scheme["healthy"] is True
+
+    backend_obj = ConvexSaveBackend(site_url="https://mytest.convex.site", secret_key="my_secret")
+    assert backend_obj.site_url == "https://mytest.convex.site"
+    assert backend_obj.secret_key == "my_secret"
+    with patch("requests.get", side_effect=mock_health_200):
+        res_m = backend_obj.check_health()
+        assert res_m["healthy"] is True
+        assert res_m["version"] == "1.2.0"
+
+    print("✓ Backend health check probe, roundtrip latency, and version synchronization verified")
+
+    # 5. UI smoke checks for updated dialogs
+    from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
+    wizard_dlg = CloudWizardDialog()
+    assert wizard_dlg.pages.count() == 3
+    QTimer.singleShot(50, wizard_dlg.accept)
+    wizard_dlg.exec()
+    print("✓ CloudWizardDialog instantiated cleanly with preflight banner and zero-CLI flow")
+
+    from ui.dialogs.settings_dialog import UserSettingsDialog
+    settings_dlg = UserSettingsDialog("TestUser")
+    assert hasattr(settings_dlg, "card_backend_health")
+    assert hasattr(settings_dlg, "btn_check_app_updates")
+    QTimer.singleShot(50, settings_dlg.accept)
+    settings_dlg.exec()
+    print("✓ UserSettingsDialog instantiated cleanly with backend health card and manual updater")
+
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"✗ Updater & Health sync test error: {e}")
+    sys.exit(1)
+
 print("\n✅ All SafeLauncher components tested and working cleanly!")
 
 
