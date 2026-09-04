@@ -821,6 +821,11 @@ class MainWindow(QMainWindow):
         )
         dialog.runtime_manager_requested.connect(self._open_runtime_manager)
         dialog.proton_manager_requested.connect(self._open_proton_manager)
+        cloud_before = (
+            self.settings.value("cloud_mode", "local", type=str),
+            self.settings.value("convex_site_url", "", type=str),
+            self.settings.value("cloud_secret_key", "", type=str),
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             previous_name = self.user_name
             self.user_name = dialog.get_user_name()
@@ -862,6 +867,55 @@ class MainWindow(QMainWindow):
             # user only touched recorder/screenshot settings.
             if self.user_name != previous_name:
                 self._show_toast(f"Display name changed to {self.user_name}.")
+
+        # Runs for accept AND reject: the Cloud tab writes backend settings the
+        # moment they are edited (mode combo) or via the embedded account
+        # dialog, so a rejected session may still have changed the config.
+        self._maybe_refresh_cloud_config(cloud_before)
+
+    def _maybe_refresh_cloud_config(self, before: tuple):
+        current = (
+            self.settings.value("cloud_mode", "local", type=str),
+            self.settings.value("convex_site_url", "", type=str),
+            self.settings.value("cloud_secret_key", "", type=str),
+        )
+        if current != before:
+            self._refresh_cloud_after_config_change()
+
+    def _refresh_cloud_after_config_change(self):
+        """Cloud backend settings changed: no cached verdict may survive it.
+
+        Drops the listing cache, the backend singleton (its data key belongs
+        to the previous deployment) and every per-game status. Badges go
+        neutral and the batch worker re-derives everything against the new
+        configuration — the UI must never keep claiming the old
+        connected/disconnected state.
+        """
+        import core.cloud_save_sync as css
+        css._invalidate_cloud_listing()
+        css._backend_singleton = None
+        self.cloud_save_status_cache.clear()
+        self._cloud_save_checked_ts.clear()
+        for widget in self.banner_widgets.values():
+            widget.set_cloud_status(None)
+        if self.selected_game:
+            self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: checking…</font>")
+            self.detail_cloud_status.setToolTip("Cloud settings changed — re-checking.")
+        self._save_persistent_cache()
+        self._start_background_cloud_sync()
+
+    def refresh_cloud_status_for_game(self, game_id: int):
+        """Re-check one game's cloud status and update its badge when done."""
+        game = self.games_by_id.get(game_id)
+        if not game:
+            return
+        name = game[1]
+        path = game[2]
+        steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
+        fetcher = CloudSaveStatusFetcherThread(game_id, name, path, steam_id, parent=self)
+        fetcher.save_status_calculated.connect(self._on_cloud_save_status_calculated)
+        self._track_metadata_fetcher(fetcher)
+        fetcher.start()
 
     def _open_proton_manager(self):
         if isinstance(self.selected_game, tuple):
@@ -1807,6 +1861,9 @@ class MainWindow(QMainWindow):
             return
         dialog = GamePropertiesDialog(game, self)
         dialog.exec()
+        # Edits here can change the cloud verdict (manual upload/download,
+        # generation rollback, rename → different cloud key): re-check.
+        self.refresh_cloud_status_for_game(game[0])
         self._update_detail_panel()
 
     def _refresh_record_button_state(self):
@@ -2949,8 +3006,8 @@ class MainWindow(QMainWindow):
                 g_path = game_rec[2]
                 g_steam_id = str(game_rec[6]).strip() if len(game_rec) > 6 and game_rec[6] else ""
 
-                def _exit_sync(name=g_name, gpath=g_path, sid=g_steam_id):
-                    payload = {"game": name, "outcome": "skipped", "reason": ""}
+                def _exit_sync(name=g_name, gpath=g_path, sid=g_steam_id, gid=tracker.game_id):
+                    payload = {"game": name, "game_id": gid, "outcome": "skipped", "reason": ""}
                     try:
                         status, _, _ = CloudSaveSyncEngine.check_sync_status(name, gpath, sid)
                         if status == SyncStatus.LOCAL_NEWER:
@@ -2989,6 +3046,11 @@ class MainWindow(QMainWindow):
             self._show_toast(f"Cloud save synced for '{name}'.")
             if self.selected_game and self.selected_game[1] == name:
                 self._update_detail_panel()
+            gid = payload.get("game_id")
+            if gid is not None:
+                # The upload just changed the cloud verdict — refresh the
+                # badge instead of leaving the pre-upload state cached.
+                self.refresh_cloud_status_for_game(gid)
         elif outcome == "failed":
             logger.warning(f"Exit cloud-save upload failed for '{name}'.")
         elif payload.get("reason") in ("cloud_newer", "cloud_only"):

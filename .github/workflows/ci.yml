@@ -17,6 +17,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          # Restores the pip wheel cache keyed on requirements.txt.
+          cache: 'pip'
 
       - name: Install system dependencies
         run: |
@@ -37,6 +39,28 @@ jobs:
           mkdir -p "$XDG_DATA_HOME"
           python test.py
 
+  # Keeps the builder image's Docker layers (the expensive pip install layer)
+  # in the GitHub Actions cache. Tag runs below restore this cache because
+  # GitHub exposes default-branch caches to tag refs — without this warm-up,
+  # every release build would reinstall all Python dependencies from scratch.
+  docker-cache:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build builder image (populates layer cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/Dockerfile
+          tags: safelauncher-appimage-builder:ci
+          cache-from: type=gh
+          cache-to: type=gh,mode=max
+
   release:
     # Publishing a v* tag builds the AppImage and attaches it to an
     # automatically created GitHub Release (e.g. `git tag v0.5.1 && git push origin v0.5.1`).
@@ -49,8 +73,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build AppImage
-        run: bash packaging/build-appimage-docker.sh
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build builder image (pip layer restored from cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/Dockerfile
+          tags: safelauncher-appimage-builder:ci
+          load: true
+          cache-from: type=gh
+          cache-to: type=gh,mode=max
+
+      - name: Produce AppImage
+        run: docker run --rm -v "$PWD/dist:/out" safelauncher-appimage-builder:ci
 
       - name: Attach AppImage to GitHub Release
         uses: softprops/action-gh-release@v2

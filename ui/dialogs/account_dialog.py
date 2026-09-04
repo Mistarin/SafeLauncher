@@ -460,6 +460,16 @@ class AccountDialog(QDialog):
     def _show_toast_like(self, name_key: str):
         self.lbl_quota_text.setText(f"Deleted old generation for '{name_key}'.")
 
+    def _notify_ancestor_cloud_changed(self):
+        """Cloud config just changed here — make the main window drop every
+        cached badge/status right away instead of after settings closes."""
+        parent = self.parent()
+        while parent is not None:
+            if hasattr(parent, "_refresh_cloud_after_config_change"):
+                parent._refresh_cloud_after_config_change()
+                return
+            parent = parent.parent()
+
     def _auth_action(self):
         from core.cloud_backend import get_site_url
         if get_site_url():
@@ -477,11 +487,13 @@ class AccountDialog(QDialog):
                 settings.remove("convex_site_url")
                 settings.remove("cloud_secret_key")
                 self.reload()
+                self._notify_ancestor_cloud_changed()
         else:
             from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
             wizard = CloudWizardDialog(self)
             if wizard.exec():
                 self.reload()
+                self._notify_ancestor_cloud_changed()
 
     def _on_backend_changed(self, index: int):
         from core.cloud_save_sync import set_cloud_mode

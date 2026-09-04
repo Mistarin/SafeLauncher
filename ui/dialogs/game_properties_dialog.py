@@ -645,16 +645,25 @@ class GamePropertiesDialog(QDialog):
         if ok:
             QMessageBox.information(self, "Cloud Sync",
                                     f"Backup v{version} restored and made the active save.")
+            self._notify_parent_cloud_changed()
         else:
             QMessageBox.critical(self, "Cloud Sync",
                                  f"Failed to restore backup generation v{version}.")
         self._load_save_stats_async()
+
+    def _notify_parent_cloud_changed(self):
+        """Sync actions change the cloud verdict — make the library badge
+        follow immediately instead of waiting for the dialog to close."""
+        p = self.parent_window
+        if p is not None and hasattr(p, "refresh_cloud_status_for_game"):
+            p.refresh_cloud_status_for_game(self.game_id)
 
     def _sync_up_now(self):
         from core.cloud_save_sync import CloudSaveSyncEngine
         if CloudSaveSyncEngine.sync_local_to_cloud(self.game_name, self.game_path, self.steam_id):
             QMessageBox.information(self, "Cloud Sync", "Local save successfully uploaded to Cloud save repository.")
             self._load_save_stats_async()
+            self._notify_parent_cloud_changed()
         else:
             QMessageBox.warning(self, "Cloud Sync", "No local save files found to upload.")
 
@@ -663,6 +672,7 @@ class GamePropertiesDialog(QDialog):
         if CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path):
             QMessageBox.information(self, "Cloud Sync", "Cloud save successfully restored to game prefix.")
             self._load_save_stats_async()
+            self._notify_parent_cloud_changed()
         else:
             QMessageBox.critical(self, "Cloud Sync", "Failed to restore cloud save.")
 
