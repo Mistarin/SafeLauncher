@@ -680,8 +680,25 @@ class GamePropertiesDialog(QDialog):
                 "save files when it exits, so restoring the cloud save now would be undone.\n\n"
                 "Close the game first, then download the cloud save.")
             return
-        from core.cloud_save_sync import CloudSaveSyncEngine
+        from core.cloud_save_sync import CloudSaveSyncEngine, resolve_name_key
         if CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path):
+            # Integrity check: the merge rewrote the save files with the
+            # cloud's content and original mtimes. If local state is suddenly
+            # NEWER than the cloud right after a restore, something (almost
+            # always a running game) overwrote the files again.
+            try:
+                local_stats, _ = CloudSaveSyncEngine.get_local_save_stats(
+                    self.game_name, self.game_path, self.steam_id)
+                _cs, snap = CloudSaveSyncEngine._remote_stats(resolve_name_key(self.game_name))
+                cloud_mtime = float(snap["versions"][0]["sourceMaxMtime"]) if snap and snap.get("versions") else 0.0
+                if local_stats.exists and cloud_mtime and local_stats.last_modified > cloud_mtime + 2.0:
+                    QMessageBox.warning(
+                        self, "Restore May Have Been Overwritten",
+                        f"The cloud save was extracted, but the local save files are already newer "
+                        f"than it again — a running game most likely rewrote them.\n\n"
+                        f"Close '{self.game_name}' completely and download the cloud save again.")
+            except Exception as e:
+                logger.debug(f"Post-restore integrity check failed: {e}")
             QMessageBox.information(self, "Cloud Sync", "Cloud save successfully restored to game prefix.")
             self._load_save_stats_async()
             self._notify_parent_cloud_changed()

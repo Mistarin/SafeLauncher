@@ -255,6 +255,7 @@ class ZipBackupManager(IBackupManager):
 
             if not moved_any:
                 logger.warning(f"Save archive contained no restorable files: {import_zip_path}")
+                return False
             return True
         except Exception as e:
             logger.error(f"Save import failed: {e}")
