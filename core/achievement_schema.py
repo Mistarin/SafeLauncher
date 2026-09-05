@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import re
 import json
+import threading
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -23,6 +25,43 @@ from core.safe_thread import SafeQThread
 from core.logger import get_logger
 
 logger = get_logger("AchievementSchema")
+
+
+class TokenBucketRateLimiter:
+    """Thread-safe token-bucket rate limiter to prevent HTTP 429 Too Many Requests."""
+
+    def __init__(self, rate: float = 3.5, capacity: float = 7.0):
+        self.rate = float(rate)          # Tokens replenished per second
+        self.capacity = float(capacity)  # Maximum burst capacity
+        self.tokens = float(capacity)    # Initial token balance
+        self.last_update = time.monotonic()
+        self._lock = threading.Lock()
+
+    def acquire(self, tokens: float = 1.0, timeout: float = 10.0) -> bool:
+        """Acquire tokens, blocking smoothly if necessary until timeout expires."""
+        start = time.monotonic()
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                elapsed = now - self.last_update
+                self.last_update = now
+                self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+
+                if self.tokens >= tokens:
+                    self.tokens -= tokens
+                    return True
+
+                needed = tokens - self.tokens
+                wait_time = needed / self.rate
+
+            remaining = timeout - (time.monotonic() - start)
+            if wait_time > remaining or remaining <= 0:
+                return False
+
+            time.sleep(min(wait_time, remaining, 0.25))
+
+
+_COMMUNITY_RATE_LIMITER = TokenBucketRateLimiter(rate=3.5, capacity=7.0)
 
 try:
     from bs4 import BeautifulSoup
@@ -190,6 +229,10 @@ def find_local_achievement_schema(game_path: Optional[str] = None, proton_path: 
 
 def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir: Optional[Path] = None, download_icons: bool = False) -> List[Dict[str, Any]]:
     """Parse public Steam Community achievements page (no API key required)."""
+    if not _COMMUNITY_RATE_LIMITER.acquire(1.0, timeout=timeout):
+        logger.warning(f"Steam Community rate limiter capacity exceeded for AppID {app_id}.")
+        return []
+
     url = f"https://steamcommunity.com/stats/{app_id}/achievements/"
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -197,6 +240,9 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
     session = _get_http_session()
     try:
         resp = session.get(url, headers=headers, timeout=timeout)
+        if resp.status_code == 429:
+            logger.warning(f"Steam Community rate limit hit (HTTP 429) for AppID {app_id}. Throttling.")
+            return []
         if resp.status_code != 200 or not resp.content:
             return []
     except Exception as e:
@@ -362,34 +408,37 @@ def fetch_steam_achievements_schema(
     # 5. Try Steam Community XML stats endpoint
     if not achievements:
         try:
-            xml_url = f"https://steamcommunity.com/stats/{app_id}/achievements/?xml=1"
-            headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
-            resp = session.get(xml_url, headers=headers, timeout=timeout)
-            if resp.status_code == 200 and resp.content and b"<achievement" in resp.content:
-                root = ET.fromstring(resp.content)
-                ach_nodes = root.findall(".//achievement")
-                for node in ach_nodes:
-                    api_name = (node.findtext("apiname") or "").strip()
-                    name = (node.findtext("name") or api_name).strip()
-                    desc = (node.findtext("description") or "").strip()
-                    icon_url = (node.findtext("iconClosed") or "").strip()
-                    icongray_url = (node.findtext("iconOpen") or "").strip()
-                    if not icongray_url:
-                        icongray_url = icon_url
-                    hidden = int(node.get("hidden", "0"))
+            if _COMMUNITY_RATE_LIMITER.acquire(1.0, timeout=timeout):
+                xml_url = f"https://steamcommunity.com/stats/{app_id}/achievements/?xml=1"
+                headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
+                resp = session.get(xml_url, headers=headers, timeout=timeout)
+                if resp.status_code == 429:
+                    logger.warning(f"Steam Community XML rate limit reached (HTTP 429) for AppID {app_id}.")
+                elif resp.status_code == 200 and resp.content and b"<achievement" in resp.content:
+                    root = ET.fromstring(resp.content)
+                    ach_nodes = root.findall(".//achievement")
+                    for node in ach_nodes:
+                        api_name = (node.findtext("apiname") or "").strip()
+                        name = (node.findtext("name") or api_name).strip()
+                        desc = (node.findtext("description") or "").strip()
+                        icon_url = (node.findtext("iconClosed") or "").strip()
+                        icongray_url = (node.findtext("iconOpen") or "").strip()
+                        if not icongray_url:
+                            icongray_url = icon_url
+                        hidden = int(node.get("hidden", "0"))
 
-                    achievements.append({
-                        "api_name": api_name,
-                        "display_name": name,
-                        "description": desc,
-                        "icon_url": icon_url,
-                        "icongray_url": icongray_url,
-                        "icon_path": icon_url,
-                        "icongray_path": icongray_url,
-                        "hidden": hidden,
-                        "unlocked": 0,
-                        "unlock_time": 0.0,
-                    })
+                        achievements.append({
+                            "api_name": api_name,
+                            "display_name": name,
+                            "description": desc,
+                            "icon_url": icon_url,
+                            "icongray_url": icongray_url,
+                            "icon_path": icon_url,
+                            "icongray_path": icongray_url,
+                            "hidden": hidden,
+                            "unlocked": 0,
+                            "unlock_time": 0.0,
+                        })
         except Exception as e:
             logger.debug(f"Steam Community XML achievement fetch failed for AppID {app_id}: {e}")
 

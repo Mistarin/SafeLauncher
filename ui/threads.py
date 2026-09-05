@@ -8,7 +8,7 @@ from core.steamgriddb_client import SteamGridDBClient
 from core.archive_extractor import extract_archive_sandboxed
 from core.proton_manager import fetch_online_ge_proton_releases
 from database import _APP_DATA_DIR
-from core.disk_utils import get_dir_size, format_size, store_dir_size
+from core.disk_utils import get_dir_size, format_size, store_dir_size, peek_dir_size
 from core.logger import get_logger
 
 logger = get_logger("UIThreads")
@@ -229,10 +229,12 @@ class DiskSizeFetcherThread(SafeQThread):
     def safe_run(self):
         if self.isInterruptionRequested() or not self.path or not os.path.exists(self.path):
             return
-        size = get_dir_size(self.path)
-        # Publish to the shared cache so GUI-thread code can sort/display
-        # without re-walking multi-GB directories.
-        store_dir_size(self.path, size)
+        cached = peek_dir_size(self.path)
+        if cached is not None:
+            size = cached
+        else:
+            size = get_dir_size(self.path, use_cache=False)
+            store_dir_size(self.path, size)
         logger.debug(f"Calculated disk size for game {self.game_id}: {size} bytes ({format_size(size)})")
         if not self.isInterruptionRequested():
             self.disk_size_calculated.emit(self.game_id, size)
