@@ -43,22 +43,30 @@ class TokenBucketRateLimiter:
         while True:
             with self._lock:
                 now = time.monotonic()
-                elapsed = now - self.last_update
-                self.last_update = now
-                self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+                if now > self.last_update:
+                    elapsed = now - self.last_update
+                    self.last_update = now
+                    self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
 
                 if self.tokens >= tokens:
                     self.tokens -= tokens
                     return True
 
                 needed = tokens - self.tokens
-                wait_time = needed / self.rate
+                cooldown_remaining = max(0.0, self.last_update - now)
+                wait_time = cooldown_remaining + (needed / self.rate)
 
             remaining = timeout - (time.monotonic() - start)
             if wait_time > remaining or remaining <= 0:
                 return False
 
             time.sleep(min(wait_time, remaining, 0.25))
+
+    def penalize(self, cooldown_seconds: float = 5.0) -> None:
+        """On HTTP 429 or rate limit signal, reset token balance and force a cooldown window."""
+        with self._lock:
+            self.tokens = 0.0
+            self.last_update = time.monotonic() + float(cooldown_seconds)
 
 
 _COMMUNITY_RATE_LIMITER = TokenBucketRateLimiter(rate=3.5, capacity=7.0)
@@ -241,7 +249,8 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
     try:
         resp = session.get(url, headers=headers, timeout=timeout)
         if resp.status_code == 429:
-            logger.warning(f"Steam Community rate limit hit (HTTP 429) for AppID {app_id}. Throttling.")
+            logger.warning(f"Steam Community rate limit hit (HTTP 429) for AppID {app_id}. Throttling for 10s cooldown.")
+            _COMMUNITY_RATE_LIMITER.penalize(10.0)
             return []
         if resp.status_code != 200 or not resp.content:
             return []

@@ -9,6 +9,8 @@ import sqlite3
 import tempfile
 import zipfile
 
+os.environ["SAFELAUNCHER_DISABLE_UPDATE_CHECK"] = "1"
+
 from PyQt6.QtCore import QTimer
 
 # 1. Test imports
@@ -1063,6 +1065,10 @@ ACH_PACIFIST=0
         assert limiter.acquire(1.0, timeout=0.01) is False
         # Replenishes smoothly with timeout
         assert limiter.acquire(1.0, timeout=0.5) is True
+        # Test HTTP 429 penalize cooldown
+        limiter.penalize(cooldown_seconds=0.3)
+        assert limiter.acquire(1.0, timeout=0.05) is False
+        assert limiter.acquire(1.0, timeout=0.6) is True
         print("✓ Steam Community token-bucket rate limiter and burst capacity verified")
 
         # -------------------------------------------------------------
@@ -1109,6 +1115,8 @@ ACH_PACIFIST=0
         mw.set_virtualization_threshold(1)  # Force virtual grid
         assert mw.library_view_stack.currentIndex() in (1, 2)
         mw.set_virtualization_threshold(200)  # Reset
+        mw.close()
+        app.processEvents()
         print("✓ Viewport virtualization for 500+ games, custom QStyledItemDelegate, and BannerProxy verified")
 
 except Exception as e:

@@ -311,7 +311,7 @@ def run_cloud_setup_wizard() -> int:
     if not site_url.startswith("http://") and not site_url.startswith("https://"):
         site_url = "https://" + site_url
 
-    print(f"\n  {BOLD}🔐 Secret Access Key (Recommended):{RESET}")
+    print(f"\n  {BOLD}Secret Access Key (Recommended):{RESET}")
     print(f"     {DIM}Acts as a private password for your server endpoint. It stops anyone else{RESET}")
     print(f"     {DIM}who finds your public .convex.site URL from uploading files and filling{RESET}")
     print(f"     {DIM}up your 1 GB free Convex storage quota.{RESET}")
@@ -336,7 +336,7 @@ def run_cloud_setup_wizard() -> int:
             )
             print(f"  {GREEN}✔ Configured SAFELAUNCHER_SECRET_KEY in Convex environment!{RESET}")
         except Exception as e:
-            print(f"  {YELLOW}⚠ Could not auto-set secret in Convex: {e}{RESET}")
+            print(f"  {YELLOW}[!] Could not auto-set secret in Convex: {e}{RESET}")
 
     footer(CYAN)
 

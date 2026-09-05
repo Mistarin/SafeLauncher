@@ -60,7 +60,7 @@ class CrashReportDialog(QDialog):
         btn_copy.clicked.connect(self._copy_traceback)
         btn_layout.addWidget(btn_copy)
 
-        btn_logs = QPushButton("📁 Open Log Directory")
+        btn_logs = QPushButton("Open Log Directory")
         btn_logs.clicked.connect(self._open_log_dir)
         btn_layout.addWidget(btn_logs)
 

@@ -294,7 +294,7 @@ class AccountDialog(QDialog):
         dev_summary = f" · {concurrent} device(s) online" if concurrent else ""
         self.lbl_email.setText("Private Cloud Connected")
         self.lbl_subject.setText(f"Endpoint: {site}{dev_summary} · Server-enforced quota")
-        self._style_avatar("☁", ok=True)
+        self._style_avatar("C", ok=True)
 
         pct = min(1.0, self._quota["used"] / max(1, self._quota["total"]))
         self.bar_quota.setValue(int(pct * 1000))
