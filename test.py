@@ -1011,6 +1011,106 @@ ACH_PACIFIST=0
 
         ach_db.close()
 
+        # -------------------------------------------------------------
+        # 31. Test Directory Size In-Memory LRU Caching
+        # -------------------------------------------------------------
+        from core.disk_utils import (
+            DirectorySizeLRUCache, peek_dir_size, store_dir_size,
+            has_fresh_dir_size, clear_dir_size_cache, get_dir_size
+        )
+        clear_dir_size_cache()
+        test_lru = DirectorySizeLRUCache(maxsize=3, ttl_seconds=1.0)
+        test_lru.put("/path/game1", 1000)
+        test_lru.put("/path/game2", 2000)
+        test_lru.put("/path/game3", 3000)
+        assert len(test_lru) == 3
+        assert test_lru.get("/path/game1") == 1000
+        # Adding a 4th item evicts /path/game2 since game1 was accessed (MRU)
+        test_lru.put("/path/game4", 4000)
+        assert len(test_lru) == 3
+        assert test_lru.get("/path/game2") is None  # Evicted
+        assert test_lru.get("/path/game1") == 1000
+        assert test_lru.get("/path/game4") == 4000
+
+        # Test TTL expiry
+        time.sleep(1.1)
+        assert test_lru.get("/path/game1") is None  # Expired
+
+        # Test global functions with real temporary files
+        with tempfile.TemporaryDirectory() as tmp_size_dir:
+            test_file = os.path.join(tmp_size_dir, "test.bin")
+            with open(test_file, "wb") as f:
+                f.write(b"0" * 1024)
+            calc_size = get_dir_size(tmp_size_dir, use_cache=True)
+            assert calc_size == 1024
+            assert has_fresh_dir_size(tmp_size_dir)
+            assert peek_dir_size(tmp_size_dir) == 1024
+            # Subsequent lookup returns cached value without disk I/O
+            assert get_dir_size(tmp_size_dir, use_cache=True) == 1024
+        clear_dir_size_cache()
+        print("✓ Directory size LRU caching, TTL expiry, and O(1) in-memory reuse verified")
+
+        # -------------------------------------------------------------
+        # 32. Test Steam Community Scraping Token-Bucket Rate Limiter
+        # -------------------------------------------------------------
+        from core.achievement_schema import TokenBucketRateLimiter
+        limiter = TokenBucketRateLimiter(rate=5.0, capacity=3.0)
+        # Burst acquire 3 tokens immediately
+        assert limiter.acquire(1.0, timeout=0.1) is True
+        assert limiter.acquire(1.0, timeout=0.1) is True
+        assert limiter.acquire(1.0, timeout=0.1) is True
+        # Immediate acquire fails when empty
+        assert limiter.acquire(1.0, timeout=0.01) is False
+        # Replenishes smoothly with timeout
+        assert limiter.acquire(1.0, timeout=0.5) is True
+        print("✓ Steam Community token-bucket rate limiter and burst capacity verified")
+
+        # -------------------------------------------------------------
+        # 33. Test Viewport Virtualization for Large Libraries (500+ Games)
+        # -------------------------------------------------------------
+        from PyQt6.QtCore import Qt
+        from ui.components.virtual_grid import VirtualizedGameGridView, BannerProxy
+        virtual_grid = VirtualizedGameGridView(None, card_width=200, spacing=15)
+        assert virtual_grid.delegate.card_width == 200
+        assert virtual_grid.delegate.card_height == 300
+        virtual_grid.set_card_width(220)
+        assert virtual_grid.delegate.card_width == 220
+        assert virtual_grid.delegate.card_height == 330
+
+        # Simulate a 550-game library
+        large_library = []
+        for i in range(1, 551):
+            large_library.append((
+                i, f"Game {i}", f"/path/game_{i}", f"game_{i}.exe", "wine", "", "480",
+                3600 * (i % 20), 1 if i % 5 == 0 else 0, "", "", "", "", "", 0, f"v1.{i}", "", "", ""
+            ))
+        t_start = time.perf_counter()
+        virtual_grid.set_games(large_library, selected_ids={1, 2, 500}, update_status_map={10: True})
+        elapsed_ms = (time.perf_counter() - t_start) * 1000.0
+        assert virtual_grid.model.rowCount() == 550
+        assert elapsed_ms < 350.0  # Populating 550 games in virtual model must be instant
+
+        # Verify selected IDs in virtual grid
+        selected_ids = virtual_grid.selected_game_ids()
+        assert 1 in selected_ids
+        assert 500 in selected_ids
+
+        # Test BannerProxy transparent interface delegation
+        proxy = BannerProxy(42, virtual_grid)
+        proxy.set_playtime(7200)
+        proxy.set_update_available(True)
+        proxy.set_favorite(True)
+        item_42 = virtual_grid._items_by_game_id[42]
+        assert item_42.data(Qt.ItemDataRole.UserRole + 5) == 7200
+        assert item_42.data(Qt.ItemDataRole.UserRole + 10) is True
+        assert item_42.data(Qt.ItemDataRole.UserRole + 9) is True
+
+        # Test MainWindow virtualization threshold integration
+        mw.set_virtualization_threshold(1)  # Force virtual grid
+        assert mw.library_view_stack.currentIndex() in (1, 2)
+        mw.set_virtualization_threshold(200)  # Reset
+        print("✓ Viewport virtualization for 500+ games, custom QStyledItemDelegate, and BannerProxy verified")
+
 except Exception as e:
     import traceback
     traceback.print_exc()

@@ -480,27 +480,34 @@ class GameBannerWidget(QFrame):
         
         # 2. Missing game state (greyed out fallback)
         if self.is_missing:
+            cache_key = f"grey_{self.game_id}_{target_w}_{target_h}"
+            cached_grey = QPixmapCache.find(cache_key)
+            if cached_grey and not cached_grey.isNull():
+                self.image_label.setPixmap(cached_grey)
+                self.image_label.setText("")
+                if hasattr(self, 'update_indicator') and self.is_update_available:
+                    self.update_indicator.raise_()
+                self._position_version_badge()
+                return
+
             pixmap = self._get_source_pixmap()
             if pixmap:
-                cache_key = f"grey_{self.game_id}_{target_w}_{target_h}"
-                greyed = QPixmapCache.find(cache_key)
-                if not greyed or greyed.isNull():
-                    scaled = pixmap.scaled(
-                        QSize(target_w, target_h),
-                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                        Qt.TransformationMode.SmoothTransformation
-                    )
-                    crop_x = max(0, (scaled.width() - target_w) // 2)
-                    crop_y = max(0, (scaled.height() - target_h) // 2)
-                    cropped = scaled.copy(crop_x, crop_y, target_w, target_h)
-                    
-                    greyed = QPixmap(cropped.size())
-                    greyed.fill(Qt.GlobalColor.transparent)
-                    painter = QPainter(greyed)
-                    painter.drawPixmap(0, 0, cropped)
-                    painter.fillRect(greyed.rect(), QColor(20, 20, 20, 175))
-                    painter.end()
-                    QPixmapCache.insert(cache_key, greyed)
+                scaled = pixmap.scaled(
+                    QSize(target_w, target_h),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                crop_x = max(0, (scaled.width() - target_w) // 2)
+                crop_y = max(0, (scaled.height() - target_h) // 2)
+                cropped = scaled.copy(crop_x, crop_y, target_w, target_h)
+                
+                greyed = QPixmap(cropped.size())
+                greyed.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(greyed)
+                painter.drawPixmap(0, 0, cropped)
+                painter.fillRect(greyed.rect(), QColor(20, 20, 20, 175))
+                painter.end()
+                QPixmapCache.insert(cache_key, greyed)
                 
                 self.image_label.setPixmap(greyed)
                 self.image_label.setText("")
@@ -521,19 +528,19 @@ class GameBannerWidget(QFrame):
             return
 
         # 3. Normal game state with LERP hover zoom + smooth hover darkening!
+        if progress == 0.0:
+            cache_key = f"card_idle_{self.game_id}_{target_w}_{target_h}"
+            cached = QPixmapCache.find(cache_key)
+            if cached and not cached.isNull():
+                self.image_label.setPixmap(cached)
+                self.image_label.setText("")
+                if hasattr(self, 'update_indicator') and self.is_update_available:
+                    self.update_indicator.raise_()
+                self._position_version_badge()
+                return
+
         pixmap = self._get_source_pixmap()
         if pixmap:
-            if progress == 0.0:
-                cache_key = f"card_idle_{self.game_id}_{target_w}_{target_h}"
-                cached = QPixmapCache.find(cache_key)
-                if cached and not cached.isNull():
-                    self.image_label.setPixmap(cached)
-                    self.image_label.setText("")
-                    if hasattr(self, 'update_indicator') and self.is_update_available:
-                        self.update_indicator.raise_()
-                    self._position_version_badge()
-                    return
-
             scale_factor = 1.0 + (0.04 * progress)
             zoom_w = int(target_w * scale_factor)
             zoom_h = int(target_h * scale_factor)

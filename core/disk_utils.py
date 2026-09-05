@@ -4,27 +4,74 @@ import threading
 import time
 
 
-_DIR_SIZE_CACHE = {}
-_DIR_SIZE_LOCK = threading.Lock()
-_DIR_SIZE_TTL_SECONDS = 600.0
+from collections import OrderedDict
+from typing import Optional, Tuple
 
 
-def peek_dir_size(dir_path: str):
+class DirectorySizeLRUCache:
+    """Thread-safe in-memory LRU cache for directory sizes with TTL expiry."""
+
+    def __init__(self, maxsize: int = 512, ttl_seconds: float = 600.0):
+        self.maxsize = maxsize
+        self.ttl_seconds = ttl_seconds
+        self._cache: OrderedDict[str, Tuple[float, int]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, dir_path: str) -> Optional[int]:
+        if not dir_path:
+            return None
+        try:
+            key = os.path.abspath(os.path.realpath(dir_path))
+        except Exception:
+            key = os.path.abspath(dir_path)
+        now = time.monotonic()
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            ts, size = entry
+            if (now - ts) < self.ttl_seconds:
+                self._cache.move_to_end(key)
+                return size
+            # Expired entry
+            self._cache.pop(key, None)
+            return None
+
+    def put(self, dir_path: str, size_bytes: int) -> None:
+        if not dir_path:
+            return
+        try:
+            key = os.path.abspath(os.path.realpath(dir_path))
+        except Exception:
+            key = os.path.abspath(dir_path)
+        now = time.monotonic()
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+            self._cache[key] = (now, int(size_bytes))
+            while len(self._cache) > self.maxsize:
+                self._cache.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._cache.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._cache)
+
+
+_DIR_SIZE_LRU = DirectorySizeLRUCache(maxsize=512, ttl_seconds=600.0)
+
+
+def peek_dir_size(dir_path: str) -> Optional[int]:
     """Return the cached directory size if fresh, otherwise None.
 
     Never touches the disk, so GUI-thread callers can order or display sizes
     while the actual calculation runs in worker threads (see store_dir_size,
     used by DiskSizeFetcherThread).
     """
-    if not dir_path:
-        return None
-    key = os.path.abspath(dir_path)
-    now = time.monotonic()
-    with _DIR_SIZE_LOCK:
-        entry = _DIR_SIZE_CACHE.get(key)
-        if entry and (now - entry[0]) < _DIR_SIZE_TTL_SECONDS:
-            return entry[1]
-    return None
+    return _DIR_SIZE_LRU.get(dir_path)
 
 
 def has_fresh_dir_size(dir_path: str) -> bool:
@@ -32,12 +79,13 @@ def has_fresh_dir_size(dir_path: str) -> bool:
 
 
 def store_dir_size(dir_path: str, size_bytes: int) -> None:
-    """Publish a computed directory size for reuse across the UI (thread-safe)."""
-    if not dir_path:
-        return
-    key = os.path.abspath(dir_path)
-    with _DIR_SIZE_LOCK:
-        _DIR_SIZE_CACHE[key] = (time.monotonic(), int(size_bytes))
+    """Publish a computed directory size to the LRU cache (thread-safe)."""
+    _DIR_SIZE_LRU.put(dir_path, size_bytes)
+
+
+def clear_dir_size_cache() -> None:
+    """Clear all entries from the directory size LRU cache."""
+    _DIR_SIZE_LRU.clear()
 
 
 def dir_size_display(dir_path: str) -> str:
@@ -48,14 +96,21 @@ def dir_size_display(dir_path: str) -> str:
     return format_size(size)
 
 
-def get_dir_size(dir_path: str) -> int:
+def get_dir_size(dir_path: str, use_cache: bool = True) -> int:
     """Recursively calculate regular-file size without escaping via symlinks."""
     if not dir_path or not os.path.exists(dir_path):
         return 0
+    if use_cache:
+        cached = peek_dir_size(dir_path)
+        if cached is not None:
+            return cached
+
     total_size = 0
     try:
         if os.path.isfile(dir_path):
-            return os.path.getsize(dir_path)
+            total_size = os.path.getsize(dir_path)
+            store_dir_size(dir_path, total_size)
+            return total_size
         
         seen_inodes = set()
         pending = [os.path.realpath(dir_path)]
@@ -88,6 +143,8 @@ def get_dir_size(dir_path: str) -> int:
                 continue
     except Exception:
         pass
+
+    store_dir_size(dir_path, total_size)
     return total_size
 
 

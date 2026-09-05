@@ -66,6 +66,7 @@ from core.global_hotkeys import GlobalHotkeyListener
 from ui.components.overlay_hud import show_ingame_notification
 from ui.components.banner_card import GameBannerWidget
 from ui.components.responsive_grid import ResponsiveGridContainer
+from ui.components.virtual_grid import VirtualizedGameGridView, BannerProxy
 from ui.components.hero_background import HeroBackgroundWidget
 from ui.components.sidebar import LeftSidebarWidget, CustomTitleBar, DialogTitleBar, add_soft_shadow
 from ui.dialogs.proton_dialogs import ProtonSetupWizard, ProtonManagerDialog, UmuRuntimeManagerDialog
@@ -184,6 +185,7 @@ class MainWindow(QMainWindow):
         self.search_query = ""
         self.settings = QSettings("SafeLauncher", "SafeLauncher")
         self.library_view_mode = self.settings.value("library_view_mode", "grid", type=str)
+        self.virtualization_threshold = self.settings.value("virtualization_threshold", 200, type=int)
         default_user = getpass.getuser().capitalize()
         self.user_name = self.settings.value("user_name", default_user, type=str).strip() or default_user
         self.proton_path = self.settings.value("proton_path", "", type=str).strip()
@@ -907,8 +909,16 @@ class MainWindow(QMainWindow):
         self.list_view.game_clicked.connect(self._select_game_by_id)
         self.list_view.game_double_clicked.connect(self._on_double_click_game)
         self.list_view.game_launch_clicked.connect(self._launch_game_by_id)
-        self.library_view_stack.addWidget(self.grid_container)
-        self.library_view_stack.addWidget(self.list_view)
+
+        self.virtual_grid = VirtualizedGameGridView(self.library_view_stack, card_width=200, spacing=15)
+        self.virtual_grid.game_clicked.connect(self._select_game_by_id)
+        self.virtual_grid.game_double_clicked.connect(self._on_double_click_game)
+        self.virtual_grid.game_launch_clicked.connect(self._launch_game_by_id)
+        self.virtual_grid.favorite_clicked.connect(self._on_card_favorite_clicked)
+
+        self.library_view_stack.addWidget(self.grid_container)  # Index 0: Standard Grid
+        self.library_view_stack.addWidget(self.list_view)       # Index 1: List View
+        self.library_view_stack.addWidget(self.virtual_grid)    # Index 2: Virtualized Grid
         self.library_view_stack.setCurrentIndex(1 if self.library_view_mode == "list" else 0)
         self.scroll_area.setWidget(self.library_view_stack)
         right_layout.addWidget(self.scroll_area)
@@ -1528,7 +1538,13 @@ class MainWindow(QMainWindow):
     def _toggle_library_view(self):
         self.library_view_mode = "list" if self.library_view_mode == "grid" else "grid"
         self.settings.setValue("library_view_mode", self.library_view_mode)
-        self.library_view_stack.setCurrentIndex(1 if self.library_view_mode == "list" else 0)
+        use_virtual = len(self.banner_widgets) >= getattr(self, "virtualization_threshold", 200)
+        if self.library_view_mode == "list":
+            self.library_view_stack.setCurrentIndex(1)
+        elif use_virtual:
+            self.library_view_stack.setCurrentIndex(2)
+        else:
+            self.library_view_stack.setCurrentIndex(0)
         self.btn_view_toggle.setText("▦ Grid" if self.library_view_mode == "list" else "☷ List")
 
     def _visible_library_ids(self) -> set[int]:
@@ -1699,64 +1715,115 @@ class MainWindow(QMainWindow):
             self.grid_container.set_banner_widgets([label])
             return
 
-        widgets = []
-        for g, is_missing, playtime_seconds, is_fav in processed:
-            game_id, name, path, executable, mode, banner_url, steam_id = g[:7]
-            version_override = g[15] if len(g) > 15 and g[15] else ""
-            icon_url = g[18] if len(g) > 18 and g[18] else ""
+        use_virtual = len(processed) >= getattr(self, "virtualization_threshold", 200)
 
-            # DB points at a banner file that no longer exists (cache wiped,
-            # cleanup tool, new disk): drop it so the auto-fetcher re-downloads
-            # instead of showing a name placeholder forever.
-            if banner_url and not os.path.exists(banner_url):
-                banner_url = None
+        if use_virtual:
+            # Virtualized grid presentation for large libraries (500+ games)
+            for item_data in processed:
+                g = item_data[0] if isinstance(item_data, tuple) and len(item_data) == 4 and not hasattr(item_data, "id") and hasattr(item_data[0], "__getitem__") else item_data
+                raw_id = g[0] if hasattr(g, "__getitem__") else getattr(g, "id", 0)
+                if hasattr(raw_id, "id"):
+                    raw_id = raw_id.id
+                if isinstance(raw_id, (tuple, list)) and len(raw_id) > 0:
+                    raw_id = raw_id[0]
+                game_id = int(raw_id)
 
-            # Check local icons cache if not yet set in DB
-            if not icon_url:
-                cached_icon = os.path.join(self.sgdb_client.cache_dir.parent, "icons", f"icon_{game_id}.png")
-                if os.path.exists(cached_icon):
-                    icon_url = cached_icon
-            
-            widget = GameBannerWidget(
-                game_id, name, banner_url, playtime_seconds or 0,
-                version=version_override, icon_path=icon_url, parent=self.grid_container
-            )
-            widget.set_missing(is_missing)
-            widget.set_update_available(self.update_status_by_game_id.get(game_id, False))
-            widget.set_favorite(is_fav)
-            widget.set_selected(game_id in self.library_selection.ids)
-            # Instant badge: apply the persisted cloud save status so badges are
-            # visible immediately, before any background worker reports back.
-            cached_cloud = self.cloud_save_status_cache.get(game_id)
-            if cached_cloud:
-                widget.set_cloud_status(cached_cloud[0])
-            widget.clicked.connect(self._select_game_by_id)
-            widget.doubleClicked.connect(self._on_double_click_game)
-            widget.favoriteClicked.connect(self._on_card_favorite_clicked)
-            widget.launchClicked.connect(self._launch_game_by_id)
-            
-            widgets.append(widget)
-            self.banner_widgets[game_id] = widget
-            
-            if (banner_url is None or not icon_url) and game_id not in self._auto_fetch_attempted:
-                self._auto_fetch_attempted.add(game_id)
-                full_exe = os.path.join(path, executable) if (path and executable) else ""
-                fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
-                fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
-                fetcher.finished.connect(lambda f=fetcher: self._cleanup_auto_fetcher(f))
-                # Throttle: start immediately only up to the concurrency cap,
-                # queue the rest instead of firing N simultaneous request bursts.
-                if len(self.auto_fetchers) < self.max_concurrent_auto_fetchers:
-                    fetcher.start()
-                    self.auto_fetchers.append(fetcher)
-                    self._register_worker(fetcher)
-                else:
-                    self._pending_auto_fetchers.append(fetcher)
-            
-        try:
-            self.grid_container.set_banner_widgets(widgets)
-        except (RuntimeError, AttributeError):
-            pass
+                self.banner_widgets[game_id] = BannerProxy(game_id, self.virtual_grid)
+
+                # Background banner/icon auto-fetch
+                name = g[1] if len(g) > 1 and g[1] else ""
+                path = g[2] if len(g) > 2 and g[2] else ""
+                executable = g[3] if len(g) > 3 and g[3] else ""
+                banner_url = g[5] if len(g) > 5 and g[5] else ""
+                steam_id = g[6] if len(g) > 6 and g[6] else ""
+                icon_url = g[18] if len(g) > 18 and g[18] else ""
+                if (banner_url is None or not icon_url) and game_id not in self._auto_fetch_attempted:
+                    self._auto_fetch_attempted.add(game_id)
+                    full_exe = os.path.join(path, executable) if (path and executable) else ""
+                    fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
+                    fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
+                    fetcher.finished.connect(lambda f=fetcher: self._cleanup_auto_fetcher(f))
+                    if len(self.auto_fetchers) < self.max_concurrent_auto_fetchers:
+                        fetcher.start()
+                        self.auto_fetchers.append(fetcher)
+                        self._register_worker(fetcher)
+                    else:
+                        self._pending_auto_fetchers.append(fetcher)
+
+            try:
+                self.grid_container.set_banner_widgets([])
+            except (RuntimeError, AttributeError):
+                pass
+            try:
+                self.virtual_grid.set_games(
+                    processed,
+                    self.library_selection.ids,
+                    self.update_status_by_game_id,
+                    self.cloud_save_status_cache
+                )
+            except (RuntimeError, AttributeError):
+                pass
+        else:
+            widgets = []
+            for g, is_missing, playtime_seconds, is_fav in processed:
+                game_id, name, path, executable, mode, banner_url, steam_id = g[:7]
+                version_override = g[15] if len(g) > 15 and g[15] else ""
+                icon_url = g[18] if len(g) > 18 and g[18] else ""
+
+                if banner_url and not os.path.exists(banner_url):
+                    banner_url = None
+
+                if not icon_url:
+                    cached_icon = os.path.join(self.sgdb_client.cache_dir.parent, "icons", f"icon_{game_id}.png")
+                    if os.path.exists(cached_icon):
+                        icon_url = cached_icon
+                
+                widget = GameBannerWidget(
+                    game_id, name, banner_url, playtime_seconds or 0,
+                    version=version_override, icon_path=icon_url, parent=self.grid_container
+                )
+                widget.set_missing(is_missing)
+                widget.set_update_available(self.update_status_by_game_id.get(game_id, False))
+                widget.set_favorite(is_fav)
+                widget.set_selected(game_id in self.library_selection.ids)
+                cached_cloud = self.cloud_save_status_cache.get(game_id)
+                if cached_cloud:
+                    widget.set_cloud_status(cached_cloud[0])
+                widget.clicked.connect(self._select_game_by_id)
+                widget.doubleClicked.connect(self._on_double_click_game)
+                widget.favoriteClicked.connect(self._on_card_favorite_clicked)
+                widget.launchClicked.connect(self._launch_game_by_id)
+                
+                widgets.append(widget)
+                self.banner_widgets[game_id] = widget
+                
+                if (banner_url is None or not icon_url) and game_id not in self._auto_fetch_attempted:
+                    self._auto_fetch_attempted.add(game_id)
+                    full_exe = os.path.join(path, executable) if (path and executable) else ""
+                    fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
+                    fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
+                    fetcher.finished.connect(lambda f=fetcher: self._cleanup_auto_fetcher(f))
+                    if len(self.auto_fetchers) < self.max_concurrent_auto_fetchers:
+                        fetcher.start()
+                        self.auto_fetchers.append(fetcher)
+                        self._register_worker(fetcher)
+                    else:
+                        self._pending_auto_fetchers.append(fetcher)
+                
+            try:
+                self.grid_container.set_banner_widgets(widgets)
+            except (RuntimeError, AttributeError):
+                pass
+            try:
+                self.virtual_grid.set_games(
+                    processed,
+                    self.library_selection.ids,
+                    self.update_status_by_game_id,
+                    self.cloud_save_status_cache
+                )
+            except (RuntimeError, AttributeError):
+                pass
+
         try:
             self.list_view.set_games(
                 processed,
@@ -1766,6 +1833,13 @@ class MainWindow(QMainWindow):
             )
         except (RuntimeError, AttributeError):
             pass
+
+        if self.library_view_mode == "list":
+            self.library_view_stack.setCurrentIndex(1)
+        elif use_virtual:
+            self.library_view_stack.setCurrentIndex(2)
+        else:
+            self.library_view_stack.setCurrentIndex(0)
         self._check_games_on_drive()
         self._update_tray_menu()
 
@@ -2773,9 +2847,12 @@ class MainWindow(QMainWindow):
         self.detail_playtime.setText(GameBannerWidget._format_playtime(playtime_seconds))
         self.detail_last_played.setText(self._format_last_played(last_played_ts))
 
-        # Disk Size calculation in background thread to prevent UI freezing
-        self.detail_disk_size.setText("Size: Calculating...")
-        if path and os.path.exists(path):
+        # Disk Size: check in-memory LRU cache first to avoid re-scanning multi-GB folders
+        cached_size = peek_dir_size(path) if (path and os.path.exists(path)) else None
+        if cached_size is not None:
+            self.detail_disk_size.setText(f"Size: {format_size(cached_size)}")
+        elif path and os.path.exists(path):
+            self.detail_disk_size.setText("Size: Calculating...")
             disk_thread = DiskSizeFetcherThread(game_id, path, parent=self)
             disk_thread.disk_size_calculated.connect(self._on_disk_size_calculated)
             self._track_metadata_fetcher(disk_thread)
@@ -3911,6 +3988,13 @@ class MainWindow(QMainWindow):
         """Update card banner size dynamically when user moves bottom size slider."""
         if hasattr(self, 'grid_container') and self.grid_container:
             self.grid_container.set_card_width(value)
+        if hasattr(self, 'virtual_grid') and self.virtual_grid:
+            self.virtual_grid.set_card_width(value)
+
+    def set_virtualization_threshold(self, threshold: int) -> None:
+        """Configure the library count threshold where virtualized grid activates."""
+        self.virtualization_threshold = max(1, int(threshold))
+        self._refresh_library()
 
     def _show_toast(self, message: str, is_error: bool = False):
         """Show non-blocking toast overlay notification in bottom-right corner."""
