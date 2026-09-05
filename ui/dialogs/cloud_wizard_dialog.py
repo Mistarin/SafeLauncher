@@ -148,7 +148,7 @@ class CloudWizardDialog(QDialog):
                     border-radius: 8px;
                 }
             """)
-            lbl_diag = QLabel(f"🟢 <b>Host Environment Ready:</b> Node.js ({self.compat['node_version'] or 'detected'}) & npm available for local deployment.")
+            lbl_diag = QLabel("<b>Host Environment Ready:</b> Node.js (detected) & npm available for local deployment.")
             lbl_diag.setStyleSheet("color: #6EE7B7; font-size: 12px;")
         elif self.compat["is_steamos"] or self.compat["is_immutable"]:
             banner_box.setStyleSheet("""
@@ -158,7 +158,7 @@ class CloudWizardDialog(QDialog):
                     border-radius: 8px;
                 }
             """)
-            lbl_diag = QLabel("⚠️ <b>Steam Deck / Immutable OS:</b> Rootfs is read-only. 1-Click web deployment or Connect mode is recommended.")
+            lbl_diag = QLabel("<b>Steam Deck / Immutable OS:</b> Rootfs is read-only. 1-Click web deployment or Connect mode is recommended.")
             lbl_diag.setStyleSheet("color: #FCD34D; font-size: 12px;")
             lbl_diag.setWordWrap(True)
         else:
@@ -169,7 +169,7 @@ class CloudWizardDialog(QDialog):
                     border-radius: 8px;
                 }
             """)
-            lbl_diag = QLabel("ℹ️ <b>Host Notice:</b> Node.js & npm not detected. 1-Click web deployment or Connect mode is recommended.")
+            lbl_diag = QLabel("<b>Host Notice:</b> Node.js & npm not detected. 1-Click web deployment or Connect mode is recommended.")
             lbl_diag.setStyleSheet("color: #93C5FD; font-size: 12px;")
             lbl_diag.setWordWrap(True)
 
@@ -200,7 +200,7 @@ class CloudWizardDialog(QDialog):
         f1_layout.setContentsMargins(4, 4, 4, 4)
         f1_layout.setSpacing(6)
 
-        self.radio_connect = QRadioButton("🔗 Connect to an already created cloud database")
+        self.radio_connect = QRadioButton("Connect to an already created cloud database")
         self.radio_connect.setStyleSheet("font-weight: bold; font-size: 14px; color: #38BDF8;")
         self.radio_connect.setChecked(True)
         self.mode_group.addButton(self.radio_connect, 0)
@@ -208,8 +208,7 @@ class CloudWizardDialog(QDialog):
 
         desc1 = QLabel(
             "<b>Recommended for secondary devices</b> (such as a laptop, Steam Deck, or another PC).<br>"
-            "You do <b>not</b> need Node.js, npm, git, or the SafeLauncherCloud server files at all! "
-            "Simply enter your <code>.convex.site</code> URL (and optional Secret Key) and SafeLauncher will start syncing your AES-256-GCM encrypted saves immediately."
+            "Quickly connects this client to your existing online save repository using your Convex URL."
         )
         desc1.setWordWrap(True)
         desc1.setStyleSheet("color: #A1A1AA; font-size: 12px; margin-left: 24px;")
@@ -234,7 +233,7 @@ class CloudWizardDialog(QDialog):
         f2_layout.setContentsMargins(4, 4, 4, 4)
         f2_layout.setSpacing(6)
 
-        self.radio_new = QRadioButton("🚀 Set up a new private cloud database from scratch")
+        self.radio_new = QRadioButton("Set up a new private cloud database from scratch")
         self.radio_new.setStyleSheet("font-weight: bold; font-size: 14px; color: #10B981;")
         self.mode_group.addButton(self.radio_new, 1)
         f2_layout.addWidget(self.radio_new)
@@ -274,7 +273,7 @@ class CloudWizardDialog(QDialog):
         wc_layout.setContentsMargins(6, 6, 6, 6)
         wc_layout.setSpacing(8)
 
-        wc_title = QLabel("🌐 <b>1-Click Cloud Deploy (Recommended for Steam Deck & Zero-Terminal Users)</b>")
+        wc_title = QLabel("<b>1-Click Cloud Deploy (Recommended for Steam Deck & Zero-Terminal Users)</b>")
         wc_title.setStyleSheet("color: #60A5FA; font-size: 13px;")
         wc_layout.addWidget(wc_title)
 
@@ -303,7 +302,7 @@ class CloudWizardDialog(QDialog):
         desc_cli.setStyleSheet("color: #D1D5DB; font-size: 12px; margin-top: 4px;")
         layout.addWidget(desc_cli)
 
-        btn_auto = QPushButton("🚀 Launch Automated Setup Terminal…")
+        btn_auto = QPushButton("Launch Automated Setup Terminal…")
         btn_auto.setStyleSheet("background: #0284C7; font-weight: bold; padding: 10px;")
         btn_auto.clicked.connect(self._launch_automated_terminal)
         layout.addWidget(btn_auto)
@@ -344,7 +343,7 @@ class CloudWizardDialog(QDialog):
         nc_layout.setContentsMargins(6, 6, 6, 6)
         nc_layout.setSpacing(6)
 
-        nc_title = QLabel("🎮 <b>Steam Deck / Immutable OS NVM Fallback</b>")
+        nc_title = QLabel("<b>Steam Deck / Immutable OS NVM Fallback</b>")
         nc_title.setStyleSheet("color: #FBBF24; font-size: 12px;")
         nc_layout.addWidget(nc_title)
 
@@ -375,7 +374,7 @@ class CloudWizardDialog(QDialog):
         nc_layout.addWidget(btn_copy_nvm)
         layout.addWidget(nvm_card)
 
-        hint = QLabel("💡 After deploying, click 'Next' to enter your Convex Site URL.")
+        hint = QLabel("After deploying, click 'Next' to enter your Convex Site URL.")
         hint.setStyleSheet("color: #FBBF24; font-size: 12px;")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -456,7 +455,7 @@ class CloudWizardDialog(QDialog):
         sb_layout.setContentsMargins(4, 4, 4, 4)
         sb_layout.setSpacing(4)
 
-        sb_title = QLabel("🔐 <b>Secret Access Key</b> (Recommended)")
+        sb_title = QLabel("<b>Secret Access Key</b> (Recommended)")
         sb_title.setStyleSheet("color: #FBBF24; font-size: 13px;")
         sb_layout.addWidget(sb_title)
 
@@ -478,8 +477,8 @@ class CloudWizardDialog(QDialog):
         self.edit_key.setPlaceholderText("Enter your secret key (or leave blank if none)")
         key_row.addWidget(self.edit_key, 1)
 
-        self.btn_toggle_key = QPushButton("👁")
-        self.btn_toggle_key.setFixedWidth(38)
+        self.btn_toggle_key = QPushButton("Show")
+        self.btn_toggle_key.setFixedWidth(50)
         self.btn_toggle_key.setToolTip("Show / Hide Secret Key")
         self.btn_toggle_key.clicked.connect(self._toggle_key_visibility)
         key_row.addWidget(self.btn_toggle_key)
@@ -495,10 +494,10 @@ class CloudWizardDialog(QDialog):
     def _toggle_key_visibility(self):
         if self.edit_key.echoMode() == QLineEdit.EchoMode.Password:
             self.edit_key.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.btn_toggle_key.setText("🙈")
+            self.btn_toggle_key.setText("Hide")
         else:
             self.edit_key.setEchoMode(QLineEdit.EchoMode.Password)
-            self.btn_toggle_key.setText("👁")
+            self.btn_toggle_key.setText("Show")
 
     def _copy_commands(self, text: str):
         clipboard = QApplication.clipboard()

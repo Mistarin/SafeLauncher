@@ -286,84 +286,81 @@ def get_application_stylesheet() -> str:
 # ── Button Component Styles ──────────────────────────────────────────────────
 
 def btn_primary_style() -> str:
-    """Refined blue accent background, white text, subtle transitions, no glow."""
+    """Apple Blue accent button, white text, subtle hover transitions, no harsh borders."""
     return f"""
         QPushButton {{
-            background-color: {ACCENT_PRIMARY};
+            background-color: #0A84FF;
             color: #FFFFFF;
-            border: 1px solid {ACCENT_PRIMARY};
-            border-radius: 6px;
+            border: none;
+            border-radius: 8px;
             font-size: 12px;
             font-weight: 600;
             padding: 7px 16px;
             letter-spacing: 0.2px;
         }}
         QPushButton:hover {{
-            background-color: {ACCENT_HOVER};
-            border-color: {ACCENT_HOVER};
+            background-color: #0071E3;
         }}
         QPushButton:pressed {{
-            background-color: {ACCENT_PRESSED};
-            border-color: {ACCENT_PRESSED};
+            background-color: #005BB5;
         }}
         QPushButton:disabled {{
-            background-color: {SURFACE_ELEVATED};
-            color: {TEXT_MUTED};
-            border-color: {BORDER};
+            background-color: rgba(255, 255, 255, 0.04);
+            color: #636366;
+            border: none;
         }}
     """
 
 
 def btn_secondary_style() -> str:
-    """Dark elevated surface, light text, subtle border."""
+    """Dark elevated surface, light text, subtle 1px border."""
     return f"""
         QPushButton {{
-            background-color: {SURFACE_ELEVATED};
-            color: {TEXT_PRIMARY};
-            border: 1px solid {BORDER};
-            border-radius: 6px;
+            background-color: rgba(255, 255, 255, 0.04);
+            color: #F5F7FA;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 8px;
             font-size: 12px;
             font-weight: 500;
             padding: 7px 14px;
         }}
         QPushButton:hover {{
-            background-color: {BORDER};
-            border-color: {TEXT_MUTED};
-            color: {TEXT_PRIMARY};
+            background-color: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.12);
+            color: #FFFFFF;
         }}
         QPushButton:pressed {{
-            background-color: {SURFACE};
-            border-color: {BORDER};
+            background-color: rgba(255, 255, 255, 0.02);
+            border-color: rgba(255, 255, 255, 0.05);
         }}
         QPushButton:disabled {{
-            color: {TEXT_MUTED};
-            border-color: {BORDER};
+            color: #636366;
+            border-color: transparent;
         }}
     """
 
 
 def btn_tertiary_style() -> str:
-    """Mostly transparent, secondary text, accent appears on hover."""
+    """Mostly transparent, secondary text, soft fill appears on hover."""
     return f"""
         QPushButton {{
             background-color: transparent;
-            color: {TEXT_SECONDARY};
-            border: 1px solid transparent;
-            border-radius: 6px;
+            color: #98989D;
+            border: none;
+            border-radius: 7px;
             font-size: 12px;
             font-weight: 500;
             padding: 6px 12px;
         }}
         QPushButton:hover {{
-            background-color: {SURFACE_ELEVATED};
-            color: {TEXT_PRIMARY};
-            border-color: {BORDER};
+            background-color: rgba(255, 255, 255, 0.06);
+            color: #FFFFFF;
         }}
         QPushButton:pressed {{
-            background-color: {BORDER};
+            background-color: rgba(255, 255, 255, 0.1);
         }}
         QPushButton:disabled {{
-            color: {TEXT_MUTED};
+            color: #636366;
         }}
     """
 
@@ -372,26 +369,24 @@ def btn_destructive_style() -> str:
     """Subtle restrained error action rather than aggressive bright red."""
     return f"""
         QPushButton {{
-            background-color: rgba(240, 93, 108, 0.08);
-            color: {SEMANTIC_ERROR};
-            border: 1px solid rgba(240, 93, 108, 0.25);
-            border-radius: 6px;
+            background-color: transparent;
+            color: #FF453A;
+            border: none;
+            border-radius: 7px;
             font-size: 12px;
             font-weight: 500;
             padding: 7px 14px;
         }}
         QPushButton:hover {{
-            background-color: rgba(240, 93, 108, 0.16);
-            border-color: {SEMANTIC_ERROR};
-            color: #FFFFFF;
+            background-color: rgba(255, 69, 58, 0.12);
+            color: #FF6961;
         }}
         QPushButton:pressed {{
-            background-color: rgba(240, 93, 108, 0.24);
+            background-color: rgba(255, 69, 58, 0.2);
         }}
         QPushButton:disabled {{
             background-color: transparent;
-            color: {TEXT_MUTED};
-            border-color: {BORDER};
+            color: #636366;
         }}
     """
 
@@ -400,18 +395,18 @@ def search_input_style() -> str:
     """Sleek, modern search bar for header and library filter."""
     return f"""
         QLineEdit {{
-            background-color: {SURFACE};
-            color: {TEXT_PRIMARY};
-            border: 1px solid {BORDER};
-            border-radius: 6px;
-            padding: 6px 12px 6px 32px;
+            background-color: rgba(255, 255, 255, 0.04);
+            color: #FFFFFF;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 7px;
+            padding: 6px 12px 6px 30px;
             font-size: 12px;
         }}
         QLineEdit:focus {{
-            border: 1px solid {ACCENT_PRIMARY};
-            background-color: {SURFACE};
+            border-color: #0A84FF;
+            background-color: rgba(255, 255, 255, 0.07);
         }}
         QLineEdit::placeholder {{
-            color: {TEXT_MUTED};
+            color: #636366;
         }}
     """

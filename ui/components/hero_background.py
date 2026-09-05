@@ -84,31 +84,41 @@ class HeroBackgroundWidget(QWidget):
         return res
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            return
+
+        painter = QPainter(self)
+        if not painter.isActive():
+            return
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # Base background fill
         painter.fillRect(self.rect(), QColor(13, 13, 16))
 
-        # Paint current background pixmap
-        if self.current_pixmap and not self.current_pixmap.isNull():
-            scaled_curr = self.current_pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-            crop_x = max(0, (scaled_curr.width() - w) // 2)
-            crop_y = max(0, (scaled_curr.height() - h) // 2)
-            if self.target_pixmap:
-                painter.setOpacity(max(0.0, 1.0 - self.opacity))
-            else:
-                painter.setOpacity(self.opacity)
-            painter.drawPixmap(0, 0, scaled_curr, crop_x, crop_y, w, h)
+        try:
+            # Paint current background pixmap
+            if self.current_pixmap and not self.current_pixmap.isNull():
+                scaled_curr = self.current_pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                if not scaled_curr.isNull() and scaled_curr.width() >= w and scaled_curr.height() >= h:
+                    crop_x = max(0, (scaled_curr.width() - w) // 2)
+                    crop_y = max(0, (scaled_curr.height() - h) // 2)
+                    if self.target_pixmap:
+                        painter.setOpacity(max(0.0, 1.0 - self.opacity))
+                    else:
+                        painter.setOpacity(self.opacity)
+                    painter.drawPixmap(0, 0, scaled_curr, crop_x, crop_y, w, h)
 
-        # Paint target background pixmap fading in over current
-        if self.target_pixmap and not self.target_pixmap.isNull():
-            scaled_target = self.target_pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-            crop_x = max(0, (scaled_target.width() - w) // 2)
-            crop_y = max(0, (scaled_target.height() - h) // 2)
-            painter.setOpacity(self.opacity)
-            painter.drawPixmap(0, 0, scaled_target, crop_x, crop_y, w, h)
+            # Paint target background pixmap fading in over current
+            if self.target_pixmap and not self.target_pixmap.isNull():
+                scaled_target = self.target_pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                if not scaled_target.isNull() and scaled_target.width() >= w and scaled_target.height() >= h:
+                    crop_x = max(0, (scaled_target.width() - w) // 2)
+                    crop_y = max(0, (scaled_target.height() - h) // 2)
+                    painter.setOpacity(self.opacity)
+                    painter.drawPixmap(0, 0, scaled_target, crop_x, crop_y, w, h)
+        except Exception:
+            pass
 
         painter.end()
         super().paintEvent(event)

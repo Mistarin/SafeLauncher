@@ -362,7 +362,7 @@ class AddGameDialog(QDialog):
             return
         
         self.fetch_btn.setEnabled(False)
-        self.fetch_btn.setText("🔄 Searching...")
+        self.fetch_btn.setText("Searching...")
         
         self.fetcher_thread = BannerFetcher(game_name, self.sgdb_client)
         self.fetcher_thread.results_found.connect(self._on_results_found)

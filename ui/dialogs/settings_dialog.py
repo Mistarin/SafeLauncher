@@ -285,6 +285,23 @@ class UserSettingsDialog(QDialog):
         self.chk_welcome.setChecked(self.show_welcome_wizard)
         layout.addWidget(self.chk_welcome)
 
+        sec_achievements = QLabel("Achievement Tracking & Notifications")
+        sec_achievements.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_achievements.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        layout.addWidget(sec_achievements)
+
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        toasts_on = settings.value("achievement_notifications_enabled", True, type=bool)
+        desktop_on = settings.value("achievement_desktop_notifications", True, type=bool)
+
+        self.chk_achievement_notifications = QCheckBox("Show in-app floating achievement notification banners")
+        self.chk_achievement_notifications.setChecked(toasts_on)
+        layout.addWidget(self.chk_achievement_notifications)
+
+        self.chk_achievement_desktop = QCheckBox("Send native desktop notifications (notify-send)")
+        self.chk_achievement_desktop.setChecked(desktop_on)
+        layout.addWidget(self.chk_achievement_desktop)
+
         sec_updates = QLabel("Application Updates")
         sec_updates.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_updates.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
@@ -561,17 +578,17 @@ class UserSettingsDialog(QDialog):
         self.edit_cloud_secret_key.setToolTip("Recommended: Private password for your Convex server endpoint so only your devices can use your 1 GB storage quota.")
         key_row.addWidget(self.edit_cloud_secret_key, 1)
 
-        btn_toggle_key = QPushButton("👁")
-        btn_toggle_key.setFixedWidth(36)
+        btn_toggle_key = QPushButton("Show")
+        btn_toggle_key.setFixedWidth(50)
         btn_toggle_key.setToolTip("Show / Hide Secret Key")
 
         def _toggle_key():
             if self.edit_cloud_secret_key.echoMode() == QLineEdit.EchoMode.Password:
                 self.edit_cloud_secret_key.setEchoMode(QLineEdit.EchoMode.Normal)
-                btn_toggle_key.setText("🙈")
+                btn_toggle_key.setText("Hide")
             else:
                 self.edit_cloud_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
-                btn_toggle_key.setText("👁")
+                btn_toggle_key.setText("Show")
 
         btn_toggle_key.clicked.connect(_toggle_key)
         key_row.addWidget(btn_toggle_key)
@@ -660,12 +677,12 @@ class UserSettingsDialog(QDialog):
         bh_layout.setSpacing(8)
 
         bh_header = QHBoxLayout()
-        bh_title = QLabel("📡 <b>Convex Backend Health & Synchronization</b>")
+        bh_title = QLabel("<b>Convex Backend Health & Synchronization</b>")
         bh_title.setStyleSheet("color: #FFFFFF; font-size: 13px;")
         bh_header.addWidget(bh_title)
         bh_header.addStretch()
 
-        self.lbl_health_latency = QLabel("⚡ -- ms")
+        self.lbl_health_latency = QLabel("-- ms")
         self.lbl_health_latency.setStyleSheet("""
             background: #27272A;
             color: #A1A1AA;
@@ -701,7 +718,7 @@ class UserSettingsDialog(QDialog):
         bh_layout.addWidget(self.lbl_version_warning)
 
         self.health_action_row = QHBoxLayout()
-        self.btn_redeploy = QPushButton("🚀 One-Click Redeploy Backend")
+        self.btn_redeploy = QPushButton("One-Click Redeploy Backend")
         self.btn_redeploy.setStyleSheet("background: #0284C7; font-weight: bold; padding: 6px 14px;")
         self.btn_redeploy.clicked.connect(self._redeploy_backend)
         self.btn_redeploy.setVisible(False)
@@ -1056,6 +1073,11 @@ class UserSettingsDialog(QDialog):
                 settings.setValue("cloud_device_name", dev_name)
             settings.setValue("cloud_sync_workers", self.spin_sync_workers.value())
 
+            if hasattr(self, "chk_achievement_notifications"):
+                settings.setValue("achievement_notifications_enabled", self.chk_achievement_notifications.isChecked())
+            if hasattr(self, "chk_achievement_desktop"):
+                settings.setValue("achievement_desktop_notifications", self.chk_achievement_desktop.isChecked())
+
             self.accept()
 
     def _browse_proton(self):
@@ -1168,7 +1190,7 @@ class UserSettingsDialog(QDialog):
             url = get_site_url()
 
         self.lbl_health_status.setText("Probing backend…")
-        self.lbl_health_latency.setText("⚡ ...")
+        self.lbl_health_latency.setText("...")
         self.lbl_health_latency.setStyleSheet("background: #27272A; color: #A1A1AA; padding: 3px 8px; border-radius: 4px; font-size: 11px;")
 
         def _worker():
@@ -1188,12 +1210,12 @@ class UserSettingsDialog(QDialog):
 
         if lat >= 0:
             color = "#34D399" if lat < 150 else ("#FBBF24" if lat < 400 else "#F87171")
-            self.lbl_health_latency.setText(f"⚡ {lat} ms")
+            self.lbl_health_latency.setText(f"{lat} ms")
             self.lbl_health_latency.setStyleSheet(
                 f"background: #1F2937; color: {color}; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold;"
             )
         else:
-            self.lbl_health_latency.setText("⚡ -- ms")
+            self.lbl_health_latency.setText("-- ms")
             self.lbl_health_latency.setStyleSheet(
                 "background: #27272A; color: #6B7280; padding: 3px 8px; border-radius: 4px; font-size: 11px;"
             )
@@ -1217,13 +1239,13 @@ class UserSettingsDialog(QDialog):
             self.lbl_health_version.setText(f"v{ver}")
             if is_outdated:
                 self.lbl_version_warning.setText(
-                    f"<font color='#F59E0B'>⚠️ Backend update recommended: installed <b>v{ver}</b> is older than minimum supported <b>v{min_ver}</b>.</font>"
+                    f"<font color='#F59E0B'>Backend update recommended: installed <b>v{ver}</b> is older than minimum supported <b>v{min_ver}</b>.</font>"
                 )
                 self.btn_redeploy.setVisible(has_local_repo)
                 self.btn_open_dashboard.setVisible(True)
             else:
                 self.lbl_version_warning.setText(
-                    f"<font color='#10B981'>✔ Backend functions are up to date (v{ver} >= v{min_ver}).</font>"
+                    f"<font color='#10B981'>Backend functions are up to date (v{ver} >= v{min_ver}).</font>"
                 )
                 self.btn_redeploy.setVisible(has_local_repo)
                 self.btn_open_dashboard.setVisible(True)
