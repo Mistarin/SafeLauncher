@@ -31,14 +31,22 @@ def _migrate_legacy_db(new_path: str) -> None:
             logger.error(f"Could not migrate legacy DB {legacy_path}: {e}")
 
 
+_BACKUP_CREATED: set = set()
+_SCHEMA_INITIALIZED: set = set()
+
+
 def _create_database_backup(db_path: str) -> None:
     """Create auto-backup copy (library.db.bak) on startup.
 
     Only called after the database file has passed a consistency check, so a
     corrupted database can never overwrite the last known-good recovery copy.
+    Guarded to run at most once per process lifetime to avoid multi-thread I/O races.
     """
     if db_path == ":memory:" or not os.path.isfile(db_path):
         return
+    if db_path in _BACKUP_CREATED:
+        return
+    _BACKUP_CREATED.add(db_path)
     bak_path = f"{db_path}.bak"
     try:
         shutil.copy2(db_path, bak_path)
@@ -147,8 +155,15 @@ class GameDatabase:
             return bool(row) and str(row[0]).lower() == "ok"
 
         try:
-            self.conn = sqlite3.connect(self.db_path, timeout=5)
+            self.conn = sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
             self.conn.execute("PRAGMA busy_timeout = 5000")
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            if self.db_path != ":memory:":
+                try:
+                    self.conn.execute("PRAGMA journal_mode = WAL")
+                    self.conn.execute("PRAGMA synchronous = NORMAL")
+                except Exception:
+                    pass
             if not _is_consistent(self.conn):
                 raise sqlite3.DatabaseError(f"Integrity check failed for {self.db_path}")
         except sqlite3.DatabaseError as e:
@@ -174,6 +189,8 @@ class GameDatabase:
             self.conn = sqlite3.connect(":memory:")
 
     def _create_table(self):
+        if self.db_path != ":memory:" and self.db_path in _SCHEMA_INITIALIZED:
+            return
         try:
             with self.conn:
                 self.conn.execute('''
@@ -229,11 +246,33 @@ class GameDatabase:
                     )
                 """)
 
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS achievements (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        game_id INTEGER NOT NULL,
+                        app_id TEXT NOT NULL,
+                        api_name TEXT NOT NULL,
+                        display_name TEXT NOT NULL,
+                        description TEXT DEFAULT '',
+                        icon_path TEXT DEFAULT '',
+                        icongray_path TEXT DEFAULT '',
+                        unlocked INTEGER DEFAULT 0,
+                        unlock_time REAL DEFAULT 0,
+                        hidden INTEGER DEFAULT 0,
+                        UNIQUE(game_id, api_name)
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_achievements_game ON achievements(game_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_achievements_game_unlocked ON achievements(game_id, unlocked)")
+
+
                 # Sanitize any accidental combo box formatting in executable column
                 cursor.execute("SELECT id, executable FROM games WHERE executable LIKE '%·%'")
                 for row_id, row_exe in cursor.fetchall():
                     clean_exe = row_exe.split(" · ")[0].split("  ·  ")[0].strip()
                     cursor.execute("UPDATE games SET executable = ? WHERE id = ?", (clean_exe, row_id))
+            if self.db_path != ":memory:":
+                _SCHEMA_INITIALIZED.add(self.db_path)
         except Exception as e:
             logger.error(f"Error initializing database schema: {e}")
 
@@ -488,9 +527,199 @@ class GameDatabase:
         try:
             with self.conn:
                 self.conn.execute('DELETE FROM games WHERE id = ?', (game_id,))
-                logger.info(f"Removed game {game_id} from database.")
+                self.conn.execute('DELETE FROM achievements WHERE game_id = ?', (game_id,))
+                logger.info(f"Removed game {game_id} and its achievements from database.")
         except Exception as e:
             logger.error(f"Failed to remove game {game_id}: {e}")
+
+    def save_achievement_schema(self, game_id: int, app_id: str, achievements: List[dict]) -> int:
+        """Insert or update achievement schema definitions for a game, preserving existing unlocked state."""
+        if not achievements:
+            return 0
+        inserted = 0
+        try:
+            with self.conn:
+                for ach in achievements:
+                    api_name = str(ach.get("api_name", "")).strip()
+                    if not api_name:
+                        continue
+                    display_name = str(ach.get("display_name", api_name)).strip()
+                    desc = str(ach.get("description", "")).strip()
+                    icon_path = str(ach.get("icon_path") or ach.get("icon_url", "")).strip()
+                    icongray_path = str(ach.get("icongray_path") or ach.get("icongray_url", "")).strip()
+                    hidden = int(ach.get("hidden", 0))
+
+                    self.conn.execute("""
+                        INSERT INTO achievements (game_id, app_id, api_name, display_name, description, icon_path, icongray_path, hidden)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(game_id, api_name) DO UPDATE SET
+                            app_id = excluded.app_id,
+                            display_name = excluded.display_name,
+                            description = excluded.description,
+                            icon_path = CASE WHEN excluded.icon_path != '' THEN excluded.icon_path ELSE achievements.icon_path END,
+                            icongray_path = CASE WHEN excluded.icongray_path != '' THEN excluded.icongray_path ELSE achievements.icongray_path END,
+                            hidden = excluded.hidden
+                    """, (game_id, str(app_id), api_name, display_name, desc, icon_path, icongray_path, hidden))
+                    inserted += 1
+            return inserted
+        except Exception as e:
+            logger.error(f"Error saving achievement schema for game {game_id}: {e}")
+            return 0
+
+    def unlock_achievement(self, game_id: int, api_name: str, unlock_time: float = 0.0) -> bool:
+        """Mark an achievement as unlocked with a timestamp."""
+        if not unlock_time or unlock_time <= 0:
+            unlock_time = time.time()
+        try:
+            with self.conn:
+                cursor = self.conn.execute("""
+                    UPDATE achievements 
+                    SET unlocked = 1, unlock_time = ?
+                    WHERE game_id = ? AND api_name = ? AND unlocked = 0
+                """, (unlock_time, game_id, api_name))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error unlocking achievement {api_name} for game {game_id}: {e}")
+            return False
+
+    def unlock_achievements_batch(self, game_id: int, unlocks: Dict[str, float]) -> int:
+        """Mark multiple achievements as unlocked in a single atomic database transaction."""
+        if not unlocks:
+            return 0
+        now = time.time()
+        params = [
+            (unlock_time if unlock_time and unlock_time > 0 else now, game_id, api_name)
+            for api_name, unlock_time in unlocks.items()
+        ]
+        try:
+            with self.conn:
+                cursor = self.conn.executemany("""
+                    UPDATE achievements
+                    SET unlocked = 1, unlock_time = ?
+                    WHERE game_id = ? AND api_name = ? AND unlocked = 0
+                """, params)
+                return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Error in batch achievement unlock for game {game_id}: {e}")
+            return 0
+
+    def get_game_achievements(self, game_id: int) -> List[dict]:
+        """Return all achievements for a game, ordered by unlocked status and name."""
+        try:
+            cursor = self.conn.execute("""
+                SELECT id, game_id, app_id, api_name, display_name, description, icon_path, icongray_path, unlocked, unlock_time, hidden
+                FROM achievements
+                WHERE game_id = ?
+                ORDER BY unlocked DESC, unlock_time DESC, display_name ASC
+            """, (game_id,))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id": r[0],
+                    "game_id": r[1],
+                    "app_id": r[2],
+                    "api_name": r[3],
+                    "display_name": r[4],
+                    "description": r[5],
+                    "icon_path": r[6],
+                    "icongray_path": r[7],
+                    "unlocked": bool(r[8]),
+                    "unlock_time": float(r[9]),
+                    "hidden": bool(r[10]),
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error(f"Error getting achievements for game {game_id}: {e}")
+            return []
+
+    def get_achievement_stats(self, game_id: int) -> Tuple[int, int, float]:
+        """Return (unlocked_count, total_count, percentage)."""
+        try:
+            cursor = self.conn.execute("""
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN unlocked = 1 THEN 1 ELSE 0 END) as unlocked
+                FROM achievements
+                WHERE game_id = ?
+            """, (game_id,))
+            row = cursor.fetchone()
+            if not row or not row[0]:
+                return 0, 0, 0.0
+            total = int(row[0])
+            unlocked = int(row[1] or 0)
+            pct = round((unlocked / total) * 100.0, 1) if total > 0 else 0.0
+            return unlocked, total, pct
+        except Exception as e:
+            logger.error(f"Error getting achievement stats for game {game_id}: {e}")
+            return 0, 0, 0.0
+
+    def get_global_achievement_stats(self) -> Dict[str, Any]:
+        """Return global achievement statistics across all games."""
+        try:
+            cursor = self.conn.execute("""
+                SELECT 
+                    COUNT(DISTINCT game_id) as total_games_with_achs,
+                    COUNT(*) as total_achievements,
+                    SUM(CASE WHEN unlocked = 1 THEN 1 ELSE 0 END) as total_unlocked
+                FROM achievements
+            """)
+            row = cursor.fetchone()
+            if not row or not row[1]:
+                return {"games_count": 0, "total_achievements": 0, "total_unlocked": 0, "percentage": 0.0}
+            games_cnt = int(row[0] or 0)
+            total_achs = int(row[1] or 0)
+            total_unlocked = int(row[2] or 0)
+            pct = round((total_unlocked / total_achs) * 100.0, 1) if total_achs > 0 else 0.0
+            return {
+                "games_count": games_cnt,
+                "total_achievements": total_achs,
+                "total_unlocked": total_unlocked,
+                "percentage": pct
+            }
+        except Exception as e:
+            logger.error(f"Error getting global achievement stats: {e}")
+            return {"games_count": 0, "total_achievements": 0, "total_unlocked": 0, "percentage": 0.0}
+
+    def get_recent_unlocked_achievements(self, game_id: int, limit: int = 6) -> List[dict]:
+        """Return the most recently unlocked achievements for a game."""
+        try:
+            cursor = self.conn.execute("""
+                SELECT id, game_id, app_id, api_name, display_name, description, icon_path, icongray_path, unlocked, unlock_time, hidden
+                FROM achievements
+                WHERE game_id = ? AND unlocked = 1
+                ORDER BY unlock_time DESC, id DESC
+                LIMIT ?
+            """, (game_id, limit))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id": r[0],
+                    "game_id": r[1],
+                    "app_id": r[2],
+                    "api_name": r[3],
+                    "display_name": r[4],
+                    "description": r[5],
+                    "icon_path": r[6],
+                    "icongray_path": r[7],
+                    "unlocked": bool(r[8]),
+                    "unlock_time": float(r[9]),
+                    "hidden": bool(r[10]),
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error(f"Error getting recent unlocked achievements: {e}")
+            return []
+
+    def reset_game_achievements(self, game_id: int):
+        """Reset unlocked status of all achievements for a game (for testing/re-locking)."""
+        try:
+            with self.conn:
+                self.conn.execute("UPDATE achievements SET unlocked = 0, unlock_time = 0 WHERE game_id = ?", (game_id,))
+        except Exception as e:
+            logger.error(f"Error resetting achievements for game {game_id}: {e}")
+
 
     def close(self):
         if self.conn:

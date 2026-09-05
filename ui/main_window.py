@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import shutil
 import subprocess
 import threading
@@ -42,6 +43,8 @@ from ui.icons import (
     get_app_icon, get_icon,
 )
 from ui.maintenance_dialogs import PrefixMaintenanceDialog
+from ui.dialogs.achievements_dialog import create_rounded_pixmap
+import html
 
 logger = get_logger("UI")
 
@@ -49,7 +52,8 @@ from ui.threads import (
     BannerFetcher, BannerDownloader, BannerAutoFetcher, ArchiveExtractorThread,
     GitHubReleasesFetcherThread, UmuBootstrapWorker, SafeLaunchLogReader,
     DiskSizeFetcherThread, HeroFetcherThread, IconAutoFetcherThread,
-    CloudSaveStatusFetcherThread, CloudSaveBatchQueueWorker
+    CloudSaveStatusFetcherThread, CloudSaveBatchQueueWorker,
+    AchievementStatusFetcherThread, AchievementBatchQueueWorker
 )
 from core.archive_installer import find_executables
 from core.host_process import host_process_env
@@ -140,6 +144,8 @@ class MainWindow(QMainWindow):
         self.steam_check_results = {}
         self.cloud_save_status_cache = {}
         self._cloud_save_checked_ts = {}
+        self.achievement_status_cache = {}
+        self._achievement_checked_ts = {}
         self.local_version_by_game_id = {}
         self.metadata_attempted_tags = set()
         self._steam_build_checked_ts = {}
@@ -147,6 +153,7 @@ class MainWindow(QMainWindow):
         self._icon_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
         self._background_workers = []  # authoritative registry for shutdown (see _register_worker)
+        self._retiring_workers = []  # retain retiring threads until completely stopped to avoid GC destroying running QThread
         # running_game_ids is a derived property over playtime_trackers — it
         # can never go stale, unlike the old manually-maintained add/discard set.
         self.topbar_extractor_thread = None
@@ -157,6 +164,8 @@ class MainWindow(QMainWindow):
         self._size_resort_timer.timeout.connect(self._refresh_library)
         self.games_by_id = {}
         self.library_selection = LibrarySelectionModel()
+        self.achievement_watchers = {}
+        self.active_toasts = []
         self._load_persistent_cache()
 
         # Always-connected signal carriers. A connect/disconnect dance around
@@ -340,12 +349,14 @@ class MainWindow(QMainWindow):
         # Right Game Detail Panel (Inspector)
         # -------------------------------------------------------------
         self.detail_panel = QFrame()
-        self.detail_panel.setMinimumWidth(240)
-        self.detail_panel.setMaximumWidth(550)
+        self.detail_panel.setObjectName("detailPanel")
+        self.detail_panel.setMinimumWidth(260)
+        self.detail_panel.setMaximumWidth(480)
         self.detail_panel.setStyleSheet("""
-            QFrame {
-                background: #14171D;
+            QFrame#detailPanel {
+                background-color: #0E1015;
                 border: none;
+                border-left: 1px solid rgba(255, 255, 255, 0.04);
             }
             QLabel {
                 color: #F5F7FA;
@@ -365,34 +376,46 @@ class MainWindow(QMainWindow):
         self.panel_anim.finished.connect(self._on_panel_anim_finished)
         self._panel_expanding = False
 
-        detail_layout = QVBoxLayout(self.detail_panel)
-        detail_layout.setContentsMargins(18, 12, 18, 18)
-        detail_layout.setSpacing(8)
-        detail_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # Internal scrollable container for seamless scaling
+        panel_outer_layout = QVBoxLayout(self.detail_panel)
+        panel_outer_layout.setContentsMargins(0, 0, 0, 0)
+        panel_outer_layout.setSpacing(0)
 
-        # Top Bar with Close button
+        self.detail_scroll = QScrollArea()
+        self.detail_scroll.setWidgetResizable(True)
+        self.detail_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        
+        detail_content = QWidget()
+        detail_content.setStyleSheet("background: transparent;")
+        detail_layout = QVBoxLayout(detail_content)
+        detail_layout.setContentsMargins(16, 12, 16, 16)
+        detail_layout.setSpacing(10)
+        detail_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.detail_scroll.setWidget(detail_content)
+        panel_outer_layout.addWidget(self.detail_scroll)
+
+        # Top Bar with Inspector Header and Close button
         top_bar = QHBoxLayout()
-        top_bar.setContentsMargins(0, 0, 0, 4)
+        top_bar.setContentsMargins(2, 0, 0, 2)
+        
+        lbl_inspector_hdr = QLabel("INSPECTOR")
+        lbl_inspector_hdr.setStyleSheet("color: #636366; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
+        top_bar.addWidget(lbl_inspector_hdr)
         top_bar.addStretch()
 
-        self.btn_hide_detail = QPushButton("✕")
+        self.btn_hide_detail = QPushButton()
+        self.btn_hide_detail.setIcon(get_icon("ph.x-bold", color="#8E8E93"))
+        self.btn_hide_detail.setIconSize(QSize(12, 12))
         self.btn_hide_detail.setFixedSize(24, 24)
-        self.btn_hide_detail.setToolTip("Close details panel")
+        self.btn_hide_detail.setToolTip("Close inspector")
         self.btn_hide_detail.setStyleSheet("""
             QPushButton {
                 background: transparent;
-                color: #6F7682;
-                font-size: 11px;
-                font-weight: bold;
-                border: 1px solid transparent;
-                border-radius: 4px;
-                padding: 0;
-                text-align: center;
+                border: none;
+                border-radius: 12px;
             }
             QPushButton:hover {
-                color: #F5F7FA;
-                background: #1A1E26;
-                border-color: #252A33;
+                background: rgba(255, 255, 255, 0.08);
             }
         """)
         self.btn_hide_detail.clicked.connect(lambda: self._animate_left_panel(False))
@@ -403,10 +426,16 @@ class MainWindow(QMainWindow):
         self.detail_cover = QLabel()
         self.detail_cover.setFixedSize(QSize(180, 270))
         self.detail_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_cover.setStyleSheet("border: 1px solid #252A33; border-radius: 8px; background: #14171D;")
+        self.detail_cover.setStyleSheet("""
+            QLabel {
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 12px;
+                background-color: #14171E;
+            }
+        """)
         
         cover_row = QHBoxLayout()
-        cover_row.setContentsMargins(0, 0, 0, 0)
+        cover_row.setContentsMargins(0, 2, 0, 4)
         cover_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cover_row.addWidget(self.detail_cover)
         detail_layout.addLayout(cover_row)
@@ -416,10 +445,10 @@ class MainWindow(QMainWindow):
         title_row.setContentsMargins(0, 0, 0, 0)
 
         self.detail_title = QLabel("Select a Game")
-        self.detail_title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
+        self.detail_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         self.detail_title.setWordWrap(True)
         self.detail_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_title.setStyleSheet("color: #F5F7FA; background: transparent;")
+        self.detail_title.setStyleSheet("color: #FFFFFF; background: transparent; letter-spacing: -0.2px;")
         title_row.addWidget(self.detail_title, 1)
 
         detail_layout.addLayout(title_row)
@@ -432,39 +461,54 @@ class MainWindow(QMainWindow):
         self.tags_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         detail_layout.addWidget(self.tags_widget)
 
-        # Selected Game Playtime
-        self.detail_playtime = QLabel("")
-        self.detail_playtime.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_playtime.setStyleSheet("color: #A7ADB8; font-size: 11px; font-weight: 500;")
-        detail_layout.addWidget(self.detail_playtime)
-
-        # Selected Game Last Played
-        self.detail_last_played = QLabel("")
-        self.detail_last_played.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_last_played.setStyleSheet("""
-            QLabel {
-                color: #A7ADB8;
-                background: #1A1E26;
-                border: 1px solid #252A33;
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-size: 11px;
-                font-weight: 500;
+        # ── Unified Game Specs Card (Playtime, Last Played, Size, Cloud Save) ──
+        self.detail_spec_card = QFrame()
+        self.detail_spec_card.setObjectName("detailSpecCard")
+        self.detail_spec_card.setStyleSheet("""
+            QFrame#detailSpecCard {
+                background-color: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 10px;
             }
         """)
-        detail_layout.addWidget(self.detail_last_played)
+        spec_layout = QGridLayout(self.detail_spec_card)
+        spec_layout.setContentsMargins(12, 10, 12, 10)
+        spec_layout.setHorizontalSpacing(14)
+        spec_layout.setVerticalSpacing(6)
 
-        # Selected Game Disk Size
-        self.detail_disk_size = QLabel("")
-        self.detail_disk_size.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_disk_size.setStyleSheet("color: #6F7682; font-size: 11px; font-weight: 500; padding: 2px 0;")
-        detail_layout.addWidget(self.detail_disk_size)
+        # Col 0: Playtime
+        lbl_pt_h = QLabel("PLAYTIME")
+        lbl_pt_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        spec_layout.addWidget(lbl_pt_h, 0, 0)
+        self.detail_playtime = QLabel("--")
+        self.detail_playtime.setStyleSheet("color: #F5F7FA; font-size: 11px; font-weight: 600; background: transparent;")
+        spec_layout.addWidget(self.detail_playtime, 1, 0)
 
-        # Selected Game Cloud Save Status
-        self.detail_cloud_status = QLabel("")
-        self.detail_cloud_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_cloud_status.setStyleSheet("color: #6F7682; font-size: 11px; font-weight: 500; padding: 2px 0;")
-        detail_layout.addWidget(self.detail_cloud_status)
+        # Col 1: Last Played
+        lbl_lp_h = QLabel("LAST PLAYED")
+        lbl_lp_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        spec_layout.addWidget(lbl_lp_h, 0, 1)
+        self.detail_last_played = QLabel("--")
+        self.detail_last_played.setStyleSheet("color: #F5F7FA; font-size: 11px; font-weight: 600; background: transparent;")
+        spec_layout.addWidget(self.detail_last_played, 1, 1)
+
+        # Row 2, Col 0: Disk Size
+        lbl_ds_h = QLabel("DISK SIZE")
+        lbl_ds_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        spec_layout.addWidget(lbl_ds_h, 2, 0)
+        self.detail_disk_size = QLabel("--")
+        self.detail_disk_size.setStyleSheet("color: #A1A1A6; font-size: 11px; font-weight: 500; background: transparent;")
+        spec_layout.addWidget(self.detail_disk_size, 3, 0)
+
+        # Row 2, Col 1: Cloud Sync
+        lbl_cs_h = QLabel("CLOUD SAVE")
+        lbl_cs_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        spec_layout.addWidget(lbl_cs_h, 2, 1)
+        self.detail_cloud_status = QLabel("--")
+        self.detail_cloud_status.setStyleSheet("color: #A1A1A6; font-size: 11px; font-weight: 500; background: transparent;")
+        spec_layout.addWidget(self.detail_cloud_status, 3, 1)
+
+        detail_layout.addWidget(self.detail_spec_card)
 
         # Steam update status and version details
         self.detail_update_widget = QWidget()
@@ -483,7 +527,7 @@ class MainWindow(QMainWindow):
         self.lbl_detail_versions.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_detail_versions.setWordWrap(True)
         self.lbl_detail_versions.setOpenExternalLinks(True)
-        self.lbl_detail_versions.setStyleSheet("QLabel { color: #A7ADB8; background: #1A1E26; border: 1px solid #252A33; border-radius: 6px; font-size: 10px; padding: 3px 8px; }")
+        self.lbl_detail_versions.setStyleSheet("QLabel { color: #A1A1A6; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; font-size: 10px; padding: 3px 8px; }")
         self.detail_update_layout.addWidget(self.lbl_detail_versions)
 
         self.btn_retry_steam = QPushButton("Retry")
@@ -496,7 +540,7 @@ class MainWindow(QMainWindow):
         detail_layout.addWidget(self.detail_update_widget)
 
         # Primary Launch Game Button
-        detail_layout.addSpacing(6)
+        detail_layout.addSpacing(2)
         self.btn_detail_launch = QPushButton("Launch Game")
         self.btn_detail_launch.setObjectName("detailLaunch")
         self.btn_detail_launch.setIcon(get_icon("ph.play-bold", color="#FFFFFF"))
@@ -504,22 +548,21 @@ class MainWindow(QMainWindow):
         self.btn_detail_launch.setFixedHeight(40)
         self.btn_detail_launch.setStyleSheet("""
             QPushButton#detailLaunch {
-                background-color: #3B9FE8;
+                background-color: #0A84FF;
                 color: #FFFFFF;
                 font-weight: 600;
-                font-size: 12px;
-                border: 1px solid #3B9FE8;
-                border-radius: 6px;
+                font-size: 13px;
+                border: none;
+                border-radius: 8px;
                 padding: 0 16px;
                 text-align: center;
                 letter-spacing: 0.2px;
             }
             QPushButton#detailLaunch:hover {
-                background-color: #55ACED;
-                border-color: #55ACED;
+                background-color: #0071E3;
             }
             QPushButton#detailLaunch:pressed {
-                background-color: #2789D0;
+                background-color: #005BB5;
             }
         """)
         self.btn_detail_launch.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -528,79 +571,159 @@ class MainWindow(QMainWindow):
 
         sec_btn_style = """
             QPushButton {
-                background-color: #1A1E26;
-                color: #F5F7FA;
-                border: 1px solid #252A33;
-                border-radius: 6px;
-                padding: 0 14px;
+                background-color: rgba(255, 255, 255, 0.04);
+                color: #D1D5DB;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 8px;
+                padding: 0 10px;
                 font-weight: 500;
-                font-size: 12px;
+                font-size: 11px;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #252A33;
-                border-color: #6F7682;
-            }
-            QPushButton:pressed {
-                background-color: #14171D;
-            }
-        """
-
-        # Secondary Action Buttons
-        self.btn_detail_edit = QPushButton("Edit Game")
-        self.btn_detail_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#3B9FE8"))
-        self.btn_detail_edit.setIconSize(QSize(15, 15))
-        self.btn_detail_edit.setFixedHeight(32)
-        self.btn_detail_edit.setStyleSheet(sec_btn_style)
-        self.btn_detail_edit.clicked.connect(self._on_edit)
-        detail_layout.addWidget(self.btn_detail_edit)
-
-        self.btn_detail_screenshots = QPushButton("Screenshots")
-        self.btn_detail_screenshots.setIcon(get_icon("ph.image-bold", color="#A7ADB8"))
-        self.btn_detail_screenshots.setIconSize(QSize(15, 15))
-        self.btn_detail_screenshots.setFixedHeight(32)
-        self.btn_detail_screenshots.setStyleSheet(sec_btn_style)
-        self.btn_detail_screenshots.clicked.connect(self._open_screenshot_gallery)
-        detail_layout.addWidget(self.btn_detail_screenshots)
-
-        self.btn_detail_videos = QPushButton("Videos")
-        self.btn_detail_videos.setIcon(get_icon("ph.video-camera-bold", color="#A7ADB8"))
-        self.btn_detail_videos.setIconSize(QSize(15, 15))
-        self.btn_detail_videos.setFixedHeight(32)
-        self.btn_detail_videos.setStyleSheet(sec_btn_style)
-        self.btn_detail_videos.clicked.connect(self._open_video_gallery)
-        detail_layout.addWidget(self.btn_detail_videos)
-
-        self.btn_detail_properties = QPushButton("Properties")
-        self.btn_detail_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#A7ADB8"))
-        self.btn_detail_properties.setIconSize(QSize(15, 15))
-        self.btn_detail_properties.setFixedHeight(32)
-        self.btn_detail_properties.setStyleSheet(sec_btn_style)
-        self.btn_detail_properties.clicked.connect(self._open_game_properties)
-        detail_layout.addWidget(self.btn_detail_properties)
-
-        self.btn_detail_remove = QPushButton("Remove Game")
-        self.btn_detail_remove.setIcon(get_icon("ph.trash-bold", color="#F05D6C"))
-        self.btn_detail_remove.setIconSize(QSize(15, 15))
-        self.btn_detail_remove.setFixedHeight(32)
-        self.btn_detail_remove.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(240, 93, 108, 0.08);
-                color: #F05D6C;
-                border: 1px solid rgba(240, 93, 108, 0.25);
-                border-radius: 6px;
-                padding: 0 14px;
-                font-weight: 500;
-                font-size: 12px;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: rgba(240, 93, 108, 0.16);
-                border-color: #F05D6C;
+                background-color: rgba(255, 255, 255, 0.08);
+                border-color: rgba(255, 255, 255, 0.12);
                 color: #FFFFFF;
             }
             QPushButton:pressed {
-                background-color: rgba(240, 93, 108, 0.24);
+                background-color: rgba(255, 255, 255, 0.02);
+            }
+        """
+
+        # ── Secondary Action Buttons (2x2 Grid) ──
+        actions_grid = QGridLayout()
+        actions_grid.setContentsMargins(0, 0, 0, 0)
+        actions_grid.setSpacing(6)
+
+        self.btn_detail_edit = QPushButton("Edit Game")
+        self.btn_detail_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#0A84FF"))
+        self.btn_detail_edit.setIconSize(QSize(14, 14))
+        self.btn_detail_edit.setFixedHeight(32)
+        self.btn_detail_edit.setStyleSheet(sec_btn_style)
+        self.btn_detail_edit.clicked.connect(self._on_edit)
+        actions_grid.addWidget(self.btn_detail_edit, 0, 0)
+
+        self.btn_detail_properties = QPushButton("Properties")
+        self.btn_detail_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#8E8E93"))
+        self.btn_detail_properties.setIconSize(QSize(14, 14))
+        self.btn_detail_properties.setFixedHeight(32)
+        self.btn_detail_properties.setStyleSheet(sec_btn_style)
+        self.btn_detail_properties.clicked.connect(self._open_game_properties)
+        actions_grid.addWidget(self.btn_detail_properties, 0, 1)
+
+        self.btn_detail_screenshots = QPushButton("Screenshots")
+        self.btn_detail_screenshots.setIcon(get_icon("ph.image-bold", color="#8E8E93"))
+        self.btn_detail_screenshots.setIconSize(QSize(14, 14))
+        self.btn_detail_screenshots.setFixedHeight(32)
+        self.btn_detail_screenshots.setStyleSheet(sec_btn_style)
+        self.btn_detail_screenshots.clicked.connect(self._open_screenshot_gallery)
+        actions_grid.addWidget(self.btn_detail_screenshots, 1, 0)
+
+        self.btn_detail_videos = QPushButton("Videos")
+        self.btn_detail_videos.setIcon(get_icon("ph.video-camera-bold", color="#8E8E93"))
+        self.btn_detail_videos.setIconSize(QSize(14, 14))
+        self.btn_detail_videos.setFixedHeight(32)
+        self.btn_detail_videos.setStyleSheet(sec_btn_style)
+        self.btn_detail_videos.clicked.connect(self._open_video_gallery)
+        actions_grid.addWidget(self.btn_detail_videos, 1, 1)
+
+        detail_layout.addLayout(actions_grid)
+
+        self.btn_detail_achievements = QPushButton("Achievements")
+        self.btn_detail_achievements.setIcon(get_icon("ph.trophy-bold", color="#30D158"))
+        self.btn_detail_achievements.setIconSize(QSize(14, 14))
+        self.btn_detail_achievements.setFixedHeight(32)
+        self.btn_detail_achievements.setStyleSheet(sec_btn_style)
+        self.btn_detail_achievements.clicked.connect(self._open_achievements_dialog)
+        self.btn_detail_achievements.setVisible(False)
+        detail_layout.addWidget(self.btn_detail_achievements)
+
+        # Apple-styled Achievement Preview Card in Inspector Detail Panel
+        self.detail_ach_card = QFrame()
+        self.detail_ach_card.setObjectName("detailAchCard")
+        self.detail_ach_card.setStyleSheet("""
+            QFrame#detailAchCard {
+                background-color: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 10px;
+                padding: 10px;
+            }
+            QFrame#detailAchCard:hover {
+                background-color: rgba(255, 255, 255, 0.05);
+                border-color: rgba(48, 209, 88, 0.3);
+            }
+        """)
+        self.detail_ach_card.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.detail_ach_card.mousePressEvent = lambda e: self._open_achievements_dialog()
+
+        ach_card_layout = QVBoxLayout(self.detail_ach_card)
+        ach_card_layout.setContentsMargins(10, 8, 10, 8)
+        ach_card_layout.setSpacing(6)
+
+        ach_hdr_row = QHBoxLayout()
+        ach_hdr_row.setContentsMargins(0, 0, 0, 0)
+        ach_hdr_row.setSpacing(6)
+
+        ach_title = QLabel("ACHIEVEMENTS")
+        ach_title.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
+        ach_hdr_row.addWidget(ach_title)
+        ach_hdr_row.addStretch()
+
+        self.lbl_detail_ach_count = QLabel("0 / 0 (0%)")
+        self.lbl_detail_ach_count.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700; background: transparent;")
+        ach_hdr_row.addWidget(self.lbl_detail_ach_count)
+        ach_card_layout.addLayout(ach_hdr_row)
+
+        self.detail_ach_progress = QProgressBar()
+        self.detail_ach_progress.setFixedHeight(4)
+        self.detail_ach_progress.setTextVisible(False)
+        self.detail_ach_progress.setRange(0, 100)
+        self.detail_ach_progress.setValue(0)
+        self.detail_ach_progress.setStyleSheet("""
+            QProgressBar {
+                background-color: rgba(255, 255, 255, 0.06);
+                border: none;
+                border-radius: 2px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #30D158, stop:1 #34C759);
+                border-radius: 2px;
+            }
+        """)
+        ach_card_layout.addWidget(self.detail_ach_progress)
+
+        # Mini badge icons preview container
+        self.detail_ach_badges_container = QWidget()
+        self.detail_ach_badges_layout = QHBoxLayout(self.detail_ach_badges_container)
+        self.detail_ach_badges_layout.setContentsMargins(0, 2, 0, 0)
+        self.detail_ach_badges_layout.setSpacing(6)
+        ach_card_layout.addWidget(self.detail_ach_badges_container)
+
+        self.detail_ach_card.setVisible(False)
+        detail_layout.addWidget(self.detail_ach_card)
+
+        # Destructive Remove Game Button
+        self.btn_detail_remove = QPushButton("Remove Game")
+        self.btn_detail_remove.setIcon(get_icon("ph.trash-bold", color="#FF453A"))
+        self.btn_detail_remove.setIconSize(QSize(13, 13))
+        self.btn_detail_remove.setFixedHeight(28)
+        self.btn_detail_remove.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #FF453A;
+                border: none;
+                border-radius: 6px;
+                padding: 0 12px;
+                font-weight: 500;
+                font-size: 11px;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 69, 58, 0.1);
+                color: #FF6961;
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 69, 58, 0.18);
             }
         """)
         self.btn_detail_remove.clicked.connect(self._on_remove)
@@ -834,6 +957,7 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         QTimer.singleShot(300, self._check_all_steam_updates)
         QTimer.singleShot(800, self._start_background_cloud_sync)
+        QTimer.singleShot(1200, self._start_background_achievement_sync)
         QTimer.singleShot(3000, self._check_app_updates)
         self._start_cloud_poll_timer()
 
@@ -865,12 +989,12 @@ class MainWindow(QMainWindow):
             pass
 
         if info.get("is_appimage") and info.get("appimage_asset"):
-            self.lbl_update_banner_msg.setText(f"🎉 SafeLauncher {latest} is available!")
+            self.lbl_update_banner_msg.setText(f"SafeLauncher {latest} is available!")
             self.btn_update_banner_action.setText("Download & Apply")
             self.btn_update_banner_action.clicked.connect(self._on_banner_download_clicked)
             self.update_banner.setVisible(True)
         else:
-            self.lbl_update_banner_msg.setText(f"🎉 SafeLauncher {latest} is available on GitHub (source checkout).")
+            self.lbl_update_banner_msg.setText(f"SafeLauncher {latest} is available on GitHub (source checkout).")
             self.btn_update_banner_action.setText("View Release ↗")
             rel_url = info.get("release_url") or "https://github.com/Mistarin/SafeLauncher/releases"
             self.btn_update_banner_action.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(rel_url)))
@@ -899,7 +1023,7 @@ class MainWindow(QMainWindow):
             self.lbl_update_banner_msg.setText(f"Downloading SafeLauncher update: {pct}%…")
 
     def _on_banner_download_finished(self, target_path: str):
-        self.lbl_update_banner_msg.setText("✔ Update verified and ready to apply!")
+        self.lbl_update_banner_msg.setText("Update verified and ready to apply!")
         self.btn_update_banner_action.setText("Restart Now")
         self.btn_update_banner_action.setEnabled(True)
         try:
@@ -1732,13 +1856,9 @@ class MainWindow(QMainWindow):
             self.auto_fetchers.remove(fetcher)
         if fetcher in self._background_workers:
             self._background_workers.remove(fetcher)
-        # Defer Qt-side destruction to the event loop: finished fires while the
-        # OS thread is still terminating, and dropping the last Python reference
-        # here can destroy a running QThread.
-        try:
-            fetcher.deleteLater()
-        except RuntimeError:
-            pass
+        self._retiring_workers.append(fetcher)
+        if len(self._retiring_workers) > 80:
+            self._retiring_workers = [w for w in self._retiring_workers if w.isRunning()]
         self._start_next_pending_fetcher()
 
     def _start_next_pending_fetcher(self):
@@ -1751,6 +1871,7 @@ class MainWindow(QMainWindow):
                 continue
             fetcher.start()
             self.auto_fetchers.append(fetcher)
+            self._register_worker(fetcher)
             return
 
     def _cancel_metadata_fetchers(self):
@@ -1775,10 +1896,9 @@ class MainWindow(QMainWindow):
             self.metadata_fetchers.remove(fetcher)
         if fetcher in self._background_workers:
             self._background_workers.remove(fetcher)
-        try:
-            fetcher.deleteLater()
-        except RuntimeError:
-            pass
+        self._retiring_workers.append(fetcher)
+        if len(self._retiring_workers) > 80:
+            self._retiring_workers = [w for w in self._retiring_workers if w.isRunning()]
 
     def _schedule_size_fetches(self, paths):
         """Compute missing directory sizes on worker threads, never on the GUI."""
@@ -2398,6 +2518,7 @@ class MainWindow(QMainWindow):
         cache_file = os.path.join(os.path.expanduser("~/.cache/safelauncher"), "metadata_cache.json")
         self._cloud_save_checked_ts = {}
         self._steam_build_checked_ts = {}
+        self._achievement_checked_ts = {}
         if not os.path.isfile(cache_file):
             return
         try:
@@ -2444,11 +2565,25 @@ class MainWindow(QMainWindow):
                     self.metadata_attempted_builds.add(gid)
                 except Exception:
                     continue
+
+            ach_cache = data.get("achievements", {})
+            for gid_str, entry in ach_cache.items():
+                try:
+                    gid = int(gid_str)
+                    self.achievement_status_cache[gid] = (
+                        entry.get("unlocked_count", 0),
+                        entry.get("total_count", 0),
+                        float(entry.get("pct", 0.0)),
+                        entry.get("recent", [])
+                    )
+                    self._achievement_checked_ts[gid] = entry.get("checked_at", time.time())
+                except Exception:
+                    continue
         except Exception as e:
             logger.warning(f"Could not load metadata cache: {e}")
 
     def _save_persistent_cache(self):
-        """Atomically persist cloud save status and Steam lookup cache to ~/.cache/safelauncher/metadata_cache.json."""
+        """Atomically persist cloud save status, Steam lookup, and achievement cache to ~/.cache/safelauncher/metadata_cache.json."""
         import json
         import time
         cache_dir = os.path.expanduser("~/.cache/safelauncher")
@@ -2482,10 +2617,22 @@ class MainWindow(QMainWindow):
                     "checked_at": getattr(self, "_steam_build_checked_ts", {}).get(gid, time.time())
                 }
 
+            achievements_dict = {}
+            for gid, val in self.achievement_status_cache.items():
+                unlocked_cnt, total_cnt, pct, recent = val
+                achievements_dict[str(gid)] = {
+                    "unlocked_count": unlocked_cnt,
+                    "total_count": total_cnt,
+                    "pct": pct,
+                    "recent": recent if isinstance(recent, list) else [],
+                    "checked_at": getattr(self, "_achievement_checked_ts", {}).get(gid, time.time())
+                }
+
             payload = {
                 "cloud_save_status": cloud_dict,
                 "attempted_tags": list(self.metadata_attempted_tags),
                 "steam_builds": builds_dict,
+                "achievements": achievements_dict,
                 "saved_at": time.time()
             }
             tmp_path = cache_file + ".tmp"
@@ -2521,11 +2668,11 @@ class MainWindow(QMainWindow):
             badge = QLabel(tag)
             badge.setStyleSheet("""
                 QLabel {
-                    background: #1A1E26;
-                    color: #A7ADB8;
-                    border: 1px solid #252A33;
-                    border-radius: 4px;
-                    padding: 2px 8px;
+                    background: rgba(255, 255, 255, 0.05);
+                    color: #98989D;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 3px 8px;
                     font-size: 10px;
                     font-weight: 500;
                 }
@@ -2598,8 +2745,9 @@ class MainWindow(QMainWindow):
         if banner_url and os.path.exists(banner_url):
             pix = QPixmap(banner_url)
             if not pix.isNull():
-                scaled_cover = pix.scaled(QSize(200, 300), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-                self.detail_cover.setPixmap(scaled_cover)
+                scaled_cover = pix.scaled(QSize(180, 270), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                rounded_cover = create_rounded_pixmap(scaled_cover, QSize(180, 270), radius=12)
+                self.detail_cover.setPixmap(rounded_cover)
             else:
                 self.detail_cover.setPixmap(QPixmap())
                 self.detail_cover.setText(name)
@@ -2734,6 +2882,14 @@ class MainWindow(QMainWindow):
         ) if os.path.exists(video_dir) else 0
         self.btn_detail_videos.setText(f"Videos ({video_count})")
 
+        # Achievements card & badges update
+        self._update_achievement_inspector(game_id, steam_id)
+        if steam_id and str(steam_id).strip() not in ("", "0"):
+            now = time.time()
+            last_checked = getattr(self, "_achievement_checked_ts", {}).get(game_id, 0)
+            if game_id not in self.achievement_status_cache or (now - last_checked) > 900:
+                self.request_achievement_recheck([game_id], tag="selection")
+
         self._update_detail_launch_button(game_id)
         self.btn_detail_launch.setVisible(True)
         self.btn_detail_launch.raise_()
@@ -2743,30 +2899,6 @@ class MainWindow(QMainWindow):
         self.btn_detail_properties.setEnabled(True)
         self.btn_detail_remove.setEnabled(True)
         self._animate_left_panel(True)
-
-        if banner_url and banner_url != "none" and os.path.exists(banner_url):
-            pixmap = QPixmap(banner_url)
-            if not pixmap.isNull():
-                target_size = self.detail_cover.size()
-                scaled = pixmap.scaled(
-                    target_size,
-                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                crop_x = max(0, (scaled.width() - target_size.width()) // 2)
-                crop_y = max(0, (scaled.height() - target_size.height()) // 2)
-                cropped = scaled.copy(crop_x, crop_y, target_size.width(), target_size.height())
-                self.detail_cover.setPixmap(cropped)
-                return
-
-        placeholder = QPixmap(200, 300)
-        placeholder.fill(QColor("#181818"))
-        painter = QPainter(placeholder)
-        painter.setPen(QColor("#777777"))
-        painter.setFont(QFont("Monospace", 12, QFont.Weight.Bold))
-        painter.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, name)
-        painter.end()
-        self.detail_cover.setPixmap(placeholder)
 
     def _update_detail_launch_button(self, game_id: int):
         """Show a red actionable Stop Game button while running, green Launch Game, or blue Restore button if archived."""
@@ -3037,6 +3169,40 @@ class MainWindow(QMainWindow):
                                     target_screen=self.gpu_recorder_config.target_screen
                                 )
 
+                # Real-time achievement monitoring
+                if steam_id and str(steam_id).strip() not in ("", "0"):
+                    try:
+                        from core.achievement_watcher import AchievementWatcher
+                        from core.achievement_schema import SteamAchievementFetcherWorker
+
+                        cached_achs = self.db.get_game_achievements(game_id)
+                        if not cached_achs:
+                            fetcher = SteamAchievementFetcherWorker(
+                                game_id,
+                                str(steam_id).strip(),
+                                game_path=path,
+                                proton_path=selected_proton or "",
+                                download_icons=True,
+                                parent=self
+                            )
+                            def _on_sch_done(gid, aid, sch_list):
+                                self.db.save_achievement_schema(gid, aid, sch_list)
+                            fetcher.schema_fetched.connect(_on_sch_done)
+                            fetcher.start()
+
+                        if game_id in self.achievement_watchers:
+                            try:
+                                self.achievement_watchers[game_id].stop()
+                            except Exception:
+                                pass
+
+                        watcher = AchievementWatcher(game_id, str(steam_id).strip(), selected_proton or "", path or "", parent=self)
+                        watcher.achievement_unlocked.connect(self._on_achievement_unlocked)
+                        watcher.start()
+                        self.achievement_watchers[game_id] = watcher
+                    except Exception as ach_err:
+                        logger.warning(f"Could not initialize achievement watcher for {game_name}: {ach_err}")
+
                 # Show animated Safe Launch Popup with console log stream & greeting (non-blocking)
                 popup = SafeLaunchDialog(game_name, user_name=self.user_name, process=process, parent=self)
                 popup.retry_requested.connect(
@@ -3053,6 +3219,116 @@ class MainWindow(QMainWindow):
     def _get_selected_game(self):
         """Get the currently selected game"""
         return self.selected_game
+
+    def _update_achievement_inspector(self, game_id: int, steam_id: str):
+        """Update achievements card, badges, and button in the inspector panel."""
+        if not steam_id or str(steam_id).strip() in ("", "0"):
+            self.btn_detail_achievements.setVisible(False)
+            self.detail_ach_card.setVisible(False)
+            return
+
+        try:
+            cached = self.achievement_status_cache.get(game_id)
+            if cached:
+                unlocked_count, total_count, pct, recent = cached
+            else:
+                unlocked_count, total_count, pct = self.db.get_achievement_stats(game_id)
+                recent = self.db.get_recent_unlocked_achievements(game_id, limit=5)
+                self.achievement_status_cache[game_id] = (unlocked_count, total_count, pct, recent)
+
+            if total_count > 0:
+                self.lbl_detail_ach_count.setText(f"{unlocked_count} / {total_count} ({int(pct)}%)")
+                self.detail_ach_progress.setValue(int(pct))
+                self.btn_detail_achievements.setText(f"Achievements ({unlocked_count}/{total_count})")
+                self.btn_detail_achievements.setVisible(True)
+                self.detail_ach_card.setVisible(True)
+
+                # Update mini badge strip
+                while self.detail_ach_badges_layout.count() > 0:
+                    item = self.detail_ach_badges_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+
+                if recent:
+                    for ach in recent:
+                        b_lbl = QLabel()
+                        b_lbl.setFixedSize(30, 30)
+                        icon_p = ach.get("icon_path", "")
+                        if icon_p and os.path.isfile(icon_p):
+                            r_pix = create_rounded_pixmap(QPixmap(icon_p), QSize(30, 30), radius=6)
+                            b_lbl.setPixmap(r_pix)
+                        else:
+                            b_lbl.setStyleSheet("background-color: rgba(48, 209, 88, 0.2); border-radius: 6px;")
+
+                        d_name = html.escape(ach.get("display_name", ""))
+                        d_desc = html.escape(ach.get("description", ""))
+                        b_lbl.setToolTip(f"<div style='background: #1C1C1E; color: #FFF; padding: 3px;'><b>{d_name}</b><br/><span style='color: #A1A1A6; font-size: 11px;'>{d_desc}</span></div>")
+                        self.detail_ach_badges_layout.addWidget(b_lbl)
+                    self.detail_ach_badges_layout.addStretch()
+                else:
+                    lbl_no_yet = QLabel("No badges unlocked yet")
+                    lbl_no_yet.setStyleSheet("color: #636366; font-size: 10px; background: transparent;")
+                    self.detail_ach_badges_layout.addWidget(lbl_no_yet)
+                    self.detail_ach_badges_layout.addStretch()
+            else:
+                self.btn_detail_achievements.setText("Achievements")
+                self.btn_detail_achievements.setVisible(True)
+                self.detail_ach_card.setVisible(False)
+        except Exception as ach_stat_err:
+            logger.debug(f"Failed getting achievement stats for game {game_id}: {ach_stat_err}")
+            self.btn_detail_achievements.setVisible(False)
+            self.detail_ach_card.setVisible(False)
+
+    def _open_achievements_dialog(self):
+        """Open the achievements dialog for the currently selected game."""
+        game = self._get_selected_game()
+        if not game:
+            return
+        from ui.dialogs.achievements_dialog import AchievementsDialog
+        dialog = AchievementsDialog(game, self.db, parent=self)
+        dialog.exec()
+        self.request_achievement_recheck([game[0]], tag="dialog_close")
+        self._update_detail_panel()
+
+    def _on_achievement_unlocked(self, game_id: int, app_id: str, data: dict):
+        """Handle real-time achievement unlock event from watcher."""
+        api_name = data.get("api_name", "")
+        unlock_time = float(data.get("unlock_time", 0.0) or 0.0)
+        if not api_name:
+            return
+
+        self.db.unlock_achievement(game_id, api_name, unlock_time)
+        unlocked_count, total_count, pct = self.db.get_achievement_stats(game_id)
+        recent = self.db.get_recent_unlocked_achievements(game_id, limit=5)
+        self.achievement_status_cache[game_id] = (unlocked_count, total_count, pct, recent)
+        self._achievement_checked_ts[game_id] = time.time()
+        self._save_persistent_cache()
+
+        # Retrieve display metadata
+        achs = self.db.get_game_achievements(game_id)
+        ach_meta = next((a for a in achs if a.get("api_name") == api_name), None)
+        display_name = ach_meta.get("display_name", api_name) if ach_meta else api_name
+        description = ach_meta.get("description", "") if ach_meta else ""
+        icon_path = ach_meta.get("icon_path", "") if ach_meta else ""
+
+        toasts_enabled = self.settings.value("achievement_notifications_enabled", True, type=bool)
+        desktop_enabled = self.settings.value("achievement_desktop_notifications", True, type=bool)
+
+        if toasts_enabled:
+            from ui.components.achievement_toast import AchievementToast
+            toast = AchievementToast(display_name, description, icon_path=icon_path, parent=self)
+            toast.show_animated(parent_widget=self)
+            self.active_toasts.append(toast)
+            # Prune closed toasts
+            self.active_toasts = [t for t in self.active_toasts if t.isVisible()]
+
+        if desktop_enabled:
+            from ui.components.achievement_toast import send_desktop_notification
+            send_desktop_notification(f"Achievement Unlocked: {display_name}", description, icon_path=icon_path)
+
+        if self.selected_game and self.selected_game[0] == game_id:
+            steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
+            self._update_achievement_inspector(game_id, steam_id)
 
     def _open_prefix_maintenance(self):
         game = self._get_selected_game()
@@ -3185,6 +3461,17 @@ class MainWindow(QMainWindow):
             self._update_detail_launch_button(tracker.game_id)
         if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
             self.discord_rpc.clear_activity()
+
+        # Stop Achievement Watcher for this game
+        if tracker.game_id in getattr(self, "achievement_watchers", {}):
+            try:
+                self.achievement_watchers[tracker.game_id].stop()
+                del self.achievement_watchers[tracker.game_id]
+            except Exception as ach_clean_err:
+                logger.debug(f"Error stopping achievement watcher: {ach_clean_err}")
+
+        # Recheck achievements upon game exit to persist any new unlocks
+        self.request_achievement_recheck([tracker.game_id], tag="game_exit")
 
         # Standby: if no games are running, stop automatic recorder so launcher stays idle
         if not self.running_game_ids:
@@ -3416,6 +3703,83 @@ class MainWindow(QMainWindow):
                 f"You'll be asked which to keep on launch."
             )
 
+    def request_achievement_recheck(self, game_ids: Optional[list] = None, tag: str = ""):
+        """Queue background achievement schema fetching and local unlock sync.
+
+        game_ids:
+          None  -> full library scan (startup, bulk reload).
+          [id]  -> targeted recheck for specific game(s) (post-launch, selection).
+        """
+        tag = f" ({tag})" if tag else ""
+        games_snapshot = list(self.games)
+        if not games_snapshot:
+            return
+
+        if game_ids is None:
+            now = time.time()
+            uncached, stale, fresh = [], [], []
+            for g in games_snapshot:
+                steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
+                if not steam_id:
+                    continue
+                gid = g[0]
+                cached = self.achievement_status_cache.get(gid)
+                if cached is None:
+                    uncached.append(g)
+                elif (now - getattr(self, "_achievement_checked_ts", {}).get(gid, 0)) > 3600:
+                    stale.append(g)
+                else:
+                    fresh.append(g)
+            targets = uncached + stale + fresh
+            if not targets:
+                logger.debug(f"Achievement recheck{tag}: no games with Steam IDs to scan.")
+                return
+            if any(isinstance(f, AchievementBatchQueueWorker) and f.isRunning() for f in self.metadata_fetchers):
+                logger.debug(f"Achievement recheck{tag} skipped: batch worker already running.")
+                return
+            db_path = getattr(self.db, "db_path", None)
+            worker = AchievementBatchQueueWorker(targets, max_workers=3, db_path=db_path, parent=self)
+            worker.game_status_ready.connect(self._on_achievement_status_calculated)
+            worker.batch_finished.connect(self._on_achievement_batch_finished)
+            self._track_metadata_fetcher(worker)
+            return
+
+        if game_ids:
+            by_id = {g[0]: g for g in games_snapshot}
+            for gid in game_ids:
+                if gid not in by_id:
+                    continue
+                g = by_id[gid]
+                g_name = g[1]
+                g_path = g[2]
+                g_steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
+                g_proton_path = str(g[9]).strip() if len(g) > 9 and g[9] else ""
+                if not g_steam_id:
+                    continue
+                if any(isinstance(f, AchievementStatusFetcherThread) and f.game_id == gid and f.isRunning() for f in self.metadata_fetchers):
+                    continue
+                db_path = getattr(self.db, "db_path", None)
+                fetcher = AchievementStatusFetcherThread(gid, g_name, g_path or "", g_steam_id, g_proton_path, db_path=db_path, parent=self)
+                fetcher.achievement_status_calculated.connect(self._on_achievement_status_calculated)
+                self._track_metadata_fetcher(fetcher)
+
+    def _start_background_achievement_sync(self):
+        """Startup achievement check and sync queue across the library."""
+        self.request_achievement_recheck(None, "startup")
+
+    def _on_achievement_status_calculated(self, game_id: int, unlocked_count: int, total_count: int, pct: float, recent: list):
+        """GUI-thread slot when an achievement worker finishes computing status for a game."""
+        self.achievement_status_cache[game_id] = (unlocked_count, total_count, pct, recent)
+        self._achievement_checked_ts[game_id] = time.time()
+        if self.selected_game and self.selected_game[0] == game_id:
+            steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
+            self._update_achievement_inspector(game_id, steam_id)
+        self._save_persistent_cache()
+
+    def _on_achievement_batch_finished(self, total_games: int, total_unlocked: int):
+        """GUI-thread slot when library background achievement batch queue completes."""
+        logger.debug(f"Achievement batch queue complete: {total_games} games processed with achievements ({total_unlocked} total unlocked).")
+
     def closeEvent(self, event):
         """Stop all background workers, then destroy the main window.
 
@@ -3499,6 +3863,20 @@ class MainWindow(QMainWindow):
                 self.discord_rpc.clear_activity()
             except Exception:
                 pass
+
+        for watcher in list(getattr(self, "achievement_watchers", {}).values()):
+            try:
+                watcher.stop()
+            except Exception:
+                pass
+        getattr(self, "achievement_watchers", {}).clear()
+
+        for toast in list(getattr(self, "active_toasts", [])):
+            try:
+                toast.close()
+            except Exception:
+                pass
+        getattr(self, "active_toasts", []).clear()
 
         super().closeEvent(event)
 

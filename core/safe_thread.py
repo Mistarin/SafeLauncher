@@ -12,7 +12,7 @@ logger = get_logger("SafeQThread")
 
 
 class SafeQThread(QThread):
-    """QThread subclass that isolates uncaught exceptions during run()."""
+    """QThread subclass that isolates uncaught exceptions during run() and guarantees safe lifecycle teardown."""
     error_occurred = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -28,4 +28,22 @@ class SafeQThread(QThread):
         except Exception as e:
             tb_str = traceback.format_exc()
             logger.error(f"Uncaught exception in background worker {self.__class__.__name__}: {e}\n{tb_str}")
-            self.error_occurred.emit(str(e))
+            try:
+                self.error_occurred.emit(str(e))
+            except Exception:
+                pass
+
+    def stop(self, timeout_ms: int = 1500):
+        """Gracefully request interruption and wait up to timeout_ms."""
+        self.requestInterruption()
+        if self.isRunning():
+            self.wait(timeout_ms)
+
+    def __del__(self):
+        """Ensure native C++ thread is stopped before Python garbage collection destroys the wrapper."""
+        try:
+            if self.isRunning():
+                self.requestInterruption()
+                self.wait(1000)
+        except Exception:
+            pass

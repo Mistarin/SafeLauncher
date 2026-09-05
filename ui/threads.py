@@ -363,3 +363,155 @@ class CloudSaveBatchQueueWorker(SafeQThread):
             self.batch_finished.emit(uploaded_names, newer_in_cloud_names)
 
 
+class AchievementStatusFetcherThread(SafeQThread):
+    """Background QThread for checking/fetching achievement schemas and syncing local unlocks without blocking GUI."""
+    achievement_status_calculated = pyqtSignal(int, int, int, float, list)  # (game_id, unlocked_count, total_count, pct, recent_unlocked)
+
+    def __init__(
+        self,
+        game_id: int,
+        game_name: str,
+        path: str,
+        steam_id: str = "",
+        proton_path: str = "",
+        db_path: Optional[str] = None,
+        parent=None
+    ):
+        super().__init__(parent)
+        self.game_id = game_id
+        self.game_name = game_name
+        self.path = path
+        self.steam_id = str(steam_id).strip()
+        self.proton_path = proton_path
+        self.db_path = db_path
+
+    def safe_run(self):
+        if self.isInterruptionRequested():
+            return
+        try:
+            from database import GameDatabase
+            from core.achievement_schema import fetch_steam_achievements_schema
+            from core.achievement_watcher import locate_achievements_file, parse_achievements_state
+
+            db = GameDatabase(self.db_path) if self.db_path else GameDatabase()
+            app_id = self.steam_id
+
+            target_file = None
+            if app_id:
+                target_file = locate_achievements_file(self.proton_path, self.path, app_id)
+                if target_file and target_file.is_file():
+                    disk_state = parse_achievements_state(target_file)
+                    if disk_state:
+                        db.unlock_achievements_batch(self.game_id, disk_state)
+
+            unlocked_cnt, total_cnt, pct = db.get_achievement_stats(self.game_id)
+            if total_cnt == 0 and app_id:
+                achs = fetch_steam_achievements_schema(
+                    app_id,
+                    game_path=self.path,
+                    proton_path=self.proton_path,
+                    download_icons=False
+                )
+                if achs:
+                    db.save_achievement_schema(self.game_id, app_id, achs)
+                    if target_file and target_file.is_file():
+                        disk_state = parse_achievements_state(target_file)
+                        if disk_state:
+                            db.unlock_achievements_batch(self.game_id, disk_state)
+                    unlocked_cnt, total_cnt, pct = db.get_achievement_stats(self.game_id)
+
+            recent = db.get_recent_unlocked_achievements(self.game_id, limit=5)
+            if not self.isInterruptionRequested():
+                self.achievement_status_calculated.emit(self.game_id, unlocked_cnt, total_cnt, pct, recent)
+        except Exception as e:
+            logger.debug(f"AchievementStatusFetcherThread error for game {self.game_id} ({self.game_name}): {e}")
+
+
+class AchievementBatchQueueWorker(SafeQThread):
+    """Background queue worker that concurrently fetches/syncs achievement schemas and unlocks across library games."""
+    game_status_ready = pyqtSignal(int, int, int, float, list)  # (game_id, unlocked_count, total_count, pct, recent_unlocked)
+    batch_finished = pyqtSignal(int, int)  # (games_with_achievements_count, total_unlocked_count)
+
+    def __init__(self, games: list, max_workers: Optional[int] = None, db_path: Optional[str] = None, parent=None):
+        super().__init__(parent)
+        self.games = list(games)
+        self.db_path = db_path
+        if max_workers is None:
+            from PyQt6.QtCore import QSettings
+            max_workers = QSettings("SafeLauncher", "SafeLauncher").value("achievement_sync_workers", 3, type=int)
+        self.max_workers = max(1, min(max_workers, 5))
+
+    def safe_run(self):
+        if self.isInterruptionRequested() or not self.games:
+            return
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from database import GameDatabase
+        from core.achievement_schema import fetch_steam_achievements_schema
+        from core.achievement_watcher import locate_achievements_file, parse_achievements_state
+
+        total_games_with_achs = 0
+        total_unlocked_overall = 0
+
+        def _sync_game_achievements(g):
+            if self.isInterruptionRequested() or len(g) < 3:
+                return None
+            game_id = g[0]
+            name = g[1]
+            path = g[2]
+            steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
+            proton_path = str(g[9]).strip() if len(g) > 9 and g[9] else ""
+            if not steam_id:
+                return None
+
+            try:
+                db = GameDatabase(self.db_path) if self.db_path else GameDatabase()
+                target_file = locate_achievements_file(proton_path, path, steam_id)
+                if target_file and target_file.is_file():
+                    disk_state = parse_achievements_state(target_file)
+                    if disk_state:
+                        db.unlock_achievements_batch(game_id, disk_state)
+
+                unlocked_cnt, total_cnt, pct = db.get_achievement_stats(game_id)
+                if total_cnt == 0:
+                    achs = fetch_steam_achievements_schema(
+                        steam_id,
+                        game_path=path,
+                        proton_path=proton_path,
+                        download_icons=False
+                    )
+                    if achs:
+                        db.save_achievement_schema(game_id, steam_id, achs)
+                        if target_file and target_file.is_file():
+                            disk_state = parse_achievements_state(target_file)
+                            if disk_state:
+                                db.unlock_achievements_batch(game_id, disk_state)
+                        unlocked_cnt, total_cnt, pct = db.get_achievement_stats(game_id)
+
+                recent = db.get_recent_unlocked_achievements(game_id, limit=5)
+                return (game_id, unlocked_cnt, total_cnt, pct, recent)
+            except Exception as e:
+                logger.debug(f"AchievementBatchQueueWorker error for '{name}' (ID {game_id}): {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="SafeLauncher-AchQueue") as executor:
+            future_to_game = {executor.submit(_sync_game_achievements, g): g for g in self.games}
+            for future in as_completed(future_to_game):
+                if self.isInterruptionRequested():
+                    break
+                try:
+                    res = future.result()
+                    if res and not self.isInterruptionRequested():
+                        gid, unlocked_cnt, total_cnt, pct, recent = res
+                        if total_cnt > 0:
+                            total_games_with_achs += 1
+                            total_unlocked_overall += unlocked_cnt
+                        self.game_status_ready.emit(gid, unlocked_cnt, total_cnt, pct, recent)
+                except Exception as e:
+                    logger.debug(f"Failed processing game achievements future: {e}")
+
+        if not self.isInterruptionRequested():
+            self.batch_finished.emit(total_games_with_achs, total_unlocked_overall)
+
+
+

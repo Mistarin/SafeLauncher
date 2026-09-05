@@ -38,42 +38,27 @@ class LeftSidebarWidget(QFrame):
 
         self.setStyleSheet("""
             QFrame {
-                background: #0D0F14;
+                background: #0B0D11;
                 border: none;
-            }
-            QPushButton {
-                background: transparent;
-                color: #A7ADB8;
-                border: 1px solid transparent;
-                border-radius: 6px;
-                padding: 7px 10px;
-                text-align: left;
-                font-weight: 500;
-                font-size: 12px;
-                min-height: 20px;
-            }
-            QPushButton:hover {
-                background: #14171D;
-                color: #F5F7FA;
-                border: 1px solid #252A33;
+                border-right: 1px solid rgba(255, 255, 255, 0.04);
             }
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 12)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 10, 8, 12)
+        layout.setSpacing(3)
 
         # Collapse / Expand button
         self.btn_collapse = QPushButton("Hide panel")
-        self.btn_collapse.setIcon(get_icon("ph.caret-double-left-bold", color="#6F7682"))
-        self.btn_collapse.setIconSize(QSize(14, 14))
-        self.btn_collapse.setFixedSize(196, 28)
+        self.btn_collapse.setIcon(get_icon("ph.caret-double-left-bold", color="#8E8E93"))
+        self.btn_collapse.setIconSize(QSize(13, 13))
+        self.btn_collapse.setFixedSize(200, 26)
         self.btn_collapse.setToolTip("Collapse sidebar")
         self.btn_collapse.setStyleSheet("""
             QPushButton {
-                background: #14171D;
-                color: #A7ADB8;
-                border: 1px solid #252A33;
+                background: transparent;
+                color: #8E8E93;
+                border: none;
                 border-radius: 6px;
                 padding: 0;
                 text-align: center;
@@ -81,43 +66,44 @@ class LeftSidebarWidget(QFrame):
                 font-weight: 500;
             }
             QPushButton:hover {
-                background: #1A1E26;
+                background: rgba(255, 255, 255, 0.05);
                 color: #F5F7FA;
-                border-color: #6F7682;
             }
         """)
         self.btn_collapse.clicked.connect(self.toggle_compact)
         layout.addWidget(self.btn_collapse)
-        layout.addSpacing(6)
+        layout.addSpacing(4)
 
         # ── SECTION 1: LIBRARY ──────────────────────────────────────────────
         self.lbl_lib = QLabel("LIBRARY")
-        self.lbl_lib.setStyleSheet("color: #6F7682; font-size: 10px; font-weight: 600; padding-left: 6px; background: transparent; letter-spacing: 0.5px;")
+        self.lbl_lib.setStyleSheet("color: #636366; font-size: 10px; font-weight: 700; padding: 6px 0 2px 8px; background: transparent; letter-spacing: 0.8px;")
         layout.addWidget(self.lbl_lib)
 
         nav_style = """
             QPushButton {
-                color: #A7ADB8;
+                background: transparent;
+                color: #98989D;
                 text-align: left;
-                padding: 7px 10px;
-                border: 1px solid transparent;
-                border-radius: 6px;
+                padding: 6px 10px;
+                border: none;
+                border-radius: 7px;
+                font-size: 12px;
+                font-weight: 500;
+                min-height: 18px;
             }
             QPushButton:hover {
-                background: #14171D;
-                color: #F5F7FA;
-                border: 1px solid #252A33;
+                background: rgba(255, 255, 255, 0.05);
+                color: #FFFFFF;
             }
             QPushButton:checked {
-                background: #0D2A40;
-                color: #3B9FE8;
+                background: rgba(10, 132, 255, 0.14);
+                color: #0A84FF;
                 font-weight: 600;
-                border: 1px solid rgba(59, 159, 232, 0.3);
             }
         """
 
         self.nav_all = QPushButton("All Games")
-        self.nav_all.setIcon(get_icon("ph.squares-four-bold", color="#3B9FE8"))
+        self.nav_all.setIcon(get_icon("ph.squares-four-bold", color="#0A84FF"))
         self.nav_all.setCheckable(True)
         self.nav_all.setChecked(True)
         self.nav_all.setStyleSheet(nav_style)
@@ -125,55 +111,54 @@ class LeftSidebarWidget(QFrame):
         layout.addWidget(self.nav_all)
 
         self.nav_installed = QPushButton("Installed")
-        self.nav_installed.setIcon(get_icon("ph.check-circle-bold", color="#35C98A"))
+        self.nav_installed.setIcon(get_icon("ph.check-circle-bold", color="#30D158"))
         self.nav_installed.setCheckable(True)
         self.nav_installed.setStyleSheet(nav_style)
         self.nav_installed.clicked.connect(lambda: self._on_filter_click("installed"))
         layout.addWidget(self.nav_installed)
 
         self.nav_favorites = QPushButton("Favorites")
-        self.nav_favorites.setIcon(get_icon("ph.star-bold", color="#F5C451"))
+        self.nav_favorites.setIcon(get_icon("ph.star-bold", color="#FFD60A"))
         self.nav_favorites.setCheckable(True)
         self.nav_favorites.setStyleSheet(nav_style)
         self.nav_favorites.clicked.connect(lambda: self._on_filter_click("favorites"))
         layout.addWidget(self.nav_favorites)
 
         self.nav_archived = QPushButton("Archived")
-        self.nav_archived.setIcon(get_icon("ph.archive-bold", color="#A7ADB8"))
+        self.nav_archived.setIcon(get_icon("ph.archive-bold", color="#8E8E93"))
         self.nav_archived.setCheckable(True)
         self.nav_archived.setToolTip("Games removed to archive (playtime & data preserved)")
         self.nav_archived.setStyleSheet(nav_style)
         self.nav_archived.clicked.connect(lambda: self._on_filter_click("archived"))
         layout.addWidget(self.nav_archived)
 
-        layout.addSpacing(10)
+        layout.addSpacing(6)
 
         # ── SECTION 2: COLLECTIONS ──────────────────────────────────────────
         col_hdr_layout = QHBoxLayout()
-        col_hdr_layout.setContentsMargins(6, 0, 0, 0)
+        col_hdr_layout.setContentsMargins(8, 6, 4, 2)
         self.lbl_col = QLabel("COLLECTIONS")
-        self.lbl_col.setStyleSheet("color: #6F7682; font-size: 10px; font-weight: 600; background: transparent; letter-spacing: 0.5px;")
+        self.lbl_col.setStyleSheet("color: #636366; font-size: 10px; font-weight: 700; background: transparent; letter-spacing: 0.8px;")
         col_hdr_layout.addWidget(self.lbl_col)
         col_hdr_layout.addStretch()
 
         self.btn_add_col = QPushButton("+")
-        self.btn_add_col.setFixedSize(22, 22)
+        self.btn_add_col.setFixedSize(20, 20)
         self.btn_add_col.setToolTip("Add new Collection")
         self.btn_add_col.setStyleSheet("""
             QPushButton {
-                background: #14171D;
-                color: #A7ADB8;
-                border: 1px solid #252A33;
-                border-radius: 4px;
+                background: transparent;
+                color: #8E8E93;
+                border: none;
+                border-radius: 10px;
                 font-size: 13px;
                 font-weight: 600;
                 padding: 0;
                 text-align: center;
             }
             QPushButton:hover {
-                color: #F5F7FA;
-                background: #1A1E26;
-                border-color: #3B9FE8;
+                color: #0A84FF;
+                background: rgba(255, 255, 255, 0.08);
             }
         """)
         self.btn_add_col.clicked.connect(self.add_collection_requested.emit)
@@ -193,15 +178,15 @@ class LeftSidebarWidget(QFrame):
         self.col_scroll.setWidget(self.col_container)
         layout.addWidget(self.col_scroll, 1)
 
-        layout.addSpacing(6)
+        layout.addSpacing(4)
 
         # ── SECTION 3: PREFERENCES & SIZE SLIDER ───────────────────────────
         self.lbl_pref = QLabel("PREFERENCES")
-        self.lbl_pref.setStyleSheet("color: #6F7682; font-size: 10px; font-weight: 600; padding-left: 6px; background: transparent; letter-spacing: 0.5px;")
+        self.lbl_pref.setStyleSheet("color: #636366; font-size: 10px; font-weight: 700; padding: 6px 0 2px 8px; background: transparent; letter-spacing: 0.8px;")
         layout.addWidget(self.lbl_pref)
 
         self.btn_settings = QPushButton("Settings")
-        self.btn_settings.setIcon(get_icon("ph.gear-bold", color="#A7ADB8"))
+        self.btn_settings.setIcon(get_icon("ph.gear-bold", color="#8E8E93"))
         self.btn_settings.setStyleSheet(nav_style)
         layout.addWidget(self.btn_settings)
 
@@ -209,11 +194,11 @@ class LeftSidebarWidget(QFrame):
         self.zoom_box = QWidget()
         self.zoom_box.setStyleSheet("background: transparent;")
         zb_layout = QVBoxLayout(self.zoom_box)
-        zb_layout.setContentsMargins(6, 4, 6, 4)
+        zb_layout.setContentsMargins(8, 4, 8, 4)
         zb_layout.setSpacing(4)
 
         self.lbl_size = QLabel("Card Size")
-        self.lbl_size.setStyleSheet("color: #6F7682; font-size: 10px; font-weight: 600;")
+        self.lbl_size.setStyleSheet("color: #636366; font-size: 10px; font-weight: 600;")
         zb_layout.addWidget(self.lbl_size)
 
         self.size_slider = QSlider(Qt.Orientation.Horizontal)
@@ -221,10 +206,10 @@ class LeftSidebarWidget(QFrame):
         self.size_slider.setValue(200)
         self.size_slider.setCursor(Qt.CursorShape.PointingHandCursor)
         self.size_slider.setStyleSheet("""
-            QSlider::groove:horizontal { height: 4px; background: #252A33; border-radius: 2px; }
-            QSlider::sub-page:horizontal { background: #3B9FE8; border-radius: 2px; }
-            QSlider::handle:horizontal { background: #F5F7FA; width: 12px; height: 12px; margin: -4px 0; border-radius: 6px; }
-            QSlider::handle:horizontal:hover { background: #55ACED; }
+            QSlider::groove:horizontal { height: 3px; background: rgba(255, 255, 255, 0.08); border-radius: 1.5px; }
+            QSlider::sub-page:horizontal { background: #0A84FF; border-radius: 1.5px; }
+            QSlider::handle:horizontal { background: #FFFFFF; width: 12px; height: 12px; margin: -4.5px 0; border-radius: 6px; }
+            QSlider::handle:horizontal:hover { background: #E5E5EA; }
         """)
         self.size_slider.valueChanged.connect(self.size_changed.emit)
         zb_layout.addWidget(self.size_slider)
@@ -299,22 +284,24 @@ class LeftSidebarWidget(QFrame):
             btn.setToolTip(f"{name} ({count} games)")
             btn.setStyleSheet("""
                 QPushButton {
-                    color: #A7ADB8;
+                    background: transparent;
+                    color: #98989D;
                     text-align: left;
-                    padding: 7px 10px;
-                    border: 1px solid transparent;
-                    border-radius: 6px;
+                    padding: 6px 10px;
+                    border: none;
+                    border-radius: 7px;
+                    font-size: 12px;
+                    font-weight: 500;
+                    min-height: 18px;
                 }
                 QPushButton:checked {
-                    background: #0D2A40;
-                    color: #3B9FE8;
+                    background: rgba(10, 132, 255, 0.14);
+                    color: #0A84FF;
                     font-weight: 600;
-                    border: 1px solid rgba(59, 159, 232, 0.3);
                 }
                 QPushButton:hover {
-                    background: #14171D;
-                    color: #F5F7FA;
-                    border: 1px solid #252A33;
+                    background: rgba(255, 255, 255, 0.05);
+                    color: #FFFFFF;
                 }
             """)
             btn.clicked.connect(lambda _, n=name, b=btn: self._on_collection_click(n, b))
@@ -340,7 +327,7 @@ class LeftSidebarWidget(QFrame):
             self.nav_archived.setText("")
             self.btn_settings.setText("")
             self.btn_collapse.setText("")
-            self.btn_collapse.setIcon(get_icon("ph.caret-double-right-bold", color="#6F7682"))
+            self.btn_collapse.setIcon(get_icon("ph.caret-double-right-bold", color="#8E8E93"))
             self.btn_collapse.setToolTip("Expand sidebar")
             for btn in self._collection_buttons:
                 btn.setText("")
@@ -352,7 +339,7 @@ class LeftSidebarWidget(QFrame):
             self.nav_archived.setText(f"Archived  ({arch_c})")
             self.btn_settings.setText("Settings")
             self.btn_collapse.setText("Hide panel")
-            self.btn_collapse.setIcon(get_icon("ph.caret-double-left-bold", color="#6F7682"))
+            self.btn_collapse.setIcon(get_icon("ph.caret-double-left-bold", color="#8E8E93"))
             self.btn_collapse.setToolTip("Collapse sidebar")
             for btn in self._collection_buttons:
                 name = btn.property("col_name") or ""
@@ -378,46 +365,46 @@ class HeaderBar(QFrame):
         super().__init__(main_window)
         self.main_window = main_window
         self.drag_pos = None
-        self.setFixedHeight(50)
+        self.setFixedHeight(48)
         self.setStyleSheet("""
             QFrame {
-                background: #0D0F14;
-                border-bottom: 1px solid #252A33;
+                background: #0B0D11;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.04);
             }
         """)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 0, 16, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
         # Brand identity
         brand = QLabel("SafeLauncher")
         brand.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        brand.setStyleSheet("color: #F5F7FA; background: transparent; letter-spacing: 0.3px;")
+        brand.setStyleSheet("color: #FFFFFF; background: transparent; letter-spacing: 0.2px;")
         brand.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(brand)
 
         # ── Tools Dropdown Menu ──
         self.btn_tools = QPushButton("Tools ▾")
-        self.btn_tools.setIcon(get_icon("ph.wrench-bold", color="#A7ADB8"))
-        self.btn_tools.setIconSize(QSize(14, 14))
+        self.btn_tools.setIcon(get_icon("ph.wrench-bold", color="#8E8E93"))
+        self.btn_tools.setIconSize(QSize(13, 13))
         self.btn_tools.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_tools.setFixedHeight(30)
+        self.btn_tools.setFixedHeight(28)
         self.btn_tools.setStyleSheet("""
             QPushButton {
-                background: #14171D;
-                color: #A7ADB8;
-                border: 1px solid #252A33;
-                border-radius: 6px;
+                background: rgba(255, 255, 255, 0.04);
+                color: #A1A1A6;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 7px;
                 padding: 0 12px;
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: 500;
                 text-align: center;
             }
             QPushButton:hover {
-                background: #1A1E26;
-                color: #F5F7FA;
-                border-color: #6F7682;
+                background: rgba(255, 255, 255, 0.08);
+                color: #FFFFFF;
+                border-color: rgba(255, 255, 255, 0.12);
             }
             QPushButton::menu-indicator { image: none; }
         """)
@@ -425,45 +412,45 @@ class HeaderBar(QFrame):
         self.tools_menu = QMenu(self)
         self.tools_menu.setStyleSheet("""
             QMenu {
-                background-color: #1A1E26;
+                background-color: #161920;
                 color: #F5F7FA;
-                border: 1px solid #252A33;
+                border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 8px;
                 padding: 4px;
             }
             QMenu::item {
                 padding: 7px 16px;
-                border-radius: 4px;
+                border-radius: 5px;
                 font-weight: 500;
                 font-size: 12px;
                 color: #F5F7FA;
             }
             QMenu::item:selected {
-                background-color: #252A33;
-                color: #F5F7FA;
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #FFFFFF;
             }
             QMenu::separator {
                 height: 1px;
-                background: #252A33;
+                background: rgba(255, 255, 255, 0.06);
                 margin: 4px 6px;
             }
         """)
 
-        act_sync = self.tools_menu.addAction(get_icon("ph.arrows-clockwise-bold", color="#3B9FE8"), "Sync Sandbox Library")
+        act_sync = self.tools_menu.addAction(get_icon("ph.arrows-clockwise-bold", color="#0A84FF"), "Sync Sandbox Library")
         act_sync.triggered.connect(self.sync_requested.emit)
 
-        act_inst = self.tools_menu.addAction(get_icon("ph.archive-bold", color="#A7ADB8"), "Install Game Archive (.zip/.tar)")
+        act_inst = self.tools_menu.addAction(get_icon("ph.archive-bold", color="#8E8E93"), "Install Game Archive (.zip/.tar)")
         act_inst.triggered.connect(self.install_archive_requested.emit)
 
-        act_upd = self.tools_menu.addAction(get_icon("ph.arrows-clockwise-bold", color="#35C98A"), "Check for Steam Updates")
+        act_upd = self.tools_menu.addAction(get_icon("ph.arrows-clockwise-bold", color="#30D158"), "Check for Steam Updates")
         act_upd.triggered.connect(self.check_updates_requested.emit)
 
         self.tools_menu.addSeparator()
 
-        act_box = self.tools_menu.addAction(get_icon("ph.folder-open-bold", color="#E5A93D"), "Open Sandbox Directory")
+        act_box = self.tools_menu.addAction(get_icon("ph.folder-open-bold", color="#FF9F0A"), "Open Sandbox Directory")
         act_box.triggered.connect(self.open_sandbox_requested.emit)
 
-        act_disk = self.tools_menu.addAction(get_icon("ph.chart-pie-slice-bold", color="#A7ADB8"), "Disk Space Manager")
+        act_disk = self.tools_menu.addAction(get_icon("ph.chart-pie-slice-bold", color="#8E8E93"), "Disk Space Manager")
         act_disk.triggered.connect(self.disk_manager_requested.emit)
 
         self.tools_menu.addSeparator()
@@ -480,25 +467,25 @@ class HeaderBar(QFrame):
         # ── Search Bar ──
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search library...")
-        self.search_input.setFixedWidth(260)
-        self.search_input.setFixedHeight(30)
+        self.search_input.setFixedWidth(240)
+        self.search_input.setFixedHeight(28)
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.addAction(get_icon("ph.magnifying-glass-bold", color="#6F7682"), QLineEdit.ActionPosition.LeadingPosition)
+        self.search_input.addAction(get_icon("ph.magnifying-glass-bold", color="#8E8E93"), QLineEdit.ActionPosition.LeadingPosition)
         self.search_input.setStyleSheet("""
             QLineEdit {
-                background: #14171D;
-                color: #F5F7FA;
-                border: 1px solid #252A33;
-                border-radius: 6px;
-                padding: 0 10px 0 30px;
+                background: rgba(255, 255, 255, 0.04);
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 7px;
+                padding: 0 10px 0 28px;
                 font-size: 12px;
             }
             QLineEdit:focus {
-                border: 1px solid #3B9FE8;
-                background: #14171D;
+                border-color: #0A84FF;
+                background: rgba(255, 255, 255, 0.07);
             }
             QLineEdit::placeholder {
-                color: #6F7682;
+                color: #636366;
             }
         """)
         self.search_input.textChanged.connect(self.search_changed.emit)
@@ -509,9 +496,9 @@ class HeaderBar(QFrame):
         # Window Control Buttons
         control_style = """
             QPushButton {
-                background: #14171D;
-                color: #A7ADB8;
-                border: 1px solid #252A33;
+                background: transparent;
+                color: #8E8E93;
+                border: none;
                 border-radius: 6px;
                 padding: 0;
                 margin: 0;
@@ -519,20 +506,18 @@ class HeaderBar(QFrame):
                 font-weight: 500;
             }
             QPushButton:hover {
-                background: #1A1E26;
-                color: #F5F7FA;
-                border-color: #6F7682;
+                background: rgba(255, 255, 255, 0.08);
+                color: #FFFFFF;
             }
             QPushButton#windowClose:hover {
-                background: rgba(240, 93, 108, 0.2);
-                border-color: #F05D6C;
-                color: #F05D6C;
+                background: rgba(255, 69, 58, 0.2);
+                color: #FF453A;
             }
         """
 
         self.btn_min = QPushButton()
         self.btn_min.setObjectName("windowMinimize")
-        self.btn_min.setIcon(get_app_icon("minimize", color="#6F7682"))
+        self.btn_min.setIcon(get_app_icon("minimize", color="#8E8E93"))
         self.btn_min.setIconSize(QSize(11, 11))
         self.btn_min.setFixedSize(30, 30)
         self.btn_min.setToolTip("Minimize window")
@@ -542,7 +527,7 @@ class HeaderBar(QFrame):
 
         self.btn_max = QPushButton()
         self.btn_max.setObjectName("windowMaximize")
-        self.btn_max.setIcon(get_app_icon("maximize", color="#6F7682"))
+        self.btn_max.setIcon(get_app_icon("maximize", color="#8E8E93"))
         self.btn_max.setIconSize(QSize(11, 11))
         self.btn_max.setFixedSize(30, 30)
         self.btn_max.setToolTip("Maximize window")
@@ -552,7 +537,7 @@ class HeaderBar(QFrame):
 
         self.btn_close = QPushButton()
         self.btn_close.setObjectName("windowClose")
-        self.btn_close.setIcon(get_app_icon("close", color="#6F7682"))
+        self.btn_close.setIcon(get_app_icon("close", color="#8E8E93"))
         self.btn_close.setIconSize(QSize(11, 11))
         self.btn_close.setFixedSize(30, 30)
         self.btn_close.setToolTip("Close SafeLauncher")

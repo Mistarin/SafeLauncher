@@ -834,7 +834,190 @@ except Exception as e:
     print(f"✗ Updater & Health sync test error: {e}")
     sys.exit(1)
 
-print("\n✅ All SafeLauncher components tested and working cleanly!")
+# -------------------------------------------------------------
+# 11. Test Real-Time Achievements System
+# -------------------------------------------------------------
+try:
+    from pathlib import Path
+    import json
+    from core.achievement_schema import fetch_steam_achievements_schema, SteamAchievementFetcherWorker
+    from core.achievement_watcher import (
+        locate_achievements_file, ensure_achievement_watch_target,
+        parse_achievements_state, AchievementWatcher
+    )
+    from ui.components.achievement_toast import AchievementToast, send_desktop_notification
+    from ui.dialogs.achievements_dialog import AchievementsDialog, AchievementCard
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # A. Test Database Achievement Operations
+        db_path = os.path.join(tmp_dir, "ach_test.db")
+        ach_db = GameDatabase(db_path)
+        g_id = ach_db.add_game("Test Ach Game", "/tmp/game", "game.exe", "wine", steam_id="480")
+        assert g_id is not None, "Failed to add game for achievement testing"
+
+        mock_schema = [
+            {
+                "api_name": "ACH_WIN_ONE_GAME",
+                "display_name": "Winner Winner",
+                "description": "Win your first match",
+                "icon_path": "",
+                "icongray_path": "",
+                "hidden": 0,
+            },
+            {
+                "api_name": "ACH_SECRET_BOSS",
+                "display_name": "Secret Boss Defeated",
+                "description": "Defeated the hidden dragon",
+                "icon_path": "",
+                "icongray_path": "",
+                "hidden": 1,
+            },
+        ]
+
+        saved_count = ach_db.save_achievement_schema(g_id, "480", mock_schema)
+        assert saved_count == 2, f"Expected 2 achievements saved, got {saved_count}"
+
+        all_achs = ach_db.get_game_achievements(g_id)
+        assert len(all_achs) == 2, f"Expected 2 achievements retrieved, got {len(all_achs)}"
+        assert all_achs[0]["unlocked"] == 0, "Initial state should be locked"
+
+        unlocked_cnt, total_cnt, pct = ach_db.get_achievement_stats(g_id)
+        assert unlocked_cnt == 0 and total_cnt == 2 and pct == 0.0
+
+        # Test unlocking
+        unlock_res = ach_db.unlock_achievement(g_id, "ACH_WIN_ONE_GAME", unlock_time=1700000000.0)
+        assert unlock_res is True, "Unlock achievement failed"
+
+        unlocked_cnt, total_cnt, pct = ach_db.get_achievement_stats(g_id)
+        assert unlocked_cnt == 1 and total_cnt == 2 and pct == 50.0
+
+        achs_after = ach_db.get_game_achievements(g_id)
+        winner_ach = next(a for a in achs_after if a["api_name"] == "ACH_WIN_ONE_GAME")
+        assert winner_ach["unlocked"] == 1
+        assert winner_ach["unlock_time"] == 1700000000.0
+
+        # Test batch unlocking
+        batch_unlock_res = ach_db.unlock_achievements_batch(g_id, {"ACH_WIN_ONE_GAME": 1700000000.0, "ACH_SECRET_BOSS": 1700000010.0})
+        assert batch_unlock_res == 1  # 1 new unlocked since ACH_WIN_ONE_GAME already was
+        unlocked_cnt, total_cnt, pct = ach_db.get_achievement_stats(g_id)
+        assert unlocked_cnt == 2 and total_cnt == 2 and pct == 100.0
+
+        # Test reset
+        ach_db.reset_game_achievements(g_id)
+        unlocked_cnt, total_cnt, pct = ach_db.get_achievement_stats(g_id)
+        assert unlocked_cnt == 0, "Reset achievements failed"
+
+        print("✓ Database achievement schema caching, unlocking, and stats queries verified")
+
+        # B. Test Achievement State File Parsing (Goldberg JSON and CODEX INI)
+        goldberg_file = Path(tmp_dir) / "goldberg_achievements.json"
+        goldberg_file.write_text(json.dumps({
+            "ACH_WIN_ONE_GAME": {"earned": True, "earned_time": 1712345678},
+            "ACH_LOCKED": {"earned": False, "earned_time": 0}
+        }), encoding="utf-8")
+
+        parsed_gb = parse_achievements_state(goldberg_file)
+        assert "ACH_WIN_ONE_GAME" in parsed_gb
+        assert parsed_gb["ACH_WIN_ONE_GAME"] == 1712345678.0
+        assert "ACH_LOCKED" not in parsed_gb
+
+        codex_file = Path(tmp_dir) / "codex_achievements.ini"
+        codex_file.write_text("""[SteamAchievements]
+ACH_FIRST_BLOOD=1
+ACH_PACIFIST=0
+""", encoding="utf-8")
+
+        parsed_cdx = parse_achievements_state(codex_file)
+        assert "ACH_FIRST_BLOOD" in parsed_cdx
+        assert "ACH_PACIFIST" not in parsed_cdx
+
+        print("✓ Achievement state parsing for Goldberg (JSON) and CODEX/RUNE (INI) verified")
+
+        # C. Test Ensure & Locate Achievement Target
+        prefix_dir = Path(tmp_dir) / "wineprefix"
+        game_dir = Path(tmp_dir) / "gamefolder"
+        prefix_dir.mkdir(parents=True, exist_ok=True)
+        game_dir.mkdir(parents=True, exist_ok=True)
+
+        target_file = ensure_achievement_watch_target(str(prefix_dir), str(game_dir), "480")
+        assert target_file.exists(), "Target file should have been created"
+        assert locate_achievements_file(str(prefix_dir), str(game_dir), "480") == target_file
+
+        print("✓ Achievement target file locator and pre-seed watch target verified")
+
+        # D. Test AchievementWatcher Signal Dispatch
+        watcher = AchievementWatcher(g_id, "480", str(prefix_dir), str(game_dir))
+        watcher.start()
+
+        unlocked_events = []
+        watcher.achievement_unlocked.connect(lambda gid, aid, data: unlocked_events.append(data))
+
+        # Write new unlock to the watched file
+        target_file.write_text(json.dumps({
+            "ACH_WIN_ONE_GAME": {"earned": True, "earned_time": 1720000000}
+        }), encoding="utf-8")
+
+        watcher.check_updates()
+        assert len(unlocked_events) == 1
+        assert unlocked_events[0]["api_name"] == "ACH_WIN_ONE_GAME"
+
+        watcher.stop()
+        print("✓ AchievementWatcher real-time change detection and signal dispatch verified")
+
+        # E. UI Dialog & Toast Smoke Check
+        toast = AchievementToast("Winner Winner", "Win your first match")
+        toast.show_animated()
+        QTimer.singleShot(50, toast.close)
+
+        dlg = AchievementsDialog({"id": g_id, "name": "Test Ach Game", "steam_id": "480", "path": str(game_dir), "proton_path": str(prefix_dir)}, ach_db)
+        assert dlg.windowTitle() == "Achievements - Test Ach Game"
+        QTimer.singleShot(50, dlg.accept)
+        dlg.exec()
+
+        print("✓ AchievementToast and AchievementsDialog UI components verified cleanly")
+
+        # F. Test AchievementStatusFetcherThread & AchievementBatchQueueWorker
+        from ui.threads import AchievementStatusFetcherThread, AchievementBatchQueueWorker
+
+        status_results = []
+        fetcher = AchievementStatusFetcherThread(
+            g_id, "Test Ach Game", str(game_dir), steam_id="480",
+            proton_path=str(prefix_dir), db_path=db_path
+        )
+        fetcher.achievement_status_calculated.connect(lambda gid, u, t, p, r: status_results.append((gid, u, t, p, r)))
+        fetcher.safe_run()
+        assert len(status_results) == 1
+        assert status_results[0][0] == g_id
+        assert status_results[0][1] == 1  # 1 unlocked
+        assert status_results[0][2] == 2  # 2 total
+        assert status_results[0][3] == 50.0
+
+        batch_ready_events = []
+        batch_finished_events = []
+        mock_game_entry = (g_id, "Test Ach Game", str(game_dir), "game.exe", "wine", "", "480", 0, 0, str(prefix_dir))
+        batch_worker = AchievementBatchQueueWorker([mock_game_entry], max_workers=2, db_path=db_path)
+        batch_worker.game_status_ready.connect(lambda gid, u, t, p, r: batch_ready_events.append((gid, u, t, p, r)))
+        batch_worker.batch_finished.connect(lambda g_cnt, u_cnt: batch_finished_events.append((g_cnt, u_cnt)))
+        batch_worker.safe_run()
+
+        assert len(batch_ready_events) == 1
+        assert batch_ready_events[0][0] == g_id
+        assert batch_ready_events[0][1] == 1
+        assert len(batch_finished_events) == 1
+        assert batch_finished_events[0][0] == 1  # 1 game with achs
+        assert batch_finished_events[0][1] == 1  # 1 unlocked total
+
+        print("✓ AchievementStatusFetcherThread and AchievementBatchQueueWorker verified cleanly")
+
+        ach_db.close()
+
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"✗ Achievement tracking test error: {e}")
+    sys.exit(1)
+
+print("\n[SUCCESS] All SafeLauncher components tested and working cleanly!")
 
 
 
