@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 
 import requests
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
+from core.safe_thread import SafeQThread
 from core.logger import get_logger
 from core.version import (
     APP_VERSION,
@@ -253,7 +254,7 @@ def restart_application() -> None:
         os.execl(sys.executable, sys.executable, *sys.argv)
 
 
-class UpdateCheckWorker(QThread):
+class UpdateCheckWorker(SafeQThread):
     """Background worker thread to query GitHub Releases API."""
 
     check_finished = pyqtSignal(dict)
@@ -262,12 +263,13 @@ class UpdateCheckWorker(QThread):
         super().__init__(parent)
         self.current_version = current_version
 
-    def run(self):
+    def safe_run(self):
         info = check_for_updates(current_version=self.current_version)
-        self.check_finished.emit(info)
+        if not self.isInterruptionRequested():
+            self.check_finished.emit(info)
 
 
-class UpdateDownloadWorker(QThread):
+class UpdateDownloadWorker(SafeQThread):
     """Background worker thread to download AppImage with progress reports."""
 
     progress = pyqtSignal(int, int)  # (downloaded_bytes, total_bytes)
@@ -279,14 +281,16 @@ class UpdateDownloadWorker(QThread):
         self.asset_url = asset_url
         self.target_path = target_path
 
-    def run(self):
+    def safe_run(self):
         try:
             target = download_and_apply_appimage_update(
                 self.asset_url,
                 target_appimage_path=self.target_path,
                 progress_callback=lambda d, t: self.progress.emit(d, t),
             )
-            self.finished.emit(target)
+            if not self.isInterruptionRequested():
+                self.finished.emit(target)
         except Exception as e:
             logger.error(f"AppImage update download failed: {e}")
-            self.failed.emit(str(e))
+            if not self.isInterruptionRequested():
+                self.failed.emit(str(e))

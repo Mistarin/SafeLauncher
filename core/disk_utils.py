@@ -17,13 +17,16 @@ class DirectorySizeLRUCache:
         self._cache: OrderedDict[str, Tuple[float, int]] = OrderedDict()
         self._lock = threading.Lock()
 
+    def _normalize_key(self, dir_path: str) -> str:
+        try:
+            return os.path.abspath(os.path.normpath(dir_path))
+        except Exception:
+            return str(dir_path)
+
     def get(self, dir_path: str) -> Optional[int]:
         if not dir_path:
             return None
-        try:
-            key = os.path.abspath(os.path.realpath(dir_path))
-        except Exception:
-            key = os.path.abspath(dir_path)
+        key = self._normalize_key(dir_path)
         now = time.monotonic()
         with self._lock:
             entry = self._cache.get(key)
@@ -40,10 +43,7 @@ class DirectorySizeLRUCache:
     def put(self, dir_path: str, size_bytes: int) -> None:
         if not dir_path:
             return
-        try:
-            key = os.path.abspath(os.path.realpath(dir_path))
-        except Exception:
-            key = os.path.abspath(dir_path)
+        key = self._normalize_key(dir_path)
         now = time.monotonic()
         with self._lock:
             if key in self._cache:
@@ -51,6 +51,14 @@ class DirectorySizeLRUCache:
             self._cache[key] = (now, int(size_bytes))
             while len(self._cache) > self.maxsize:
                 self._cache.popitem(last=False)
+
+    def invalidate(self, dir_path: str) -> None:
+        """Evict a specific directory path from cache."""
+        if not dir_path:
+            return
+        key = self._normalize_key(dir_path)
+        with self._lock:
+            self._cache.pop(key, None)
 
     def clear(self) -> None:
         with self._lock:
@@ -86,6 +94,11 @@ def store_dir_size(dir_path: str, size_bytes: int) -> None:
 def clear_dir_size_cache() -> None:
     """Clear all entries from the directory size LRU cache."""
     _DIR_SIZE_LRU.clear()
+
+
+def invalidate_dir_size(dir_path: str) -> None:
+    """Evict a specific directory from the LRU size cache."""
+    _DIR_SIZE_LRU.invalidate(dir_path)
 
 
 def dir_size_display(dir_path: str) -> str:

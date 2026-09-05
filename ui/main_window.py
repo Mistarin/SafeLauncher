@@ -968,7 +968,13 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(300, self._check_all_steam_updates)
         QTimer.singleShot(800, self._start_background_cloud_sync)
         QTimer.singleShot(1200, self._start_background_achievement_sync)
-        QTimer.singleShot(3000, self._check_app_updates)
+        if os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") != "1":
+            self._update_check_timer = QTimer(self)
+            self._update_check_timer.setSingleShot(True)
+            self._update_check_timer.timeout.connect(self._check_app_updates)
+            self._update_check_timer.start(3000)
+        else:
+            self._update_check_timer = None
         self._start_cloud_poll_timer()
 
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
@@ -977,10 +983,13 @@ class MainWindow(QMainWindow):
 
     def _check_app_updates(self):
         """Check GitHub Releases for new SafeLauncher versions in background."""
+        if os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") == "1":
+            return
         try:
             from core.updater import UpdateCheckWorker
             self._update_worker = UpdateCheckWorker(parent=self)
             self._update_worker.check_finished.connect(self._on_app_update_check_finished)
+            self._register_worker(self._update_worker)
             self._update_worker.start()
         except Exception as e:
             logger.debug(f"Failed to start update worker: {e}")
@@ -2466,7 +2475,7 @@ class MainWindow(QMainWindow):
                 if not local_date and len(self.selected_game) > 14:
                     local_date = self.selected_game[14] or 0
                 local_build_id = local_build_id or "Not recorded"
-                self.lbl_detail_update.setText("⚪ Steam check unavailable")
+                self.lbl_detail_update.setText("Steam check unavailable")
                 self.lbl_detail_update.setStyleSheet("background: #3f3f46; color: #d4d4d8; border: 1px solid #71717a; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
                 self.lbl_detail_versions.setText(
                     f"Current: {local_build_id} · {self._format_version_date(local_date)}\n"
@@ -2533,9 +2542,10 @@ class MainWindow(QMainWindow):
             self._show_toast("No internet connection — update checks are unavailable.")
             if hasattr(self, "nav_updates") and self.nav_updates is not None:
                 self.nav_updates.setText(" Check for Updates (offline)")
+        reason = "Offline — update check not performed"
         self.steam_check_results[game_id] = ("", 0, False, "offline")
         if self.selected_game and self.selected_game[0] == game_id:
-            self.lbl_detail_update.setText("<font color='#6F7682'>⚪ Offline — update check not performed</font>")
+            self.lbl_detail_update.setText("<font color='#6F7682'>Offline — update check not performed</font>")
             self.lbl_detail_update.setStyleSheet("background: #1A1E26; color: #A7ADB8; border: 1px solid #252A33; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 500;")
             self.lbl_detail_versions.setText(reason)
             self.lbl_detail_versions.setToolTip(reason)
@@ -3874,7 +3884,7 @@ class MainWindow(QMainWindow):
 
             # Halt every source that schedules new background work while we
             # are trying to shut down.
-            for timer_name in ("drive_check_timer", "_size_resort_timer", "_cloud_poll_timer"):
+            for timer_name in ("drive_check_timer", "_size_resort_timer", "_cloud_poll_timer", "_update_check_timer"):
                 timer = getattr(self, timer_name, None)
                 if timer is not None:
                     try:
@@ -3904,6 +3914,11 @@ class MainWindow(QMainWindow):
             list(self._background_workers) + list(self.playtime_trackers)))
         for worker in workers:
             if worker.isRunning():
+                if hasattr(worker, "requestInterruption"):
+                    try:
+                        worker.requestInterruption()
+                    except Exception:
+                        pass
                 # Network requests use short timeouts, but allow enough time
                 # for the active request to return before Qt destroys QThread.
                 worker.wait(1500)
@@ -3954,6 +3969,12 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         getattr(self, "active_toasts", []).clear()
+
+        if hasattr(self, "_update_worker") and self._update_worker:
+            try:
+                self._update_worker.stop()
+            except Exception:
+                pass
 
         super().closeEvent(event)
 
