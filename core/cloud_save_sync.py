@@ -223,6 +223,28 @@ def match_cloud_game_to_library(name_key: str, display_name: str, all_games: lis
     return None
 
 
+def get_active_save_version(game_name: str) -> Optional[int]:
+    """Retrieve locally activated cloud save generation for this game, if set."""
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    val = settings.value(f"active_save_ver_{resolve_name_key(game_name)}", None)
+    if val is not None:
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+def set_active_save_version(game_name: str, version: Optional[int]) -> None:
+    """Store or clear locally activated cloud save generation for this game."""
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    k = f"active_save_ver_{resolve_name_key(game_name)}"
+    if version is None:
+        settings.remove(k)
+    else:
+        settings.setValue(k, int(version))
+
+
 class CloudSaveSyncEngine:
     """Manages comparison and bi-directional synchronization between local and cloud save files."""
 
@@ -283,7 +305,7 @@ class CloudSaveSyncEngine:
                 return game
         return None
     @classmethod
-    def _remote_stats(cls, name_key: str) -> Tuple[SaveStats, Optional[dict]]:
+    def _remote_stats(cls, name_key: str, local_mtime: float = 0.0) -> Tuple[SaveStats, Optional[dict]]:
         """Best-effort cloud stats; returns None on any backend failure."""
         try:
             snapshot = cls._remote_game_snapshot(name_key)
@@ -295,15 +317,25 @@ class CloudSaveSyncEngine:
         versions = snapshot.get("versions") or []
         if not versions:
             return SaveStats(exists=False), snapshot
-        top = versions[0]
+
+        # Check if local mtime or explicitly activated version matches an existing generation
+        active_ver = get_active_save_version(name_key)
+        matched = None
+        if active_ver is not None:
+            matched = next((v for v in versions if v.get("version") == active_ver), None)
+
+        if matched is None and local_mtime > 0.0:
+            matched = next((v for v in versions if abs(local_mtime - float(v.get("sourceMaxMtime", 0.0))) <= 2.0), None)
+
+        target = matched if matched is not None else versions[0]
         stats = SaveStats(
             exists=True,
             # Content clock: manifest source_max_mtime recorded at upload,
             # directly comparable with local file mtimes across machines.
-            last_modified=float(top["sourceMaxMtime"]),
-            size_bytes=int(top["sizeBytes"]),
+            last_modified=float(target["sourceMaxMtime"]),
+            size_bytes=int(target["sizeBytes"]),
             file_count=len(versions),
-            display_path=f"{snapshot.get('displayName', name_key)} (v{top['version']})",
+            display_path=f"{snapshot.get('displayName', name_key)} (v{target['version']})",
         )
         return stats, snapshot
 
@@ -356,7 +388,7 @@ class CloudSaveSyncEngine:
 
         if backend_active():
             key = resolve_name_key(game_name)
-            cloud_stats, _snap = cls._remote_stats(key)
+            cloud_stats, _snap = cls._remote_stats(key, local_mtime=local_stats.last_modified)
             if cloud_stats is not None:
                 return cls._decide(local_stats, cloud_stats)
             # Cloud unreachable (network or auth failure): say so instead of
@@ -463,17 +495,35 @@ class CloudSaveSyncEngine:
                     fork_dir = os.path.join(os.path.dirname(cls.get_cloud_root()), "save_forks")
                     os.makedirs(fork_dir, exist_ok=True)
                     clean_name = "".join(c for c in game_name if c.isalnum() or c in "-_ ").strip() or "game"
-                    fork_zip = os.path.join(fork_dir, f"{clean_name}_fork_{int(time.time())}.zip")
-                    backup_mgr = ZipBackupManager()
-                    if backup_mgr.export_save_locations(locations, fork_zip,
-                                                        game_name=game_name, game_path=game_path):
-                        logger.info(f"Preserved local save fork for '{game_name}' at {fork_zip}")
-                    else:
-                        logger.warning(
-                            f"Could not back up the local save for '{game_name}' to {fork_zip}; "
-                            f"refusing to overwrite it with the cloud copy."
-                        )
-                        return False
+                    already_backed_up = False
+                    try:
+                        for fname in os.listdir(fork_dir):
+                            if fname.startswith(f"{clean_name}_fork_") and fname.endswith(".zip"):
+                                ef = os.path.join(fork_dir, fname)
+                                try:
+                                    with zipfile.ZipFile(ef, "r") as z:
+                                        if _MANIFEST_NAME in z.namelist():
+                                            mf = json.loads(z.read(_MANIFEST_NAME).decode("utf-8"))
+                                            if abs(float(mf.get("source_max_mtime", 0.0)) - local_stats.last_modified) < 1.0:
+                                                already_backed_up = True
+                                                logger.info(f"Local save for '{game_name}' already backed up in {fname}; skipping duplicate fork.")
+                                                break
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                    if not already_backed_up:
+                        fork_zip = os.path.join(fork_dir, f"{clean_name}_fork_{int(time.time())}.zip")
+                        backup_mgr = ZipBackupManager()
+                        if backup_mgr.export_save_locations(locations, fork_zip,
+                                                            game_name=game_name, game_path=game_path):
+                            logger.info(f"Preserved local save fork for '{game_name}' at {fork_zip}")
+                        else:
+                            logger.warning(
+                                f"Could not back up the local save for '{game_name}' to {fork_zip}; "
+                                f"refusing to overwrite it with the cloud copy."
+                            )
+                            return False
             try:
                 plain_zip, meta = _backend().download_to_temp(key, version=target_version)
             except Exception as e:
@@ -491,8 +541,11 @@ class CloudSaveSyncEngine:
                 except OSError:
                     pass
             if success:
+                restored_ver = meta.get("version")
+                if restored_ver is not None:
+                    set_active_save_version(game_name, int(restored_ver))
                 logger.info(
-                    f"Restored cloud save v{meta['version']} for '{game_name}' "
+                    f"Restored cloud save v{restored_ver} for '{game_name}' "
                     f"into {target_dest}"
                 )
             else:
@@ -533,12 +586,7 @@ class CloudSaveSyncEngine:
     @classmethod
     def restore_cloud_generation(cls, game_name: str, game_path: str,
                                  steam_id: str = "", version: Optional[int] = None) -> bool:
-        """Roll the game back to a retained cloud generation.
-
-        Downloads the requested generation (latest when None), restores it
-        locally, and re-uploads it so the rollback becomes the active save
-        instead of being undone by the next conflict check.
-        """
+        """Roll the game back to a retained cloud generation without minting duplicate versions."""
         if not backend_active():
             logger.warning("Generation restore requires the Convex cloud backend.")
             return False
@@ -560,6 +608,77 @@ class CloudSaveSyncEngine:
         if not ok:
             logger.error(f"Failed to restore generation v{meta.get('version')} for '{game_name}'")
             return False
-        logger.info(f"Restored generation v{meta.get('version')} for '{game_name}' locally.")
-        cls.sync_local_to_cloud(game_name, game_path, steam_id)
+        restored_ver = meta.get("version")
+        logger.info(f"Restored generation v{restored_ver} for '{game_name}' locally.")
+        if restored_ver is not None:
+            set_active_save_version(game_name, int(restored_ver))
         return True
+
+    @classmethod
+    def get_available_versions(cls, game_name: str, game_path: str = "", steam_id: str = "") -> list[dict]:
+        """Return all available cloud generations and local safety forks for a game."""
+        results = []
+        key = resolve_name_key(game_name)
+        active_ver = get_active_save_version(game_name)
+        local_stats = SaveStats(exists=False)
+        if game_path:
+            local_stats, _ = cls.get_local_save_stats(game_name, game_path, steam_id)
+
+        # 1. Cloud versions
+        if backend_active():
+            snapshot = cls._remote_game_snapshot(key)
+            if snapshot and snapshot.get("versions"):
+                for idx, v in enumerate(snapshot["versions"]):
+                    v_num = v.get("version", 0)
+                    v_mtime = float(v.get("sourceMaxMtime", 0.0))
+                    is_active = False
+                    if active_ver is not None and v_num == active_ver:
+                        is_active = True
+                    elif active_ver is None and local_stats.exists and abs(local_stats.last_modified - v_mtime) <= 2.0:
+                        is_active = True
+                    elif active_ver is None and not local_stats.exists and idx == 0:
+                        is_active = True
+
+                    results.append({
+                        "version": v_num,
+                        "source": "cloud",
+                        "display_name": f"Cloud Generation v{v_num}",
+                        "mtime": v_mtime,
+                        "size_bytes": int(v.get("sizeBytes", 0)),
+                        "is_active": is_active,
+                        "raw": v,
+                    })
+
+        # 2. Local forks in save_forks/
+        fork_dir = os.path.join(os.path.dirname(cls.get_cloud_root()), "save_forks")
+        clean_name = "".join(c for c in game_name if c.isalnum() or c in "-_ ").strip() or "game"
+        if os.path.isdir(fork_dir):
+            try:
+                for fname in sorted(os.listdir(fork_dir), reverse=True):
+                    if fname.startswith(f"{clean_name}_fork_") and fname.endswith(".zip"):
+                        fpath = os.path.join(fork_dir, fname)
+                        try:
+                            f_size = os.path.getsize(fpath)
+                            f_mtime = os.path.getmtime(fpath)
+                            with zipfile.ZipFile(fpath, "r") as z:
+                                if _MANIFEST_NAME in z.namelist():
+                                    mf = json.loads(z.read(_MANIFEST_NAME).decode("utf-8"))
+                                    f_mtime = float(mf.get("source_max_mtime", f_mtime))
+                            is_active = local_stats.exists and abs(local_stats.last_modified - f_mtime) <= 2.0
+                            results.append({
+                                "version": fname,
+                                "source": "fork",
+                                "display_name": f"Local Backup ({fname.split('_fork_')[-1].replace('.zip', '')})",
+                                "mtime": f_mtime,
+                                "size_bytes": f_size,
+                                "is_active": is_active,
+                                "path": fpath,
+                            })
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        # Sort by mtime descending
+        results.sort(key=lambda x: x.get("mtime", 0.0), reverse=True)
+        return results

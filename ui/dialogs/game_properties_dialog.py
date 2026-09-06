@@ -458,26 +458,82 @@ class GamePropertiesDialog(QDialog):
         sync_btn_row.addStretch()
         syc_layout.addLayout(sync_btn_row)
 
-        # Retained cloud generations (active + backup) with rollback action
+        # Retained cloud generations (active + history) with manual selection & restore
+        self.ver_selector_layout = QVBoxLayout()
+        self.ver_selector_layout.setSpacing(6)
+
+        lbl_ver_title = QLabel("Cloud Save Versions & History")
+        lbl_ver_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #F5F7FA;")
+        self.ver_selector_layout.addWidget(lbl_ver_title)
+
+        combo_row = QHBoxLayout()
+        combo_row.setSpacing(8)
+
+        self.combo_cloud_versions = QComboBox()
+        self.combo_cloud_versions.setFixedHeight(32)
+        self.combo_cloud_versions.setStyleSheet("""
+            QComboBox {
+                background: #1A1E26;
+                color: #F5F7FA;
+                border: 1px solid #252A33;
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-size: 11px;
+            }
+            QComboBox:hover {
+                border-color: #3B9FE8;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background: #14171D;
+                color: #F5F7FA;
+                selection-background-color: #3B9FE8;
+                border: 1px solid #252A33;
+            }
+        """)
+        combo_row.addWidget(self.combo_cloud_versions, 1)
+
+        self.btn_restore_selected = QPushButton(" Restore Selected")
+        self.btn_restore_selected.setIcon(get_icon("ph.clock-counter-clockwise-bold"))
+        self.btn_restore_selected.setFixedHeight(32)
+        self.btn_restore_selected.setStyleSheet("""
+            QPushButton {
+                background: #1A1E26;
+                color: #E5A93D;
+                border: 1px solid #252A33;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-weight: 600;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background: #252A33;
+                border-color: #E5A93D;
+            }
+            QPushButton:disabled {
+                color: #6F7682;
+                border-color: #20242C;
+            }
+        """)
+        self.btn_restore_selected.clicked.connect(self._restore_selected_version_now)
+        self.btn_restore_backup = self.btn_restore_selected  # Backwards compatibility
+        combo_row.addWidget(self.btn_restore_selected)
+
+        self.ver_selector_layout.addLayout(combo_row)
+
         self.lbl_generations = QLabel("")
         self.lbl_generations.setStyleSheet("font-size: 11px; color: #A7ADB8;")
         self.lbl_generations.setWordWrap(True)
         self.lbl_generations.hide()
-        syc_layout.addWidget(self.lbl_generations)
+        self.ver_selector_layout.addWidget(self.lbl_generations)
 
-        self.btn_restore_backup = QPushButton(" Restore Backup Generation")
-        self.btn_restore_backup.setIcon(get_icon("ph.clock-counter-clockwise-bold"))
-        self.btn_restore_backup.setStyleSheet(
-            "QPushButton { background: #1A1E26; color: #E5A93D; border: 1px solid #252A33; "
-            "border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 11px; } "
-            "QPushButton:hover { background: #252A33; border-color: #E5A93D; } "
-            "QPushButton:disabled { color: #6F7682; border-color: #20242C; }")
-        self.btn_restore_backup.clicked.connect(self._restore_backup_now)
-        self.btn_restore_backup.hide()
-        restore_row = QHBoxLayout()
-        restore_row.addWidget(self.btn_restore_backup)
-        restore_row.addStretch()
-        syc_layout.addLayout(restore_row)
+        self.ver_selector_widget = QWidget()
+        self.ver_selector_widget.setLayout(self.ver_selector_layout)
+        self.ver_selector_widget.hide()
+        syc_layout.addWidget(self.ver_selector_widget)
 
         body_layout.addWidget(sync_card)
 
@@ -588,67 +644,90 @@ class GamePropertiesDialog(QDialog):
         self._render_generations(versions)
 
     def _render_generations(self, versions):
-        """Show retained cloud generations (active + backup) with rollback."""
+        """Show retained cloud generations with multi-version selector & restore action."""
         from datetime import datetime
         from ui.dialogs.save_conflict_dialog import format_bytes
+        from core.cloud_save_sync import get_active_save_version
         self._cloud_versions = list(versions or [])
         if not self._cloud_versions:
             self._backup_version = None
-            self.lbl_generations.hide()
-            self.btn_restore_backup.hide()
+            self.ver_selector_widget.hide()
+            self.btn_restore_selected.setEnabled(False)
             return
 
-        def gen_line(v):
-            d = datetime.fromtimestamp(v.get("sourceMaxMtime", 0)).strftime("%Y-%m-%d %H:%M")
-            return f"v{v.get('version')} · {d} · {format_bytes(int(v.get('sizeBytes', 0)))}"
+        active_ver = get_active_save_version(self.game_name)
+        self.combo_cloud_versions.blockSignals(True)
+        self.combo_cloud_versions.clear()
 
-        lines = [f"<font color='#6F7682'>Cloud active:</font> {gen_line(self._cloud_versions[0])}"]
+        selected_idx = 0
+        for idx, v in enumerate(self._cloud_versions):
+            v_num = v.get("version", 0)
+            d = datetime.fromtimestamp(v.get("sourceMaxMtime", 0)).strftime("%Y-%m-%d %H:%M")
+            sz = format_bytes(int(v.get("sizeBytes", 0)))
+            is_active = (active_ver is not None and v_num == active_ver) or (active_ver is None and idx == 0)
+            if is_active:
+                selected_idx = idx
+            tag = " [Active on this PC]" if is_active else (" [Latest Cloud]" if idx == 0 else "")
+            display_str = f"Generation v{v_num} · {d} · {sz}{tag}"
+            self.combo_cloud_versions.addItem(display_str, v_num)
+
+        self.combo_cloud_versions.setCurrentIndex(selected_idx)
+        self.combo_cloud_versions.blockSignals(False)
+
         if len(self._cloud_versions) >= 2:
-            backup = self._cloud_versions[1]
-            self._backup_version = backup.get("version")
-            lines.append(f"<font color='#6F7682'>Cloud backup:</font> {gen_line(backup)}")
-            self.btn_restore_backup.setEnabled(True)
-            self.btn_restore_backup.setToolTip(
-                f"Roll back to v{self._backup_version}; the current active save is kept as the new backup.")
+            self._backup_version = self._cloud_versions[1].get("version")
         else:
             self._backup_version = None
-            self.btn_restore_backup.setEnabled(False)
-        self.lbl_generations.setText("<br>".join(lines))
-        self.lbl_generations.show()
-        self.btn_restore_backup.show()
 
-    def _restore_backup_now(self):
+        count_str = f"{len(self._cloud_versions)} generation(s) safely retained in cloud history."
+        self.lbl_generations.setText(f"<font color='#6F7682'>History:</font> {count_str}")
+        self.lbl_generations.show()
+        self.btn_restore_selected.setEnabled(True)
+        self.ver_selector_widget.show()
+
+    def _restore_selected_version_now(self):
         from core.cloud_save_sync import CloudSaveSyncEngine
-        if not self._backup_version:
+        idx = self.combo_cloud_versions.currentIndex()
+        if idx < 0 or idx >= len(self._cloud_versions):
             return
+        version = self.combo_cloud_versions.currentData()
+        if version is None:
+            return
+
         answer = QMessageBox.question(
-            self, "Restore Backup Generation",
-            f"Roll back '{self.game_name}' to cloud backup v{self._backup_version}?\n\n"
-            "Your local save is replaced by the backup, which then becomes the active "
-            "cloud save. The previously active save is retained as the new backup, so "
-            "this can be undone by restoring again.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            self, "Restore Cloud Generation",
+            f"Restore save generation v{version} for '{self.game_name}'?\n\n"
+            f"Target Directory: {self.game_path}\n\n"
+            "Your existing local save will be preserved in your local backups before overwriting.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        version = self._backup_version
-        self.btn_restore_backup.setEnabled(False)
+
+        self.btn_restore_selected.setEnabled(False)
 
         def _work():
             ok = CloudSaveSyncEngine.restore_cloud_generation(
-                self.game_name, self.game_path, self.steam_id, version=version)
+                self.game_name, self.game_path, self.steam_id, version=int(version)
+            )
             self._gen_restore_done.emit(bool(ok), int(version or 0))
 
-        import threading
         threading.Thread(target=_work, daemon=True, name=f"SafeLauncher-GenRestore-{self.game_id}").start()
 
+    def _restore_backup_now(self):
+        """Backwards-compatible wrapper for restoring backup generation."""
+        self._restore_selected_version_now()
+
     def _on_gen_restore_done(self, ok: bool, version: int):
+        self.btn_restore_selected.setEnabled(True)
         if ok:
             QMessageBox.information(self, "Cloud Sync",
-                                    f"Backup v{version} restored and made the active save.")
+                                    f"Save generation v{version} restored successfully.")
             self._notify_parent_cloud_changed()
         else:
             QMessageBox.critical(self, "Cloud Sync",
-                                 f"Failed to restore backup generation v{version}.")
+                                 f"Failed to restore save generation v{version}.")
         self._load_save_stats_async()
 
     def _notify_parent_cloud_changed(self):

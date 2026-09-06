@@ -1221,6 +1221,119 @@ except Exception as e:
     print(f"✗ Achievement tracking test error: {e}")
     sys.exit(1)
 
+# -------------------------------------------------------------
+# 34. Test Multi-Generation Save History, Deduplication & Manual Restore
+# -------------------------------------------------------------
+try:
+    from unittest.mock import patch, MagicMock
+    import hashlib
+    from core.cloud_backend import ConvexSaveBackend
+    from core.cloud_save_sync import (
+        get_active_save_version,
+        set_active_save_version,
+        CloudSaveSyncEngine,
+    )
+    from ui.dialogs.save_manager_dialog import SaveManagerDialog
+    from ui.dialogs.game_properties_dialog import GamePropertiesDialog
+
+    with tempfile.TemporaryDirectory() as td:
+        # A. Test active save version persistence
+        set_active_save_version("MultiGenTestGame", 4)
+        assert get_active_save_version("MultiGenTestGame") == 4
+        set_active_save_version("MultiGenTestGame", None)
+        assert get_active_save_version("MultiGenTestGame") is None
+
+        # B. Test ConvexSaveBackend.upload_plaintext_zip deduplication across historical generations
+        backend = ConvexSaveBackend(site_url="https://test.convex.site", secret_key="test_secret")
+        dummy_save_content = b"SAVE_DATA_GENERATION_V1_STABLE"
+        dummy_sha = hashlib.sha256(dummy_save_content).hexdigest()
+        dummy_zip = os.path.join(td, "save.zip")
+        with open(dummy_zip, "wb") as f:
+            f.write(dummy_save_content)
+
+        # Mock list_games returning existing history where v1 matches our SHA and v2 is different
+        backend.list_games = MagicMock(return_value={
+            "games": [
+                {
+                    "nameKey": "multigentestgame",
+                    "displayName": "MultiGenTestGame",
+                    "versions": [
+                        {"version": 2, "plainSha256": "different_sha_v2", "sizeBytes": 100},
+                        {"version": 1, "plainSha256": dummy_sha, "sizeBytes": len(dummy_save_content)},
+                    ]
+                }
+            ]
+        })
+
+        # When uploading v1 content, it must detect matching v1 in existing history and skip upload
+        res = backend.upload_plaintext_zip(
+            name_key="multigentestgame",
+            display_name="MultiGenTestGame",
+            plaintext_zip_path=dummy_zip,
+            source_max_mtime=1700000000.0,
+        )
+        assert res.get("skipped") is True
+        assert res.get("version") == 1
+        assert res.get("existingVersion") == 1
+
+        # C. Test CloudSaveSyncEngine.get_available_versions
+        with patch.object(CloudSaveSyncEngine, "_remote_game_snapshot", return_value={
+            "nameKey": "multigentestgame",
+            "displayName": "MultiGenTestGame",
+            "versions": [
+                {"version": 2, "sourceMaxMtime": 1700000200, "sizeBytes": 2048},
+                {"version": 1, "sourceMaxMtime": 1700000100, "sizeBytes": 1024},
+            ]
+        }), patch("core.cloud_save_sync.backend_active", return_value=True):
+            set_active_save_version("MultiGenTestGame", 2)
+            avail = CloudSaveSyncEngine.get_available_versions("MultiGenTestGame")
+            assert len(avail) >= 2
+            v2_item = next(v for v in avail if v["version"] == 2)
+            v1_item = next(v for v in avail if v["version"] == 1)
+            assert v2_item["is_active"] is True
+            assert v1_item["is_active"] is False
+
+            # Switch active version to 1
+            set_active_save_version("MultiGenTestGame", 1)
+            avail = CloudSaveSyncEngine.get_available_versions("MultiGenTestGame")
+            v2_item = next(v for v in avail if v["version"] == 2)
+            v1_item = next(v for v in avail if v["version"] == 1)
+            assert v2_item["is_active"] is False
+            assert v1_item["is_active"] is True
+            set_active_save_version("MultiGenTestGame", None)
+
+        # D. Test UI Dialogs Instantiation & Multi-Version Components Offscreen
+        # 1. SaveManagerDialog with 2 tabs & history restore button
+        save_mgr_dlg = SaveManagerDialog(
+            game_id=999,
+            game_name="MultiGenTestGame",
+            game_path=td,
+            steam_id="12345"
+        )
+        assert hasattr(save_mgr_dlg, "tabs")
+        assert save_mgr_dlg.tabs.count() == 2
+        assert hasattr(save_mgr_dlg, "tab_files")
+        assert hasattr(save_mgr_dlg, "tab_history")
+        assert hasattr(save_mgr_dlg, "lst_history")
+        assert hasattr(save_mgr_dlg, "btn_restore_history")
+        save_mgr_dlg.tabs.setCurrentIndex(1)
+        save_mgr_dlg.close()
+
+        # 2. GamePropertiesDialog with multi-version selector dropdown
+        dummy_rec = (999, "MultiGenTestGame", td, "game.exe", "wine", "", "12345", 0, 0, "", "", "", "", "", 0, "v1.0", "", "", "")
+        props_dlg = GamePropertiesDialog(dummy_rec)
+        assert hasattr(props_dlg, "combo_cloud_versions")
+        assert hasattr(props_dlg, "btn_restore_selected")
+        assert hasattr(props_dlg, "btn_restore_backup")  # Backwards compatibility alias
+        props_dlg.close()
+
+    print("✓ Save history deduplication, multi-version queries, and manual version restore UI verified")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"✗ Save history and multi-version restore test error: {e}")
+    sys.exit(1)
+
 print("\n[SUCCESS] All SafeLauncher components tested and working cleanly!")
 
 

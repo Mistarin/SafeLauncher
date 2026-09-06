@@ -251,11 +251,13 @@ class ConvexSaveBackend:
         listing = self.list_games()
         existing = next((g for g in listing.get("games", []) if g.get("nameKey") == name_key), None)
         if existing and existing.get("versions"):
-            top = existing["versions"][0]
-            # ONLY skip if the payload content hash matches identically
-            if top.get("plainSha256") == plain_sha:
-                logger.info(f"Cloud already holds identical save for '{name_key}'.")
-                return {"skipped": True}
+            matched = next((v for v in existing["versions"] if v.get("plainSha256") == plain_sha), None)
+            if matched:
+                logger.info(
+                    f"Cloud already holds identical save for '{name_key}' as existing v{matched.get('version')} "
+                    f"(SHA: {plain_sha[:8]}...). Skipping duplicate upload."
+                )
+                return {"skipped": True, "version": matched.get("version"), "existingVersion": matched.get("version")}
 
         envelope = save_crypto.encrypt_save(plaintext, self.data_key_b64())
         declared = len(envelope)
