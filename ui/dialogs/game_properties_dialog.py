@@ -641,9 +641,9 @@ class GamePropertiesDialog(QDialog):
         else:
             self.btn_sync_down.hide()
 
-        self._render_generations(versions)
+        self._render_generations(versions, local_exists=local_stats.exists)
 
-    def _render_generations(self, versions):
+    def _render_generations(self, versions, local_exists: bool = True):
         """Show retained cloud generations with multi-version selector & restore action."""
         from datetime import datetime
         from ui.dialogs.save_conflict_dialog import format_bytes
@@ -664,7 +664,7 @@ class GamePropertiesDialog(QDialog):
             v_num = v.get("version", 0)
             d = datetime.fromtimestamp(v.get("sourceMaxMtime", 0)).strftime("%Y-%m-%d %H:%M")
             sz = format_bytes(int(v.get("sizeBytes", 0)))
-            is_active = (active_ver is not None and v_num == active_ver) or (active_ver is None and idx == 0)
+            is_active = local_exists and ((active_ver is not None and v_num == active_ver) or (active_ver is None and idx == 0))
             if is_active:
                 selected_idx = idx
             tag = " [Active on this PC]" if is_active else (" [Latest Cloud]" if idx == 0 else "")
@@ -734,8 +734,11 @@ class GamePropertiesDialog(QDialog):
         """Sync actions change the cloud verdict — make the library badge
         follow immediately instead of waiting for the dialog to close."""
         p = self.parent_window
-        if p is not None and hasattr(p, "refresh_cloud_status_for_game"):
-            p.refresh_cloud_status_for_game(self.game_id)
+        if p is not None:
+            if hasattr(p, "refresh_cloud_status_for_game"):
+                p.refresh_cloud_status_for_game(self.game_id)
+            elif hasattr(p, "request_cloud_recheck"):
+                p.request_cloud_recheck([self.game_id], "properties_cloud_sync")
 
     def _sync_up_now(self):
         from core.cloud_save_sync import CloudSaveSyncEngine
@@ -879,3 +882,5 @@ class GamePropertiesDialog(QDialog):
 
     def _open_save_manager(self):
         SaveManagerDialog(self.game_id, self.game_name, self.game_path, self.steam_id, self).exec()
+        self._load_save_stats_async()
+        self._notify_parent_cloud_changed()

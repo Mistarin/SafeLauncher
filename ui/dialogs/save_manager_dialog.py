@@ -5,13 +5,14 @@ Visual save inspector powered by LudusaviDetector and ZipBackupManager.
 
 import os
 import time
+import threading
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QProgressBar,
     QTabWidget, QListWidget, QListWidgetItem
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 
 from ui.icons import get_icon, get_app_icon
@@ -38,6 +39,8 @@ def format_bytes(size_bytes: int) -> str:
 class SaveManagerDialog(QDialog):
     """Interactive save snapshot dialog displaying detected locations and metadata."""
 
+    _restore_done = pyqtSignal(bool, str)
+
     def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None):
         super().__init__(parent)
         self.game_id = game_id
@@ -47,6 +50,7 @@ class SaveManagerDialog(QDialog):
         self.backup_mgr = ZipBackupManager()
         self.save_locations: list[SaveLocation] = []
         self.checkboxes: list[tuple[QCheckBox, SaveLocation]] = []
+        self._restore_done.connect(self._on_restore_done)
 
         self.setWindowTitle(f"Save Manager - {game_name}")
         self.setFixedSize(640, 550)
@@ -489,8 +493,22 @@ class SaveManagerDialog(QDialog):
             if success:
                 QMessageBox.information(self, "Import Successful", "Game save snapshot restored successfully.")
                 self._scan_saves()
+                self._notify_parent_changed()
             else:
                 QMessageBox.critical(self, "Import Error", "Failed to extract save snapshot.")
+
+    def _notify_parent_changed(self):
+        """Notify parent window or dialog that saves changed so stats refresh immediately."""
+        p = self.parent()
+        if p is not None:
+            if hasattr(p, "refresh_cloud_status_for_game"):
+                p.refresh_cloud_status_for_game(self.game_id)
+            elif hasattr(p, "request_cloud_recheck"):
+                p.request_cloud_recheck([self.game_id], "save_restored")
+            if hasattr(p, "_load_save_stats_async"):
+                p._load_save_stats_async()
+            if hasattr(p, "_notify_parent_cloud_changed"):
+                p._notify_parent_cloud_changed()
 
     def _on_tab_changed(self, index: int):
         if index == 1:
@@ -549,20 +567,36 @@ class SaveManagerDialog(QDialog):
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        success = False
-        from core.cloud_save_sync import CloudSaveSyncEngine
-        if entry.get("source") == "cloud":
-            v_num = entry.get("version")
-            success = CloudSaveSyncEngine.sync_cloud_to_local(
-                self.game_name, self.game_path, steam_id=self.steam_id,
-                preserve_local_fork=True, target_version=int(v_num) if v_num else None
-            )
-        elif entry.get("source") == "fork" and entry.get("path"):
-            target_dest = os.path.join(self.game_path, "prefix")
-            if not os.path.isdir(target_dest):
-                target_dest = self.game_path
-            success = self.backup_mgr.import_save(entry["path"], target_dest, game_path=self.game_path)
+        self.btn_restore_history.setEnabled(False)
+        self.btn_export.setEnabled(False)
 
+        def _worker():
+            success = False
+            from core.cloud_save_sync import CloudSaveSyncEngine, set_active_save_version
+            try:
+                if entry.get("source") == "cloud":
+                    v_num = entry.get("version")
+                    success = CloudSaveSyncEngine.sync_cloud_to_local(
+                        self.game_name, self.game_path, steam_id=self.steam_id,
+                        preserve_local_fork=True, target_version=int(v_num) if v_num else None
+                    )
+                elif entry.get("source") == "fork" and entry.get("path"):
+                    target_dest = os.path.join(self.game_path, "prefix")
+                    if not os.path.isdir(target_dest):
+                        target_dest = self.game_path
+                    success = self.backup_mgr.import_save(entry["path"], target_dest, game_path=self.game_path)
+                    if success:
+                        set_active_save_version(self.game_name, None)
+            except Exception as e:
+                logger.error(f"Worker restore failed for '{self.game_name}': {e}")
+                success = False
+            self._restore_done.emit(bool(success), title)
+
+        threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-HistRestore-{self.game_id}").start()
+
+    def _on_restore_done(self, success: bool, title: str):
+        self.btn_restore_history.setEnabled(True)
+        self.btn_export.setEnabled(True)
         if success:
             QMessageBox.information(
                 self, "Restore Successful",
@@ -570,6 +604,7 @@ class SaveManagerDialog(QDialog):
             )
             self._scan_saves()
             self._load_history()
+            self._notify_parent_changed()
         else:
             QMessageBox.critical(
                 self, "Restore Error",
@@ -584,7 +619,6 @@ class SaveManagerDialog(QDialog):
         if len(cloud_versions) > 1:
             # Switch to history tab where all versions are listed for manual selection
             self.tabs.setCurrentIndex(1)
-            self._load_history()
             return
 
         status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
@@ -609,18 +643,18 @@ class SaveManagerDialog(QDialog):
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        success = CloudSaveSyncEngine.sync_cloud_to_local(
-            self.game_name, self.game_path, steam_id=self.steam_id, preserve_local_fork=True
-        )
-        if success:
-            QMessageBox.information(
-                self, "Restore Succeeded",
-                f"Successfully restored cloud save for '{self.game_name}'."
-            )
-            self._scan_saves()
-            self._load_history()
-        else:
-            QMessageBox.warning(
-                self, "Restore Failed",
-                f"Failed to restore cloud save for '{self.game_name}'. Check logs for details."
-            )
+        self.btn_restore_history.setEnabled(False)
+        self.btn_export.setEnabled(False)
+
+        def _worker():
+            success = False
+            try:
+                success = CloudSaveSyncEngine.sync_cloud_to_local(
+                    self.game_name, self.game_path, steam_id=self.steam_id, preserve_local_fork=True
+                )
+            except Exception as e:
+                logger.error(f"Cloud restore failed for '{self.game_name}': {e}")
+                success = False
+            self._restore_done.emit(bool(success), cloud_stats.display_path)
+
+        threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-CloudRestore-{self.game_id}").start()

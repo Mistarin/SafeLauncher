@@ -4314,6 +4314,7 @@ class MainWindow(QMainWindow):
             return
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
         SaveManagerDialog(game[0], game[1], game[2], steam_id, self).exec()
+        self.refresh_cloud_status_for_game(game[0])
     
     def _on_import(self):
         game = self._get_selected_game()
@@ -4323,3 +4324,4 @@ class MainWindow(QMainWindow):
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
         dlg = SaveManagerDialog(game[0], game[1], game[2], steam_id, self)
         dlg._import_snapshot()
+        self.refresh_cloud_status_for_game(game[0])

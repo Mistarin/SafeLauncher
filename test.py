@@ -1237,11 +1237,15 @@ try:
     from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 
     with tempfile.TemporaryDirectory() as td:
-        # A. Test active save version persistence
-        set_active_save_version("MultiGenTestGame", 4)
+        # A. Test active save version & cloud top persistence
+        set_active_save_version("MultiGenTestGame", 4, cloud_top_version=5)
         assert get_active_save_version("MultiGenTestGame") == 4
+        assert CloudSaveSyncEngine.get_cloud_root()  # initialize root if needed
+        from core.cloud_save_sync import get_active_cloud_top_version
+        assert get_active_cloud_top_version("MultiGenTestGame") == 5
         set_active_save_version("MultiGenTestGame", None)
         assert get_active_save_version("MultiGenTestGame") is None
+        assert get_active_cloud_top_version("MultiGenTestGame") is None
 
         # B. Test ConvexSaveBackend.upload_plaintext_zip deduplication across historical generations
         backend = ConvexSaveBackend(site_url="https://test.convex.site", secret_key="test_secret")
@@ -1276,34 +1280,51 @@ try:
         assert res.get("version") == 1
         assert res.get("existingVersion") == 1
 
-        # C. Test CloudSaveSyncEngine.get_available_versions
-        with patch.object(CloudSaveSyncEngine, "_remote_game_snapshot", return_value={
-            "nameKey": "multigentestgame",
+        # C. Test CloudSaveSyncEngine remote upload detection & get_available_versions
+        cloud_mock_data = {
+            "nameKey": "MultiGenTestGame",
             "displayName": "MultiGenTestGame",
             "versions": [
+                {"version": 3, "sourceMaxMtime": 1700000300, "sizeBytes": 3072},
                 {"version": 2, "sourceMaxMtime": 1700000200, "sizeBytes": 2048},
                 {"version": 1, "sourceMaxMtime": 1700000100, "sizeBytes": 1024},
             ]
-        }), patch("core.cloud_save_sync.backend_active", return_value=True):
-            set_active_save_version("MultiGenTestGame", 2)
-            avail = CloudSaveSyncEngine.get_available_versions("MultiGenTestGame")
-            assert len(avail) >= 2
-            v2_item = next(v for v in avail if v["version"] == 2)
-            v1_item = next(v for v in avail if v["version"] == 1)
-            assert v2_item["is_active"] is True
-            assert v1_item["is_active"] is False
+        }
+        with patch.object(CloudSaveSyncEngine, "_remote_game_snapshot", return_value=cloud_mock_data), \
+             patch("core.cloud_save_sync.backend_active", return_value=True):
 
-            # Switch active version to 1
-            set_active_save_version("MultiGenTestGame", 1)
-            avail = CloudSaveSyncEngine.get_available_versions("MultiGenTestGame")
-            v2_item = next(v for v in avail if v["version"] == 2)
+            # 1. Local files do NOT exist -> is_active must be False for all versions
+            avail = CloudSaveSyncEngine.get_available_versions("MultiGenTestGame", game_path=td)
+            assert all(v["is_active"] is False for v in avail)
+
+            # Create local save file
+            save_prefix = os.path.join(td, "prefix", "drive_c", "users", "steamuser", "Saved Games", "MultiGenTestGame")
+            os.makedirs(save_prefix, exist_ok=True)
+            with open(os.path.join(save_prefix, "save.dat"), "wb") as sf:
+                sf.write(dummy_save_content)
+            os.utime(os.path.join(save_prefix, "save.dat"), (1700000100.0, 1700000100.0))
+
+            # 2. Reverted to v1 while cloud top was v2
+            set_active_save_version("MultiGenTestGame", 1, cloud_top_version=2)
+            # When top is 3 (> known_top 2), another machine uploaded v3 -> _remote_stats targets v3!
+            from core.cloud_save_sync import resolve_name_key
+            stats, snap = CloudSaveSyncEngine._remote_stats(resolve_name_key("MultiGenTestGame"), local_mtime=1700000100.0)
+            assert "v3" in stats.display_path
+
+            # When top is 2 (<= known_top 2), respects v1 without nagging!
+            cloud_mock_data_v2 = dict(cloud_mock_data, versions=cloud_mock_data["versions"][1:])
+            with patch.object(CloudSaveSyncEngine, "_remote_game_snapshot", return_value=cloud_mock_data_v2):
+                stats_v2, _ = CloudSaveSyncEngine._remote_stats(resolve_name_key("MultiGenTestGame"), local_mtime=1700000100.0)
+                assert "v1" in stats_v2.display_path
+
+            # 3. Test active version selection in get_available_versions when local save exists
+            avail = CloudSaveSyncEngine.get_available_versions("MultiGenTestGame", game_path=td)
             v1_item = next(v for v in avail if v["version"] == 1)
-            assert v2_item["is_active"] is False
             assert v1_item["is_active"] is True
             set_active_save_version("MultiGenTestGame", None)
 
         # D. Test UI Dialogs Instantiation & Multi-Version Components Offscreen
-        # 1. SaveManagerDialog with 2 tabs & history restore button
+        # 1. SaveManagerDialog with 2 tabs, signal, and history restore button
         save_mgr_dlg = SaveManagerDialog(
             game_id=999,
             game_name="MultiGenTestGame",
@@ -1316,6 +1337,8 @@ try:
         assert hasattr(save_mgr_dlg, "tab_history")
         assert hasattr(save_mgr_dlg, "lst_history")
         assert hasattr(save_mgr_dlg, "btn_restore_history")
+        assert hasattr(save_mgr_dlg, "_restore_done")
+        assert hasattr(save_mgr_dlg, "_notify_parent_changed")
         save_mgr_dlg.tabs.setCurrentIndex(1)
         save_mgr_dlg.close()
 
