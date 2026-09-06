@@ -556,6 +556,7 @@ class CloudSaveSyncEngine:
                                 f"refusing to overwrite it with the cloud copy."
                             )
                             return False
+                    cls._prune_safety_forks(fork_dir, prefix_key, clean_name, keep=10)
             try:
                 plain_zip, meta = _backend().download_to_temp(key, version=target_version)
             except Exception as e:
@@ -616,6 +617,29 @@ class CloudSaveSyncEngine:
         else:
             logger.error(f"Failed to restore cloud save for '{game_name}'")
         return success
+
+    @classmethod
+    def _prune_safety_forks(cls, fork_dir: str, prefix_key: str, clean_name: str, keep: int = 10) -> int:
+        """Keep only the newest `keep` fork archives for a game, removing older ones."""
+        pruned_count = 0
+        try:
+            if not os.path.isdir(fork_dir):
+                return 0
+            game_forks = []
+            for fname in os.listdir(fork_dir):
+                if (fname.startswith(f"{prefix_key}_fork_") or fname.startswith(f"{clean_name}_fork_")) and fname.endswith(".zip"):
+                    game_forks.append(os.path.join(fork_dir, fname))
+            game_forks.sort(key=lambda p: (os.path.getmtime(p), p), reverse=True)
+            for old_fork in game_forks[keep:]:
+                try:
+                    os.unlink(old_fork)
+                    pruned_count += 1
+                    logger.info(f"Pruned older safety fork: {os.path.basename(old_fork)}")
+                except OSError:
+                    pass
+        except Exception as e:
+            logger.debug(f"Error pruning forks in {fork_dir}: {e}")
+        return pruned_count
 
     @classmethod
     def restore_cloud_generation(cls, game_name: str, game_path: str,

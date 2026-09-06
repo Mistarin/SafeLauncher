@@ -3304,7 +3304,18 @@ class MainWindow(QMainWindow):
                     else:
                         self.settings.setValue("auto_prefer_local_saves", True)
                 if conflict_dlg.choice == "cloud":
-                    if CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", "")):
+                    prog = QProgressDialog(f"Restoring cloud save for '{ctx.get('game_name', '')}'...", None, 0, 0, self)
+                    prog.setWindowModality(Qt.WindowModality.WindowModal)
+                    prog.setCancelButton(None)
+                    prog.setMinimumDuration(0)
+                    prog.show()
+                    QApplication.processEvents()
+                    try:
+                        restored = CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", ""))
+                    finally:
+                        prog.close()
+                        prog.deleteLater()
+                    if restored:
                         self._show_toast(f"Restored cloud save for '{ctx['game_name']}' — your previous save was kept as a local backup.")
                     else:
                         # Never silently launch with the losing side of the conflict.
@@ -3328,7 +3339,17 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Yes,
             )
             if ans == QMessageBox.StandardButton.Yes:
-                ok = CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", ""))
+                prog = QProgressDialog(f"Restoring cloud save for '{ctx.get('game_name', '')}'...", None, 0, 0, self)
+                prog.setWindowModality(Qt.WindowModality.WindowModal)
+                prog.setCancelButton(None)
+                prog.setMinimumDuration(0)
+                prog.show()
+                QApplication.processEvents()
+                try:
+                    ok = CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", ""))
+                finally:
+                    prog.close()
+                    prog.deleteLater()
                 if ok:
                     self._show_toast(f"Restored cloud save for '{ctx.get('game_name', '')}'.")
                 else:
@@ -3714,6 +3735,8 @@ class MainWindow(QMainWindow):
                 def _exit_sync(name=g_name, gpath=g_path, sid=g_steam_id, gid=tracker.game_id):
                     payload = {"game": name, "game_id": gid, "outcome": "skipped", "reason": ""}
                     try:
+                        # Allow 0.5s settling time for Wine/kernel to flush dirty pages after process exit
+                        time.sleep(0.5)
                         status, _, _ = CloudSaveSyncEngine.check_sync_status(name, gpath, sid)
                         if status == SyncStatus.LOCAL_NEWER:
                             payload["outcome"] = (

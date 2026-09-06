@@ -202,7 +202,7 @@ class ConvexSaveBackend:
 
     def account(self) -> dict:
         """Quota overview: {bytesUsed, quotaBytes, games:[…], concurrentDevices, devices:[…]}."""
-        return self._check(self._request("GET", "/api/me"), "Account fetch")
+        return self._check(self._request("GET", "/api/me", timeout=6), "Account fetch")
 
     def heartbeat(self) -> dict:
         """Send a lightweight heartbeat ping to register presence."""
@@ -212,6 +212,7 @@ class ConvexSaveBackend:
                 "POST",
                 "/api/heartbeat",
                 json_body={"deviceId": dev_id, "deviceName": dev_name, "platform": dev_plat},
+                timeout=6,
             ),
             "Heartbeat",
         )
@@ -225,7 +226,7 @@ class ConvexSaveBackend:
         self._data_key_cache = None
 
     def list_games(self) -> dict:
-        return self._check(self._request("GET", "/api/games"), "Listing")
+        return self._check(self._request("GET", "/api/games", timeout=6), "Listing")
 
     # ------------------------------------------------------------------ #
     # Upload                                                             #

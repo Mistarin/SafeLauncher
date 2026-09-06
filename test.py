@@ -1357,6 +1357,77 @@ except Exception as e:
     print(f"✗ Save history and multi-version restore test error: {e}")
     sys.exit(1)
 
+# -------------------------------------------------------------
+# 35. Test Save Conflict Dialog Dynamic Inversion, Safety Fork Pruning & Fast Backend Timeouts
+# -------------------------------------------------------------
+try:
+    from core.cloud_save_sync import SaveStats, CloudSaveSyncEngine
+    from ui.dialogs.save_conflict_dialog import SaveConflictDialog
+    from core.cloud_backend import ConvexSaveBackend
+    from unittest.mock import MagicMock
+
+    with tempfile.TemporaryDirectory() as td:
+        # A. Test SaveConflictDialog dynamic inversion based on timestamp
+        # Case 1: Local is newer (local_stats.last_modified > cloud_stats.last_modified)
+        loc_stats_newer = SaveStats(exists=True, last_modified=1700000500.0, size_bytes=1024, display_path="/path/local")
+        cld_stats_older = SaveStats(exists=True, last_modified=1700000100.0, size_bytes=1024, display_path="cloud/v1")
+        dlg_local_newer = SaveConflictDialog("TestGame", loc_stats_newer, cld_stats_older)
+        assert dlg_local_newer.local_is_newer is True
+        assert dlg_local_newer.choice == "local"
+        assert "Recommended" in dlg_local_newer.btn_keep_local.text()
+        assert "Recommended" not in dlg_local_newer.btn_use_cloud.text()
+        dlg_local_newer.close()
+
+        # Case 2: Cloud is newer (cloud_stats.last_modified > local_stats.last_modified)
+        loc_stats_older = SaveStats(exists=True, last_modified=1700000100.0, size_bytes=1024, display_path="/path/local")
+        cld_stats_newer = SaveStats(exists=True, last_modified=1700000500.0, size_bytes=1024, display_path="cloud/v2")
+        dlg_cloud_newer = SaveConflictDialog("TestGame", loc_stats_older, cld_stats_newer)
+        assert dlg_cloud_newer.local_is_newer is False
+        assert dlg_cloud_newer.choice == "cloud"
+        assert "Recommended" in dlg_cloud_newer.btn_use_cloud.text()
+        assert "Recommended" not in dlg_cloud_newer.btn_keep_local.text()
+        dlg_cloud_newer.close()
+
+        # B. Test safety fork pruning (_prune_safety_forks)
+        # Create 14 dummy forks for prefix 'mygame'
+        for i in range(14):
+            fname = os.path.join(td, f"mygame_fork_{1700000000 + i}.zip")
+            with open(fname, "wb") as f:
+                f.write(b"FORK_DATA")
+            os.utime(fname, (1700000000.0 + i, 1700000000.0 + i))
+
+        # Check pruning retaining 10
+        pruned = CloudSaveSyncEngine._prune_safety_forks(td, "mygame", "mygame", keep=10)
+        assert pruned == 4
+        remaining_files = sorted(os.listdir(td))
+        assert len(remaining_files) == 10
+        # Verify oldest 4 were removed and newest 10 remain
+        assert f"mygame_fork_{1700000000}.zip" not in remaining_files
+        assert f"mygame_fork_{1700000003}.zip" not in remaining_files
+        assert f"mygame_fork_{1700000004}.zip" in remaining_files
+        assert f"mygame_fork_{1700000013}.zip" in remaining_files
+
+        # C. Test fast metadata timeouts (timeout=6) in ConvexSaveBackend
+        backend = ConvexSaveBackend(site_url="https://test.convex.site", secret_key="test_key")
+        backend._request = MagicMock(return_value=MagicMock(status_code=200, json=lambda: {"games": []}))
+        backend.list_games()
+        backend._request.assert_called_with("GET", "/api/games", timeout=6)
+
+        backend._request = MagicMock(return_value=MagicMock(status_code=200, json=lambda: {"bytesUsed": 0}))
+        backend.account()
+        backend._request.assert_called_with("GET", "/api/me", timeout=6)
+
+        backend._request = MagicMock(return_value=MagicMock(status_code=200, json=lambda: {"ok": True}))
+        backend.heartbeat()
+        assert backend._request.call_args[1].get("timeout") == 6
+
+    print("✓ Save conflict inversion, safety fork pruning, and fast backend timeouts verified")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"✗ Save conflict inversion, pruning, and backend timeout test error: {e}")
+    sys.exit(1)
+
 print("\n[SUCCESS] All SafeLauncher components tested and working cleanly!")
 
 
