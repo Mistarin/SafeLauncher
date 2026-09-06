@@ -438,16 +438,11 @@ class AccountDialog(QDialog):
             return
 
         from database import GameDatabase
-        from core.cloud_backend import normalize_name_key, legacy_name_key
+        from core.cloud_save_sync import match_cloud_game_to_library
         db = GameDatabase()
         all_games = db.get_all_games()
-        matched_game = None
-        for g in all_games:
-            norm_g = normalize_name_key(g.name)
-            leg_g = legacy_name_key(g.name)
-            if norm_g == name_key or leg_g == name_key or g.name == name_key or g.name.lower() == name_key.lower():
-                matched_game = g
-                break
+        display_name = game_item.text().split("\n")[0].strip()
+        matched_game = match_cloud_game_to_library(name_key, display_name, all_games)
 
         if not matched_game:
             QMessageBox.warning(
@@ -533,6 +528,10 @@ class AccountDialog(QDialog):
             QMessageBox.warning(self, "Operation Failed", payload["error"])
             self.lbl_quota_text.setText("Operation failed.")
             return
+        if "restored_err" in payload:
+            QMessageBox.critical(self, "Restore Failed", payload["restored_err"])
+            self.lbl_quota_text.setText("Restore failed.")
+            return
         if "restored" in payload:
             QMessageBox.information(self, "Restore Completed", payload["restored"])
             self.lbl_quota_text.setText(payload["restored"])
@@ -543,7 +542,8 @@ class AccountDialog(QDialog):
             self.lbl_quota_text.setText("Device revoked.")
             self.reload()
             return
-        self._show_toast_like(payload["name"])
+        name_val = payload.get("name", "game")
+        self._show_toast_like(name_val)
         self.reload()
 
     def _show_toast_like(self, name_key: str):

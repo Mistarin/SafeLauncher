@@ -130,25 +130,97 @@ def _invalidate_cloud_listing():
         _LISTING_CACHE = {"ts": 0.0, "data": None}
 
 
+def _clean_game_slug(name: str) -> str:
+    """Normalize game title to alphanumeric slug, stripping release tags and symbols."""
+    import re
+    # Strip release tags like -AnkerGames, -SteamRIP, -FitGirl, -DODI, _v1.0, etc.
+    s = re.sub(
+        r"[-_ ]+(?:AnkerGames|SteamRIP|FitGirl|DODI|Razor1911|CODEX|RUNE|FLT|TENOKE|GOG|Repack|Portable|v\d+[\d\.]*)$",
+        "",
+        name.strip(),
+        flags=re.IGNORECASE,
+    )
+    return "".join(c for c in s.lower() if c.isalnum())
+
+
 def resolve_name_key(game_name: str) -> str:
     """Pick the cloud key a game's saves live under.
 
     New uploads use the collision-proof key; games whose saves were uploaded
     before that scheme existed are still found under their legacy key until
-    the first post-migration upload re-homes them.
+    the first post-migration upload re-homes them. Also matches games across
+    minor naming variations (release tags, punctuation differences, casing).
     """
     from core.cloud_backend import normalize_name_key, legacy_name_key
     key = normalize_name_key(game_name)
     try:
         listing = _get_cloud_listing()
-        keys = {g.get("nameKey") for g in listing.get("games", [])}
-        if key not in keys:
-            legacy = legacy_name_key(game_name)
-            if legacy and legacy != key and legacy in keys:
-                return legacy
+        cloud_games = listing.get("games", [])
+        keys = {g.get("nameKey") for g in cloud_games}
+        if key in keys:
+            return key
+
+        legacy = legacy_name_key(game_name)
+        if legacy and legacy != key and legacy in keys:
+            return legacy
+
+        # 1. Exact displayName match
+        for g in cloud_games:
+            if g.get("displayName") == game_name:
+                return g.get("nameKey")
+
+        # 2. Case-insensitive key or display name match
+        gn_lower = game_name.lower().strip()
+        key_lower = key.lower()
+        for g in cloud_games:
+            if g.get("nameKey", "").lower() == key_lower or g.get("displayName", "").lower() == gn_lower:
+                return g.get("nameKey")
+
+        # 3. Slug-based match (ignores dashes, spaces, release groups, and punctuation)
+        target_slug = _clean_game_slug(game_name)
+        if target_slug:
+            for g in cloud_games:
+                cand_slug_key = _clean_game_slug(g.get("nameKey", ""))
+                cand_slug_disp = _clean_game_slug(g.get("displayName", ""))
+                if target_slug == cand_slug_key or target_slug == cand_slug_disp:
+                    return g.get("nameKey")
+                if len(target_slug) >= 6 and (target_slug in cand_slug_key or cand_slug_key in target_slug):
+                    return g.get("nameKey")
     except Exception as e:
         logger.debug(f"Cloud listing unavailable for key resolution, using '{key}': {e}")
     return key
+
+
+def match_cloud_game_to_library(name_key: str, display_name: str, all_games: list):
+    """Find a library game record matching a cloud game's nameKey or displayName."""
+    from core.cloud_backend import normalize_name_key, legacy_name_key
+    target_slug = _clean_game_slug(display_name or name_key)
+    target_key_slug = _clean_game_slug(name_key)
+
+    for g in all_games:
+        # 1. Exact name or key
+        if g.name == name_key or g.name == display_name:
+            return g
+        # 2. Normalized key or legacy key
+        norm_g = normalize_name_key(g.name)
+        leg_g = legacy_name_key(g.name)
+        if norm_g == name_key or leg_g == name_key:
+            return g
+        # 3. Case-insensitive
+        if g.name.lower() == name_key.lower() or g.name.lower() == display_name.lower():
+            return g
+
+    # 4. Slug-based match
+    if target_slug or target_key_slug:
+        for g in all_games:
+            g_slug = _clean_game_slug(g.name)
+            if not g_slug:
+                continue
+            if g_slug == target_slug or g_slug == target_key_slug:
+                return g
+            if len(g_slug) >= 6 and (g_slug in target_slug or target_slug in g_slug):
+                return g
+    return None
 
 
 class CloudSaveSyncEngine:
@@ -185,7 +257,9 @@ class CloudSaveSyncEngine:
 
         total_files = sum(loc.file_count for loc in locations)
         total_bytes = sum(loc.total_size_bytes for loc in locations)
-        max_mtime = max((loc.last_modified for loc in locations), default=0.0)
+        non_reg_locs = [loc for loc in locations if not loc.path.lower().endswith((".reg", ".reg.old"))]
+        target_locs = non_reg_locs if non_reg_locs else locations
+        max_mtime = max((loc.last_modified for loc in target_locs), default=0.0)
         primary_path = locations[0].path if locations else ""
 
         if total_files == 0 or max_mtime == 0.0:

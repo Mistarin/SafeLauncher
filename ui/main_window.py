@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
     _prelaunch_resolved = pyqtSignal(object)  # pre-launch sync payload dict
     _startup_sync_done = pyqtSignal(object)   # startup cloud sync sweep payload dict
     _cloud_poll_changed = pyqtSignal(list)    # games whose cloud save changed mid-session
+    _save_restore_finished = pyqtSignal(int, str, bool)  # (game_id, game_name, success)
 
     def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager):
         super().__init__()
@@ -174,6 +175,7 @@ class MainWindow(QMainWindow):
         # games exiting at once, rapid consecutive launches).
         self._save_op_done.connect(self._on_exit_save_sync_done)
         self._prelaunch_resolved.connect(self._finish_prelaunch_sync)
+        self._save_restore_finished.connect(self._on_save_restore_finished)
 
         # Background maintenance: prune orphaned temp files
         try:
@@ -506,9 +508,31 @@ class MainWindow(QMainWindow):
         lbl_cs_h = QLabel("CLOUD SAVE")
         lbl_cs_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_cs_h, 2, 1)
+
+        cloud_box = QWidget()
+        cloud_box.setStyleSheet("background: transparent;")
+        cloud_box_layout = QHBoxLayout(cloud_box)
+        cloud_box_layout.setContentsMargins(0, 0, 0, 0)
+        cloud_box_layout.setSpacing(6)
+
         self.detail_cloud_status = QLabel("--")
         self.detail_cloud_status.setStyleSheet("color: #A1A1A6; font-size: 11px; font-weight: 500; background: transparent;")
-        spec_layout.addWidget(self.detail_cloud_status, 3, 1)
+        cloud_box_layout.addWidget(self.detail_cloud_status)
+
+        self.btn_detail_cloud_restore = QPushButton("Restore")
+        self.btn_detail_cloud_restore.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_detail_cloud_restore.setToolTip("Restore cloud save for this game")
+        self.btn_detail_cloud_restore.setStyleSheet(
+            "QPushButton { background: #2563EB; color: #FFFFFF; border: none; border-radius: 4px; "
+            "padding: 2px 8px; font-size: 10px; font-weight: bold; } "
+            "QPushButton:hover { background: #3B82F6; }"
+        )
+        self.btn_detail_cloud_restore.hide()
+        self.btn_detail_cloud_restore.clicked.connect(self._restore_selected_game_cloud_save)
+        cloud_box_layout.addWidget(self.btn_detail_cloud_restore)
+        cloud_box_layout.addStretch()
+
+        spec_layout.addWidget(cloud_box, 3, 1)
 
         detail_layout.addWidget(self.detail_spec_card)
 
@@ -2771,7 +2795,7 @@ class MainWindow(QMainWindow):
         if self.selected_game and self.selected_game[0] == game_id:
             self.detail_disk_size.setText(f"Size: {format_size(size_bytes)}")
 
-    def _render_cloud_status(self, game_id: int, status, local_stats=None):
+    def _render_cloud_status(self, game_id: int, status, local_stats=None, cloud_stats=None):
         """Update both library card badge and left detail inspector panel."""
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_cloud_status(status)
@@ -2800,13 +2824,76 @@ class MainWindow(QMainWindow):
                 self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: --</font>")
                 self.detail_cloud_status.setToolTip("")
 
+            if hasattr(self, "btn_detail_cloud_restore"):
+                c_stats = cloud_stats
+                if c_stats is None:
+                    cached_entry = self.cloud_save_status_cache.get(game_id)
+                    if cached_entry:
+                        c_stats = cached_entry[2]
+                if c_stats and getattr(c_stats, "exists", False):
+                    self.btn_detail_cloud_restore.show()
+                else:
+                    self.btn_detail_cloud_restore.hide()
+
+    def _restore_selected_game_cloud_save(self):
+        """Restore cloud save for the currently selected library game."""
+        game = self.selected_game
+        if not game:
+            return
+        game_id, game_name, game_path = game[0], game[1], game[2]
+        steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
+        from core.cloud_save_sync import CloudSaveSyncEngine
+        status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(game_name, game_path, steam_id)
+        if not cloud_stats.exists:
+            QMessageBox.information(self, "No Cloud Save", f"No cloud save found for '{game_name}'.")
+            return
+
+        confirm = QMessageBox.question(
+            self, "Restore Cloud Save",
+            f"Restore cloud save for '{game_name}'?\n\n"
+            f"Source: {cloud_stats.display_path}\n"
+            f"Target Directory: {game_path}\n\n"
+            "Your existing local save files will be preserved in your local backups before overwriting.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        progress = QProgressDialog(f"Restoring cloud save for '{game_name}'…", None, 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.show()
+        self._active_restore_progress = progress
+
+        def _work():
+            ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, game_path, steam_id=steam_id, preserve_local_fork=True)
+            self._save_restore_finished.emit(game_id, game_name, ok)
+
+        threading.Thread(target=_work, daemon=True, name="SafeLauncher-ManualRestore").start()
+
+    def _on_save_restore_finished(self, game_id: int, game_name: str, ok: bool):
+        if hasattr(self, "_active_restore_progress") and self._active_restore_progress:
+            try:
+                self._active_restore_progress.close()
+                self._active_restore_progress.deleteLater()
+            except Exception:
+                pass
+            self._active_restore_progress = None
+        if ok:
+            self._show_toast(f"Successfully restored cloud save for '{game_name}'.")
+            self.request_cloud_recheck([game_id], "manual_restore")
+        else:
+            QMessageBox.critical(self, "Restore Failed", f"Failed to restore cloud save for '{game_name}'. Please check logs for details.")
+
     def _on_cloud_save_status_calculated(self, game_id: int, status, local_stats, cloud_stats):
         import time
         self.cloud_save_status_cache[game_id] = (status, local_stats, cloud_stats)
         if not hasattr(self, "_cloud_save_checked_ts"):
             self._cloud_save_checked_ts = {}
         self._cloud_save_checked_ts[game_id] = time.time()
-        self._render_cloud_status(game_id, status, local_stats)
+        self._render_cloud_status(game_id, status, local_stats, cloud_stats)
         self._save_persistent_cache()
 
     def _update_detail_panel(self):
@@ -2877,11 +2964,13 @@ class MainWindow(QMainWindow):
         is_stale = (now - last_checked) > 1800  # 30 mins
 
         if cached_save is not None:
-            c_status, c_local, _ = cached_save
-            self._render_cloud_status(game_id, c_status, c_local)
+            c_status, c_local, c_cloud = cached_save
+            self._render_cloud_status(game_id, c_status, c_local, c_cloud)
         else:
             self.detail_cloud_status.setText("Cloud Save: Checking...")
             self.detail_cloud_status.setToolTip("Checking save sync status...")
+            if hasattr(self, "btn_detail_cloud_restore"):
+                self.btn_detail_cloud_restore.hide()
 
         if cached_save is None or is_stale:
             save_thread = CloudSaveStatusFetcherThread(game_id, name, path or "", str(steam_id or ""), parent=self)
@@ -3157,11 +3246,16 @@ class MainWindow(QMainWindow):
                 if status == SyncStatus.CLOUD_OFFLINE:
                     payload["toast"] = f"Cloud not connected — launching '{game_name}' with local saves."
                 elif status == SyncStatus.CLOUD_ONLY:
-                    ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path, steam_id=steam_id)
-                    if ok:
-                        payload["toast"] = f"Restored cloud save for '{game_name}'."
+                    auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
+                    if auto_newer:
+                        ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path, steam_id=steam_id)
+                        if ok:
+                            payload["toast"] = f"Restored cloud save for '{game_name}'."
+                        else:
+                            payload["toast"] = f"Cloud save could not be restored for '{game_name}' — launching with local state."
                     else:
-                        payload["toast"] = f"Cloud save could not be restored for '{game_name}' — launching with local state."
+                        payload["needs_cloud_only_prompt"] = True
+                        payload["cloud_stats"] = cloud_stats
                 elif status == SyncStatus.CLOUD_NEWER:
                     auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
                     if auto_newer:
@@ -3175,6 +3269,14 @@ class MainWindow(QMainWindow):
                 elif status == SyncStatus.LOCAL_NEWER:
                     if not cloud_stats.exists:
                         payload["toast"] = f"Local saves ready for '{game_name}'."
+                    else:
+                        auto_local = self.settings.value("auto_prefer_local_saves", False, type=bool)
+                        if auto_local:
+                            payload["toast"] = f"Local saves preferred for '{game_name}'."
+                        else:
+                            payload["needs_conflict"] = True
+                            payload["local_stats"] = local_stats
+                            payload["cloud_stats"] = cloud_stats
             except Exception as sync_check_err:
                 logger.warning(f"Pre-launch cloud sync check failed: {sync_check_err}")
             self._prelaunch_resolved.emit(payload)
@@ -3197,10 +3299,13 @@ class MainWindow(QMainWindow):
             conflict_dlg = SaveConflictDialog(ctx.get("game_name", ""), payload["local_stats"], payload["cloud_stats"], parent=self)
             if conflict_dlg.exec() == QDialog.DialogCode.Accepted:
                 if conflict_dlg.cb_always_newer.isChecked():
-                    self.settings.setValue("auto_prefer_newer_saves", True)
+                    if conflict_dlg.choice == "cloud":
+                        self.settings.setValue("auto_prefer_newer_saves", True)
+                    else:
+                        self.settings.setValue("auto_prefer_local_saves", True)
                 if conflict_dlg.choice == "cloud":
                     if CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", "")):
-                        self._show_toast(f"Restored newer cloud save for '{ctx['game_name']}' — your previous save was kept as a local backup.")
+                        self._show_toast(f"Restored cloud save for '{ctx['game_name']}' — your previous save was kept as a local backup.")
                     else:
                         # Never silently launch with the losing side of the conflict.
                         self._show_toast(f"Could not restore the cloud save for '{ctx['game_name']}' — launched with local saves.")
@@ -3212,6 +3317,24 @@ class MainWindow(QMainWindow):
                 # instead of silently dropping the user's Play click.
                 self._show_toast(f"Launch cancelled — resolve the save conflict for '{ctx.get('game_name', '')}' first.")
                 return
+        elif payload.get("needs_cloud_only_prompt"):
+            c_stats = payload.get("cloud_stats")
+            ans = QMessageBox.question(
+                self, "Restore Cloud Save",
+                f"A cloud save is available for '{ctx.get('game_name', '')}':\n\n"
+                f"{c_stats.display_path}\n\n"
+                "Would you like to restore this cloud save to the game before launching?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                ok = CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", ""))
+                if ok:
+                    self._show_toast(f"Restored cloud save for '{ctx.get('game_name', '')}'.")
+                else:
+                    self._show_toast(f"Failed to restore cloud save for '{ctx.get('game_name', '')}'.", is_error=True)
+            else:
+                self._show_toast(f"Launching '{ctx.get('game_name', '')}' without restoring cloud save.")
         elif payload.get("toast"):
             self._show_toast(payload["toast"])
 
@@ -3758,14 +3881,14 @@ class MainWindow(QMainWindow):
 
     def _on_cloud_batch_finished(self, uploaded: list, newer_in_cloud: list):
         """GUI-thread slot when library background cloud batch queue completes."""
-        if uploaded:
-            names = ", ".join(uploaded[:2])
-            extra = f" (+{len(uploaded)-2} more)" if len(uploaded) > 2 else ""
-            self._show_toast(f"Cloud Sync: Local save(s) ready to sync: {names}{extra}.")
-        elif newer_in_cloud:
+        if newer_in_cloud:
             names = ", ".join(newer_in_cloud[:2])
             extra = f" (+{len(newer_in_cloud)-2} more)" if len(newer_in_cloud) > 2 else ""
             self._show_toast(f"Newer cloud save(s) available for: {names}{extra}")
+        elif uploaded:
+            names = ", ".join(uploaded[:2])
+            extra = f" (+{len(uploaded)-2} more)" if len(uploaded) > 2 else ""
+            self._show_toast(f"Cloud Sync: Local save(s) ready to sync: {names}{extra}.")
 
     def _start_cloud_poll_timer(self):
         """Poll the cloud every 5 minutes so saves uploaded from another

@@ -18,7 +18,14 @@ def _is_within(parent: str, candidate: str) -> bool:
     """True if candidate is parent itself or lives under it (separator-safe)."""
     parent_abs = os.path.abspath(parent)
     cand_abs = os.path.abspath(candidate)
-    return cand_abs == parent_abs or cand_abs.startswith(parent_abs + os.sep)
+    if cand_abs == parent_abs or cand_abs.startswith(parent_abs + os.sep):
+        return True
+    try:
+        parent_real = os.path.realpath(parent)
+        cand_real = os.path.realpath(candidate)
+        return cand_real == parent_real or cand_real.startswith(parent_real + os.sep)
+    except OSError:
+        return False
 
 
 def _make_staging_dir(near_path: str) -> str:
@@ -84,6 +91,7 @@ class ZipBackupManager(IBackupManager):
             return False
 
         max_source_mtime = 0.0
+        max_save_mtime = 0.0
         game_abs = os.path.abspath(game_path) if game_path else ""
         prefix_dir = os.path.join(game_abs, "prefix") if game_abs else ""
         home_dir = os.path.expanduser("~")
@@ -110,10 +118,17 @@ class ZipBackupManager(IBackupManager):
             return {}
 
         def archive_member(src_file: str) -> tuple[str, float]:
-            nonlocal max_source_mtime
+            nonlocal max_source_mtime, max_save_mtime
             mtime = 0.0
             try:
                 mtime = os.stat(src_file).st_mtime
+                lower = os.path.basename(src_file).lower()
+                is_junk = any(lower.endswith(sfx) for sfx in (
+                    ".log", ".tmp", ".bak", ".old", ".dmp", ".crash",
+                    ".log.1", ".log.2", ".log.3", ".log.txt",
+                ))
+                if not is_junk:
+                    max_save_mtime = max(max_save_mtime, mtime)
                 max_source_mtime = max(max_source_mtime, mtime)
             except OSError:
                 pass
@@ -130,7 +145,7 @@ class ZipBackupManager(IBackupManager):
 
         try:
             def writer(tmp_path: str) -> None:
-                nonlocal max_source_mtime
+                nonlocal max_source_mtime, max_save_mtime
                 written_any = False
                 with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     items_meta = []
@@ -166,16 +181,17 @@ class ZipBackupManager(IBackupManager):
                     if not written_any:
                         raise ValueError("No save files found to archive")
 
+                    effective_mtime = max_save_mtime if max_save_mtime > 0.0 else max_source_mtime
                     manifest = {
                         "format_version": 1,
                         # Content timestamp: newest mtime among archived files. Unlike a
                         # wall-clock upload stamp this stays comparable to local save
                         # mtimes across machines (see SyncStatus comparison).
-                        "source_max_mtime": int(max_source_mtime),
+                        "source_max_mtime": int(effective_mtime),
                         "game_name": game_name,
                         "items": items_meta
                     }
-                    if int(max_source_mtime) <= 0:
+                    if int(effective_mtime) <= 0:
                         # Only archives without a usable content clock need a
                         # creation stamp; omitting it keeps identical saves
                         # byte-identical so the cloud can hash-skip re-uploads.
