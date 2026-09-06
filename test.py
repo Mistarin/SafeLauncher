@@ -466,6 +466,72 @@ try:
             conflict_dlg = SaveConflictDialog(test_game_name, l_stat, c_stat)
             assert conflict_dlg.game_name == test_game_name
             print("✓ SaveConflictDialog instantiated cleanly offscreen")
+
+            # 7. Test robust slug matching & name key resolution across release tags
+            from core.cloud_save_sync import resolve_name_key, match_cloud_game_to_library, _clean_game_slug
+            import core.cloud_save_sync as css_mod
+            assert _clean_game_slug("Dave-the-Diver-AnkerGames") == "davethediver"
+            assert _clean_game_slug("Medieval-Dynasty-SteamRIP") == "medievaldynasty"
+            assert _clean_game_slug("Bellwright-FitGirl") == "bellwright"
+            assert _clean_game_slug("Cassette Beasts") == "cassettebeasts"
+
+            # Mock listing to verify resolve_name_key matches tagged installed game to clean cloud game
+            orig_listing_cache = css_mod._LISTING_CACHE
+            try:
+                css_mod._LISTING_CACHE = {
+                    "ts": 9999999999.0,
+                    "data": {"games": [
+                        {"nameKey": "Dave the Diver", "displayName": "Dave the Diver"},
+                        {"nameKey": "Cassette Beasts", "displayName": "Cassette Beasts"},
+                    ]}
+                }
+                assert resolve_name_key("Dave-the-Diver-AnkerGames") == "Dave the Diver"
+                assert resolve_name_key("Cassette Beasts") == "Cassette Beasts"
+
+                # Verify match_cloud_game_to_library reverse resolution
+                class MockGame:
+                    def __init__(self, name, path):
+                        self.name = name
+                        self.path = path
+                library = [
+                    MockGame("Dave-the-Diver-AnkerGames", "/games/dave"),
+                    MockGame("Cassette Beasts", "/games/cb"),
+                ]
+                matched = match_cloud_game_to_library("Dave the Diver", "Dave the Diver", library)
+                assert matched is not None and matched.name == "Dave-the-Diver-AnkerGames"
+                print("✓ Robust slug matching & cloud-to-library resolution across release tags verified")
+            finally:
+                css_mod._LISTING_CACHE = orig_listing_cache
+
+            # 8. Test ephemeral file filtering from source_max_mtime
+            with tempfile.TemporaryDirectory(prefix="sl-test-ephemeral-") as tmp_save_dir:
+                real_save = os.path.join(tmp_save_dir, "save.dat")
+                with open(real_save, "wb") as f:
+                    f.write(b"real save progress")
+                os.utime(real_save, (1700000000.0, 1700000000.0))
+
+                log_file = os.path.join(tmp_save_dir, "godot.log")
+                with open(log_file, "w") as f:
+                    f.write("engine log line")
+                os.utime(log_file, (1700050000.0, 1700050000.0))
+
+                from core.zip_backup import ZipBackupManager, _is_within
+                from core.ludusavi_detector import SaveLocation
+                out_zip = os.path.join(tmp_save_dir, "out.zip")
+                mgr = ZipBackupManager()
+                loc = SaveLocation(display_name="Save", path=tmp_save_dir, is_directory=True)
+                assert mgr.export_save_locations([loc], out_zip, game_name="TestGame", game_path=tmp_save_dir)
+                import zipfile, json
+                with zipfile.ZipFile(out_zip, 'r') as zf:
+                    m_data = json.loads(zf.read("safelauncher_manifest.json").decode("utf-8"))
+                    assert m_data["source_max_mtime"] == 1700000000, f"Expected 1700000000, got {m_data['source_max_mtime']}"
+                print("✓ Ephemeral runtime log filtering from source_max_mtime verified")
+
+                # Test _is_within with symlink
+                symlink_target = os.path.join(tmp_save_dir, "symlink_dir")
+                os.symlink(tmp_save_dir, symlink_target)
+                assert _is_within(tmp_save_dir, os.path.join(symlink_target, "save.dat"))
+                print("✓ Symlink-aware path containment verification (_is_within) verified")
         finally:
             if orig_cloud_dir is not None:
                 settings.setValue("cloud_saves_dir", orig_cloud_dir)

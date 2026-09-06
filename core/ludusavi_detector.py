@@ -67,7 +67,10 @@ class SaveLocation:
     source: str = "heuristics"  # "ludusavi_cli" or "heuristics"
 
 
-CLI_JUNK_SUFFIXES = (".log",)
+CLI_JUNK_SUFFIXES = (
+    ".log", ".tmp", ".bak", ".old", ".dmp", ".crash",
+    ".log.1", ".log.2", ".log.3", ".log.txt",
+)
 
 # Components treated as structural Windows user-profile folders rather than
 # app-specific data when clustering ludusavi file hits into save folders.
