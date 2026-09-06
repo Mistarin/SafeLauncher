@@ -329,6 +329,9 @@ class ZipBackupManager(IBackupManager):
                     target_dir = os.path.normpath(os.path.join(dest_abs, rel_prefix)) if rel_prefix else dest_abs
                     root = dest_abs
 
+                if not item.get("is_directory", True):
+                    target_dir = os.path.dirname(target_dir)
+
                 # Escape attempts fall back to the base root instead of executing.
                 if not _is_within(root, target_dir):
                     logger.warning(f"Manifest item escapes {base or 'destination'} root ({rel_prefix}); clamping to {root}")

@@ -696,7 +696,7 @@ class GamePropertiesDialog(QDialog):
         from core.cloud_save_sync import CloudSaveSyncEngine
         # sync_cloud_to_local now content-verifies the restored files against
         # the cloud archive — a success here means the bytes really landed.
-        if CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path):
+        if CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path, steam_id=self.steam_id):
             QMessageBox.information(self, "Cloud Sync", "Cloud save successfully restored to game prefix.")
             self._load_save_stats_async()
             self._notify_parent_cloud_changed()

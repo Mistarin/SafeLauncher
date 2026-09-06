@@ -3147,6 +3147,7 @@ class MainWindow(QMainWindow):
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setCancelButton(None)
         progress.setMinimumDuration(150)
+        self._active_prelaunch_progress = progress
         progress.show()
 
         def _work():
@@ -3156,7 +3157,7 @@ class MainWindow(QMainWindow):
                 if status == SyncStatus.CLOUD_OFFLINE:
                     payload["toast"] = f"Cloud not connected — launching '{game_name}' with local saves."
                 elif status == SyncStatus.CLOUD_ONLY:
-                    ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path)
+                    ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path, steam_id=steam_id)
                     if ok:
                         payload["toast"] = f"Restored cloud save for '{game_name}'."
                     else:
@@ -3164,25 +3165,32 @@ class MainWindow(QMainWindow):
                 elif status == SyncStatus.CLOUD_NEWER:
                     auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
                     if auto_newer:
-                        ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path)
+                        ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path, steam_id=steam_id)
                         if ok:
                             payload["toast"] = f"Updated to newer cloud save for '{game_name}'."
                     else:
                         payload["needs_conflict"] = True
                         payload["local_stats"] = local_stats
                         payload["cloud_stats"] = cloud_stats
+                elif status == SyncStatus.LOCAL_NEWER:
+                    if not cloud_stats.exists:
+                        payload["toast"] = f"Local saves ready for '{game_name}'."
             except Exception as sync_check_err:
                 logger.warning(f"Pre-launch cloud sync check failed: {sync_check_err}")
-            try:
-                progress.deleteLater()
-            except RuntimeError:
-                pass
             self._prelaunch_resolved.emit(payload)
 
         threading.Thread(target=_work, daemon=True, name="SafeLauncher-PrelaunchSync").start()
 
     def _finish_prelaunch_sync(self, payload: dict):
         """GUI-thread continuation after the pre-launch sync worker resolves."""
+        if hasattr(self, "_active_prelaunch_progress") and self._active_prelaunch_progress:
+            try:
+                self._active_prelaunch_progress.close()
+                self._active_prelaunch_progress.deleteLater()
+            except Exception:
+                pass
+            self._active_prelaunch_progress = None
+
         ctx = payload.get("ctx", {})
 
         if payload.get("needs_conflict"):
@@ -3191,11 +3199,11 @@ class MainWindow(QMainWindow):
                 if conflict_dlg.cb_always_newer.isChecked():
                     self.settings.setValue("auto_prefer_newer_saves", True)
                 if conflict_dlg.choice == "cloud":
-                    if CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"]):
-                        self._show_toast(f"Restored newer cloud save for '{ctx['game_name']}' — your previous save was kept as a cloud backup.")
+                    if CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", "")):
+                        self._show_toast(f"Restored newer cloud save for '{ctx['game_name']}' — your previous save was kept as a local backup.")
                     else:
                         # Never silently launch with the losing side of the conflict.
-                        self._show_toast(f"Could not restore the cloud save for '{ctx['game_name']}' (local backup upload failed) — launched with local saves.")
+                        self._show_toast(f"Could not restore the cloud save for '{ctx['game_name']}' — launched with local saves.")
                 else:
                     CloudSaveSyncEngine.sync_local_to_cloud(ctx["game_name"], ctx["path"], ctx["steam_id"])
                     self._show_toast("Overwrote cloud save with local version.")

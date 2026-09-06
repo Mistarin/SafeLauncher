@@ -166,6 +166,27 @@ class SaveManagerDialog(QDialog):
         btn_import.clicked.connect(self._import_snapshot)
         footer_layout.addWidget(btn_import)
 
+        btn_cloud = QPushButton("Restore from Cloud")
+        btn_cloud.setIcon(get_icon("ph.cloud-arrow-down-bold", "#3B9FE8"))
+        btn_cloud.setFixedHeight(36)
+        btn_cloud.setStyleSheet("""
+            QPushButton {
+                background: #1A1E26;
+                color: #3B9FE8;
+                border: 1px solid #2563EB;
+                border-radius: 6px;
+                padding: 0 16px;
+                font-weight: 500;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background: #1E293B;
+                border-color: #60A5FA;
+            }
+        """)
+        btn_cloud.clicked.connect(self._restore_from_cloud)
+        footer_layout.addWidget(btn_cloud)
+
         footer_layout.addStretch()
 
         self.btn_export = QPushButton("Export Selected Saves")
@@ -338,3 +359,42 @@ class SaveManagerDialog(QDialog):
                 self._scan_saves()
             else:
                 QMessageBox.critical(self, "Import Error", "Failed to extract save snapshot.")
+
+    def _restore_from_cloud(self):
+        from core.cloud_save_sync import CloudSaveSyncEngine
+        status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
+            self.game_name, self.game_path, self.steam_id
+        )
+        if not cloud_stats.exists:
+            QMessageBox.information(
+                self, "No Cloud Saves",
+                f"No cloud save archive found for '{self.game_name}'."
+            )
+            return
+
+        confirm = QMessageBox.question(
+            self, "Restore Cloud Save",
+            f"Restore cloud save for '{self.game_name}'?\n\n"
+            f"Target Directory: {self.game_path}\n"
+            f"Cloud Save Details: {cloud_stats.display_path}\n\n"
+            "Your existing local save will be preserved in your local backups before overwriting.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        success = CloudSaveSyncEngine.sync_cloud_to_local(
+            self.game_name, self.game_path, steam_id=self.steam_id, preserve_local_fork=True
+        )
+        if success:
+            QMessageBox.information(
+                self, "Restore Succeeded",
+                f"Successfully restored cloud save for '{self.game_name}'."
+            )
+            self._scan_saves()
+        else:
+            QMessageBox.warning(
+                self, "Restore Failed",
+                f"Failed to restore cloud save for '{self.game_name}'. Check logs for details."
+            )
