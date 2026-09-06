@@ -235,14 +235,31 @@ def get_active_save_version(game_name: str) -> Optional[int]:
     return None
 
 
-def set_active_save_version(game_name: str, version: Optional[int]) -> None:
+def get_active_cloud_top_version(game_name: str) -> Optional[int]:
+    """Retrieve the highest cloud version known when the active save version was set."""
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    val = settings.value(f"active_save_top_{resolve_name_key(game_name)}", None)
+    if val is not None:
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+def set_active_save_version(game_name: str, version: Optional[int], cloud_top_version: Optional[int] = None) -> None:
     """Store or clear locally activated cloud save generation for this game."""
     settings = QSettings("SafeLauncher", "SafeLauncher")
-    k = f"active_save_ver_{resolve_name_key(game_name)}"
+    key = resolve_name_key(game_name)
+    k = f"active_save_ver_{key}"
+    k_top = f"active_save_top_{key}"
     if version is None:
         settings.remove(k)
+        settings.remove(k_top)
     else:
         settings.setValue(k, int(version))
+        if cloud_top_version is not None:
+            settings.setValue(k_top, int(cloud_top_version))
 
 
 class CloudSaveSyncEngine:
@@ -319,13 +336,19 @@ class CloudSaveSyncEngine:
             return SaveStats(exists=False), snapshot
 
         # Check if local mtime or explicitly activated version matches an existing generation
+        top_version = versions[0].get("version", 0)
         active_ver = get_active_save_version(name_key)
-        matched = None
-        if active_ver is not None:
-            matched = next((v for v in versions if v.get("version") == active_ver), None)
+        known_top = get_active_cloud_top_version(name_key)
 
-        if matched is None and local_mtime > 0.0:
-            matched = next((v for v in versions if abs(local_mtime - float(v.get("sourceMaxMtime", 0.0))) <= 2.0), None)
+        matched = None
+        # If another device uploaded a newer generation (top_version > known_top),
+        # respect the newly uploaded generation (versions[0]) instead of matching the older rolled-back version.
+        if known_top is None or top_version <= known_top:
+            if active_ver is not None:
+                matched = next((v for v in versions if v.get("version") == active_ver), None)
+
+            if matched is None and local_mtime > 0.0:
+                matched = next((v for v in versions if abs(local_mtime - float(v.get("sourceMaxMtime", 0.0))) <= 2.0), None)
 
         target = matched if matched is not None else versions[0]
         stats = SaveStats(
@@ -442,11 +465,19 @@ class CloudSaveSyncEngine:
                     tmp_zip, source_max_mtime=local_stats.last_modified)
                 if result.get("skipped"):
                     logger.info(f"Cloud already up-to-date for '{game_name}'.")
+                    skipped_ver = result.get("version")
+                    if skipped_ver is not None:
+                        snapshot = cls._remote_game_snapshot(normalize_name_key(game_name))
+                        top_v = snapshot["versions"][0].get("version") if (snapshot and snapshot.get("versions")) else skipped_ver
+                        set_active_save_version(game_name, int(skipped_ver), cloud_top_version=top_v)
                     return True
                 evicted = result.get("evictedVersions") or []
                 if evicted:
                     logger.info(f"Pruned old cloud generations {evicted} for '{game_name}'.")
                 _invalidate_cloud_listing()
+                uploaded_ver = result.get("version")
+                if uploaded_ver is not None:
+                    set_active_save_version(game_name, int(uploaded_ver), cloud_top_version=int(uploaded_ver))
                 logger.info(
                     f"Uploaded encrypted save to cloud for '{game_name}' "
                     f"(v{result.get('version')})."
@@ -495,10 +526,11 @@ class CloudSaveSyncEngine:
                     fork_dir = os.path.join(os.path.dirname(cls.get_cloud_root()), "save_forks")
                     os.makedirs(fork_dir, exist_ok=True)
                     clean_name = "".join(c for c in game_name if c.isalnum() or c in "-_ ").strip() or "game"
+                    prefix_key = key or clean_name
                     already_backed_up = False
                     try:
                         for fname in os.listdir(fork_dir):
-                            if fname.startswith(f"{clean_name}_fork_") and fname.endswith(".zip"):
+                            if (fname.startswith(f"{prefix_key}_fork_") or fname.startswith(f"{clean_name}_fork_")) and fname.endswith(".zip"):
                                 ef = os.path.join(fork_dir, fname)
                                 try:
                                     with zipfile.ZipFile(ef, "r") as z:
@@ -513,7 +545,7 @@ class CloudSaveSyncEngine:
                     except Exception:
                         pass
                     if not already_backed_up:
-                        fork_zip = os.path.join(fork_dir, f"{clean_name}_fork_{int(time.time())}.zip")
+                        fork_zip = os.path.join(fork_dir, f"{prefix_key}_fork_{int(time.time())}.zip")
                         backup_mgr = ZipBackupManager()
                         if backup_mgr.export_save_locations(locations, fork_zip,
                                                             game_name=game_name, game_path=game_path):
@@ -543,7 +575,9 @@ class CloudSaveSyncEngine:
             if success:
                 restored_ver = meta.get("version")
                 if restored_ver is not None:
-                    set_active_save_version(game_name, int(restored_ver))
+                    snapshot = cls._remote_game_snapshot(key)
+                    top_v = snapshot["versions"][0].get("version") if (snapshot and snapshot.get("versions")) else restored_ver
+                    set_active_save_version(game_name, int(restored_ver), cloud_top_version=top_v)
                 logger.info(
                     f"Restored cloud save v{restored_ver} for '{game_name}' "
                     f"into {target_dest}"
@@ -590,29 +624,9 @@ class CloudSaveSyncEngine:
         if not backend_active():
             logger.warning("Generation restore requires the Convex cloud backend.")
             return False
-
-        key = resolve_name_key(game_name)
-        try:
-            plain_zip, meta = _backend().download_to_temp(key, version=version)
-        except Exception as e:
-            logger.warning(f"Generation download failed for '{game_name}': {e}")
-            return False
-        try:
-            ok = ZipBackupManager().import_save(
-                plain_zip, os.path.join(game_path, "prefix"), game_path=game_path)
-        finally:
-            try:
-                os.unlink(plain_zip)
-            except OSError:
-                pass
-        if not ok:
-            logger.error(f"Failed to restore generation v{meta.get('version')} for '{game_name}'")
-            return False
-        restored_ver = meta.get("version")
-        logger.info(f"Restored generation v{restored_ver} for '{game_name}' locally.")
-        if restored_ver is not None:
-            set_active_save_version(game_name, int(restored_ver))
-        return True
+        return cls.sync_cloud_to_local(
+            game_name, game_path, steam_id=steam_id, preserve_local_fork=True, target_version=version
+        )
 
     @classmethod
     def get_available_versions(cls, game_name: str, game_path: str = "", steam_id: str = "") -> list[dict]:
@@ -632,12 +646,11 @@ class CloudSaveSyncEngine:
                     v_num = v.get("version", 0)
                     v_mtime = float(v.get("sourceMaxMtime", 0.0))
                     is_active = False
-                    if active_ver is not None and v_num == active_ver:
-                        is_active = True
-                    elif active_ver is None and local_stats.exists and abs(local_stats.last_modified - v_mtime) <= 2.0:
-                        is_active = True
-                    elif active_ver is None and not local_stats.exists and idx == 0:
-                        is_active = True
+                    if local_stats.exists:
+                        if active_ver is not None and v_num == active_ver:
+                            is_active = True
+                        elif active_ver is None and abs(local_stats.last_modified - v_mtime) <= 2.0:
+                            is_active = True
 
                     results.append({
                         "version": v_num,
@@ -652,10 +665,11 @@ class CloudSaveSyncEngine:
         # 2. Local forks in save_forks/
         fork_dir = os.path.join(os.path.dirname(cls.get_cloud_root()), "save_forks")
         clean_name = "".join(c for c in game_name if c.isalnum() or c in "-_ ").strip() or "game"
+        prefix_key = key or clean_name
         if os.path.isdir(fork_dir):
             try:
                 for fname in sorted(os.listdir(fork_dir), reverse=True):
-                    if fname.startswith(f"{clean_name}_fork_") and fname.endswith(".zip"):
+                    if (fname.startswith(f"{prefix_key}_fork_") or fname.startswith(f"{clean_name}_fork_")) and fname.endswith(".zip"):
                         fpath = os.path.join(fork_dir, fname)
                         try:
                             f_size = os.path.getsize(fpath)
