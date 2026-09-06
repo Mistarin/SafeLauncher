@@ -333,10 +333,13 @@ class CloudSaveBatchQueueWorker(SafeQThread):
         newer_in_cloud_names = []
 
         def _check_game(g):
-            if self.isInterruptionRequested() or len(g) < 5:
+            if self.isInterruptionRequested() or len(g) < 4:
                 return None
-            game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
-            steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
+            if len(g) >= 7:
+                game_id, name, path = g[0], g[1], g[2]
+                steam_id = str(g[6]).strip() if g[6] else ""
+            else:
+                game_id, name, path, steam_id = g[0], g[1], g[2], str(g[3]).strip()
             try:
                 status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(name, path, steam_id)
                 if status == SyncStatus.LOCAL_NEWER:
