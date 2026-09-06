@@ -1060,7 +1060,8 @@ class UserSettingsDialog(QDialog):
             else:
                 settings.remove("cloud_secret_key")
 
-            from core.cloud_save_sync import set_cloud_mode
+            from core.cloud_save_sync import set_cloud_mode, reset_cloud_backend
+            reset_cloud_backend()
             mode = self.combo_cloud_mode.currentData() or "local"
             set_cloud_mode(mode)
 
@@ -1142,7 +1143,8 @@ class UserSettingsDialog(QDialog):
         else:
             settings.remove("cloud_secret_key")
 
-        from core.cloud_save_sync import set_cloud_mode
+        from core.cloud_save_sync import set_cloud_mode, reset_cloud_backend
+        reset_cloud_backend()
         set_cloud_mode("convex")
         self.combo_cloud_mode.setCurrentIndex(1)
         self.lbl_account_status.setText("Connecting to cloud…")
@@ -1151,8 +1153,9 @@ class UserSettingsDialog(QDialog):
 
     def _cloud_disconnect(self):
         """Revert cloud backend to local folder sync."""
-        from core.cloud_save_sync import set_cloud_mode
+        from core.cloud_save_sync import set_cloud_mode, reset_cloud_backend
         set_cloud_mode("local")
+        reset_cloud_backend()
         self.combo_cloud_mode.setCurrentIndex(0)
         self.accountStatusReady.emit("Disconnected (using Local sync).")
         self._refresh_backend_health()

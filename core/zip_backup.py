@@ -303,8 +303,9 @@ class ZipBackupManager(IBackupManager):
                     if not os.path.isfile(final_path):
                         logger.warning(f"Restore verification: missing {final_path}")
                         return False
-                    if hashlib.sha256(zipf.read(member)).digest() != \
-                            hashlib.sha256(open(final_path, 'rb').read()).digest():
+                    with open(final_path, 'rb') as f_final:
+                        final_hash = hashlib.sha256(f_final.read()).digest()
+                    if hashlib.sha256(zipf.read(member)).digest() != final_hash:
                         logger.warning(f"Restore verification: content mismatch at {final_path}")
                         return False
                     checked += 1

@@ -125,9 +125,19 @@ def _get_cloud_listing(force_refresh: bool = False, max_age_seconds: float = 30.
 
 
 def _invalidate_cloud_listing():
-    global _LISTING_CACHE
+    global _LISTING_CACHE, _backend_singleton
     with _LISTING_LOCK:
         _LISTING_CACHE = {"ts": 0.0, "data": None}
+    if _backend_singleton is not None:
+        _backend_singleton.invalidate_key_cache()
+
+
+def reset_cloud_backend() -> None:
+    """Reset the cloud backend singleton and cache (e.g. after credential updates)."""
+    global _backend_singleton, _LISTING_CACHE
+    with _LISTING_LOCK:
+        _LISTING_CACHE = {"ts": 0.0, "data": None}
+    _backend_singleton = None
 
 
 def _clean_game_slug(name: str) -> str:
@@ -223,43 +233,66 @@ def match_cloud_game_to_library(name_key: str, display_name: str, all_games: lis
     return None
 
 
+def _candidate_save_keys(game_name: str) -> list[str]:
+    """Generate all possible key aliases for a game name to guarantee robust lookups."""
+    candidates = []
+    if game_name:
+        candidates.append(game_name)
+        if game_name.lower() not in candidates:
+            candidates.append(game_name.lower())
+        key = resolve_name_key(game_name)
+        if key and key not in candidates:
+            candidates.append(key)
+        slug = _clean_game_slug(game_name)
+        if slug and slug not in candidates:
+            candidates.append(slug)
+        hyphenated = "".join(c if c.isalnum() else "-" for c in game_name.lower()).strip("-")
+        while "--" in hyphenated:
+            hyphenated = hyphenated.replace("--", "-")
+        if hyphenated and hyphenated not in candidates:
+            candidates.append(hyphenated)
+    return candidates
+
+
 def get_active_save_version(game_name: str) -> Optional[int]:
     """Retrieve locally activated cloud save generation for this game, if set."""
     settings = QSettings("SafeLauncher", "SafeLauncher")
-    val = settings.value(f"active_save_ver_{resolve_name_key(game_name)}", None)
-    if val is not None:
-        try:
-            return int(val)
-        except (ValueError, TypeError):
-            pass
+    for k_name in _candidate_save_keys(game_name):
+        val = settings.value(f"active_save_ver_{k_name}", None)
+        if val is not None:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                pass
     return None
 
 
 def get_active_cloud_top_version(game_name: str) -> Optional[int]:
     """Retrieve the highest cloud version known when the active save version was set."""
     settings = QSettings("SafeLauncher", "SafeLauncher")
-    val = settings.value(f"active_save_top_{resolve_name_key(game_name)}", None)
-    if val is not None:
-        try:
-            return int(val)
-        except (ValueError, TypeError):
-            pass
+    for k_name in _candidate_save_keys(game_name):
+        val = settings.value(f"active_save_top_{k_name}", None)
+        if val is not None:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                pass
     return None
 
 
 def set_active_save_version(game_name: str, version: Optional[int], cloud_top_version: Optional[int] = None) -> None:
     """Store or clear locally activated cloud save generation for this game."""
     settings = QSettings("SafeLauncher", "SafeLauncher")
-    key = resolve_name_key(game_name)
-    k = f"active_save_ver_{key}"
-    k_top = f"active_save_top_{key}"
-    if version is None:
-        settings.remove(k)
-        settings.remove(k_top)
-    else:
-        settings.setValue(k, int(version))
-        if cloud_top_version is not None:
-            settings.setValue(k_top, int(cloud_top_version))
+    for k_name in _candidate_save_keys(game_name):
+        k = f"active_save_ver_{k_name}"
+        k_top = f"active_save_top_{k_name}"
+        if version is None:
+            settings.remove(k)
+            settings.remove(k_top)
+        else:
+            settings.setValue(k, int(version))
+            if cloud_top_version is not None:
+                settings.setValue(k_top, int(cloud_top_version))
 
 
 class CloudSaveSyncEngine:
@@ -355,10 +388,10 @@ class CloudSaveSyncEngine:
             exists=True,
             # Content clock: manifest source_max_mtime recorded at upload,
             # directly comparable with local file mtimes across machines.
-            last_modified=float(target["sourceMaxMtime"]),
-            size_bytes=int(target["sizeBytes"]),
+            last_modified=float(target.get("sourceMaxMtime") or 0.0),
+            size_bytes=int(target.get("sizeBytes") or 0),
             file_count=len(versions),
-            display_path=f"{snapshot.get('displayName', name_key)} (v{target['version']})",
+            display_path=f"{snapshot.get('displayName', name_key)} (v{target.get('version', 0)})",
         )
         return stats, snapshot
 
