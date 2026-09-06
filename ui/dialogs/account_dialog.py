@@ -196,7 +196,17 @@ class AccountDialog(QDialog):
             "QListWidget { background:#121214; border:1px solid #27272A; border-radius:6px; color:#E5E7EB; }"
             "QListWidget::item { padding:7px; }"
         )
-        right_layout.addWidget(self.lst_versions)
+        ver_btn_row = QHBoxLayout()
+        ver_btn_row.setSpacing(6)
+        self.btn_restore = QPushButton("Restore Selected to Game")
+        self.btn_restore.setStyleSheet(
+            "QPushButton { background:#3B9FE8; color:#FFFFFF; border:1px solid #2563EB;"
+            "border-radius:5px; padding:6px 12px; font-weight:bold; }"
+            "QPushButton:hover { background:#2563EB; }"
+        )
+        self.btn_restore.clicked.connect(self._restore_selected_version)
+        ver_btn_row.addWidget(self.btn_restore)
+
         btn_delete = QPushButton("Delete Selected Generation")
         btn_delete.setStyleSheet(
             "QPushButton { background:#27272A; color:#F05D6C; border:1px solid #3F3F46;"
@@ -204,7 +214,8 @@ class AccountDialog(QDialog):
             "QPushButton:hover { border-color:#F05D6C; }"
         )
         btn_delete.clicked.connect(self._delete_selected_version)
-        right_layout.addWidget(btn_delete)
+        ver_btn_row.addWidget(btn_delete)
+        right_layout.addLayout(ver_btn_row)
         self.games_split.addWidget(right_panel)
         self.games_split.setStretchFactor(0, 3)
         self.games_split.setStretchFactor(1, 2)
@@ -414,6 +425,75 @@ class AccountDialog(QDialog):
         if not self.lst_versions.count():
             QListWidgetItem("(pending upload…)", self.lst_versions)
 
+    def _restore_selected_version(self):
+        game_item = self.lst_games.currentItem()
+        ver_item = self.lst_versions.currentItem()
+        if not game_item or not ver_item:
+            QMessageBox.information(self, "Nothing Selected",
+                                    "Pick a game and a stored generation first.")
+            return
+        name_key = game_item.data(Qt.ItemDataRole.UserRole)
+        version = ver_item.data(Qt.ItemDataRole.UserRole)
+        if version is None:
+            return
+
+        from database import GameDatabase
+        from core.cloud_backend import normalize_name_key, legacy_name_key
+        db = GameDatabase()
+        all_games = db.get_all_games()
+        matched_game = None
+        for g in all_games:
+            norm_g = normalize_name_key(g.name)
+            leg_g = legacy_name_key(g.name)
+            if norm_g == name_key or leg_g == name_key or g.name == name_key or g.name.lower() == name_key.lower():
+                matched_game = g
+                break
+
+        if not matched_game:
+            QMessageBox.warning(
+                self, "Game Not Found",
+                f"Could not find an installed library game matching '{name_key}'.\n"
+                "Please ensure the game is added to your SafeLauncher library."
+            )
+            return
+
+        confirm = QMessageBox.question(
+            self, "Restore Cloud Save",
+            f"Restore generation v{version} to '{matched_game.name}'?\n\n"
+            f"Target Directory: {matched_game.path}\n\n"
+            "Your existing local save will be preserved in your local save backups before overwriting.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        if self._busy:
+            return
+        self._busy = True
+        self.lbl_quota_text.setText(f"Restoring generation v{version} for '{matched_game.name}'…")
+
+        def _work():
+            try:
+                from core.cloud_save_sync import CloudSaveSyncEngine
+                ok = CloudSaveSyncEngine.sync_cloud_to_local(
+                    matched_game.name, matched_game.path,
+                    steam_id=matched_game.steam_id or "",
+                    preserve_local_fork=True,
+                    target_version=int(version)
+                )
+                if ok:
+                    self._op_done.emit({
+                        "restored": f"Successfully restored generation v{version} for '{matched_game.name}'.",
+                        "name": matched_game.name
+                    })
+                else:
+                    self._op_done.emit({"error": f"Failed to restore generation v{version} for '{matched_game.name}'. Check logs for details."})
+            except Exception as e:
+                self._op_done.emit({"error": f"Restore failed: {str(e)}"})
+
+        threading.Thread(target=_work, daemon=True, name="SafeLauncher-SaveRestore").start()
+
     def _delete_selected_version(self):
         game_item = self.lst_games.currentItem()
         ver_item = self.lst_versions.currentItem()
@@ -450,7 +530,13 @@ class AccountDialog(QDialog):
     def _apply_op(self, payload: dict):
         self._busy = False
         if "error" in payload:
-            QMessageBox.warning(self, "Delete failed", payload["error"])
+            QMessageBox.warning(self, "Operation Failed", payload["error"])
+            self.lbl_quota_text.setText("Operation failed.")
+            return
+        if "restored" in payload:
+            QMessageBox.information(self, "Restore Completed", payload["restored"])
+            self.lbl_quota_text.setText(payload["restored"])
+            self.reload()
             return
         if "revoked" in payload:
             self.btn_revoke_device.setEnabled(True)

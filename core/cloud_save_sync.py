@@ -60,6 +60,9 @@ def cloud_mode() -> str:
     mode = settings.value("cloud_mode", None)
     if mode is not None and str(mode).strip():
         return str(mode).strip()
+    from core.cloud_backend import get_site_url
+    if get_site_url():
+        return "convex"
     return "local"
 
 
@@ -368,41 +371,37 @@ class CloudSaveSyncEngine:
 
     @classmethod
     def sync_cloud_to_local(cls, game_name: str, game_path: str,
-                            steam_id: str = "", preserve_local_fork: bool = True) -> bool:
+                            steam_id: str = "", preserve_local_fork: bool = True,
+                            target_version: Optional[int] = None) -> bool:
         """Extract and restore cloud save archive into local game/prefix.
 
         With preserve_local_fork (the default), the current local save is kept
-        as a cloud backup generation before it is overwritten, so accepting
-        the cloud side of a conflict never destroys local progress. Restoring
-        then targets the generation that was active before that backup upload.
+        as a local backup archive before it is overwritten, so accepting
+        the cloud side of a conflict never destroys local progress.
         """
         target_dest = os.path.join(game_path, "prefix")
 
         if backend_active():
             key = resolve_name_key(game_name)
-            restore_version = None
             if preserve_local_fork:
                 local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
                 if local_stats.exists and locations:
-                    try:
-                        snapshot = cls._remote_game_snapshot(key)
-                    except Exception as e:
-                        logger.warning(f"Cloud unreachable for '{game_name}': {e}")
-                        return False
-                    pre_top = ((snapshot or {}).get("versions") or [{}])[0].get("version")
-                    if not cls.sync_local_to_cloud(game_name, game_path, steam_id):
+                    fork_dir = os.path.join(os.path.dirname(cls.get_cloud_root()), "save_forks")
+                    os.makedirs(fork_dir, exist_ok=True)
+                    clean_name = "".join(c for c in game_name if c.isalnum() or c in "-_ ").strip() or "game"
+                    fork_zip = os.path.join(fork_dir, f"{clean_name}_fork_{int(time.time())}.zip")
+                    backup_mgr = ZipBackupManager()
+                    if backup_mgr.export_save_locations(locations, fork_zip,
+                                                        game_name=game_name, game_path=game_path):
+                        logger.info(f"Preserved local save fork for '{game_name}' at {fork_zip}")
+                    else:
                         logger.warning(
-                            f"Could not back up the local save for '{game_name}' to the cloud; "
+                            f"Could not back up the local save for '{game_name}' to {fork_zip}; "
                             f"refusing to overwrite it with the cloud copy."
                         )
                         return False
-                    if pre_top is None:
-                        # Nothing was in the cloud before; the fork upload is
-                        # now the latest save and there is nothing to restore.
-                        return True
-                    restore_version = int(pre_top)
             try:
-                plain_zip, meta = _backend().download_to_temp(key, version=restore_version)
+                plain_zip, meta = _backend().download_to_temp(key, version=target_version)
             except Exception as e:
                 logger.warning(f"Cloud download failed for '{game_name}': {e}")
                 return False

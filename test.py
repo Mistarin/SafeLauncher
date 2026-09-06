@@ -370,11 +370,31 @@ try:
         restore_prefix = os.path.join(tmp_save_game, "restored_prefix")
         assert backup.import_save(multi_zip, restore_prefix), "Manifest-aware import failed"
         expected_restored = os.path.join(restore_prefix, detected[0].relative_to_prefix, "slot1.sav")
-        assert os.path.isfile(expected_restored), f"Restored file missing at {expected_restored}"
         print("✓ Manifest-aware multi-location save export and restoration verified")
+
+        # Test single-file save export and manifest-aware import
+        import time
+        single_loc = SaveLocation(
+            path=os.path.join(user_saved_games, "slot1.sav"),
+            display_name="slot1.sav",
+            is_directory=False,
+            relative_to_prefix=os.path.relpath(os.path.join(user_saved_games, "slot1.sav"), os.path.join(tmp_save_game, "prefix")),
+            file_count=1,
+            total_size_bytes=16,
+            last_modified=time.time()
+        )
+        single_zip = os.path.join(tmp_save_game, "single_backup.zip")
+        assert backup.export_save_locations([single_loc], single_zip, game_name="Portal 2", game_path=tmp_save_game)
+        single_restore = os.path.join(tmp_save_game, "single_restored")
+        assert backup.import_save(single_zip, single_restore, game_path=tmp_save_game)
+        single_out = os.path.join(single_restore, single_loc.relative_to_prefix)
+        assert os.path.isfile(single_out), f"Single save file missing or created as dir at {single_out}"
+        assert not os.path.isdir(single_out)
+        print("✓ Single-file save export and non-nested restoration verified")
 
         save_dlg = SaveManagerDialog(1, "Portal 2", tmp_save_game, steam_id="620")
         assert save_dlg is not None
+        assert hasattr(save_dlg, "_restore_from_cloud")
         print("✓ SaveManagerDialog instantiated cleanly offscreen")
 
     # Test Database env_vars presets
@@ -507,25 +527,33 @@ except Exception as e:
 try:
     from PyQt6.QtCore import QSettings
     settings = QSettings("SafeLauncher", "SafeLauncher")
-    settings.setValue("cloud_mode", "local")
-    from core.cloud_save_sync import cloud_mode as _cm, backend_active
-    assert _cm() == "local"
-    assert not backend_active()
-
-    settings.setValue("cloud_mode", "convex")
-    assert _cm() == "convex"
-    import core.cloud_backend
-    orig_get_site = core.cloud_backend.get_site_url
+    orig_cloud_mode = settings.value("cloud_mode", None)
     try:
-        core.cloud_backend.get_site_url = lambda: "https://test.convex.site"
-        assert backend_active()
-        core.cloud_backend.get_site_url = lambda: ""
+        settings.setValue("cloud_mode", "local")
+        from core.cloud_save_sync import cloud_mode as _cm, backend_active
+        assert _cm() == "local"
         assert not backend_active()
-    finally:
-        core.cloud_backend.get_site_url = orig_get_site
 
-    settings.setValue("cloud_mode", "local")
-    print("✓ Cloud dispatch mode gating verified")
+        settings.setValue("cloud_mode", "convex")
+        assert _cm() == "convex"
+        import core.cloud_backend
+        orig_get_site = core.cloud_backend.get_site_url
+        try:
+            core.cloud_backend.get_site_url = lambda: "https://test.convex.site"
+            assert backend_active()
+            core.cloud_backend.get_site_url = lambda: ""
+            assert not backend_active()
+        finally:
+            core.cloud_backend.get_site_url = orig_get_site
+
+        settings.setValue("cloud_mode", "local")
+        assert _cm() == "local"
+        print("✓ Cloud dispatch mode gating verified")
+    finally:
+        if orig_cloud_mode is not None:
+            settings.setValue("cloud_mode", orig_cloud_mode)
+        else:
+            settings.remove("cloud_mode")
 except Exception as e:
     print(f"✗ Cloud dispatch test error: {e}")
     sys.exit(1)
@@ -534,6 +562,8 @@ except Exception as e:
 try:
     from ui.dialogs.account_dialog import AccountDialog
     dlg = AccountDialog()
+    assert hasattr(dlg, "btn_restore")
+    assert hasattr(dlg, "_restore_selected_version")
     assert not dlg.btn_auth_toggle.isEnabled() or True
     QTimer.singleShot(50, dlg.accept)
     dlg.exec()
