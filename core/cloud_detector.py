@@ -111,6 +111,26 @@ def inspect_system_compatibility(
     # Node.js and npm presence
     node_bin = shutil.which("node")
     npm_bin = shutil.which("npm")
+    if not node_bin or not npm_bin:
+        home = os.path.expanduser("~")
+        extra_paths = [os.path.join(home, ".local", "bin")]
+        nvm_versions_dir = os.path.join(home, ".nvm", "versions", "node")
+        if os.path.isdir(nvm_versions_dir):
+            try:
+                for v in sorted(os.listdir(nvm_versions_dir), reverse=True):
+                    extra_paths.append(os.path.join(nvm_versions_dir, v, "bin"))
+            except OSError:
+                pass
+        for ep in extra_paths:
+            if not node_bin:
+                candidate = os.path.join(ep, "node")
+                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                    node_bin = candidate
+            if not npm_bin:
+                candidate = os.path.join(ep, "npm")
+                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                    npm_bin = candidate
+
     has_node = bool(node_bin)
     has_npm = bool(npm_bin)
     node_version = ""

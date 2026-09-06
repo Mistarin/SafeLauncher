@@ -44,6 +44,7 @@ class CloudBackendError(Exception):
         super().__init__(message)
         self.code = code
         self.status = status
+        self.status_code = status
         self.extra = extra or {}
 
 
@@ -289,9 +290,12 @@ class ConvexSaveBackend:
                 f"Save upload rejected ({post.status_code}).", "upload_failed",
                 post.status_code,
             )
-        storage_id = post.json().get("storageId")
+        try:
+            storage_id = post.json().get("storageId")
+        except (ValueError, AttributeError):
+            storage_id = None
         if not storage_id:
-            raise CloudBackendError("Upload succeeded but no id was returned.",
+            raise CloudBackendError("Upload succeeded but no valid id was returned.",
                                     "upload_failed", 502)
 
         return self._check(
@@ -324,6 +328,7 @@ class ConvexSaveBackend:
         dest_dir = os.path.join(tempfile.gettempdir(), f"safelauncher-dl-{uid}")
         os.makedirs(dest_dir, mode=0o700, exist_ok=True)
         fd, enc_path = tempfile.mkstemp(prefix=".sl-save-", suffix=".enc", dir=dest_dir)
+        fd_closed = False
 
         try:
             with self._lock:
@@ -336,12 +341,18 @@ class ConvexSaveBackend:
                 total = 0
                 limit = MAX_SAVE_BYTES * 2
                 with os.fdopen(fd, "wb") as out:
+                    fd_closed = True
                     for chunk in resp.iter_content(chunk_size=65536):
                         total += len(chunk)
                         if total > limit:
                             raise CloudBackendError("Blob exceeds expected size cap.")
                         out.write(chunk)
         except Exception:
+            if not fd_closed:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             try:
                 os.unlink(enc_path)
             except OSError:

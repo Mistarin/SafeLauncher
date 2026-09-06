@@ -202,10 +202,10 @@ class SaveManagerDialog(QDialog):
         btn_import.clicked.connect(self._import_snapshot)
         footer_layout.addWidget(btn_import)
 
-        btn_cloud = QPushButton("Restore from Cloud")
-        btn_cloud.setIcon(get_icon("ph.cloud-arrow-down-bold", "#3B9FE8"))
-        btn_cloud.setFixedHeight(36)
-        btn_cloud.setStyleSheet("""
+        self.btn_cloud = QPushButton("Restore from Cloud")
+        self.btn_cloud.setIcon(get_icon("ph.cloud-arrow-down-bold", "#3B9FE8"))
+        self.btn_cloud.setFixedHeight(36)
+        self.btn_cloud.setStyleSheet("""
             QPushButton {
                 background: #1A1E26;
                 color: #3B9FE8;
@@ -220,8 +220,8 @@ class SaveManagerDialog(QDialog):
                 border-color: #60A5FA;
             }
         """)
-        btn_cloud.clicked.connect(self._restore_from_cloud)
-        footer_layout.addWidget(btn_cloud)
+        self.btn_cloud.clicked.connect(self._restore_from_cloud)
+        footer_layout.addWidget(self.btn_cloud)
 
         footer_layout.addStretch()
 
@@ -569,6 +569,8 @@ class SaveManagerDialog(QDialog):
 
         self.btn_restore_history.setEnabled(False)
         self.btn_export.setEnabled(False)
+        if hasattr(self, "btn_cloud"):
+            self.btn_cloud.setEnabled(False)
 
         def _worker():
             success = False
@@ -597,6 +599,8 @@ class SaveManagerDialog(QDialog):
     def _on_restore_done(self, success: bool, title: str):
         self.btn_restore_history.setEnabled(True)
         self.btn_export.setEnabled(True)
+        if hasattr(self, "btn_cloud"):
+            self.btn_cloud.setEnabled(True)
         if success:
             QMessageBox.information(
                 self, "Restore Successful",
@@ -645,6 +649,8 @@ class SaveManagerDialog(QDialog):
 
         self.btn_restore_history.setEnabled(False)
         self.btn_export.setEnabled(False)
+        if hasattr(self, "btn_cloud"):
+            self.btn_cloud.setEnabled(False)
 
         def _worker():
             success = False

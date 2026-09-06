@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QGridLayout,
     QTabWidget, QCheckBox, QSlider, QComboBox, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView
+    QTableWidgetItem, QHeaderView, QAbstractItemView, QProgressDialog, QApplication
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
@@ -742,7 +742,18 @@ class GamePropertiesDialog(QDialog):
 
     def _sync_up_now(self):
         from core.cloud_save_sync import CloudSaveSyncEngine
-        if CloudSaveSyncEngine.sync_local_to_cloud(self.game_name, self.game_path, self.steam_id):
+        prog = QProgressDialog(f"Uploading local save for '{self.game_name}'...", None, 0, 0, self)
+        prog.setWindowModality(Qt.WindowModality.WindowModal)
+        prog.setCancelButton(None)
+        prog.setMinimumDuration(0)
+        prog.show()
+        QApplication.processEvents()
+        try:
+            ok = CloudSaveSyncEngine.sync_local_to_cloud(self.game_name, self.game_path, self.steam_id)
+        finally:
+            prog.close()
+            prog.deleteLater()
+        if ok:
             QMessageBox.information(self, "Cloud Sync", "Local save successfully uploaded to Cloud save repository.")
             self._load_save_stats_async()
             self._notify_parent_cloud_changed()
@@ -776,9 +787,18 @@ class GamePropertiesDialog(QDialog):
                 "Close the game first, then download the cloud save.")
             return
         from core.cloud_save_sync import CloudSaveSyncEngine
-        # sync_cloud_to_local now content-verifies the restored files against
-        # the cloud archive — a success here means the bytes really landed.
-        if CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path, steam_id=self.steam_id):
+        prog = QProgressDialog(f"Restoring cloud save for '{self.game_name}'...", None, 0, 0, self)
+        prog.setWindowModality(Qt.WindowModality.WindowModal)
+        prog.setCancelButton(None)
+        prog.setMinimumDuration(0)
+        prog.show()
+        QApplication.processEvents()
+        try:
+            ok = CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path, steam_id=self.steam_id)
+        finally:
+            prog.close()
+            prog.deleteLater()
+        if ok:
             QMessageBox.information(self, "Cloud Sync", "Cloud save successfully restored to game prefix.")
             self._load_save_stats_async()
             self._notify_parent_cloud_changed()

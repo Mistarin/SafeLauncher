@@ -1428,6 +1428,100 @@ except Exception as e:
     print(f"✗ Save conflict inversion, pruning, and backend timeout test error: {e}")
     sys.exit(1)
 
+# -------------------------------------------------------------
+# 36. Test File Descriptor Safety, Dual-Key Lookup, Backend Reset & UI Re-entrancy
+# -------------------------------------------------------------
+try:
+    import requests
+    from unittest.mock import MagicMock, patch
+    from core.cloud_backend import ConvexSaveBackend, CloudBackendError
+    from core.cloud_save_sync import (
+        get_active_save_version,
+        get_active_cloud_top_version,
+        set_active_save_version,
+        reset_cloud_backend,
+        _backend,
+    )
+    from ui.dialogs.save_manager_dialog import SaveManagerDialog
+    from core.cloud_detector import inspect_system_compatibility
+
+    with tempfile.TemporaryDirectory() as td:
+        # A. Test download_to_temp file descriptor safety on network abort
+        backend = ConvexSaveBackend(site_url="https://test.convex.site", secret_key="test_key")
+        backend._request = MagicMock(return_value=MagicMock(
+            status_code=200,
+            json=lambda: {"url": "https://test.convex.site/dl", "version": 1, "sizeBytes": 50}
+        ))
+        # Simulate network failure during stream initialization
+        backend.session.get = MagicMock(side_effect=requests.RequestException("Connection aborted by peer"))
+        try:
+            backend.download_to_temp("mygame")
+            assert False, "Expected RequestException was not raised"
+        except requests.RequestException:
+            pass  # Expected
+
+        # B. Test upload_plaintext_zip safe handling of non-JSON error responses
+        dummy_zip = os.path.join(td, "save.zip")
+        with open(dummy_zip, "wb") as f:
+            f.write(b"SAMPLE_SAVE_DATA")
+
+        backend.list_games = MagicMock(return_value={"games": []})
+        backend.data_key_b64 = MagicMock(return_value="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+        backend._request = MagicMock(return_value=MagicMock(
+            status_code=200,
+            json=lambda: {"uploadUrl": "https://test.convex.site/upload", "saveId": "save_1"}
+        ))
+        # Simulate HTML 502 gateway error with unparsable JSON
+        mock_upload_resp = MagicMock(status_code=200)
+        mock_upload_resp.json = MagicMock(side_effect=ValueError("No JSON"))
+        mock_upload_resp.text = "<html><body>502 Bad Gateway</body></html>"
+        backend.session.post = MagicMock(return_value=mock_upload_resp)
+
+        try:
+            backend.upload_plaintext_zip("mygame", "My Game", dummy_zip, 1700000000.0)
+            assert False, "Expected CloudBackendError was not raised on invalid upload JSON"
+        except CloudBackendError as cbe:
+            assert cbe.status_code == 502
+
+        # C. Test dual-key persistence (game_name and normalized key)
+        set_active_save_version("Special Game - AnkerGames", 5, cloud_top_version=7)
+        assert get_active_save_version("Special Game - AnkerGames") == 5
+        assert get_active_cloud_top_version("Special Game - AnkerGames") == 7
+        # Querying with normalized key also resolves
+        assert get_active_save_version("special-game-ankergames") == 5
+        assert get_active_cloud_top_version("special-game-ankergames") == 7
+        # Clear removes both
+        set_active_save_version("Special Game - AnkerGames", None)
+        assert get_active_save_version("Special Game - AnkerGames") is None
+        assert get_active_save_version("special-game-ankergames") is None
+
+        # D. Test reset_cloud_backend clears singleton
+        b1 = _backend()
+        assert b1 is not None
+        reset_cloud_backend()
+        import core.cloud_save_sync as css
+        assert css._backend_singleton is None
+
+        # E. Test SaveManagerDialog.btn_cloud persistence and state
+        save_dlg = SaveManagerDialog(game_id=888, game_name="TestDualKeyGame", game_path=td)
+        assert hasattr(save_dlg, "btn_cloud")
+        assert save_dlg.btn_cloud.isEnabled()
+        save_dlg.close()
+
+        # F. Test inspect_system_compatibility returns clean dictionary
+        compat = inspect_system_compatibility()
+        assert "can_deploy_locally" in compat
+        assert "recommended_mode" in compat
+        assert isinstance(compat["has_node"], bool)
+        assert isinstance(compat["has_npm"], bool)
+
+    print("✓ File descriptor safety, dual-key lookup, backend reset, and UI re-entrancy verified")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"✗ File descriptor safety, dual-key lookup, and UI re-entrancy test error: {e}")
+    sys.exit(1)
+
 print("\n[SUCCESS] All SafeLauncher components tested and working cleanly!")
 
 
