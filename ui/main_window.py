@@ -985,6 +985,7 @@ class MainWindow(QMainWindow):
         self.compact_container.game_selected.connect(self._select_game_by_id)
         self.compact_container.game_double_clicked.connect(self._on_double_click_game)
         self.compact_container.play_requested.connect(self._launch_game_by_id)
+        self.compact_container.edit_requested.connect(self._on_edit)
         self.compact_container.properties_requested.connect(self._open_game_properties)
         self.compact_container.save_manager_requested.connect(self._on_export)
         self.compact_container.open_folder_requested.connect(self._open_game_dir_by_id)
@@ -4560,8 +4561,10 @@ class MainWindow(QMainWindow):
         toast = ToastNotification(self, message, is_error=is_error)
         toast.show_toast(self)
 
-    def _on_edit(self):
+    def _on_edit(self, game_id=None):
         """Edit details of the currently selected game."""
+        if isinstance(game_id, int):
+            self._select_game_by_id(game_id)
         game = self._get_selected_game()
         if not game:
             QMessageBox.warning(self, "Warning", "Please select a game to edit.")
