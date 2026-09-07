@@ -440,9 +440,16 @@ class AccountDialog(QDialog):
         from database import GameDatabase
         from core.cloud_save_sync import match_cloud_game_to_library
         db = GameDatabase()
-        all_games = db.get_all_games()
+        try:
+            all_games = db.get_all_games()
+        finally:
+            try:
+                db.close()
+            except Exception:
+                pass
         display_name = game_item.text().split("\n")[0].strip()
         matched_game = match_cloud_game_to_library(name_key, display_name, all_games)
+
 
         if not matched_game:
             QMessageBox.warning(
