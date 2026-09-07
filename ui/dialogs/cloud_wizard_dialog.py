@@ -469,6 +469,16 @@ class CloudWizardDialog(QDialog):
     def _confirm_deployment(self):
         """Record that the user finished deployment and allow the connection step."""
         self._deployment_confirmed = True
+        # The terminal deployment may have generated and stored a key while
+        # this dialog was open. Pull it into the connection form so users do
+        # not have to copy secrets between windows.
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        generated_key = settings.value("cloud_secret_key", "", type=str).strip()
+        if generated_key and not self.edit_key.text().strip():
+            self.edit_key.setText(generated_key)
+        discovered_url = discover_local_cloud_backend()
+        if discovered_url and not self.edit_url.text().strip():
+            self.edit_url.setText(discovered_url)
         self.deploy_status_lbl.setText("Deployment marked complete. Continue to connection test.")
         self.deploy_status_lbl.setStyleSheet("color: #34D399; font-size: 12px;")
         self.btn_next.setEnabled(True)

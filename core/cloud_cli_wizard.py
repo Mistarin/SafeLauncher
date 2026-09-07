@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import shutil
+import secrets
 import subprocess
 import tempfile
 import zipfile
@@ -216,6 +217,32 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
                 print("  [✖] Convex setup finished without a deployment configuration.")
                 print("      Run 'npx convex dev' in the backend folder, then start setup again.")
                 return None
+
+        # New private deployments should be locked down by default. Reuse an
+        # existing configured key when available; otherwise generate one,
+        # push it to Convex, and save the exact same value locally so the
+        # connection step works without asking the user to copy secrets.
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        secret_key = (
+            clean_env.get("SAFELAUNCHER_SECRET_KEY", "").strip()
+            or settings.value("cloud_secret_key", "", type=str).strip()
+        )
+        if not secret_key:
+            secret_key = secrets.token_urlsafe(32)
+            print("\n  [Security] Generated a random SafeLauncher secret key.")
+        print("  [Security] Applying the secret key to the Convex deployment...")
+        secret_result = subprocess.run(
+            ["npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY", secret_key],
+            cwd=str(server_dir),
+            check=False,
+            env=clean_env,
+        )
+        if secret_result.returncode != 0:
+            print("  [✖] Could not apply the SafeLauncher secret key to Convex.")
+            print("      The deployment was not connected locally; fix Convex authentication and retry.")
+            return None
+        settings.setValue("cloud_secret_key", secret_key)
+        print("  [✔] Secret key pushed to Convex and saved in SafeLauncher.")
         
         print("  [Deploy] Deploying backend functions with 'npx convex deploy'...")
         subprocess.run(["npx", "convex", "deploy"], cwd=str(server_dir), check=True, env=clean_env)
@@ -360,6 +387,10 @@ def run_cloud_setup_wizard() -> int:
     else:
         local_info = detect_local_cloud_installation()
 
+    # The deployment helper may have generated and stored a secret key in
+    # another setup step. Refresh it before asking for connection details.
+    current_key = settings.value("cloud_secret_key", "", type=str).strip()
+
     default_url = current_url or (local_info.get("site_url") if local_info else "") or ""
 
     # Step 2: Connection settings
@@ -386,7 +417,7 @@ def run_cloud_setup_wizard() -> int:
 
     key_prompt = f"  {CYAN}{BOLD}➜{RESET} Secret Access Key [{current_key}]: " if current_key else f"  {CYAN}{BOLD}➜{RESET} Secret Access Key (press Enter to skip): "
     entered_key = input(key_prompt).strip()
-    secret_key = entered_key if entered_key else (current_key if entered_url == "" else "")
+    secret_key = entered_key if entered_key else current_key
 
     if is_new_setup and secret_key and local_info and local_info.get("path") and shutil.which("npx"):
         try:
