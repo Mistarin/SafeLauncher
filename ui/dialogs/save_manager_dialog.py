@@ -558,7 +558,8 @@ class SaveManagerDialog(QDialog):
             active_badge = " · [Active on this PC]" if is_active else ""
 
             title = v.get("display_name", f"Save {v_num}")
-            item = QListWidgetItem(f"{title}\n{date_str} · {sz_str}{active_badge}")
+            item = QListWidgetItem(f"{title}\nDate: {date_str}  ·  Size: {sz_str}{active_badge}")
+            item.setToolTip(f"{title}\nDate: {date_str}\nSize: {sz_str}")
             item.setData(Qt.ItemDataRole.UserRole, v)
             self.lst_history.addItem(item)
 
