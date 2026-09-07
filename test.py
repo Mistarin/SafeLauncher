@@ -10,6 +10,9 @@ import tempfile
 import zipfile
 
 os.environ["SAFELAUNCHER_DISABLE_UPDATE_CHECK"] = "1"
+# Keep the Qt smoke suite deterministic and independent of external services.
+# The production app still performs all automatic sync/fetch work normally.
+os.environ["SAFELAUNCHER_OFFLINE_TEST_MODE"] = "1"
 
 from PyQt6.QtCore import QTimer
 
