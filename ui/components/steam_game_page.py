@@ -19,7 +19,7 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal, QSettings
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QTextEdit, QFrame, QScrollArea, QSizePolicy,
-    QListWidget, QListWidgetItem, QLineEdit, QSplitter
+    QListWidget, QListWidgetItem, QLineEdit, QSplitter, QGridLayout
 )
 from PyQt6.QtGui import (
     QPixmap, QColor, QPainter, QLinearGradient, QFont, QIcon, QPainterPath
@@ -189,6 +189,7 @@ class CompactActionBar(QFrame):
     and quick action tools (Settings, Folder, Save Manager, Favorite).
     """
     play_clicked = pyqtSignal()
+    edit_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
     folder_clicked = pyqtSignal()
     save_manager_clicked = pyqtSignal()
@@ -239,40 +240,40 @@ class CompactActionBar(QFrame):
             }
         """)
         self.btn_play.clicked.connect(self.play_clicked.emit)
-        layout.addWidget(self.btn_play)
+        layout.addWidget(self.btn_play, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # ── 2. Horizontal Stats Columns with Vertical Dividers ──
         # Column 1: Cloud Status
         self.cloud_container = QVBoxLayout()
         self.cloud_container.setSpacing(2)
+        self.cloud_container.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         lbl_cloud_title = QLabel("CLOUD STATUS")
         lbl_cloud_title.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         self.cloud_container.addWidget(lbl_cloud_title)
 
         cloud_row = QHBoxLayout()
         cloud_row.setSpacing(6)
+        cloud_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.cloud_icon_lbl = QLabel()
         self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-check-fill", color="#3CD070").pixmap(14, 14))
         self.cloud_icon_lbl.setStyleSheet("background: transparent;")
-        cloud_row.addWidget(self.cloud_icon_lbl)
+        cloud_row.addWidget(self.cloud_icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.update_dot = QLabel()
-        self.update_dot.setFixedSize(7, 7)
-        self.update_dot.setStyleSheet("background-color: #3CD070; border-radius: 3.5px; border: none;")
-        self.update_dot.setToolTip("Up to date")
-        cloud_row.addWidget(self.update_dot)
+        self.update_dot.setVisible(False)
 
         self.cloud_text_lbl = QLabel("Up to date")
         self.cloud_text_lbl.setStyleSheet("color: #F4F4F5; font-size: 12px; font-weight: 600; background: transparent;")
-        cloud_row.addWidget(self.cloud_text_lbl)
+        cloud_row.addWidget(self.cloud_text_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
         self.cloud_container.addLayout(cloud_row)
         layout.addLayout(self.cloud_container)
 
-        layout.addWidget(self._create_divider())
+        layout.addWidget(self._create_divider(), 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Column 2: Last Played
         self.last_played_container = QVBoxLayout()
         self.last_played_container.setSpacing(2)
+        self.last_played_container.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         lbl_last_title = QLabel("LAST PLAYED")
         lbl_last_title.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         self.last_played_container.addWidget(lbl_last_title)
@@ -282,11 +283,12 @@ class CompactActionBar(QFrame):
         self.last_played_container.addWidget(self.last_played_val)
         layout.addLayout(self.last_played_container)
 
-        layout.addWidget(self._create_divider())
+        layout.addWidget(self._create_divider(), 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Column 3: Play Time
         self.playtime_container = QVBoxLayout()
         self.playtime_container.setSpacing(2)
+        self.playtime_container.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         lbl_playtime_title = QLabel("PLAY TIME")
         lbl_playtime_title.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         self.playtime_container.addWidget(lbl_playtime_title)
@@ -296,20 +298,22 @@ class CompactActionBar(QFrame):
         self.playtime_container.addWidget(self.playtime_val)
         layout.addLayout(self.playtime_container)
 
-        layout.addWidget(self._create_divider())
+        layout.addWidget(self._create_divider(), 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Column 4: Achievements Progress Summary
         self.ach_container = QVBoxLayout()
         self.ach_container.setSpacing(2)
+        self.ach_container.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         lbl_ach_title = QLabel("ACHIEVEMENTS")
         lbl_ach_title.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         self.ach_container.addWidget(lbl_ach_title)
 
         ach_sub_row = QHBoxLayout()
         ach_sub_row.setSpacing(6)
+        ach_sub_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.ach_ratio_lbl = QLabel("0 / 0")
         self.ach_ratio_lbl.setStyleSheet("color: #F4F4F5; font-size: 12px; font-weight: 600; background: transparent;")
-        ach_sub_row.addWidget(self.ach_ratio_lbl)
+        ach_sub_row.addWidget(self.ach_ratio_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.ach_mini_progress = QProgressBar()
         self.ach_mini_progress.setFixedSize(80, 5)
@@ -326,7 +330,7 @@ class CompactActionBar(QFrame):
                 border-radius: 2px;
             }
         """)
-        ach_sub_row.addWidget(self.ach_mini_progress)
+        ach_sub_row.addWidget(self.ach_mini_progress, 0, Qt.AlignmentFlag.AlignVCenter)
         self.ach_container.addLayout(ach_sub_row)
         layout.addLayout(self.ach_container)
 
@@ -348,6 +352,16 @@ class CompactActionBar(QFrame):
             }
         """
 
+        self.btn_edit = QPushButton()
+        self.btn_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#A1A1AA"))
+        self.btn_edit.setIconSize(QSize(16, 16))
+        self.btn_edit.setFixedSize(36, 36)
+        self.btn_edit.setToolTip("Edit game")
+        self.btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_edit.setStyleSheet(quick_btn_style)
+        self.btn_edit.clicked.connect(self.edit_clicked.emit)
+        layout.addWidget(self.btn_edit, 0, Qt.AlignmentFlag.AlignVCenter)
+
         self.btn_settings = QPushButton()
         self.btn_settings.setIcon(get_icon("ph.gear-six-bold", color="#A1A1AA"))
         self.btn_settings.setIconSize(QSize(16, 16))
@@ -356,7 +370,7 @@ class CompactActionBar(QFrame):
         self.btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_settings.setStyleSheet(quick_btn_style)
         self.btn_settings.clicked.connect(self.settings_clicked.emit)
-        layout.addWidget(self.btn_settings)
+        layout.addWidget(self.btn_settings, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_folder = QPushButton()
         self.btn_folder.setIcon(get_icon("ph.folder-open-bold", color="#A1A1AA"))
@@ -366,7 +380,7 @@ class CompactActionBar(QFrame):
         self.btn_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_folder.setStyleSheet(quick_btn_style)
         self.btn_folder.clicked.connect(self.folder_clicked.emit)
-        layout.addWidget(self.btn_folder)
+        layout.addWidget(self.btn_folder, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_save = QPushButton()
         self.btn_save.setIcon(get_icon("ph.cloud-bold", color="#A1A1AA"))
@@ -376,7 +390,7 @@ class CompactActionBar(QFrame):
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.setStyleSheet(quick_btn_style)
         self.btn_save.clicked.connect(self.save_manager_clicked.emit)
-        layout.addWidget(self.btn_save)
+        layout.addWidget(self.btn_save, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_fav = QPushButton()
         self.btn_fav.setIcon(get_icon("ph.heart-bold", color="#A1A1AA"))
@@ -386,7 +400,7 @@ class CompactActionBar(QFrame):
         self.btn_fav.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_fav.setStyleSheet(quick_btn_style)
         self.btn_fav.clicked.connect(self.favorite_clicked.emit)
-        layout.addWidget(self.btn_fav)
+        layout.addWidget(self.btn_fav, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def _create_divider(self) -> QFrame:
         div = QFrame()
@@ -398,21 +412,8 @@ class CompactActionBar(QFrame):
         return div
 
     def update_cloud_status(self, status: Any, has_update: bool = False):
-        """Update the cloud icon, dot, and text based on SyncStatus or available update."""
-        if has_update or status in (SyncStatus.CLOUD_NEWER, SyncStatus.LOCAL_NEWER):
-            self.update_dot.setStyleSheet("background-color: #FF9F0A; border-radius: 3.5px; border: none;")
-            self.update_dot.setToolTip("Update available / sync pending")
-            self.update_dot.setVisible(True)
-        elif status == SyncStatus.IN_SYNC:
-            self.update_dot.setStyleSheet("background-color: #3CD070; border-radius: 3.5px; border: none;")
-            self.update_dot.setToolTip("Up to date")
-            self.update_dot.setVisible(True)
-        elif status == SyncStatus.CONFLICT:
-            self.update_dot.setStyleSheet("background-color: #FF453A; border-radius: 3.5px; border: none;")
-            self.update_dot.setToolTip("Conflict")
-            self.update_dot.setVisible(True)
-        else:
-            self.update_dot.setVisible(False)
+        """Update the cloud icon and text based on SyncStatus or available update."""
+        self.update_dot.setVisible(False)
 
         if status == SyncStatus.IN_SYNC:
             self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-check-fill", color="#3CD070").pixmap(14, 14))
@@ -422,7 +423,7 @@ class CompactActionBar(QFrame):
             self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-arrow-up-fill", color="#FF9F0A").pixmap(14, 14))
             self.cloud_text_lbl.setText("Ready to upload")
             self.cloud_text_lbl.setStyleSheet("color: #FF9F0A; font-size: 12px; font-weight: 600; background: transparent;")
-        elif status == SyncStatus.CLOUD_NEWER:
+        elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
             self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-arrow-down-fill", color="#FF9F0A").pixmap(14, 14))
             self.cloud_text_lbl.setText("Newer in cloud")
             self.cloud_text_lbl.setStyleSheet("color: #FF9F0A; font-size: 12px; font-weight: 600; background: transparent;")
@@ -431,12 +432,12 @@ class CompactActionBar(QFrame):
             self.cloud_text_lbl.setText("Cloud conflict")
             self.cloud_text_lbl.setStyleSheet("color: #FF453A; font-size: 12px; font-weight: 600; background: transparent;")
         elif status == SyncStatus.CLOUD_OFFLINE:
-            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-slash-fill", color="#71717A").pixmap(14, 14))
+            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-slash-bold", color="#71717A").pixmap(14, 14))
             self.cloud_text_lbl.setText("Cloud offline")
             self.cloud_text_lbl.setStyleSheet("color: #71717A; font-size: 12px; font-weight: 600; background: transparent;")
         else:
-            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-bold", color="#71717A").pixmap(14, 14))
-            self.cloud_text_lbl.setText("No cloud saves")
+            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-slash-bold", color="#71717A").pixmap(14, 14))
+            self.cloud_text_lbl.setText("Cloud missing")
             self.cloud_text_lbl.setStyleSheet("color: #71717A; font-size: 12px; font-weight: 600; background: transparent;")
 
     def set_favorite_active(self, is_fav: bool):
@@ -453,6 +454,7 @@ class CompactSubNavBar(QFrame):
     Sub-navigation links strip:
     Game Properties | Save Manager | Game Folder | Wine Prefix | Screenshots | Steam Page
     """
+    edit_clicked = pyqtSignal()
     properties_clicked = pyqtSignal()
     save_manager_clicked = pyqtSignal()
     open_folder_clicked = pyqtSignal()
@@ -492,6 +494,12 @@ class CompactSubNavBar(QFrame):
             }
         """
 
+        self.btn_edit = QPushButton("Edit Game")
+        self.btn_edit.setStyleSheet(nav_style)
+        self.btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_edit.clicked.connect(self.edit_clicked.emit)
+        layout.addWidget(self.btn_edit)
+
         self.btn_prop = QPushButton("Game Properties")
         self.btn_prop.setStyleSheet(nav_style)
         self.btn_prop.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -530,11 +538,11 @@ class CompactSubNavBar(QFrame):
 
         layout.addStretch()
 
-
 class CompactActivityTimelineCard(QFrame):
     """Card displaying recent achievement unlocks or game updates."""
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setMaximumHeight(260)
         self.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
@@ -544,7 +552,7 @@ class CompactActivityTimelineCard(QFrame):
         """)
         self.vbox = QVBoxLayout(self)
         self.vbox.setContentsMargins(16, 14, 16, 14)
-        self.vbox.setSpacing(12)
+        self.vbox.setSpacing(10)
 
         # Header
         hdr = QHBoxLayout()
@@ -555,10 +563,41 @@ class CompactActivityTimelineCard(QFrame):
         hdr.addStretch()
         self.vbox.addLayout(hdr)
 
-        # Activity Content Layout
-        self.items_layout = QVBoxLayout()
-        self.items_layout.setSpacing(10)
-        self.vbox.addLayout(self.items_layout)
+        # Scrollable container so activity list stays within max height
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 6px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.25);
+            }
+        """)
+        if self.scroll_area.viewport():
+            self.scroll_area.viewport().setAutoFillBackground(False)
+            self.scroll_area.viewport().setStyleSheet("background: transparent;")
+
+        self.items_container = QWidget()
+        self.items_container.setStyleSheet("background: transparent;")
+        self.items_layout = QVBoxLayout(self.items_container)
+        self.items_layout.setContentsMargins(0, 0, 0, 0)
+        self.items_layout.setSpacing(8)
+        self.items_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.scroll_area.setWidget(self.items_container)
+        self.vbox.addWidget(self.scroll_area)
 
     def set_recent_achievements(self, achievements: List[dict]):
         # Clear existing items
@@ -581,32 +620,33 @@ class CompactActivityTimelineCard(QFrame):
                     background-color: #202024;
                     border: none;
                     border-radius: 6px;
-                    padding: 4px;
                 }
             """)
             r_layout = QHBoxLayout(row)
             r_layout.setContentsMargins(10, 8, 10, 8)
-            r_layout.setSpacing(12)
+            r_layout.setSpacing(10)
 
             icon_lbl = QLabel()
-            icon_lbl.setFixedSize(48, 48)
-            icon_lbl.setStyleSheet("background-color: #27272A; border-radius: 6px; border: none;")
+            icon_lbl.setFixedSize(36, 36)
+            icon_lbl.setStyleSheet("background-color: #27272A; border-radius: 4px; border: none;")
             icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             icon_path = ach.get("icon_path", "")
             if icon_path and os.path.isfile(icon_path):
                 pix = QPixmap(icon_path)
                 if not pix.isNull():
-                    icon_lbl.setPixmap(_create_rounded_icon(pix, QSize(48, 48), radius=6))
+                    icon_lbl.setPixmap(_create_rounded_icon(pix, QSize(36, 36), radius=4))
+                else:
+                    icon_lbl.setPixmap(get_icon("ph.trophy-fill", color="#FFD60A").pixmap(20, 20))
             else:
-                icon_lbl.setPixmap(get_icon("ph.trophy-fill", color="#FFD60A").pixmap(24, 24))
+                icon_lbl.setPixmap(get_icon("ph.trophy-fill", color="#FFD60A").pixmap(20, 20))
 
             r_layout.addWidget(icon_lbl)
 
             info_vbox = QVBoxLayout()
             info_vbox.setSpacing(2)
             title = QLabel(ach.get("display_name") or ach.get("api_name") or "Achievement")
-            title.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 700; background: transparent;")
+            title.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700; background: transparent;")
             info_vbox.addWidget(title)
 
             desc = QLabel(ach.get("description") or "Hidden achievement unlocked.")
@@ -715,7 +755,7 @@ class CompactAchievementsShowcaseWidget(QFrame):
 
         # Locked Thumbnails Row
         self.thumbs_row = QHBoxLayout()
-        self.thumbs_row.setSpacing(8)
+        self.thumbs_row.setSpacing(6)
         self.vbox.addLayout(self.thumbs_row)
 
         # View All Button
@@ -779,25 +819,25 @@ class CompactAchievementsShowcaseWidget(QFrame):
             if w:
                 w.deleteLater()
 
-        for ach in locked_sample[:5]:
+        for ach in locked_sample[:10]:
             thumb = QLabel()
-            thumb.setFixedSize(36, 36)
+            thumb.setFixedSize(32, 32)
             thumb.setStyleSheet("background-color: #202024; border-radius: 4px; border: none;")
             thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
             icongray = ach.get("icongray_path", "")
             if icongray and os.path.isfile(icongray):
                 p = QPixmap(icongray)
                 if not p.isNull():
-                    thumb.setPixmap(_create_rounded_icon(p, QSize(36, 36), radius=4))
+                    thumb.setPixmap(_create_rounded_icon(p, QSize(32, 32), radius=4))
                 else:
-                    thumb.setPixmap(get_icon("ph.lock-simple-bold", color="#71717A").pixmap(16, 16))
+                    thumb.setPixmap(get_icon("ph.lock-simple-bold", color="#71717A").pixmap(14, 14))
             else:
-                thumb.setPixmap(get_icon("ph.lock-simple-bold", color="#71717A").pixmap(16, 16))
+                thumb.setPixmap(get_icon("ph.lock-simple-bold", color="#71717A").pixmap(14, 14))
             thumb.setToolTip(ach.get("display_name") or "Locked achievement")
             self.thumbs_row.addWidget(thumb)
 
-        if total > 5:
-            remaining = total - unlocked - 5
+        if total > 10:
+            remaining = max(0, total - unlocked - min(len(locked_sample), 10))
             if remaining > 0:
                 more_lbl = QLabel(f"+{remaining}")
                 more_lbl.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 700; background: transparent; padding-left: 4px;")
@@ -885,6 +925,7 @@ class CompactGamePageWidget(QWidget):
     Achievements Showcase, and Notes.
     """
     play_requested = pyqtSignal(int)
+    edit_requested = pyqtSignal(int)
     properties_requested = pyqtSignal(int)
     save_manager_requested = pyqtSignal(int)
     open_folder_requested = pyqtSignal(int)
@@ -958,6 +999,7 @@ class CompactGamePageWidget(QWidget):
         # 2. Action & Stats Bar
         self.action_bar = CompactActionBar(content_widget)
         self.action_bar.play_clicked.connect(self._on_play)
+        self.action_bar.edit_clicked.connect(self._on_edit)
         self.action_bar.settings_clicked.connect(self._on_settings)
         self.action_bar.folder_clicked.connect(self._on_folder)
         self.action_bar.save_manager_clicked.connect(self._on_save_manager)
@@ -966,6 +1008,7 @@ class CompactGamePageWidget(QWidget):
 
         # 3. Sub-Navigation Bar
         self.sub_nav = CompactSubNavBar(content_widget)
+        self.sub_nav.edit_clicked.connect(self._on_edit)
         self.sub_nav.properties_clicked.connect(self._on_settings)
         self.sub_nav.save_manager_clicked.connect(self._on_save_manager)
         self.sub_nav.open_folder_clicked.connect(self._on_folder)
@@ -989,6 +1032,7 @@ class CompactGamePageWidget(QWidget):
 
         # System & Build Specs Card
         self.specs_card = QFrame(content_widget)
+        self.specs_card.setMaximumHeight(160)
         self.specs_card.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
@@ -998,23 +1042,47 @@ class CompactGamePageWidget(QWidget):
         """)
         specs_layout = QVBoxLayout(self.specs_card)
         specs_layout.setContentsMargins(16, 14, 16, 14)
-        specs_layout.setSpacing(8)
+        specs_layout.setSpacing(10)
 
-        specs_title = QLabel("INSTALLATION & RUNNER DETAILS")
+        specs_title = QLabel("RUNNER & INSTALLATION DETAILS")
         specs_title.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
         specs_layout.addWidget(specs_title)
 
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 2, 0, 0)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(6)
+
+        lbl_k_exe = QLabel("Executable")
+        lbl_k_exe.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 600; background: transparent;")
+        lbl_k_exe.setFixedWidth(85)
+        grid.addWidget(lbl_k_exe, 0, 0)
+
         self.lbl_path = QLabel("Executable: -")
-        self.lbl_path.setStyleSheet("color: #A1A1AA; font-size: 12px; background: transparent;")
-        specs_layout.addWidget(self.lbl_path)
+        self.lbl_path.setStyleSheet("color: #E4E4E7; font-size: 11px; background: transparent;")
+        self.lbl_path.setWordWrap(True)
+        grid.addWidget(self.lbl_path, 0, 1)
+
+        lbl_k_mode = QLabel("Runner")
+        lbl_k_mode.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 600; background: transparent;")
+        lbl_k_mode.setFixedWidth(85)
+        grid.addWidget(lbl_k_mode, 1, 0)
 
         self.lbl_mode = QLabel("Runner: UMU / Wine")
-        self.lbl_mode.setStyleSheet("color: #A1A1AA; font-size: 12px; background: transparent;")
-        specs_layout.addWidget(self.lbl_mode)
+        self.lbl_mode.setStyleSheet("color: #E4E4E7; font-size: 11px; background: transparent;")
+        grid.addWidget(self.lbl_mode, 1, 1)
+
+        lbl_k_ver = QLabel("Version")
+        lbl_k_ver.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 600; background: transparent;")
+        lbl_k_ver.setFixedWidth(85)
+        grid.addWidget(lbl_k_ver, 2, 0)
 
         self.lbl_version = QLabel("Version: -")
-        self.lbl_version.setStyleSheet("color: #A1A1AA; font-size: 12px; background: transparent;")
-        specs_layout.addWidget(self.lbl_version)
+        self.lbl_version.setStyleSheet("color: #E4E4E7; font-size: 11px; background: transparent;")
+        grid.addWidget(self.lbl_version, 2, 1)
+
+        grid.setColumnStretch(1, 1)
+        specs_layout.addLayout(grid)
 
         left_col.addWidget(self.specs_card)
         dashboard_row.addLayout(left_col, 62)
@@ -1127,11 +1195,21 @@ class CompactGamePageWidget(QWidget):
         self.activity_card.set_recent_achievements(recent_achievements)
 
         # 4. System Specs
-        full_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else g_exe
-        self.lbl_path.setText(f"Executable: {full_exe}")
-        self.lbl_mode.setText(f"Runner mode: {g_mode.upper()} (Firejail sandbox active)")
+        full_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else (g_exe or "-")
+        if full_exe and full_exe != "-":
+            exe_name = os.path.basename(full_exe)
+            parent_name = os.path.basename(os.path.dirname(full_exe))
+            disp_path = f"{parent_name}/{exe_name}" if parent_name else exe_name
+            self.lbl_path.setText(disp_path)
+            self.lbl_path.setToolTip(full_exe)
+        else:
+            self.lbl_path.setText("-")
+            self.lbl_path.setToolTip("")
+
+        mode_name = g_mode.upper() if g_mode else "UMU"
+        self.lbl_mode.setText(f"{mode_name} (Firejail sandbox active)")
         ver_str = ver_override if ver_override else (f"Steam AppID: {s_id}" if s_id else "Local game")
-        self.lbl_version.setText(f"Version: {ver_str}")
+        self.lbl_version.setText(ver_str)
 
         # 5. Achievements Showcase
         self.ach_widget.set_achievements_data(unlocked, total, pct, recent_achievements, locked_achievements)
@@ -1142,6 +1220,10 @@ class CompactGamePageWidget(QWidget):
     def _on_play(self):
         if self.current_game_id is not None:
             self.play_requested.emit(self.current_game_id)
+
+    def _on_edit(self):
+        if self.current_game_id is not None:
+            self.edit_requested.emit(self.current_game_id)
 
     def _on_settings(self):
         if self.current_game_id is not None:
@@ -1238,14 +1320,18 @@ class CompactSidebarListItemWidget(QWidget):
         elif self.cloud_status == SyncStatus.LOCAL_NEWER:
             self.cloud_lbl.setPixmap(get_icon("ph.cloud-arrow-up-fill", color="#3B9FE8").pixmap(12, 12))
             self.cloud_lbl.setToolTip("Cloud: Ready to upload")
-        elif self.cloud_status == SyncStatus.CLOUD_NEWER:
+        elif self.cloud_status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
             self.cloud_lbl.setPixmap(get_icon("ph.cloud-arrow-down-fill", color="#FF9F0A").pixmap(12, 12))
             self.cloud_lbl.setToolTip("Cloud: Newer in cloud")
         elif self.cloud_status == SyncStatus.CONFLICT:
             self.cloud_lbl.setPixmap(get_icon("ph.cloud-warning-fill", color="#FF453A").pixmap(12, 12))
             self.cloud_lbl.setToolTip("Cloud: Conflict")
+        elif self.cloud_status == SyncStatus.CLOUD_OFFLINE:
+            self.cloud_lbl.setPixmap(get_icon("ph.cloud-slash-bold", color="#71717A").pixmap(12, 12))
+            self.cloud_lbl.setToolTip("Cloud: Offline")
         else:
-            self.cloud_lbl.clear()
+            self.cloud_lbl.setPixmap(get_icon("ph.cloud-slash-bold", color="#71717A").pixmap(12, 12))
+            self.cloud_lbl.setToolTip("Cloud: Missing / no saves")
 
     def _load_icon(self):
         pix: Optional[QPixmap] = None
@@ -1585,6 +1671,7 @@ class CompactLayoutContainer(QWidget):
     game_selected = pyqtSignal(int)
     game_double_clicked = pyqtSignal(int)
     play_requested = pyqtSignal(int)
+    edit_requested = pyqtSignal(int)
     properties_requested = pyqtSignal(int)
     save_manager_requested = pyqtSignal(int)
     open_folder_requested = pyqtSignal(int)
@@ -1624,6 +1711,7 @@ class CompactLayoutContainer(QWidget):
         # Right: Compact Game Detail Page
         self.game_page = CompactGamePageWidget(self.splitter)
         self.game_page.play_requested.connect(self.play_requested.emit)
+        self.game_page.edit_requested.connect(self.edit_requested.emit)
         self.game_page.properties_requested.connect(self.properties_requested.emit)
         self.game_page.save_manager_requested.connect(self.save_manager_requested.emit)
         self.game_page.open_folder_requested.connect(self.open_folder_requested.emit)

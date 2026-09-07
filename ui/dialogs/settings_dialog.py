@@ -234,6 +234,8 @@ class UserSettingsDialog(QDialog):
 
         settings = QSettings("SafeLauncher", "SafeLauncher")
         saved_card_size = settings.value("card_size", 200, type=int)
+        if not (140 <= saved_card_size <= 320):
+            saved_card_size = 200
 
         card_form = QFormLayout()
         card_form.setSpacing(10)

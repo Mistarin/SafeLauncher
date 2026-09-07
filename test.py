@@ -1647,6 +1647,19 @@ try:
     assert ("play", 1001) in signal_fired
     assert ("props", 1001) in signal_fired
 
+    # Test edit game buttons and signals
+    assert hasattr(steam_page.action_bar, "btn_edit")
+    assert hasattr(steam_page.sub_nav, "btn_edit")
+    steam_page.edit_requested.connect(lambda gid: signal_fired.append(("edit", gid)))
+    steam_page.action_bar.edit_clicked.emit()
+    steam_page.sub_nav.edit_clicked.emit()
+    assert ("edit", 1001) in signal_fired
+
+    # Test CompactLayoutContainer edit signal forwarding
+    steam_layout.edit_requested.connect(lambda gid: signal_fired.append(("layout_edit", gid)))
+    steam_layout.game_page.edit_requested.emit(1001)
+    assert ("layout_edit", 1001) in signal_fired
+
     # Test quick filter bar and signal propagation in compact view
     assert hasattr(steam_layout.sidebar_list, "btn_f_all")
     assert hasattr(steam_layout.sidebar_list, "btn_f_inst")
@@ -1695,6 +1708,15 @@ try:
     ach_widget.set_achievements_data(0, 0, 0.0, [], [])
     assert "missing" in ach_widget.recent_title.text().lower()
 
+    # Test 10 locked achievement previews
+    sample_12 = [{"id": i, "api_name": f"ACH_{i}", "display_name": f"Ach {i}"} for i in range(12)]
+    ach_widget.set_achievements_data(0, 12, 0.0, [], sample_12)
+    assert ach_widget.thumbs_row.count() == 12
+
+    # Test max height on activity card and runner specs card
+    assert mw_steam.compact_container.game_page.activity_card.maximumHeight() == 260
+    assert mw_steam.compact_container.game_page.specs_card.maximumHeight() == 160
+
     # Test tray menu pure text structure
     mw_steam._update_tray_menu()
     tray_texts = [act.text() for act in mw_steam.tray_menu.actions()]
@@ -1708,6 +1730,7 @@ try:
     assert hasattr(mw_steam.title_bar, "lib_menu")
 
     # Test Settings dialog frameless window hint and card size controls
+    QSettings("SafeLauncher", "SafeLauncher").setValue("card_size", 200)
     test_settings = UserSettingsDialog("TestUser", parent=mw_steam)
     assert bool(test_settings.windowFlags() & Qt.WindowType.FramelessWindowHint)
     assert hasattr(test_settings, "combo_card_size")
