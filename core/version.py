@@ -8,7 +8,7 @@ from typing import Tuple
 APP_VERSION = "0.6.0"
 __version__ = APP_VERSION
 
-MIN_CONVEX_BACKEND_VERSION = "1.3.0"
+MIN_CONVEX_BACKEND_VERSION = "1.4.0"
 GITHUB_REPO = "Mistarin/SafeLauncher"
 BACKEND_GITHUB_REPO = "Mistarin/SafeLauncherCloud"
 
@@ -85,4 +85,3 @@ if __name__ == "__main__":
     else:
         print(f"SafeLauncher APP_VERSION: {APP_VERSION}")
         print(f"Minimum Convex Backend:   {MIN_CONVEX_BACKEND_VERSION}")
-

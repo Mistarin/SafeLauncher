@@ -126,8 +126,10 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 * **Local Snapshots**: Export and restore save archives with level-9 DEFLATE compression and Zip-Slip path traversal protection.
 * **Private Cloud Backend ([SafeLauncherCloud](https://github.com/Mistarin/SafeLauncherCloud.git))**:
   * Sync game saves to your own private Convex backend with client-side AES-256-GCM encryption.
-  * Free 1 GiB storage quota on Convex free tier with 50 MiB max payload support.
-  * 3-generation version rollback and conflict resolution.
+  * Independent launcher metadata sync for achievements, playtime, and last-played state.
+  * Local-folder cloud mode works without Convex; Convex mode requires a deployed backend and shared secret.
+  * Up to 1 GiB quota and 50 MiB maximum save archive, subject to backend configuration.
+  * Two retained save generations (active plus one backup) and conflict resolution.
 
 ### 4. Library Management & Archive Installer
 * **SteamGridDB Sync**: Fetches high-resolution posters, hero banners, logos, and icons.
@@ -145,6 +147,7 @@ SafeLauncher adheres to standard Linux XDG base directory specifications:
 | `~/.local/share/safelauncher/library.db` | SQLite database storing game metadata, launch configurations, and playtime counters. |
 | `~/.local/share/safelauncher/logs/` | Runtime logs and sandbox launch diagnostics. |
 | `~/.local/share/safelauncher/bin/` | App-managed external binaries (e.g. Ludusavi save detector). |
+| `~/.local/share/safelauncher/cloud_saves/` | Local-folder cloud save archives, safety forks, and launcher metadata. |
 | `~/.cache/safelauncher/` | Cached SteamGridDB posters, hero banners, and extracted game icons. |
 | `~/.config/SafeLauncher/` | Global launcher configuration and local user settings. |
 
