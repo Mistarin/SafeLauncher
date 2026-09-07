@@ -105,16 +105,29 @@ class CompactHeroBanner(QWidget):
     """
     Cinematic full-width hero header banner.
     Renders 16:9 hero background with bottom and vignette gradient blends,
-    along with large game title typography and category pills.
+    along with large game title typography and embedded glassmorphic action and sub-nav bars.
     """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.hero_pixmap: Optional[QPixmap] = None
         self.game_title: str = "SafeLauncher"
         self.tags: str = ""
-        self.setFixedHeight(360)
+        self.setFixedHeight(440)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        self._banner_layout = QVBoxLayout(self)
+        self._banner_layout.setContentsMargins(0, 0, 0, 0)
+        self._banner_layout.setSpacing(0)
+        self._banner_layout.addStretch(1)
+
+    def set_action_bar(self, action_bar: QWidget):
+        """Embed action bar in hero banner so hero artwork extends behind it."""
+        self._banner_layout.addWidget(action_bar)
+
+    def set_sub_nav(self, sub_nav: QWidget):
+        """Embed sub-nav bar directly below action bar for seamless zero-gap glassmorphism."""
+        self._banner_layout.addWidget(sub_nav)
 
     def set_hero_data(self, image_path: Optional[str], title: str, tags: str = ""):
         self.game_title = title
@@ -152,39 +165,63 @@ class CompactHeroBanner(QWidget):
             crop_y = max(0, int((scaled.height() - h) * 0.35))
             painter.drawPixmap(0, 0, scaled, crop_x, crop_y, w, h)
 
+            # Frosted glass blur effect behind the action and sub-nav bars (112px combined):
+            glass_h = 128
+            slice_y = h - glass_h
+            if slice_y >= 0 and w > 0:
+                bar_slice = scaled.copy(crop_x, crop_y + slice_y, w, glass_h)
+                if not bar_slice.isNull():
+                    blur_factor = 14
+                    small_slice = bar_slice.scaled(
+                        max(1, w // blur_factor),
+                        max(1, glass_h // blur_factor),
+                        Qt.AspectRatioMode.IgnoreAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    blurred_slice = small_slice.scaled(
+                        w, glass_h,
+                        Qt.AspectRatioMode.IgnoreAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    painter.drawPixmap(0, slice_y, blurred_slice)
+
         # Dark overlay gradients:
         # 1. Subtle top vignette
-        top_grad = QLinearGradient(0, 0, 0, 60)
-        top_grad.setColorAt(0.0, QColor(18, 18, 20, 130))
+        top_grad = QLinearGradient(0, 0, 0, 70)
+        top_grad.setColorAt(0.0, QColor(18, 18, 20, 140))
         top_grad.setColorAt(1.0, QColor(18, 18, 20, 0))
-        painter.fillRect(0, 0, w, 60, top_grad)
+        painter.fillRect(0, 0, w, 70, top_grad)
 
-        # 2. Smooth multi-stop upward fade from the bottom into the action bar
-        fade_h = 180
+        # 2. Smooth multi-stop upward fade from the bottom edge into and behind both bars
+        fade_h = 200
         bottom_grad = QLinearGradient(0, h - fade_h, 0, h)
-        bottom_grad.setColorAt(0.0, QColor(22, 22, 24, 0))
-        bottom_grad.setColorAt(0.30, QColor(22, 22, 24, 25))
-        bottom_grad.setColorAt(0.55, QColor(22, 22, 24, 80))
-        bottom_grad.setColorAt(0.75, QColor(22, 22, 24, 150))
-        bottom_grad.setColorAt(0.90, QColor(22, 22, 24, 215))
-        bottom_grad.setColorAt(1.0, QColor(22, 22, 24, 255))
+        bottom_grad.setColorAt(0.0, QColor(18, 18, 20, 0))
+        bottom_grad.setColorAt(0.35, QColor(18, 18, 20, 25))
+        bottom_grad.setColorAt(0.55, QColor(18, 18, 20, 70))
+        bottom_grad.setColorAt(0.75, QColor(18, 18, 20, 130))
+        bottom_grad.setColorAt(0.90, QColor(18, 18, 20, 195))
+        bottom_grad.setColorAt(1.0, QColor(18, 18, 20, 245))
         painter.fillRect(0, h - fade_h, w, fade_h, bottom_grad)
 
         # Left shadow vignette for readable title text
-        left_grad = QLinearGradient(0, 0, 480, 0)
-        left_grad.setColorAt(0.0, QColor(18, 18, 20, 140))
+        left_grad = QLinearGradient(0, 0, 520, 0)
+        left_grad.setColorAt(0.0, QColor(18, 18, 20, 150))
+        left_grad.setColorAt(0.7, QColor(18, 18, 20, 80))
         left_grad.setColorAt(1.0, QColor(18, 18, 20, 0))
-        painter.fillRect(0, 0, 480, h, left_grad)
+        painter.fillRect(0, 0, 520, h, left_grad)
 
-        # Draw Game Title with shadow
-        painter.setPen(QColor(0, 0, 0, 200))
-        title_font = QFont("Arial", 28, QFont.Weight.Bold)
-        painter.setFont(title_font)
-        text_rect = self.rect().adjusted(36, h - 80, -36, -18)
-        painter.drawText(text_rect.adjusted(2, 2, 2, 2), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.game_title)
+        # Draw Game Title above action bar with drop shadow
+        title_y = h - 112 - 64
+        if title_y > 0:
+            from PyQt6.QtCore import QRect
+            text_rect = QRect(36, title_y, max(100, w - 72), 56)
+            painter.setPen(QColor(0, 0, 0, 210))
+            title_font = QFont("Arial", 28, QFont.Weight.Bold)
+            painter.setFont(title_font)
+            painter.drawText(text_rect.adjusted(2, 2, 2, 2), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.game_title)
 
-        painter.setPen(QColor(255, 255, 255))
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.game_title)
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.game_title)
 
         painter.end()
 
@@ -205,11 +242,20 @@ class CompactActionBar(QFrame):
         super().__init__(parent)
         self.setObjectName("compactActionBar")
         self.setFixedHeight(72)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("""
             QFrame#compactActionBar {
-                background-color: #161618;
-                border: none;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(28, 28, 34, 0.70),
+                    stop:0.04 rgba(22, 22, 26, 0.60),
+                    stop:0.65 rgba(18, 18, 22, 0.72),
+                    stop:1 rgba(14, 14, 18, 0.85)
+                );
+                border-top: 1px solid rgba(255, 255, 255, 0.14);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                border-left: none;
+                border-right: none;
             }
         """)
 
@@ -285,7 +331,7 @@ class CompactActionBar(QFrame):
 
         layout.addWidget(self._create_divider(), 0, Qt.AlignmentFlag.AlignVCenter)
 
-        # Column 4: Achievements Progress Summary
+        # Column 4: Achievements Progress Summary (stacked vertically under title)
         self.ach_container = QVBoxLayout()
         self.ach_container.setSpacing(2)
         self.ach_container.setAlignment(Qt.AlignmentFlag.AlignVCenter)
@@ -293,15 +339,12 @@ class CompactActionBar(QFrame):
         lbl_ach_title.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         self.ach_container.addWidget(lbl_ach_title)
 
-        ach_sub_row = QHBoxLayout()
-        ach_sub_row.setSpacing(6)
-        ach_sub_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.ach_ratio_lbl = QLabel("0 / 0")
         self.ach_ratio_lbl.setStyleSheet("color: #F4F4F5; font-size: 12px; font-weight: 600; background: transparent;")
-        ach_sub_row.addWidget(self.ach_ratio_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.ach_container.addWidget(self.ach_ratio_lbl)
 
         self.ach_mini_progress = QProgressBar()
-        self.ach_mini_progress.setFixedSize(80, 5)
+        self.ach_mini_progress.setFixedSize(80, 4)
         self.ach_mini_progress.setTextVisible(False)
         self.ach_mini_progress.setValue(0)
         self.ach_mini_progress.setStyleSheet("""
@@ -315,8 +358,7 @@ class CompactActionBar(QFrame):
                 border-radius: 2px;
             }
         """)
-        ach_sub_row.addWidget(self.ach_mini_progress, 0, Qt.AlignmentFlag.AlignVCenter)
-        self.ach_container.addLayout(ach_sub_row)
+        self.ach_container.addWidget(self.ach_mini_progress)
         layout.addLayout(self.ach_container)
 
         layout.addStretch()
@@ -530,10 +572,18 @@ class CompactSubNavBar(QFrame):
         super().__init__(parent)
         self.setObjectName("compactSubNavBar")
         self.setFixedHeight(40)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("""
             QFrame#compactSubNavBar {
-                background-color: #161618;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(16, 16, 20, 0.80),
+                    stop:1 rgba(12, 12, 16, 0.90)
+                );
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                border-left: none;
+                border-right: none;
+                border-top: none;
             }
         """)
 
@@ -1396,22 +1446,22 @@ class CompactGamePageWidget(QWidget):
         self.content_layout.setContentsMargins(0, 0, 0, 32)
         self.content_layout.setSpacing(0)
 
-        # 1. Cinematic Hero Banner
+        # 1. Cinematic Hero Banner (with embedded glassmorphic action bar)
         self.hero_banner = CompactHeroBanner(content_widget)
         self.content_layout.addWidget(self.hero_banner)
 
-        # 2. Action & Stats Bar
-        self.action_bar = CompactActionBar(content_widget)
+        # 2. Action & Stats Bar (embedded directly into hero banner for glassmorphic overlay)
+        self.action_bar = CompactActionBar(self.hero_banner)
         self.action_bar.play_clicked.connect(self._on_play)
         self.action_bar.edit_clicked.connect(self._on_edit)
         self.action_bar.settings_clicked.connect(self._on_settings)
         self.action_bar.folder_clicked.connect(self._on_folder)
         self.action_bar.save_manager_clicked.connect(self._on_save_manager)
         self.action_bar.favorite_clicked.connect(self._on_favorite)
-        self.content_layout.addWidget(self.action_bar)
+        self.hero_banner.set_action_bar(self.action_bar)
 
-        # 3. Sub-Navigation Bar
-        self.sub_nav = CompactSubNavBar(content_widget)
+        # 3. Sub-Navigation Bar (embedded seamlessly into hero banner directly below action bar)
+        self.sub_nav = CompactSubNavBar(self.hero_banner)
         self.sub_nav.edit_clicked.connect(self._on_edit)
         self.sub_nav.properties_clicked.connect(self._on_settings)
         self.sub_nav.save_manager_clicked.connect(self._on_save_manager)
@@ -1419,7 +1469,7 @@ class CompactGamePageWidget(QWidget):
         self.sub_nav.prefix_clicked.connect(self._on_prefix)
         self.sub_nav.screenshots_clicked.connect(self._on_screenshots)
         self.sub_nav.steam_page_clicked.connect(self._on_steam_page)
-        self.content_layout.addWidget(self.sub_nav)
+        self.hero_banner.set_sub_nav(self.sub_nav)
 
         # 4. Two-Column Lower Dashboard
         dashboard_row = QHBoxLayout()
