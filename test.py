@@ -1785,6 +1785,8 @@ try:
     game_page = mw_compact.compact_container.game_page
     assert hasattr(game_page, "media_widget")
     assert hasattr(game_page, "refresh_media_state")
+    # Settings can refresh media before a game has been selected.
+    game_page.refresh_media_state()
     # Verify inactive state displays "Module not active - turn on in settings"
     game_page.media_widget.set_media_data(1001, "Test Game", force_inactive=True)
     inactive_labels = game_page.media_widget.findChildren(QLabel)

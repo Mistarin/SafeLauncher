@@ -1327,6 +1327,7 @@ class CompactGamePageWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_game_id: Optional[int] = None
+        self.current_game_name: str = ""
         self.current_game_record: Any = None
         self.current_steam_id: str = ""
 
@@ -1579,6 +1580,7 @@ class CompactGamePageWidget(QWidget):
             playtime = p7 or p19 or 0
 
         self.current_game_id = g_id
+        self.current_game_name = g_name
         self.current_steam_id = s_id
 
         # 1. Hero Banner
