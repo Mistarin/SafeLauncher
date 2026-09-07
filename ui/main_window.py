@@ -82,7 +82,10 @@ from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from ui.dialogs.save_conflict_dialog import SaveConflictDialog
 from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
-from ui.components.steam_game_page import SteamLayoutContainer, SteamGamePageWidget
+from ui.components.steam_game_page import (
+    CompactLayoutContainer, CompactGamePageWidget,
+    SteamLayoutContainer, SteamGamePageWidget
+)
 from ui.theme import (
     get_application_stylesheet, btn_primary_style, btn_secondary_style,
     btn_tertiary_style, btn_destructive_style, BG_APP, SURFACE, SURFACE_ELEVATED,
@@ -193,7 +196,9 @@ class MainWindow(QMainWindow):
 
         self.search_query = ""
         self.settings = QSettings("SafeLauncher", "SafeLauncher")
-        self.library_view_mode = self.settings.value("library_view_mode", "grid", type=str)
+        self.library_view_mode = self.settings.value("library_view_mode", "compact", type=str)
+        if self.library_view_mode in ("steam", ""):
+            self.library_view_mode = "compact"
         self.virtualization_threshold = self.settings.value("virtualization_threshold", 200, type=int)
         default_user = getpass.getuser().capitalize()
         self.user_name = self.settings.value("user_name", default_user, type=str).strip() or default_user
@@ -365,9 +370,9 @@ class MainWindow(QMainWindow):
         self.detail_panel.setMaximumWidth(480)
         self.detail_panel.setStyleSheet("""
             QFrame#detailPanel {
-                background-color: #0E1015;
+                background-color: #161618;
                 border: none;
-                border-left: 1px solid rgba(255, 255, 255, 0.04);
+                border-left: 1px solid rgba(255, 255, 255, 0.06);
             }
             QLabel {
                 color: #F5F7FA;
@@ -441,7 +446,7 @@ class MainWindow(QMainWindow):
             QLabel {
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 12px;
-                background-color: #14171E;
+                background-color: #1C1C20;
             }
         """)
         
@@ -819,8 +824,9 @@ class MainWindow(QMainWindow):
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         header_layout.addWidget(self.sort_combo)
 
-        self.btn_view_toggle = QPushButton("☷ List" if self.library_view_mode == "grid" else "▦ Grid")
-        self.btn_view_toggle.setToolTip("Toggle grid/list library view")
+        btn_labels = {"compact": "▦ Grid", "grid": "☷ List", "list": "≡ Compact", "steam": "▦ Grid"}
+        self.btn_view_toggle = QPushButton(btn_labels.get(self.library_view_mode, "▦ Grid"))
+        self.btn_view_toggle.setToolTip("Toggle Compact, Grid, or List library view")
         self.btn_view_toggle.clicked.connect(self._toggle_library_view)
         self.btn_view_toggle.setFixedHeight(30)
         self.btn_view_toggle.setStyleSheet(btn_secondary_style())
@@ -947,26 +953,28 @@ class MainWindow(QMainWindow):
         self.virtual_grid.game_launch_clicked.connect(self._launch_game_by_id)
         self.virtual_grid.favorite_clicked.connect(self._on_card_favorite_clicked)
 
-        self.steam_container = SteamLayoutContainer(self.library_view_stack)
-        self.steam_container.game_selected.connect(self._select_game_by_id)
-        self.steam_container.game_double_clicked.connect(self._on_double_click_game)
-        self.steam_container.play_requested.connect(self._launch_game_by_id)
-        self.steam_container.properties_requested.connect(self._open_game_properties)
-        self.steam_container.save_manager_requested.connect(self._on_export)
-        self.steam_container.open_folder_requested.connect(self._open_game_dir_by_id)
-        self.steam_container.prefix_maintenance_requested.connect(self._open_prefix_maintenance)
-        self.steam_container.favorite_toggled.connect(self._on_card_favorite_clicked)
-        self.steam_container.achievements_requested.connect(self._open_achievements_dialog)
-        self.steam_container.steam_page_requested.connect(self._open_steam_page_by_id)
+        self.compact_container = CompactLayoutContainer(self.library_view_stack)
+        self.steam_container = self.compact_container  # Backward-compatible alias
+        self.compact_container.game_selected.connect(self._select_game_by_id)
+        self.compact_container.game_double_clicked.connect(self._on_double_click_game)
+        self.compact_container.play_requested.connect(self._launch_game_by_id)
+        self.compact_container.properties_requested.connect(self._open_game_properties)
+        self.compact_container.save_manager_requested.connect(self._on_export)
+        self.compact_container.open_folder_requested.connect(self._open_game_dir_by_id)
+        self.compact_container.prefix_maintenance_requested.connect(self._open_prefix_maintenance)
+        self.compact_container.favorite_toggled.connect(self._on_card_favorite_clicked)
+        self.compact_container.achievements_requested.connect(self._open_achievements_dialog)
+        self.compact_container.steam_page_requested.connect(self._open_steam_page_by_id)
 
-        self.library_view_stack.addWidget(self.grid_container)   # Index 0: Standard Grid
-        self.library_view_stack.addWidget(self.list_view)        # Index 1: List View
-        self.library_view_stack.addWidget(self.virtual_grid)     # Index 2: Virtualized Grid
-        self.library_view_stack.addWidget(self.steam_container)  # Index 3: Steam Layout
+        self.library_view_stack.addWidget(self.grid_container)      # Index 0: Standard Grid
+        self.library_view_stack.addWidget(self.list_view)           # Index 1: List View
+        self.library_view_stack.addWidget(self.virtual_grid)        # Index 2: Virtualized Grid
+        self.library_view_stack.addWidget(self.compact_container)   # Index 3: Compact Layout
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
-        elif self.library_view_mode == "steam":
+        elif self.library_view_mode in ("compact", "steam"):
             self.library_view_stack.setCurrentIndex(3)
+            self.detail_panel.setVisible(False)
         else:
             self.library_view_stack.setCurrentIndex(0)
         self.scroll_area.setWidget(self.library_view_stack)
@@ -997,6 +1005,8 @@ class MainWindow(QMainWindow):
         self.btn_reveal_detail.setFixedHeight(34)
         self.btn_reveal_detail.setStyleSheet(btn_secondary_style())
         self.btn_reveal_detail.clicked.connect(lambda: self._animate_left_panel(True))
+        if self.library_view_mode in ("compact", "steam"):
+            self.btn_reveal_detail.setVisible(False)
         action_layout.addWidget(self.btn_reveal_detail)
 
         right_layout.addLayout(action_layout)
@@ -1594,26 +1604,40 @@ class MainWindow(QMainWindow):
         self._refresh_library()
 
     def _toggle_library_view(self):
-        cycle = {"grid": "steam", "steam": "list", "list": "grid"}
-        self.library_view_mode = cycle.get(self.library_view_mode, "steam")
+        cycle = {"compact": "grid", "grid": "list", "list": "compact", "steam": "grid"}
+        self.library_view_mode = cycle.get(self.library_view_mode, "compact")
         self.settings.setValue("library_view_mode", self.library_view_mode)
         use_virtual = len(self.banner_widgets) >= getattr(self, "virtualization_threshold", 200)
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
-        elif self.library_view_mode == "steam":
+            if self.selected_game:
+                self._animate_left_panel(True)
+            else:
+                self.btn_reveal_detail.setVisible(True)
+        elif self.library_view_mode in ("compact", "steam"):
             self.library_view_stack.setCurrentIndex(3)
+            self.detail_panel.setVisible(False)
+            self.btn_reveal_detail.setVisible(False)
             self._update_steam_game_page()
         elif use_virtual:
             self.library_view_stack.setCurrentIndex(2)
+            if self.selected_game:
+                self._animate_left_panel(True)
+            else:
+                self.btn_reveal_detail.setVisible(True)
         else:
             self.library_view_stack.setCurrentIndex(0)
-        btn_labels = {"grid": "♨ Steam", "steam": "☷ List", "list": "▦ Grid"}
+            if self.selected_game:
+                self._animate_left_panel(True)
+            else:
+                self.btn_reveal_detail.setVisible(True)
+        btn_labels = {"compact": "▦ Grid", "grid": "☷ List", "list": "≡ Compact", "steam": "▦ Grid"}
         self.btn_view_toggle.setText(btn_labels.get(self.library_view_mode, "▦ Grid"))
 
     def _visible_library_ids(self) -> set[int]:
         if self.library_view_mode == "list":
             return {int(self.list_view.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.list_view.count())}
-        elif self.library_view_mode == "steam" and hasattr(self, "steam_container"):
+        elif self.library_view_mode in ("compact", "steam") and hasattr(self, "steam_container"):
             return {int(self.steam_container.sidebar_list.list_widget.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.steam_container.sidebar_list.list_widget.count())}
         return set(self.banner_widgets.keys())
 
@@ -1914,8 +1938,10 @@ class MainWindow(QMainWindow):
 
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
-        elif self.library_view_mode == "steam":
+        elif self.library_view_mode in ("compact", "steam"):
             self.library_view_stack.setCurrentIndex(3)
+            self.detail_panel.setVisible(False)
+            self.btn_reveal_detail.setVisible(False)
             self._update_steam_game_page()
         elif use_virtual:
             self.library_view_stack.setCurrentIndex(2)
@@ -2093,7 +2119,8 @@ class MainWindow(QMainWindow):
                 except (RuntimeError, AttributeError):
                     pass
                 break
-        self._update_detail_panel()
+        if self.library_view_mode not in ("compact", "steam"):
+            self._update_detail_panel()
         self._update_steam_game_page()
 
     def _update_steam_game_page(self):
@@ -2257,6 +2284,10 @@ class MainWindow(QMainWindow):
         self.detail_panel.setContentsMargins(18 + swipe_offset, 18, max(0, 18 - swipe_offset), 18)
 
     def _on_panel_anim_finished(self):
+        if self.library_view_mode in ("compact", "steam"):
+            self.detail_panel.setVisible(False)
+            self.btn_reveal_detail.setVisible(False)
+            return
         if not self._panel_expanding:
             self.detail_panel.setVisible(False)
             self.btn_reveal_detail.setVisible(True)
@@ -2266,6 +2297,10 @@ class MainWindow(QMainWindow):
 
     def _animate_left_panel(self, expand: bool):
         """Smoothly swipe and fade in/out the right detail inspector panel from the right edge."""
+        if self.library_view_mode in ("compact", "steam"):
+            self.detail_panel.setVisible(False)
+            self.btn_reveal_detail.setVisible(False)
+            return
         if expand:
             if not self.detail_panel.isVisible() or self.panel_anim.state() == QAbstractAnimation.State.Running:
                 self._panel_expanding = True
@@ -3052,6 +3087,13 @@ class MainWindow(QMainWindow):
     def _update_detail_panel(self):
         """Update left panel with current selected game details and trigger smooth slide animation."""
         game = self.selected_game
+        if self.library_view_mode in ("compact", "steam"):
+            self.detail_panel.setVisible(False)
+            self.btn_reveal_detail.setVisible(False)
+            if not game:
+                self.hero_bg.set_hero_image(None)
+            return
+
         if not game:
             self._animate_left_panel(False)
             self.hero_bg.set_hero_image(None)
@@ -4391,6 +4433,8 @@ class MainWindow(QMainWindow):
     def set_virtualization_threshold(self, threshold: int) -> None:
         """Configure the library count threshold where virtualized grid activates."""
         self.virtualization_threshold = max(1, int(threshold))
+        if self.library_view_mode not in ("grid", "list"):
+            self.library_view_mode = "grid"
         self._refresh_library()
 
     def _show_toast(self, message: str, is_error: bool = False):
