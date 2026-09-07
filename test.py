@@ -1579,7 +1579,95 @@ except Exception as e:
     print(f"✗ File descriptor safety, dual-key lookup, and UI re-entrancy test error: {e}")
     sys.exit(1)
 
+# -------------------------------------------------------------
+# 37. Test Steam Game Page & Split Layout Presentation
+# -------------------------------------------------------------
+try:
+    from ui.components.steam_game_page import (
+        SteamGamePageWidget, SteamLayoutContainer, SteamSidebarListWidget
+    )
+
+    steam_page = SteamGamePageWidget()
+    dummy_game = (
+        1001, "Steam Test RPG", "/tmp/steam_test", "game.exe", "umu",
+        "", "480", 0, 1700000000, 0, "Action, RPG", "", "", True,
+        1700000000, "1.0.4", "", False, "", 7200
+    )
+    ach_stats = (12, 30, 40.0)
+    recent_achs = [
+        {"id": 1, "api_name": "ACH_FIRST", "display_name": "First Steps", "description": "Begin the journey", "unlock_time": 1700000000}
+    ]
+    locked_achs = [
+        {"id": 2, "api_name": "ACH_MASTER", "display_name": "Grand Master", "description": "Reach max level"}
+    ]
+
+    steam_page.set_game(
+        dummy_game,
+        ach_stats,
+        recent_achs,
+        locked_achs,
+        cloud_status=SyncStatus.IN_SYNC,
+        hero_image_path=None,
+        is_running=False
+    )
+
+    assert "HRAT" in steam_page.action_bar.btn_play.text()
+    assert steam_page.action_bar.playtime_val.text() == "2.0 h"
+    assert "Synchronizovano" in steam_page.action_bar.cloud_text_lbl.text()
+    assert steam_page.action_bar.ach_ratio_lbl.text() == "12/30"
+    assert steam_page.action_bar.ach_mini_progress.value() == 40
+    assert steam_page.action_bar.btn_fav.toolTip() == "Odebrat z oblibenych"
+
+    # Test Notes Widget persistence
+    steam_page.notes_widget.load_notes_for_game(1001)
+    steam_page.notes_widget.text_edit.setPlainText("Defeat final boss at level 50")
+    steam_page.notes_widget._on_text_changed()
+    assert steam_page.notes_widget.settings.value("game_notes/1001", "", type=str) == "Defeat final boss at level 50"
+
+    # Test SteamLayoutContainer instantiation and item population
+    steam_layout = SteamLayoutContainer()
+    processed_items = [(dummy_game, False, 7200, True)]
+    steam_layout.set_games(
+        processed_items,
+        selected_ids={1001},
+        cloud_status_cache={1001: (SyncStatus.IN_SYNC, None, None)}
+    )
+    assert steam_layout.sidebar_list.list_widget.count() == 1
+    item = steam_layout.sidebar_list.list_widget.item(0)
+    assert item.data(Qt.ItemDataRole.UserRole) == 1001
+    assert item.isSelected() is True
+
+    # Test signal propagation
+    signal_fired = []
+    steam_page.play_requested.connect(lambda gid: signal_fired.append(("play", gid)))
+    steam_page.properties_requested.connect(lambda gid: signal_fired.append(("props", gid)))
+    steam_page.action_bar.play_clicked.emit()
+    steam_page.action_bar.settings_clicked.emit()
+    assert ("play", 1001) in signal_fired
+    assert ("props", 1001) in signal_fired
+
+    # Test MainWindow view mode integration
+    mw_steam = MainWindow(db_mem, runner, backup)
+    assert hasattr(mw_steam, "steam_container")
+    mw_steam._toggle_library_view()
+    assert mw_steam.library_view_mode in ("steam", "grid", "list")
+    mw_steam.settings.setValue("library_view_mode", "grid")
+    mw_steam.close()
+
+    steam_page.close()
+    steam_layout.close()
+    app.processEvents()
+
+    print("✓ Steam game detail page, action bar, and sidebar layout verified")
+
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"✗ Steam game page test error: {e}")
+    sys.exit(1)
+
 print("\n[SUCCESS] All SafeLauncher components tested and working cleanly!")
+
 
 
 

@@ -82,6 +82,7 @@ from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from ui.dialogs.save_conflict_dialog import SaveConflictDialog
 from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
+from ui.components.steam_game_page import SteamLayoutContainer, SteamGamePageWidget
 from ui.theme import (
     get_application_stylesheet, btn_primary_style, btn_secondary_style,
     btn_tertiary_style, btn_destructive_style, BG_APP, SURFACE, SURFACE_ELEVATED,
@@ -946,10 +947,28 @@ class MainWindow(QMainWindow):
         self.virtual_grid.game_launch_clicked.connect(self._launch_game_by_id)
         self.virtual_grid.favorite_clicked.connect(self._on_card_favorite_clicked)
 
-        self.library_view_stack.addWidget(self.grid_container)  # Index 0: Standard Grid
-        self.library_view_stack.addWidget(self.list_view)       # Index 1: List View
-        self.library_view_stack.addWidget(self.virtual_grid)    # Index 2: Virtualized Grid
-        self.library_view_stack.setCurrentIndex(1 if self.library_view_mode == "list" else 0)
+        self.steam_container = SteamLayoutContainer(self.library_view_stack)
+        self.steam_container.game_selected.connect(self._select_game_by_id)
+        self.steam_container.game_double_clicked.connect(self._on_double_click_game)
+        self.steam_container.play_requested.connect(self._launch_game_by_id)
+        self.steam_container.properties_requested.connect(self._open_game_properties)
+        self.steam_container.save_manager_requested.connect(self._on_export)
+        self.steam_container.open_folder_requested.connect(self._open_game_dir_by_id)
+        self.steam_container.prefix_maintenance_requested.connect(self._open_prefix_maintenance)
+        self.steam_container.favorite_toggled.connect(self._on_card_favorite_clicked)
+        self.steam_container.achievements_requested.connect(self._open_achievements_dialog)
+        self.steam_container.steam_page_requested.connect(self._open_steam_page_by_id)
+
+        self.library_view_stack.addWidget(self.grid_container)   # Index 0: Standard Grid
+        self.library_view_stack.addWidget(self.list_view)        # Index 1: List View
+        self.library_view_stack.addWidget(self.virtual_grid)     # Index 2: Virtualized Grid
+        self.library_view_stack.addWidget(self.steam_container)  # Index 3: Steam Layout
+        if self.library_view_mode == "list":
+            self.library_view_stack.setCurrentIndex(1)
+        elif self.library_view_mode == "steam":
+            self.library_view_stack.setCurrentIndex(3)
+        else:
+            self.library_view_stack.setCurrentIndex(0)
         self.scroll_area.setWidget(self.library_view_stack)
         right_layout.addWidget(self.scroll_area)
 
@@ -1575,20 +1594,27 @@ class MainWindow(QMainWindow):
         self._refresh_library()
 
     def _toggle_library_view(self):
-        self.library_view_mode = "list" if self.library_view_mode == "grid" else "grid"
+        cycle = {"grid": "steam", "steam": "list", "list": "grid"}
+        self.library_view_mode = cycle.get(self.library_view_mode, "steam")
         self.settings.setValue("library_view_mode", self.library_view_mode)
         use_virtual = len(self.banner_widgets) >= getattr(self, "virtualization_threshold", 200)
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
+        elif self.library_view_mode == "steam":
+            self.library_view_stack.setCurrentIndex(3)
+            self._update_steam_game_page()
         elif use_virtual:
             self.library_view_stack.setCurrentIndex(2)
         else:
             self.library_view_stack.setCurrentIndex(0)
-        self.btn_view_toggle.setText("▦ Grid" if self.library_view_mode == "list" else "☷ List")
+        btn_labels = {"grid": "♨ Steam", "steam": "☷ List", "list": "▦ Grid"}
+        self.btn_view_toggle.setText(btn_labels.get(self.library_view_mode, "▦ Grid"))
 
     def _visible_library_ids(self) -> set[int]:
         if self.library_view_mode == "list":
             return {int(self.list_view.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.list_view.count())}
+        elif self.library_view_mode == "steam" and hasattr(self, "steam_container"):
+            return {int(self.steam_container.sidebar_list.list_widget.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.steam_container.sidebar_list.list_widget.count())}
         return set(self.banner_widgets.keys())
 
     def _select_all_visible(self):
@@ -1874,9 +1900,23 @@ class MainWindow(QMainWindow):
         except (RuntimeError, AttributeError):
             pass
 
+        if hasattr(self, "steam_container"):
+            try:
+                self.steam_container.set_games(
+                    processed,
+                    self.library_selection.ids,
+                    self.update_status_by_game_id,
+                    self.sgdb_client.cache_dir,
+                    cloud_status_cache=self.cloud_save_status_cache
+                )
+            except (RuntimeError, AttributeError):
+                pass
 
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
+        elif self.library_view_mode == "steam":
+            self.library_view_stack.setCurrentIndex(3)
+            self._update_steam_game_page()
         elif use_virtual:
             self.library_view_stack.setCurrentIndex(2)
         else:
@@ -2054,6 +2094,71 @@ class MainWindow(QMainWindow):
                     pass
                 break
         self._update_detail_panel()
+        self._update_steam_game_page()
+
+    def _update_steam_game_page(self):
+        """Update the Steam Game Page widget with the selected game's details."""
+        if not hasattr(self, "steam_container"):
+            return
+        game = self.selected_game
+        if not game and self.games:
+            game = self.games[0]
+            self.selected_game = game
+        if not game:
+            return
+        g_id = game[0]
+
+        try:
+            ach_stats = self.db.get_achievement_stats(g_id)
+            recent_achs = self.db.get_recent_unlocked_achievements(g_id, limit=6)
+            all_achs = self.db.get_game_achievements(g_id)
+            locked_achs = [a for a in all_achs if not a.get("unlocked")]
+        except Exception as e:
+            logger.debug(f"Error fetching achievements for Steam page: {e}")
+            ach_stats = (0, 0, 0.0)
+            recent_achs = []
+            locked_achs = []
+
+        cached_cloud = self.cloud_save_status_cache.get(g_id)
+        if cached_cloud:
+            c_status = cached_cloud[0] if isinstance(cached_cloud, tuple) else cached_cloud
+        else:
+            c_status = SyncStatus.NO_SAVES
+
+        hero_file = os.path.join(self.sgdb_client.cache_dir, "heroes", f"hero_{g_id}.jpg")
+        if not os.path.exists(hero_file):
+            banner_url = game[5] if len(game) > 5 else None
+            if banner_url and os.path.exists(banner_url):
+                hero_file = banner_url
+            else:
+                hero_file = None
+
+        is_running = g_id in self.running_game_ids
+
+        self.steam_container.game_page.set_game(
+            game,
+            ach_stats,
+            recent_achs,
+            locked_achs,
+            cloud_status=c_status,
+            hero_image_path=hero_file,
+            is_running=is_running
+        )
+        self.steam_container.select_game(g_id)
+
+    def _open_game_dir_by_id(self, game_id: int):
+        """Open the installation folder for the specified game."""
+        for g in self.games:
+            if g[0] == game_id:
+                path = g[2] if len(g) > 2 else ""
+                if path and os.path.exists(path):
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.realpath(path)))
+                break
+
+    def _open_steam_page_by_id(self, steam_id: str):
+        """Open the Steam store page for the given Steam AppID."""
+        if steam_id:
+            QDesktopServices.openUrl(QUrl(f"https://store.steampowered.com/app/{steam_id}"))
 
     def _on_double_click_game(self, game_id: int):
         """Double-clicking a game banner card instantly launches it!"""
@@ -2798,6 +2903,7 @@ class MainWindow(QMainWindow):
     def _on_hero_downloaded(self, game_id: int, image_path: str):
         if self.selected_game and self.selected_game[0] == game_id:
             self.hero_bg.set_hero_image(image_path)
+            self._update_steam_game_page()
 
     def _on_disk_size_calculated(self, game_id: int, size_bytes: int):
         if self.selected_game and self.selected_game[0] == game_id:
@@ -2811,6 +2917,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "list_view") and self.list_view is not None:
             try:
                 self.list_view.update_cloud_status(game_id, status)
+            except Exception:
+                pass
+
+        if hasattr(self, "steam_container") and self.selected_game and self.selected_game[0] == game_id:
+            try:
+                self.steam_container.game_page.action_bar.update_cloud_status(status)
             except Exception:
                 pass
 
@@ -3630,6 +3742,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
         self.request_achievement_recheck([game[0]], tag="dialog_close")
         self._update_detail_panel()
+        self._update_steam_game_page()
 
     def _on_achievement_unlocked(self, game_id: int, app_id: str, data: dict):
         """Handle real-time achievement unlock event from watcher."""
@@ -3670,6 +3783,7 @@ class MainWindow(QMainWindow):
         if self.selected_game and self.selected_game[0] == game_id:
             steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
             self._update_achievement_inspector(game_id, steam_id)
+            self._update_steam_game_page()
 
     def _open_prefix_maintenance(self):
         game = self._get_selected_game()
