@@ -36,8 +36,10 @@ class SyncStatus(Enum):
     LOCAL_NEWER = "local_newer"
     CLOUD_ONLY = "cloud_only"
     CLOUD_NEWER = "cloud_newer"
+    CONFLICT = "conflict"
     NO_SAVES = "no_saves"
     CLOUD_OFFLINE = "cloud_offline"
+
 
 
 @dataclass

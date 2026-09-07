@@ -237,10 +237,23 @@ class GameCardItemDelegate(QStyledItemDelegate):
             painter.setPen(QColor(229, 169, 61, 100))
             painter.drawPath(badge_path)
             get_icon("ph.cloud-arrow-down-fill", color="#E5A93D").paint(painter, icon_rect)
+        elif status == SyncStatus.CLOUD_ONLY:
+            painter.setPen(QColor(59, 159, 232, 100))
+            painter.drawPath(badge_path)
+            get_icon("ph.cloud-arrow-down-fill", color="#3B9FE8").paint(painter, icon_rect)
+        elif status == SyncStatus.CONFLICT:
+            painter.setPen(QColor(229, 169, 61, 100))
+            painter.drawPath(badge_path)
+            get_icon("ph.warning-circle-bold", color="#E5A93D").paint(painter, icon_rect)
         elif status == SyncStatus.NO_SAVES:
             painter.setPen(QColor(240, 93, 108, 100))
             painter.drawPath(badge_path)
             get_icon("ph.cloud-slash-bold", color="#F05D6C").paint(painter, icon_rect)
+        elif status == SyncStatus.CLOUD_OFFLINE:
+            painter.setPen(QColor(111, 118, 130, 100))
+            painter.drawPath(badge_path)
+            get_icon("ph.cloud-slash-bold", color="#6F7682").paint(painter, icon_rect)
+
 
     def _get_cached_cover(self, game_id: int, banner_path: str, name: str, is_missing: bool) -> QPixmap:
         """Fetch or generate and cache the scaled cover pixmap using QPixmapCache."""

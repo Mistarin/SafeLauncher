@@ -1868,10 +1868,12 @@ class MainWindow(QMainWindow):
                 processed,
                 self.library_selection.ids,
                 self.update_status_by_game_id,
-                self.sgdb_client.cache_dir
+                self.sgdb_client.cache_dir,
+                cloud_status_cache=self.cloud_save_status_cache
             )
         except (RuntimeError, AttributeError):
             pass
+
 
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
@@ -2806,6 +2808,13 @@ class MainWindow(QMainWindow):
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_cloud_status(status)
 
+        if hasattr(self, "list_view") and self.list_view is not None:
+            try:
+                self.list_view.update_cloud_status(game_id, status)
+            except Exception:
+                pass
+
+
         if self.selected_game and self.selected_game[0] == game_id:
             from core.cloud_save_sync import SyncStatus
             if status == SyncStatus.IN_SYNC:
@@ -2823,9 +2832,13 @@ class MainWindow(QMainWindow):
             elif status == SyncStatus.CLOUD_OFFLINE:
                 self.detail_cloud_status.setText("<font color='#6F7682'><b>○ Cloud Save: Not Connected</b></font>")
                 self.detail_cloud_status.setToolTip("Cloud backend unreachable (offline, or Secret Key not configured). Cloud status unknown.")
+            elif status == SyncStatus.CONFLICT:
+                self.detail_cloud_status.setText("<font color='#E5A93D'><b>▲▼ Cloud Save: Conflict</b></font>")
+                self.detail_cloud_status.setToolTip("Save conflict detected. SafeLauncher will prompt to choose on launch.")
             elif status == SyncStatus.NO_SAVES or (local_stats is not None and not getattr(local_stats, "exists", False)):
                 self.detail_cloud_status.setText("<font color='#F05D6C'><b>✕ Cloud Save: Save not found</b></font>")
                 self.detail_cloud_status.setToolTip("Game save not found. SafeLauncher will not upload entire game files.")
+
             else:
                 self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: --</font>")
                 self.detail_cloud_status.setToolTip("")
@@ -3867,7 +3880,9 @@ class MainWindow(QMainWindow):
                 self.refresh_cloud_status_for_game(gid)
         elif outcome == "failed":
             logger.warning(f"Exit cloud-save upload failed for '{name}'.")
+            self._show_toast(f"Cloud sync failed for '{name}' — local save preserved.")
         elif payload.get("reason") in ("cloud_newer", "cloud_only"):
+
             logger.info(
                 f"Skipping exit upload for '{name}': cloud save is newer "
                 f"({payload['reason']}); SafeLauncher will ask which to keep on next launch."
@@ -3960,8 +3975,12 @@ class MainWindow(QMainWindow):
             changed = []
             for gid, name, path, steam_id in games_snapshot:
                 try:
-                    stats, _snap = CloudSaveSyncEngine._remote_stats(resolve_name_key(name))
+                    stats, _snap = CloudSaveSyncEngine._remote_stats(
+                        resolve_name_key(name),
+                        game_name=name
+                    )
                     if stats is None or not stats.exists:
+
                         continue
                     cached = cache_snapshot.get(gid)
                     cached_mtime = cached[2].last_modified if cached and cached[2] else None

@@ -1517,7 +1517,58 @@ try:
         assert isinstance(compat["has_node"], bool)
         assert isinstance(compat["has_npm"], bool)
 
+        # G. Test virtual_grid delegate _draw_cloud_badge handles CLOUD_ONLY, CLOUD_OFFLINE, CONFLICT
+        from ui.components.virtual_grid import GameCardItemDelegate
+        from core.cloud_save_sync import SyncStatus
+        from PyQt6.QtGui import QPainter, QPixmap
+        from PyQt6.QtCore import QRect
+        delegate = GameCardItemDelegate()
+        pix = QPixmap(100, 100)
+        painter = QPainter(pix)
+        cover_rect = QRect(0, 0, 100, 100)
+        for st in (SyncStatus.IN_SYNC, SyncStatus.LOCAL_NEWER, SyncStatus.CLOUD_NEWER,
+                   SyncStatus.CLOUD_ONLY, SyncStatus.CLOUD_OFFLINE, SyncStatus.CONFLICT,
+                   SyncStatus.NO_SAVES):
+            delegate._draw_cloud_badge(painter, cover_rect, st)
+        painter.end()
+
+        # H. Test LibraryListView cloud status presentation
+        from ui.library_list import LibraryListView
+        list_view = LibraryListView()
+        dummy_game = (999, "CloudListTestGame", td, "game.exe", "sandbox", "", "12345", 3600, True, 0, "RPG", "", "", "", 0, "1.0", "", False, "")
+        list_view.set_games(
+            [(dummy_game, False, 3600, True)],
+            cloud_status_cache={999: (SyncStatus.CLOUD_ONLY, None, None)}
+        )
+        assert 999 in list_view._row_widgets_by_id
+        row_w = list_view._row_widgets_by_id[999]
+        assert row_w.cloud_status == SyncStatus.CLOUD_ONLY
+        assert not row_w.cloud_badge.isHidden()
+        assert "Available" in row_w.cloud_badge.text()
+
+
+        # Test dynamic update_cloud_status on list view
+        list_view.update_cloud_status(999, SyncStatus.IN_SYNC)
+        assert row_w.cloud_status == SyncStatus.IN_SYNC
+        assert "Synced" in row_w.cloud_badge.text()
+        list_view.update_cloud_status(999, SyncStatus.CONFLICT)
+        assert "Conflict" in row_w.cloud_badge.text()
+
+        # I. Test GamePropertiesDialog manual sync signals and SaveManagerDialog history signal
+        from ui.dialogs.game_properties_dialog import GamePropertiesDialog
+        prop_dlg = GamePropertiesDialog(dummy_game)
+        assert hasattr(prop_dlg, "_manual_sync_up_done")
+        assert hasattr(prop_dlg, "_manual_sync_down_done")
+        prop_dlg.close()
+
+        assert hasattr(save_dlg, "_history_loaded")
+        save_dlg._on_history_loaded([{"display_name": "Save 1", "version": 1, "size_bytes": 1024, "mtime": 1700000000}])
+        assert save_dlg.lst_history.count() == 1
+        assert "Save 1" in save_dlg.lst_history.item(0).text()
+        save_dlg.close()
+
     print("✓ File descriptor safety, dual-key lookup, backend reset, and UI re-entrancy verified")
+
 except Exception as e:
     import traceback
     traceback.print_exc()

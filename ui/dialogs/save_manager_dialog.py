@@ -40,6 +40,7 @@ class SaveManagerDialog(QDialog):
     """Interactive save snapshot dialog displaying detected locations and metadata."""
 
     _restore_done = pyqtSignal(bool, str)
+    _history_loaded = pyqtSignal(list)
 
     def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None):
         super().__init__(parent)
@@ -51,6 +52,8 @@ class SaveManagerDialog(QDialog):
         self.save_locations: list[SaveLocation] = []
         self.checkboxes: list[tuple[QCheckBox, SaveLocation]] = []
         self._restore_done.connect(self._on_restore_done)
+        self._history_loaded.connect(self._on_history_loaded)
+
 
         self.setWindowTitle(f"Save Manager - {game_name}")
         self.setFixedSize(640, 550)
@@ -519,10 +522,28 @@ class SaveManagerDialog(QDialog):
         self.btn_restore_history.setEnabled(bool(item and item.data(Qt.ItemDataRole.UserRole)))
 
     def _load_history(self):
-        """Fetch and populate all available cloud generations and local forks."""
-        from core.cloud_save_sync import CloudSaveSyncEngine
+        """Asynchronously fetch and populate all available cloud generations and local forks."""
         self.lst_history.clear()
-        versions = CloudSaveSyncEngine.get_available_versions(self.game_name, self.game_path, self.steam_id)
+        loading_item = QListWidgetItem("Loading history from cloud and disk...")
+        loading_item.setFlags(loading_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+        self.lst_history.addItem(loading_item)
+        self.btn_restore_history.setEnabled(False)
+
+        def _work():
+            from core.cloud_save_sync import CloudSaveSyncEngine
+            try:
+                versions = CloudSaveSyncEngine.get_available_versions(self.game_name, self.game_path, self.steam_id)
+            except Exception as e:
+                logger.error(f"Failed to load history for '{self.game_name}': {e}")
+                versions = []
+            self._history_loaded.emit(versions)
+
+        import threading
+        threading.Thread(target=_work, daemon=True, name=f"SafeLauncher-HistoryLoader-{self.game_id}").start()
+
+    def _on_history_loaded(self, versions: list):
+        """Populate history list on the main thread after async worker finishes."""
+        self.lst_history.clear()
         if not versions:
             empty_item = QListWidgetItem("No saved generations or backup forks found yet.")
             empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
@@ -545,6 +566,7 @@ class SaveManagerDialog(QDialog):
         if self.lst_history.count() > 0:
             self.lst_history.setCurrentRow(0)
             self.btn_restore_history.setEnabled(True)
+
 
     def _restore_selected_history_save(self):
         curr = self.lst_history.currentItem()

@@ -27,6 +27,8 @@ class GamePropertiesDialog(QDialog):
 
     _save_stats_ready = pyqtSignal(object)
     _gen_restore_done = pyqtSignal(bool, int)
+    _manual_sync_up_done = pyqtSignal(bool)
+    _manual_sync_down_done = pyqtSignal(bool)
 
     def __init__(self, game: tuple, parent=None):
         super().__init__(parent)
@@ -49,8 +51,12 @@ class GamePropertiesDialog(QDialog):
 
         self._save_stats_ready.connect(self._on_save_stats_ready)
         self._gen_restore_done.connect(self._on_gen_restore_done)
+        self._manual_sync_up_done.connect(self._on_manual_sync_up_done)
+        self._manual_sync_down_done.connect(self._on_manual_sync_down_done)
         self._cloud_versions = []
         self._backup_version = None
+        self._active_manual_sync_progress = None
+
 
         self.setWindowTitle(f"Properties - {self.game_name}")
         self.setMinimumSize(640, 560)
@@ -579,10 +585,13 @@ class GamePropertiesDialog(QDialog):
                 if backend_active():
                     try:
                         _stats, snapshot = CloudSaveSyncEngine._remote_stats(
-                            resolve_name_key(self.game_name))
+                            resolve_name_key(self.game_name),
+                            game_name=self.game_name
+                        )
                         versions = (snapshot or {}).get("versions")
                     except Exception:
                         versions = None
+
                 self._save_stats_ready.emit((status, local_stats, cloud_stats, versions))
             except Exception as e:
                 logger.warning(f"Async save stats check failed for '{self.game_name}': {e}")
@@ -741,18 +750,44 @@ class GamePropertiesDialog(QDialog):
                 p.request_cloud_recheck([self.game_id], "properties_cloud_sync")
 
     def _sync_up_now(self):
-        from core.cloud_save_sync import CloudSaveSyncEngine
+        self.btn_sync_up.setEnabled(False)
+        self.btn_sync_down.setEnabled(False)
+        if hasattr(self, "btn_restore_selected"):
+            self.btn_restore_selected.setEnabled(False)
+
         prog = QProgressDialog(f"Uploading local save for '{self.game_name}'...", None, 0, 0, self)
         prog.setWindowModality(Qt.WindowModality.WindowModal)
         prog.setCancelButton(None)
         prog.setMinimumDuration(0)
         prog.show()
-        QApplication.processEvents()
-        try:
-            ok = CloudSaveSyncEngine.sync_local_to_cloud(self.game_name, self.game_path, self.steam_id)
-        finally:
-            prog.close()
-            prog.deleteLater()
+        self._active_manual_sync_progress = prog
+
+        def _work():
+            from core.cloud_save_sync import CloudSaveSyncEngine
+            try:
+                ok = CloudSaveSyncEngine.sync_local_to_cloud(self.game_name, self.game_path, self.steam_id)
+            except Exception as e:
+                logger.error(f"Manual cloud upload failed for '{self.game_name}': {e}")
+                ok = False
+            self._manual_sync_up_done.emit(bool(ok))
+
+        import threading
+        threading.Thread(target=_work, daemon=True, name=f"SafeLauncher-ManualSyncUp-{self.game_id}").start()
+
+    def _on_manual_sync_up_done(self, ok: bool):
+        if hasattr(self, "_active_manual_sync_progress") and self._active_manual_sync_progress:
+            try:
+                self._active_manual_sync_progress.close()
+                self._active_manual_sync_progress.deleteLater()
+            except Exception:
+                pass
+            self._active_manual_sync_progress = None
+
+        self.btn_sync_up.setEnabled(True)
+        self.btn_sync_down.setEnabled(True)
+        if hasattr(self, "btn_restore_selected"):
+            self.btn_restore_selected.setEnabled(True)
+
         if ok:
             QMessageBox.information(self, "Cloud Sync", "Local save successfully uploaded to Cloud save repository.")
             self._load_save_stats_async()
@@ -786,24 +821,52 @@ class GamePropertiesDialog(QDialog):
                 "save files when it exits, so restoring the cloud save now would be undone.\n\n"
                 "Close the game first, then download the cloud save.")
             return
-        from core.cloud_save_sync import CloudSaveSyncEngine
+
+        self.btn_sync_up.setEnabled(False)
+        self.btn_sync_down.setEnabled(False)
+        if hasattr(self, "btn_restore_selected"):
+            self.btn_restore_selected.setEnabled(False)
+
         prog = QProgressDialog(f"Restoring cloud save for '{self.game_name}'...", None, 0, 0, self)
         prog.setWindowModality(Qt.WindowModality.WindowModal)
         prog.setCancelButton(None)
         prog.setMinimumDuration(0)
         prog.show()
-        QApplication.processEvents()
-        try:
-            ok = CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path, steam_id=self.steam_id)
-        finally:
-            prog.close()
-            prog.deleteLater()
+        self._active_manual_sync_progress = prog
+
+        def _work():
+            from core.cloud_save_sync import CloudSaveSyncEngine
+            try:
+                ok = CloudSaveSyncEngine.sync_cloud_to_local(self.game_name, self.game_path, steam_id=self.steam_id)
+            except Exception as e:
+                logger.error(f"Manual cloud restore failed for '{self.game_name}': {e}")
+                ok = False
+            self._manual_sync_down_done.emit(bool(ok))
+
+        import threading
+        threading.Thread(target=_work, daemon=True, name=f"SafeLauncher-ManualSyncDown-{self.game_id}").start()
+
+    def _on_manual_sync_down_done(self, ok: bool):
+        if hasattr(self, "_active_manual_sync_progress") and self._active_manual_sync_progress:
+            try:
+                self._active_manual_sync_progress.close()
+                self._active_manual_sync_progress.deleteLater()
+            except Exception:
+                pass
+            self._active_manual_sync_progress = None
+
+        self.btn_sync_up.setEnabled(True)
+        self.btn_sync_down.setEnabled(True)
+        if hasattr(self, "btn_restore_selected"):
+            self.btn_restore_selected.setEnabled(True)
+
         if ok:
             QMessageBox.information(self, "Cloud Sync", "Cloud save successfully restored to game prefix.")
             self._load_save_stats_async()
             self._notify_parent_cloud_changed()
         else:
             QMessageBox.critical(self, "Cloud Sync", "Failed to restore cloud save.")
+
 
     def _add_variable_row(self):
         row = self.table_vars.rowCount()

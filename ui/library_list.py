@@ -1,8 +1,9 @@
 """Rich visual list presentation for the library view with large left-aligned game icons."""
 
 import os
-from typing import Optional, Set
+from typing import Optional, Set, Any
 from PyQt6.QtCore import pyqtSignal, Qt, QSize
+
 from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton
 )
@@ -35,6 +36,7 @@ class LibraryListItemWidget(QWidget):
         is_favorite: bool = False,
         is_update_available: bool = False,
         cache_dir: Optional[str] = None,
+        cloud_status: Any = None,
         parent=None
     ):
         super().__init__(parent)
@@ -53,9 +55,11 @@ class LibraryListItemWidget(QWidget):
         self.is_favorite = is_favorite
         self.is_update_available = is_update_available
         self.cache_dir = cache_dir
+        self.cloud_status = cloud_status
 
         self.setFixedHeight(68)
         self._init_ui()
+
 
     def _init_ui(self):
         layout = QHBoxLayout(self)
@@ -127,7 +131,13 @@ class LibraryListItemWidget(QWidget):
             """)
             top_line.addWidget(upd_lbl)
 
+        self.cloud_badge = QLabel(self)
+        self.cloud_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
+        top_line.addWidget(self.cloud_badge)
+        self.set_cloud_status(self.cloud_status)
+
         top_line.addStretch()
+
 
         playtime_lbl = QLabel(_format_playtime_str(self.playtime_seconds))
         playtime_lbl.setFont(QFont("Arial", 9))
@@ -197,7 +207,52 @@ class LibraryListItemWidget(QWidget):
             self.btn_row_launch.clicked.connect(lambda: self.launch_requested.emit(self.game_id))
             layout.addWidget(self.btn_row_launch)
 
+    def set_cloud_status(self, status: Any) -> None:
+        """Update the cloud status badge pill in the list item."""
+        self.cloud_status = status
+        if not hasattr(self, "cloud_badge") or self.cloud_badge is None:
+            return
+        from core.cloud_save_sync import SyncStatus
+        if status == SyncStatus.IN_SYNC:
+            self.cloud_badge.setText("● Synced")
+            self.cloud_badge.setToolTip("Cloud save is up to date")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(53, 201, 138, 0.12); color: #35C98A; border: 1px solid rgba(53, 201, 138, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.LOCAL_NEWER:
+            self.cloud_badge.setText("▲ Ready to Upload")
+            self.cloud_badge.setToolTip("Local save is newer than cloud (will auto-upload on exit)")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(59, 159, 232, 0.12); color: #3B9FE8; border: 1px solid rgba(59, 159, 232, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.CLOUD_NEWER:
+            self.cloud_badge.setText("▼ Newer in Cloud")
+            self.cloud_badge.setToolTip("A newer save exists in the cloud")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(229, 169, 61, 0.12); color: #E5A93D; border: 1px solid rgba(229, 169, 61, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.CLOUD_ONLY:
+            self.cloud_badge.setText("▼ Available")
+            self.cloud_badge.setToolTip("Cloud save available to restore")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(59, 159, 232, 0.12); color: #3B9FE8; border: 1px solid rgba(59, 159, 232, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.CONFLICT:
+            self.cloud_badge.setText("▲▼ Conflict")
+            self.cloud_badge.setToolTip("Save conflict detected")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(229, 169, 61, 0.12); color: #E5A93D; border: 1px solid rgba(229, 169, 61, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.NO_SAVES:
+            self.cloud_badge.setText("✕ No Save")
+            self.cloud_badge.setToolTip("Game save not found")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(240, 93, 108, 0.12); color: #F05D6C; border: 1px solid rgba(240, 93, 108, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
+            self.cloud_badge.show()
+        elif status == SyncStatus.CLOUD_OFFLINE:
+            self.cloud_badge.setText("○ Offline")
+            self.cloud_badge.setToolTip("Cloud not connected")
+            self.cloud_badge.setStyleSheet("QLabel { background: rgba(111, 118, 130, 0.12); color: #6F7682; border: 1px solid rgba(111, 118, 130, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
+            self.cloud_badge.show()
+        else:
+            self.cloud_badge.hide()
+
     def _load_game_icon(self):
+
         """Render the authentic game .exe icon on the left of each row in list view."""
         pix: Optional[QPixmap] = None
 
@@ -298,6 +353,8 @@ class LibraryListView(QListWidget):
                 border-color: rgba(10, 132, 255, 0.3);
             }
         """)
+        self._row_widgets_by_id: dict[int, LibraryListItemWidget] = {}
+
         self.itemClicked.connect(self._on_item_clicked)
         self.itemDoubleClicked.connect(self._on_item_double_clicked)
 
@@ -316,12 +373,14 @@ class LibraryListView(QListWidget):
         processed_items: list,
         selected_ids: Optional[Set[int]] = None,
         update_status_map: Optional[dict] = None,
-        cache_dir: Optional[str] = None
+        cache_dir: Optional[str] = None,
+        cloud_status_cache: Optional[dict] = None
     ):
         """Populate the list view with custom rich game item widgets."""
         selected_ids = selected_ids or set()
         update_status_map = update_status_map or {}
         self.clear()
+        self._row_widgets_by_id.clear()
 
         for item_data in processed_items:
             # Check if item_data is wrapped as (g, is_missing, playtime, is_fav)
@@ -340,6 +399,8 @@ class LibraryListView(QListWidget):
                 raw_id = raw_id[0]
             game_id = int(raw_id)
             is_update = update_status_map.get(game_id, False)
+            c_entry = cloud_status_cache.get(game_id) if cloud_status_cache else None
+            c_status = c_entry[0] if (c_entry and len(c_entry) > 0) else None
 
             item = QListWidgetItem(self)
             item.setSizeHint(QSize(0, 72))
@@ -354,11 +415,20 @@ class LibraryListView(QListWidget):
                 is_favorite=is_fav,
                 is_update_available=is_update,
                 cache_dir=cache_dir,
+                cloud_status=c_status,
                 parent=self
             )
             row_widget.launch_requested.connect(self.game_launch_clicked.emit)
             self.addItem(item)
             self.setItemWidget(item, row_widget)
+            self._row_widgets_by_id[game_id] = row_widget
+
+    def update_cloud_status(self, game_id: int, status: Any) -> None:
+        """Dynamically update a single game's cloud status badge without reloading the list."""
+        widget = self._row_widgets_by_id.get(game_id)
+        if widget is not None:
+            widget.set_cloud_status(status)
 
     def selected_game_ids(self) -> Set[int]:
+
         return {int(item.data(Qt.ItemDataRole.UserRole)) for item in self.selectedItems() if item.data(Qt.ItemDataRole.UserRole) is not None}
