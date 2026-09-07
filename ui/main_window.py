@@ -126,6 +126,8 @@ class MainWindow(QMainWindow):
     _startup_sync_done = pyqtSignal(object)   # startup cloud sync sweep payload dict
     _cloud_poll_changed = pyqtSignal(list)    # games whose cloud save changed mid-session
     _save_restore_finished = pyqtSignal(int, str, bool)  # (game_id, game_name, success)
+    _prelaunch_restore_done = pyqtSignal(object)          # {"ctx", "ok", "toast"} after conflict restore
+
 
     def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager):
         super().__init__()
@@ -176,6 +178,8 @@ class MainWindow(QMainWindow):
         self._save_op_done.connect(self._on_exit_save_sync_done)
         self._prelaunch_resolved.connect(self._finish_prelaunch_sync)
         self._save_restore_finished.connect(self._on_save_restore_finished)
+        self._prelaunch_restore_done.connect(self._on_prelaunch_restore_done)
+
 
         # Background maintenance: prune orphaned temp files
         try:
@@ -2836,39 +2840,47 @@ class MainWindow(QMainWindow):
                     self.btn_detail_cloud_restore.hide()
 
     def _restore_selected_game_cloud_save(self):
-        """Restore cloud save for the currently selected library game."""
+        """Restore cloud save for the currently selected library game.
+
+        Shows a progress dialog immediately (before any network I/O) so the
+        user gets instant feedback.  The status check and restore both run on
+        a daemon worker thread; the result comes back via _save_restore_finished.
+        """
         game = self.selected_game
         if not game:
             return
         game_id, game_name, game_path = game[0], game[1], game[2]
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
-        from core.cloud_save_sync import CloudSaveSyncEngine
-        status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(game_name, game_path, steam_id)
-        if not cloud_stats.exists:
-            QMessageBox.information(self, "No Cloud Save", f"No cloud save found for '{game_name}'.")
-            return
 
-        confirm = QMessageBox.question(
-            self, "Restore Cloud Save",
-            f"Restore cloud save for '{game_name}'?\n\n"
-            f"Source: {cloud_stats.display_path}\n"
-            f"Target Directory: {game_path}\n\n"
-            "Your existing local save files will be preserved in your local backups before overwriting.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return
+        # L-5: Disable the button immediately to prevent double-click races.
+        if hasattr(self, "btn_detail_cloud_restore"):
+            self.btn_detail_cloud_restore.setEnabled(False)
 
-        progress = QProgressDialog(f"Restoring cloud save for '{game_name}'…", None, 0, 0, self)
+        progress = QProgressDialog(f"Checking cloud save for '{game_name}'…", None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setCancelButton(None)
         progress.setMinimumDuration(0)
         progress.show()
         self._active_restore_progress = progress
 
+        from core.cloud_save_sync import CloudSaveSyncEngine
+
         def _work():
-            ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, game_path, steam_id=steam_id, preserve_local_fork=True)
+            try:
+                status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
+                    game_name, game_path, steam_id
+                )
+                if not cloud_stats.exists:
+                    # Sentinel: tell _on_save_restore_finished to show "no save" info
+                    self._save_restore_finished.emit(game_id, "__no_cloud_save__", False)
+                    return
+            except Exception as e:
+                logger.warning(f"Cloud status check failed for '{game_name}': {e}")
+                self._save_restore_finished.emit(game_id, game_name, False)
+                return
+            ok = CloudSaveSyncEngine.sync_cloud_to_local(
+                game_name, game_path, steam_id=steam_id, preserve_local_fork=True
+            )
             self._save_restore_finished.emit(game_id, game_name, ok)
 
         threading.Thread(target=_work, daemon=True, name="SafeLauncher-ManualRestore").start()
@@ -2881,11 +2893,25 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             self._active_restore_progress = None
+        # Re-enable the restore button regardless of outcome (L-5 companion)
+        if hasattr(self, "btn_detail_cloud_restore"):
+            self.btn_detail_cloud_restore.setEnabled(True)
+        # Handle the "no cloud save found" sentinel from the worker
+        if game_name == "__no_cloud_save__":
+            game = self.selected_game
+            display_name = game[1] if game else "this game"
+            QMessageBox.information(
+                self, "No Cloud Save",
+                f"No cloud save found for '{display_name}'."
+            )
+            return
         if ok:
             self._show_toast(f"Successfully restored cloud save for '{game_name}'.")
             self.request_cloud_recheck([game_id], "manual_restore")
         else:
-            QMessageBox.critical(self, "Restore Failed", f"Failed to restore cloud save for '{game_name}'. Please check logs for details.")
+            QMessageBox.critical(self, "Restore Failed",
+                                 f"Failed to restore cloud save for '{game_name}'. Please check logs for details.")
+
 
     def _on_cloud_save_status_calculated(self, game_id: int, status, local_stats, cloud_stats):
         import time
@@ -3284,7 +3310,13 @@ class MainWindow(QMainWindow):
         threading.Thread(target=_work, daemon=True, name="SafeLauncher-PrelaunchSync").start()
 
     def _finish_prelaunch_sync(self, payload: dict):
-        """GUI-thread continuation after the pre-launch sync worker resolves."""
+        """GUI-thread continuation after the pre-launch sync worker resolves.
+
+        Dialogs (conflict chooser, CLOUD_ONLY prompt) are shown here on the
+        main thread.  Any resulting I/O (cloud download / local upload) is
+        dispatched to a daemon thread via _prelaunch_restore_done so the Qt
+        main thread never blocks on network or disk work.
+        """
         if hasattr(self, "_active_prelaunch_progress") and self._active_prelaunch_progress:
             try:
                 self._active_prelaunch_progress.close()
@@ -3294,72 +3326,127 @@ class MainWindow(QMainWindow):
             self._active_prelaunch_progress = None
 
         ctx = payload.get("ctx", {})
+        game_name = ctx.get("game_name", "")
 
         if payload.get("needs_conflict"):
-            conflict_dlg = SaveConflictDialog(ctx.get("game_name", ""), payload["local_stats"], payload["cloud_stats"], parent=self)
+            conflict_dlg = SaveConflictDialog(game_name, payload["local_stats"], payload["cloud_stats"], parent=self)
             if conflict_dlg.exec() == QDialog.DialogCode.Accepted:
                 if conflict_dlg.cb_always_newer.isChecked():
                     if conflict_dlg.choice == "cloud":
                         self.settings.setValue("auto_prefer_newer_saves", True)
                     else:
                         self.settings.setValue("auto_prefer_local_saves", True)
+
                 if conflict_dlg.choice == "cloud":
-                    prog = QProgressDialog(f"Restoring cloud save for '{ctx.get('game_name', '')}'...", None, 0, 0, self)
+                    prog = QProgressDialog(f"Restoring cloud save for '{game_name}'...", None, 0, 0, self)
                     prog.setWindowModality(Qt.WindowModality.WindowModal)
                     prog.setCancelButton(None)
                     prog.setMinimumDuration(0)
                     prog.show()
-                    QApplication.processEvents()
-                    try:
-                        restored = CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", ""))
-                    finally:
-                        prog.close()
-                        prog.deleteLater()
-                    if restored:
-                        self._show_toast(f"Restored cloud save for '{ctx['game_name']}' — your previous save was kept as a local backup.")
-                    else:
-                        # Never silently launch with the losing side of the conflict.
-                        self._show_toast(f"Could not restore the cloud save for '{ctx['game_name']}' — launched with local saves.")
+                    self._active_prelaunch_progress = prog
+
+                    def _do_cloud_restore(ctx=ctx):
+                        ok = CloudSaveSyncEngine.sync_cloud_to_local(
+                            ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", "")
+                        )
+                        toast = (
+                            f"Restored cloud save for '{ctx['game_name']}' — your previous save was kept as a local backup."
+                            if ok else
+                            f"Could not restore the cloud save for '{ctx['game_name']}' — launched with local saves."
+                        )
+                        self._prelaunch_restore_done.emit({"ctx": ctx, "ok": ok, "toast": toast})
+
+                    threading.Thread(
+                        target=_do_cloud_restore, daemon=True,
+                        name="SafeLauncher-ConflictRestore"
+                    ).start()
+                    return  # resume in _on_prelaunch_restore_done
                 else:
-                    CloudSaveSyncEngine.sync_local_to_cloud(ctx["game_name"], ctx["path"], ctx["steam_id"])
-                    self._show_toast("Overwrote cloud save with local version.")
+                    # Keep local: upload in background, launch immediately
+                    def _do_local_upload(ctx=ctx):
+                        CloudSaveSyncEngine.sync_local_to_cloud(
+                            ctx["game_name"], ctx["path"], ctx["steam_id"]
+                        )
+                        self._prelaunch_restore_done.emit({
+                            "ctx": ctx, "ok": True,
+                            "toast": "Overwrote cloud save with local version."
+                        })
+
+                    threading.Thread(
+                        target=_do_local_upload, daemon=True,
+                        name="SafeLauncher-ConflictUpload"
+                    ).start()
+                    return  # resume in _on_prelaunch_restore_done
             else:
                 # Closing the conflict dialog cancels the launch — say so
                 # instead of silently dropping the user's Play click.
-                self._show_toast(f"Launch cancelled — resolve the save conflict for '{ctx.get('game_name', '')}' first.")
+                self._show_toast(f"Launch cancelled — resolve the save conflict for '{game_name}' first.")
                 return
+
         elif payload.get("needs_cloud_only_prompt"):
             c_stats = payload.get("cloud_stats")
             ans = QMessageBox.question(
                 self, "Restore Cloud Save",
-                f"A cloud save is available for '{ctx.get('game_name', '')}':\n\n"
+                f"A cloud save is available for '{game_name}':\n\n"
                 f"{c_stats.display_path}\n\n"
                 "Would you like to restore this cloud save to the game before launching?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes,
             )
             if ans == QMessageBox.StandardButton.Yes:
-                prog = QProgressDialog(f"Restoring cloud save for '{ctx.get('game_name', '')}'...", None, 0, 0, self)
+                prog = QProgressDialog(f"Restoring cloud save for '{game_name}'...", None, 0, 0, self)
                 prog.setWindowModality(Qt.WindowModality.WindowModal)
                 prog.setCancelButton(None)
                 prog.setMinimumDuration(0)
                 prog.show()
-                QApplication.processEvents()
-                try:
-                    ok = CloudSaveSyncEngine.sync_cloud_to_local(ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", ""))
-                finally:
-                    prog.close()
-                    prog.deleteLater()
-                if ok:
-                    self._show_toast(f"Restored cloud save for '{ctx.get('game_name', '')}'.")
-                else:
-                    self._show_toast(f"Failed to restore cloud save for '{ctx.get('game_name', '')}'.", is_error=True)
+                self._active_prelaunch_progress = prog
+
+                def _do_cloud_only_restore(ctx=ctx):
+                    ok = CloudSaveSyncEngine.sync_cloud_to_local(
+                        ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", "")
+                    )
+                    toast = (
+                        f"Restored cloud save for '{ctx.get('game_name', '')}'."
+                        if ok else
+                        f"Failed to restore cloud save for '{ctx.get('game_name', '')}'."
+                    )
+                    self._prelaunch_restore_done.emit({"ctx": ctx, "ok": ok, "toast": toast})
+
+                threading.Thread(
+                    target=_do_cloud_only_restore, daemon=True,
+                    name="SafeLauncher-CloudOnlyRestore"
+                ).start()
+                return  # resume in _on_prelaunch_restore_done
             else:
-                self._show_toast(f"Launching '{ctx.get('game_name', '')}' without restoring cloud save.")
+                self._show_toast(f"Launching '{game_name}' without restoring cloud save.")
+                # Fall through to _continue_launch below
+
         elif payload.get("toast"):
+            # Informational toast only — no save conflict, launch proceeds.
+            # NOTE: If adding an abort-toast path in future (e.g. preflight error
+            # that should cancel the launch), return early here instead of
+            # reaching _continue_launch.
             self._show_toast(payload["toast"])
 
+        # All non-async, non-abort paths reach here and proceed to launch.
         self._continue_launch(ctx)
+
+    def _on_prelaunch_restore_done(self, result: dict):
+        """Main-thread slot: close the progress dialog and continue the launch."""
+        if hasattr(self, "_active_prelaunch_progress") and self._active_prelaunch_progress:
+            try:
+                self._active_prelaunch_progress.close()
+                self._active_prelaunch_progress.deleteLater()
+            except Exception:
+                pass
+            self._active_prelaunch_progress = None
+
+        toast = result.get("toast", "")
+        if toast:
+            self._show_toast(toast)
+
+        self._continue_launch(result["ctx"])
+
 
     def _continue_launch(self, ctx: dict):
         """Perform the actual process launch and follow-up wiring (main thread)."""

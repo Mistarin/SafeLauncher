@@ -10,7 +10,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QProgressBar,
-    QTabWidget, QListWidget, QListWidgetItem
+    QTabWidget, QListWidget, QListWidgetItem, QProgressDialog
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
@@ -596,7 +596,133 @@ class SaveManagerDialog(QDialog):
 
         threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-HistRestore-{self.game_id}").start()
 
+    def _restore_from_cloud(self):
+        """Restore the latest cloud save, or switch to the history tab if multiple versions exist.
+
+        The preflight check (get_available_versions + check_sync_status) involves
+        network I/O and must not block the main thread.  We dispatch it to a worker
+        thread immediately and resume in ``_on_cloud_restore_preflight_done``.
+        """
+        from core.cloud_save_sync import CloudSaveSyncEngine
+
+        # Disable buttons immediately so the user can't trigger a second restore.
+        self.btn_restore_history.setEnabled(False)
+        self.btn_export.setEnabled(False)
+        if hasattr(self, "btn_cloud"):
+            self.btn_cloud.setEnabled(False)
+
+        prog = QProgressDialog(f"Checking cloud saves for '{self.game_name}'...", None, 0, 0, self)
+        prog.setWindowModality(Qt.WindowModality.WindowModal)
+        prog.setCancelButton(None)
+        prog.setMinimumDuration(0)
+        prog.show()
+        self._cloud_preflight_progress = prog
+
+        def _preflight():
+            try:
+                versions = CloudSaveSyncEngine.get_available_versions(
+                    self.game_name, self.game_path, self.steam_id
+                )
+                cloud_versions = [v for v in versions if v.get("source") == "cloud"]
+                if len(cloud_versions) > 1:
+                    self._restore_done.emit(False, "__switch_to_history__")
+                    return
+                status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
+                    self.game_name, self.game_path, self.steam_id
+                )
+                self._restore_done.emit(False, f"__preflight_ok__{cloud_stats.display_path}__exists__{cloud_stats.exists}")
+            except Exception as e:
+                logger.error(f"Cloud restore preflight failed for '{self.game_name}': {e}")
+                self._restore_done.emit(False, "__preflight_error__")
+
+        threading.Thread(target=_preflight, daemon=True,
+                         name=f"SafeLauncher-CloudPreflight-{self.game_id}").start()
+
     def _on_restore_done(self, success: bool, title: str):
+        # Close any open preflight progress dialog first
+        if hasattr(self, "_cloud_preflight_progress") and self._cloud_preflight_progress:
+            try:
+                self._cloud_preflight_progress.close()
+                self._cloud_preflight_progress.deleteLater()
+            except Exception:
+                pass
+            self._cloud_preflight_progress = None
+
+        # Handle preflight protocol messages
+        if title == "__switch_to_history__":
+            self.btn_restore_history.setEnabled(True)
+            self.btn_export.setEnabled(True)
+            if hasattr(self, "btn_cloud"):
+                self.btn_cloud.setEnabled(True)
+            self.tabs.setCurrentIndex(1)
+            return
+
+        if title.startswith("__preflight_ok__"):
+            # Parse display_path and exists flag from the sentinel
+            rest = title[len("__preflight_ok__"):]
+            exists_marker = "__exists__"
+            if exists_marker in rest:
+                display_path, exists_str = rest.split(exists_marker, 1)
+                cloud_exists = (exists_str.strip().lower() == "true")
+            else:
+                display_path = rest
+                cloud_exists = True
+
+            self.btn_restore_history.setEnabled(True)
+            self.btn_export.setEnabled(True)
+            if hasattr(self, "btn_cloud"):
+                self.btn_cloud.setEnabled(True)
+
+            if not cloud_exists:
+                QMessageBox.information(
+                    self, "No Cloud Saves",
+                    f"No cloud save archive found for '{self.game_name}'."
+                )
+                return
+
+            confirm = QMessageBox.question(
+                self, "Restore Cloud Save",
+                f"Restore cloud save for '{self.game_name}'?\n\n"
+                f"Target Directory: {self.game_path}\n"
+                f"Cloud Save Details: {display_path}\n\n"
+                "Your existing local save will be preserved in your local backups before overwriting.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+
+            # Now actually run the restore
+            self.btn_restore_history.setEnabled(False)
+            self.btn_export.setEnabled(False)
+            if hasattr(self, "btn_cloud"):
+                self.btn_cloud.setEnabled(False)
+
+            def _worker():
+                worker_success = False
+                try:
+                    worker_success = CloudSaveSyncEngine.sync_cloud_to_local(
+                        self.game_name, self.game_path,
+                        steam_id=self.steam_id, preserve_local_fork=True
+                    )
+                except Exception as e:
+                    logger.error(f"Cloud restore failed for '{self.game_name}': {e}")
+                self._restore_done.emit(bool(worker_success), display_path)
+
+            threading.Thread(target=_worker, daemon=True,
+                             name=f"SafeLauncher-CloudRestore-{self.game_id}").start()
+            return
+
+        if title == "__preflight_error__":
+            self.btn_restore_history.setEnabled(True)
+            self.btn_export.setEnabled(True)
+            if hasattr(self, "btn_cloud"):
+                self.btn_cloud.setEnabled(True)
+            QMessageBox.warning(self, "Cloud Check Failed",
+                                "Could not reach the cloud to check save status. Please check your connection.")
+            return
+
+        # --- Normal restore completion path (success/failure from _worker above) ---
         self.btn_restore_history.setEnabled(True)
         self.btn_export.setEnabled(True)
         if hasattr(self, "btn_cloud"):
@@ -615,52 +741,3 @@ class SaveManagerDialog(QDialog):
                 f"Failed to restore '{title}'. Check logs for details."
             )
 
-    def _restore_from_cloud(self):
-        from core.cloud_save_sync import CloudSaveSyncEngine
-        versions = CloudSaveSyncEngine.get_available_versions(self.game_name, self.game_path, self.steam_id)
-        cloud_versions = [v for v in versions if v.get("source") == "cloud"]
-
-        if len(cloud_versions) > 1:
-            # Switch to history tab where all versions are listed for manual selection
-            self.tabs.setCurrentIndex(1)
-            return
-
-        status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
-            self.game_name, self.game_path, self.steam_id
-        )
-        if not cloud_stats.exists:
-            QMessageBox.information(
-                self, "No Cloud Saves",
-                f"No cloud save archive found for '{self.game_name}'."
-            )
-            return
-
-        confirm = QMessageBox.question(
-            self, "Restore Cloud Save",
-            f"Restore cloud save for '{self.game_name}'?\n\n"
-            f"Target Directory: {self.game_path}\n"
-            f"Cloud Save Details: {cloud_stats.display_path}\n\n"
-            "Your existing local save will be preserved in your local backups before overwriting.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return
-
-        self.btn_restore_history.setEnabled(False)
-        self.btn_export.setEnabled(False)
-        if hasattr(self, "btn_cloud"):
-            self.btn_cloud.setEnabled(False)
-
-        def _worker():
-            success = False
-            try:
-                success = CloudSaveSyncEngine.sync_cloud_to_local(
-                    self.game_name, self.game_path, steam_id=self.steam_id, preserve_local_fork=True
-                )
-            except Exception as e:
-                logger.error(f"Cloud restore failed for '{self.game_name}': {e}")
-                success = False
-            self._restore_done.emit(bool(success), cloud_stats.display_path)
-
-        threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-CloudRestore-{self.game_id}").start()

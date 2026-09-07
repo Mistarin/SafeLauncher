@@ -61,7 +61,12 @@ def cloud_mode() -> str:
     if mode is not None and str(mode).strip():
         return str(mode).strip()
     from core.cloud_backend import get_site_url
-    if get_site_url():
+    url = get_site_url()
+    # Only auto-activate when the stored URL looks complete: must start with
+    # "https://" and have at least one dot after the scheme (i.e. a real host).
+    # This prevents a leftover placeholder like "https://" or "https://example"
+    # from silently enabling cloud sync and causing 6-second timeout storms.
+    if url and url.startswith("https://") and "." in url[8:]:
         return "convex"
     return "local"
 
@@ -143,9 +148,19 @@ def reset_cloud_backend() -> None:
 def _clean_game_slug(name: str) -> str:
     """Normalize game title to alphanumeric slug, stripping release tags and symbols."""
     import re
-    # Strip release tags like -AnkerGames, -SteamRIP, -FitGirl, -DODI, _v1.0, etc.
+    # Strip trailing release group tags and version strings.
+    # Pattern covers: -GroupName, _GroupName, (GroupName), [GroupName] style tags
+    # and common suffixes like vX.Y, Build.XXXXXXX, Early Access, etc.
     s = re.sub(
-        r"[-_ ]+(?:AnkerGames|SteamRIP|FitGirl|DODI|Razor1911|CODEX|RUNE|FLT|TENOKE|GOG|Repack|Portable|v\d+[\d\.]*)$",
+        r"[-_ ]+(?:"
+        r"AnkerGames|SteamRIP|FitGirl|DODI|"
+        r"Razor1911|CODEX|RUNE|FLT|TENOKE|"
+        r"SKIDROW|EMPRESS|PLAZA|CPY|HOODLUM|"
+        r"TiNYiSO|P2P|SiMPLEX|RELOADED|PROPER|"
+        r"GOG|Repack|Portable|"
+        r"Early[. ]Access|Build[.\d]+|"
+        r"v\d+[\d.]*"
+        r")$",
         "",
         name.strip(),
         flags=re.IGNORECASE,
@@ -192,10 +207,24 @@ def resolve_name_key(game_name: str) -> str:
             for g in cloud_games:
                 cand_slug_key = _clean_game_slug(g.get("nameKey", ""))
                 cand_slug_disp = _clean_game_slug(g.get("displayName", ""))
+                # Exact slug match against either nameKey or displayName slug
                 if target_slug == cand_slug_key or target_slug == cand_slug_disp:
                     return g.get("nameKey")
-                if len(target_slug) >= 6 and (target_slug in cand_slug_key or cand_slug_key in target_slug):
-                    return g.get("nameKey")
+                # Substring match only when both slugs are long AND the shorter
+                # one covers at least 85% of the longer one — prevents
+                # "doom" matching "doomsday", "battlefield" matching "battlefield2042",
+                # etc.  Checked against both nameKey slug and displayName slug.
+                if len(target_slug) >= 8:
+                    for cand_slug in (cand_slug_key, cand_slug_disp):
+                        if not cand_slug:
+                            continue
+                        shorter = min(len(target_slug), len(cand_slug))
+                        longer = max(len(target_slug), len(cand_slug))
+                        if shorter / longer >= 0.85 and (
+                            target_slug in cand_slug or cand_slug in target_slug
+                        ):
+                            return g.get("nameKey")
+
     except Exception as e:
         logger.debug(f"Cloud listing unavailable for key resolution, using '{key}': {e}")
     return key
@@ -228,21 +257,35 @@ def match_cloud_game_to_library(name_key: str, display_name: str, all_games: lis
                 continue
             if g_slug == target_slug or g_slug == target_key_slug:
                 return g
-            if len(g_slug) >= 6 and (g_slug in target_slug or target_slug in g_slug):
-                return g
+            # Substring match only when both slugs are long AND the shorter
+            # one covers at least 85% of the longer one.
+            for ts in (target_slug, target_key_slug):
+                if not ts or len(ts) < 8:
+                    continue
+                shorter = min(len(ts), len(g_slug))
+                longer = max(len(ts), len(g_slug))
+                if shorter / longer >= 0.85 and (ts in g_slug or g_slug in ts):
+                    return g
     return None
 
 
+
 def _candidate_save_keys(game_name: str) -> list[str]:
-    """Generate all possible key aliases for a game name to guarantee robust lookups."""
+    """Generate all possible key aliases for a game name to guarantee robust lookups.
+
+    Intentionally does NOT call ``resolve_name_key`` here because that function
+    may trigger a live cloud listing fetch (network I/O).  QSettings version-
+    persistence functions are called from many contexts, including the Qt main
+    thread; a hidden network call would block the UI for up to 6 seconds on a
+    cache miss.  The cloud nameKey alias is handled at the call sites that
+    already hold the resolved key (e.g. ``set_active_save_version`` is always
+    called right after an upload/restore that has already resolved the key).
+    """
     candidates = []
     if game_name:
         candidates.append(game_name)
         if game_name.lower() not in candidates:
             candidates.append(game_name.lower())
-        key = resolve_name_key(game_name)
-        if key and key not in candidates:
-            candidates.append(key)
         slug = _clean_game_slug(game_name)
         if slug and slug not in candidates:
             candidates.append(slug)
@@ -255,7 +298,13 @@ def _candidate_save_keys(game_name: str) -> list[str]:
 
 
 def get_active_save_version(game_name: str) -> Optional[int]:
-    """Retrieve locally activated cloud save generation for this game, if set."""
+    """Retrieve locally activated cloud save generation for this game, if set.
+
+    Checks candidates in priority order — the resolved cloud nameKey is tried
+    first because it is always written by ``set_active_save_version``.  Other
+    aliases exist for backwards compatibility with saves written before the
+    canonical key scheme was introduced.
+    """
     settings = QSettings("SafeLauncher", "SafeLauncher")
     for k_name in _candidate_save_keys(game_name):
         val = settings.value(f"active_save_ver_{k_name}", None)
@@ -280,10 +329,26 @@ def get_active_cloud_top_version(game_name: str) -> Optional[int]:
     return None
 
 
-def set_active_save_version(game_name: str, version: Optional[int], cloud_top_version: Optional[int] = None) -> None:
-    """Store or clear locally activated cloud save generation for this game."""
+def set_active_save_version(game_name: str, version: Optional[int],
+                            cloud_top_version: Optional[int] = None,
+                            name_key: str = "") -> None:
+    """Store or clear locally activated cloud save generation for this game.
+
+    ``name_key`` is the resolved cloud nameKey (e.g. "the-witcher-3").  Pass
+    it when the caller already holds the key to avoid a duplicate network
+    lookup.  The key will be included in the written aliases so lookups via
+    the cloud key always succeed.
+
+    Writes under every candidate alias so lookups always succeed regardless
+    of which key variant was used historically.  On clear (``version=None``),
+    all candidate aliases are removed so no stale shadow entries remain that
+    could be read as a phantom active version on subsequent checks.
+    """
     settings = QSettings("SafeLauncher", "SafeLauncher")
-    for k_name in _candidate_save_keys(game_name):
+    candidates = _candidate_save_keys(game_name)
+    if name_key and name_key not in candidates:
+        candidates.append(name_key)
+    for k_name in candidates:
         k = f"active_save_ver_{k_name}"
         k_top = f"active_save_top_{k_name}"
         if version is None:
@@ -293,6 +358,26 @@ def set_active_save_version(game_name: str, version: Optional[int], cloud_top_ve
             settings.setValue(k, int(version))
             if cloud_top_version is not None:
                 settings.setValue(k_top, int(cloud_top_version))
+
+    if version is None:
+        # Sweep for any lingering keys that might have been written under
+        # candidate aliases that are not generated by the *current* game name
+        # (e.g. after the game was renamed in the library).  This prevents
+        # phantom "active version" reads from a previous naming scheme.
+        # We only remove keys whose suffix exactly matches a candidate so we
+        # do not accidentally clear unrelated games.
+        candidates_set = set(candidates)
+        all_keys = settings.allKeys()
+        for qk in all_keys:
+            for prefix in ("active_save_ver_", "active_save_top_"):
+                if qk.startswith(prefix):
+                    suffix = qk[len(prefix):]
+                    if suffix in candidates_set:
+                        settings.remove(qk)
+
+
+
+
 
 
 class CloudSaveSyncEngine:
@@ -355,8 +440,16 @@ class CloudSaveSyncEngine:
                 return game
         return None
     @classmethod
-    def _remote_stats(cls, name_key: str, local_mtime: float = 0.0) -> Tuple[SaveStats, Optional[dict]]:
-        """Best-effort cloud stats; returns None on any backend failure."""
+    def _remote_stats(cls, name_key: str, local_mtime: float = 0.0,
+                      game_name: str = "") -> Tuple[SaveStats, Optional[dict]]:
+        """Best-effort cloud stats; returns None on any backend failure.
+
+        ``game_name`` should be the raw library title (e.g. "The Witcher 3").
+        ``name_key`` is the normalised cloud key (e.g. "the-witcher-3").
+        Version-persistence QSettings entries are written under the raw title
+        via ``set_active_save_version``, so we must query them with the same
+        raw title — not with the already-normalised key.
+        """
         try:
             snapshot = cls._remote_game_snapshot(name_key)
         except Exception as e:
@@ -368,10 +461,14 @@ class CloudSaveSyncEngine:
         if not versions:
             return SaveStats(exists=False), snapshot
 
+        # Prefer game_name for version-persistence lookups; fall back to
+        # name_key only when the caller did not supply the raw library title.
+        lookup_name = game_name or name_key
+
         # Check if local mtime or explicitly activated version matches an existing generation
         top_version = versions[0].get("version", 0)
-        active_ver = get_active_save_version(name_key)
-        known_top = get_active_cloud_top_version(name_key)
+        active_ver = get_active_save_version(lookup_name)
+        known_top = get_active_cloud_top_version(lookup_name)
 
         matched = None
         # If another device uploaded a newer generation (top_version > known_top),
@@ -444,7 +541,8 @@ class CloudSaveSyncEngine:
 
         if backend_active():
             key = resolve_name_key(game_name)
-            cloud_stats, _snap = cls._remote_stats(key, local_mtime=local_stats.last_modified)
+            cloud_stats, _snap = cls._remote_stats(key, local_mtime=local_stats.last_modified,
+                                                   game_name=game_name)
             if cloud_stats is not None:
                 return cls._decide(local_stats, cloud_stats)
             # Cloud unreachable (network or auth failure): say so instead of
@@ -500,9 +598,11 @@ class CloudSaveSyncEngine:
                     logger.info(f"Cloud already up-to-date for '{game_name}'.")
                     skipped_ver = result.get("version")
                     if skipped_ver is not None:
-                        snapshot = cls._remote_game_snapshot(normalize_name_key(game_name))
+                        norm_key = normalize_name_key(game_name)
+                        snapshot = cls._remote_game_snapshot(norm_key)
                         top_v = snapshot["versions"][0].get("version") if (snapshot and snapshot.get("versions")) else skipped_ver
-                        set_active_save_version(game_name, int(skipped_ver), cloud_top_version=top_v)
+                        set_active_save_version(game_name, int(skipped_ver), cloud_top_version=top_v,
+                                                name_key=norm_key)
                     return True
                 evicted = result.get("evictedVersions") or []
                 if evicted:
@@ -510,7 +610,9 @@ class CloudSaveSyncEngine:
                 _invalidate_cloud_listing()
                 uploaded_ver = result.get("version")
                 if uploaded_ver is not None:
-                    set_active_save_version(game_name, int(uploaded_ver), cloud_top_version=int(uploaded_ver))
+                    set_active_save_version(game_name, int(uploaded_ver), cloud_top_version=int(uploaded_ver),
+                                            name_key=normalize_name_key(game_name))
+
                 logger.info(
                     f"Uploaded encrypted save to cloud for '{game_name}' "
                     f"(v{result.get('version')})."
@@ -569,7 +671,11 @@ class CloudSaveSyncEngine:
                                     with zipfile.ZipFile(ef, "r") as z:
                                         if _MANIFEST_NAME in z.namelist():
                                             mf = json.loads(z.read(_MANIFEST_NAME).decode("utf-8"))
-                                            if abs(float(mf.get("source_max_mtime", 0.0)) - local_stats.last_modified) < 1.0:
+                                            # Use 2.0s tolerance (matching sync-status threshold)
+                                            # because source_max_mtime is stored as int(), truncating
+                                            # sub-second precision; a live mtime of 1234.999 vs
+                                            # stored 1234 produces a diff up to ~1.999s.
+                                            if abs(float(mf.get("source_max_mtime", 0.0)) - local_stats.last_modified) <= 2.0:
                                                 already_backed_up = True
                                                 logger.info(f"Local save for '{game_name}' already backed up in {fname}; skipping duplicate fork.")
                                                 break
@@ -611,7 +717,9 @@ class CloudSaveSyncEngine:
                 if restored_ver is not None:
                     snapshot = cls._remote_game_snapshot(key)
                     top_v = snapshot["versions"][0].get("version") if (snapshot and snapshot.get("versions")) else restored_ver
-                    set_active_save_version(game_name, int(restored_ver), cloud_top_version=top_v)
+                    set_active_save_version(game_name, int(restored_ver), cloud_top_version=top_v,
+                                            name_key=key)
+
                 logger.info(
                     f"Restored cloud save v{restored_ver} for '{game_name}' "
                     f"into {target_dest}"
@@ -662,7 +770,23 @@ class CloudSaveSyncEngine:
             for fname in os.listdir(fork_dir):
                 if (fname.startswith(f"{prefix_key}_fork_") or fname.startswith(f"{clean_name}_fork_")) and fname.endswith(".zip"):
                     game_forks.append(os.path.join(fork_dir, fname))
-            game_forks.sort(key=lambda p: (os.path.getmtime(p), p), reverse=True)
+            def _fork_sort_key(p: str) -> int:
+                """Extract the Unix timestamp from the fork filename for stable ordering.
+
+                Fork filenames are ``{prefix}_fork_{unix_ts}.zip``.  The embedded
+                timestamp is the authoritative creation order — filesystem mtime
+                is fragile after rsync/backup copies.  Falls back to 0 (oldest)
+                so corrupt or mis-named forks are pruned first.
+                """
+                try:
+                    stem = os.path.basename(p).replace(".zip", "")
+                    ts_str = stem.rsplit("_fork_", 1)[-1]
+                    return int(ts_str)
+                except (ValueError, IndexError):
+                    return 0
+
+            game_forks.sort(key=_fork_sort_key, reverse=True)
+
             for old_fork in game_forks[keep:]:
                 try:
                     os.unlink(old_fork)

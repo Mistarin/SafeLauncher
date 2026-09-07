@@ -346,8 +346,13 @@ class ZipBackupManager(IBackupManager):
                     target_dir = os.path.normpath(os.path.join(dest_abs, rel_prefix)) if rel_prefix else dest_abs
                     root = dest_abs
 
+                # is_directory defaults to True for legacy/missing manifest entries —
+                # treating an unknown item as a directory means target_dir is not
+                # re-parented via dirname, which is the safe choice for directory-type
+                # save locations that represent a folder, not a file path.
                 if not item.get("is_directory", True):
                     target_dir = os.path.dirname(target_dir)
+
 
                 # Escape attempts fall back to the base root instead of executing.
                 if not _is_within(root, target_dir):
