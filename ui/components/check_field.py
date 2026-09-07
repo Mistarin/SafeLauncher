@@ -32,8 +32,10 @@ class CheckField(QCheckBox):
         focused = bool(option.state & QStyle.StateFlag.State_HasFocus)
 
         if checked:
-            fill = QColor("#3B9FE8") if enabled else QColor("#46515C")
-            border = fill
+            # Keep the selected field neutral; the checkmark carries the
+            # accent so checked controls do not become distracting blue tiles.
+            fill = QColor("#24242A") if enabled else QColor("#1B1B1F")
+            border = QColor("#63B8F5") if enabled else QColor("#46515C")
         else:
             fill = QColor("#1B1B1F") if enabled else QColor("#161619")
             border = QColor("#555561") if enabled else QColor("#36363D")
@@ -45,7 +47,7 @@ class CheckField(QCheckBox):
         painter.drawRoundedRect(indicator.adjusted(0, 0, -1, -1), 5, 5)
 
         if checked:
-            painter.setPen(QPen(QColor("#FFFFFF"), 2.0, Qt.PenStyle.SolidLine,
+            painter.setPen(QPen(QColor("#7FC7FF") if enabled else QColor("#71717A"), 2.0, Qt.PenStyle.SolidLine,
                                 Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
             x, y = indicator.x(), indicator.y()
             painter.drawLine(x + 4, y + 9, x + 8, y + 13)
