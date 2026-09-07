@@ -167,17 +167,24 @@ def parse_achievements_state(file_path: Path) -> Dict[str, float]:
         if content.startswith("{"):
             data = json.loads(content)
             if isinstance(data, dict):
-                for key, val in data.items():
-                    api_name = str(key).strip()
-                    if isinstance(val, dict):
-                        earned = bool(val.get("earned", False))
-                        ts = float(val.get("earned_time", 0.0) or 0.0)
-                        if earned:
-                            results[api_name] = ts
-                    elif isinstance(val, bool) and val:
-                        results[api_name] = 1.0
-                    elif isinstance(val, (int, float)) and val > 0:
-                        results[api_name] = float(val)
+                def collect(items: dict, nested: bool = False) -> None:
+                    for key, val in items.items():
+                        api_name = str(key).strip()
+                        if isinstance(val, dict):
+                            if val.get("earned") or val.get("unlocked") or val.get("achieved"):
+                                raw_ts = val.get("earned_time", val.get("unlock_time", val.get("timestamp", 0.0)))
+                                try:
+                                    results[api_name] = float(raw_ts or 1.0)
+                                except (TypeError, ValueError):
+                                    results[api_name] = 1.0
+                            elif nested or api_name.lower() in ("achievements", "stats", "unlocks", "data"):
+                                collect(val, nested=True)
+                        elif isinstance(val, bool) and val:
+                            results[api_name] = 1.0
+                        elif isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+                            results[api_name] = float(val)
+
+                collect(data)
             return results
 
         # Case 2: INI format (CODEX / RUNE / FLT / SSE)
@@ -189,8 +196,13 @@ def parse_achievements_state(file_path: Path) -> Dict[str, float]:
                 for key, val in cfg.items(section):
                     key_str = key.strip()
                     val_str = val.strip()
-                    if val_str in ("1", "true", "True") or (val_str.isdigit() and int(val_str) > 0):
-                        results[key_str] = 1.0
+                    lowered = val_str.lower()
+                    try:
+                        numeric = float(val_str)
+                    except ValueError:
+                        numeric = 0.0
+                    if lowered in ("1", "true", "yes", "on") or numeric > 0:
+                        results[key_str] = numeric if numeric > 0 else 1.0
     except Exception as e:
         logger.debug(f"Error parsing achievement state file {file_path}: {e}")
 

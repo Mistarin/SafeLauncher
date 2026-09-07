@@ -495,6 +495,11 @@ class LudusaviDetector:
                 stat = os.stat(file_path)
             except OSError:
                 return
+            # AchievementWatcher pre-seeds an empty Goldberg file so it can
+            # attach before launch.  It is not user data and must not turn a
+            # game with no saves into a cloud-save candidate.
+            if stat.st_size <= 2 and os.path.basename(file_path).lower().endswith(".json"):
+                return
             seen_paths.add(file_path)
             locations.append(SaveLocation(
                 display_name=f"Achievement state{label_extra}",
