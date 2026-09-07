@@ -54,8 +54,8 @@ ICONS = {
     "globe": ("fa5s.globe", "#3B9FE8"),
     "wine": ("fa5s.wine-glass", "#A7ADB8"),
     "terminal": ("fa5s.terminal", "#A7ADB8"),
-    "favorite": ("ph.star-fill", "#F5C451"),
-    "favorite_outline": ("ph.star-bold", "#6F7682"),
+    "favorite": ("ph.heart-fill", "#F5C451"),
+    "favorite_outline": ("ph.heart-bold", "#6F7682"),
 }
 
 

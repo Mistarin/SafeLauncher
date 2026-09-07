@@ -1743,7 +1743,7 @@ class CompactSidebarListItemWidget(QWidget):
         # 3. Favorite Star
         if self.is_favorite:
             fav_lbl = QLabel()
-            fav_lbl.setPixmap(get_icon("ph.star-fill", color="#FFD60A").pixmap(12, 12))
+            fav_lbl.setPixmap(get_icon("ph.heart-fill", color="#FFD60A").pixmap(12, 12))
             fav_lbl.setStyleSheet("background: transparent;")
             layout.addWidget(fav_lbl)
 
@@ -1909,7 +1909,7 @@ class CompactSidebarListWidget(QFrame):
         fb_layout.addWidget(self.btn_f_inst)
 
         self.btn_f_fav = QPushButton()
-        self.btn_f_fav.setIcon(get_icon("ph.star-bold", color="#FFFFFF"))
+        self.btn_f_fav.setIcon(get_icon("ph.heart-bold", color="#FFFFFF"))
         self.btn_f_fav.setIconSize(QSize(15, 15))
         self.btn_f_fav.setCheckable(True)
         self.btn_f_fav.setToolTip("Favorite Games")
