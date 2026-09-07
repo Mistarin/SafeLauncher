@@ -1717,13 +1717,20 @@ try:
     assert mw_compact.compact_container.game_page.activity_card.maximumHeight() == 260
     assert mw_compact.compact_container.game_page.specs_card.maximumHeight() == 160
 
-    # Test tray menu pure text structure
+    # Test tray menu pure text structure and direct recent games (no dropdown)
     mw_compact._update_tray_menu()
-    tray_texts = [act.text() for act in mw_compact.tray_menu.actions()]
+    tray_actions = mw_compact.tray_menu.actions()
+    tray_texts = [act.text() for act in tray_actions]
     assert "Library" in tray_texts
     assert "Settings" in tray_texts
     assert "Quit" in tray_texts
     assert not any("Disk Space Manager" in t for t in tray_texts)
+    # Ensure there are no submenus / dropdowns in tray menu
+    assert not any(act.menu() is not None for act in tray_actions)
+    # Ensure recent games appear as top-level actions before the separator and Library
+    lib_idx = tray_texts.index("Library")
+    assert lib_idx > 0, "Expected top-level recent games before Library"
+
 
     # Test HeaderBar View menu with Library submenu
     assert hasattr(mw_compact.title_bar, "btn_view")

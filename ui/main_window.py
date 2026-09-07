@@ -1436,20 +1436,19 @@ class MainWindow(QMainWindow):
 
         self.tray_menu.clear()
 
-        # 1. Recent Games
-        rec_games = [g for g in self.games if len(g) > 9 and g[9] > 0]
+        # 1. Recent Games (last 5 games visible normally, not inside a dropdown)
+        rec_games = [g for g in self.games if len(g) > 9 and g[9] and g[9] > 0]
         rec_games.sort(key=lambda x: x[9], reverse=True)
-        recent_menu = self.tray_menu.addMenu("Recent Games")
-        if rec_games:
-            for g in rec_games[:6]:
-                game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
-                act = recent_menu.addAction(name)
-                act.triggered.connect(lambda _, gid=game_id, p=path, e=exe, m=mode: self._launch_mode(gid, p, e, m or "umu"))
-        else:
-            act_empty = recent_menu.addAction("No recent games")
-            act_empty.setEnabled(False)
+        if not rec_games:
+            rec_games = [g for g in self.games if not (len(g) > 17 and g[17])]
 
-        self.tray_menu.addSeparator()
+        recent_to_show = rec_games[:5]
+        if recent_to_show:
+            for g in recent_to_show:
+                game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
+                act = self.tray_menu.addAction(name)
+                act.triggered.connect(lambda _, gid=game_id, p=path, e=exe, m=mode: self._launch_mode(gid, p, e, m or "umu"))
+            self.tray_menu.addSeparator()
 
         # 2. Library
         act_show = self.tray_menu.addAction("Library")
