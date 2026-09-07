@@ -453,6 +453,13 @@ def set_active_save_version(game_name: str, version: Optional[int],
 class CloudSaveSyncEngine:
     """Manages comparison and bi-directional synchronization between local and cloud save files."""
 
+    _last_sync_error = ""
+
+    @classmethod
+    def last_sync_error(cls) -> str:
+        """Return the most recent upload failure explanation for the UI."""
+        return cls._last_sync_error
+
     @staticmethod
     def get_cloud_root() -> str:
         """Get configured cloud saves root folder from QSettings or default."""
@@ -666,11 +673,16 @@ class CloudSaveSyncEngine:
     def sync_local_to_cloud(cls, game_name: str, game_path: str, steam_id: str = "",
                             locations: Optional[List[SaveLocation]] = None) -> bool:
         """Archive latest local save state directly into cloud save repository."""
+        cls._last_sync_error = ""
         if locations is None:
             local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
         else:
             local_stats = _stats_for_locations(locations)
         if not local_stats.exists or not locations:
+            cls._last_sync_error = (
+                "No readable files were found in the selected save locations. "
+                "Rescan Save Manager and check that the paths still exist."
+            )
             logger.info(f"No local save files to upload for '{game_name}'")
             return False
 
@@ -684,6 +696,10 @@ class CloudSaveSyncEngine:
                 if not backup_mgr.export_save_locations(
                         locations, tmp_zip, game_name=game_name, game_path=game_path,
                         launcher_metadata=cls._launcher_metadata(game_name)):
+                    cls._last_sync_error = (
+                        "The selected save paths could not be packaged. Check file permissions "
+                        "and confirm the files are still present."
+                    )
                     return False
                 result = _backend().upload_plaintext_zip(
                     normalize_name_key(game_name), game_name,
@@ -713,6 +729,8 @@ class CloudSaveSyncEngine:
                 )
                 return True
             except CloudBackendError as e:
+                from core.cloud_backend import describe_cloud_error
+                cls._last_sync_error = describe_cloud_error(e)
                 logger.warning(f"Cloud upload failed ({e.code}); save kept locally.")
                 return False
             finally:
@@ -733,6 +751,10 @@ class CloudSaveSyncEngine:
         if success:
             logger.info(f"Uploaded local save to cloud archive: {cloud_zip} ({local_stats.file_count} files, {local_stats.size_bytes} bytes)")
         else:
+            cls._last_sync_error = (
+                "The selected save paths could not be packaged into a cloud archive. "
+                "Check file permissions and confirm the files are still present."
+            )
             logger.error(f"Failed to upload local save to cloud for '{game_name}'")
         return success
 

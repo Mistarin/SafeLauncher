@@ -41,7 +41,7 @@ class SaveManagerDialog(QDialog):
     """Interactive save snapshot dialog displaying detected locations and metadata."""
 
     _restore_done = pyqtSignal(bool, str)
-    _upload_done = pyqtSignal(bool, str)
+    _upload_done = pyqtSignal(bool, str, str)
     _history_loaded = pyqtSignal(list)
 
     def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None):
@@ -510,6 +510,7 @@ class SaveManagerDialog(QDialog):
 
         def _worker():
             success = False
+            error_message = ""
             try:
                 from core.cloud_save_sync import CloudSaveSyncEngine
                 success = CloudSaveSyncEngine.sync_local_to_cloud(
@@ -518,13 +519,16 @@ class SaveManagerDialog(QDialog):
                     steam_id=self.steam_id,
                     locations=selected_locations,
                 )
+                if not success:
+                    error_message = CloudSaveSyncEngine.last_sync_error()
             except Exception as e:
                 logger.error(f"Cloud upload failed for '{self.game_name}': {e}")
-            self._upload_done.emit(bool(success), self.game_name)
+                error_message = str(e)
+            self._upload_done.emit(bool(success), self.game_name, error_message)
 
         threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-SaveUpload-{self.game_id}").start()
 
-    def _on_upload_done(self, success: bool, title: str):
+    def _on_upload_done(self, success: bool, title: str, error_message: str = ""):
         if hasattr(self, "_upload_progress") and self._upload_progress:
             try:
                 self._upload_progress.close()
@@ -541,10 +545,13 @@ class SaveManagerDialog(QDialog):
             self._load_history()
             self._notify_parent_changed()
         else:
+            detail = error_message or (
+                "The save could not be uploaded. Save Manager rechecks the selected paths before packaging them."
+            )
             QMessageBox.critical(
                 self,
                 "Upload Failed",
-                "The save could not be uploaded. Save Manager rechecks the selected paths before packaging them.\n\n"
+                f"{detail}\n\n"
                 "Rescan this window and confirm the files still exist and are readable. If they are present, "
                 "open Settings → Cloud and verify that cloud sync is configured, then try again. Review the logs "
                 "for the exact cause.",

@@ -9,6 +9,8 @@ import secrets
 import subprocess
 import tempfile
 import zipfile
+import re
+import time
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple, Any
 
@@ -179,6 +181,49 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
             return None
         server_dir = downloaded
 
+    # A redeploy must not silently redeploy an old local checkout. This was
+    # especially easy to miss because `npx convex deploy` succeeds even when
+    # the checkout still reports backend v1.4.0.
+    limits_file = server_dir / "convex" / "lib" / "limits.ts"
+    local_backend_version = ""
+    try:
+        limits_text = limits_file.read_text(encoding="utf-8")
+        match = re.search(r'BACKEND_VERSION\s*=\s*["\']([^"\']+)', limits_text)
+        local_backend_version = match.group(1).strip() if match else ""
+    except OSError:
+        pass
+    if local_backend_version and is_version_outdated(local_backend_version, MIN_CONVEX_BACKEND_VERSION):
+        print(f"  [Deploy] Local backend checkout is v{local_backend_version}; refreshing to v{MIN_CONVEX_BACKEND_VERSION}+...")
+        if (server_dir / ".git").is_dir():
+            try:
+                pulled = subprocess.run(
+                    ["git", "pull", "--ff-only"],
+                    cwd=str(server_dir),
+                    check=False,
+                    env=host_process_env(),
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if pulled.returncode != 0:
+                    print(f"  [✖] Could not refresh the backend checkout: {(pulled.stderr or pulled.stdout).strip()}")
+                    return None
+            except Exception as exc:
+                print(f"  [✖] Could not refresh the backend checkout: {exc}")
+                return None
+            try:
+                limits_text = limits_file.read_text(encoding="utf-8")
+                match = re.search(r'BACKEND_VERSION\s*=\s*["\']([^"\']+)', limits_text)
+                local_backend_version = match.group(1).strip() if match else ""
+            except OSError:
+                local_backend_version = ""
+        if not local_backend_version or is_version_outdated(local_backend_version, MIN_CONVEX_BACKEND_VERSION):
+            print(
+                f"  [✖] Backend source is still v{local_backend_version or 'unknown'}. "
+                "Use the latest SafeLauncherCloud checkout before redeploying."
+            )
+            return None
+
     compat = inspect_system_compatibility()
     if not compat["has_npm"]:
         if compat["is_steamos"] or compat["is_immutable"]:
@@ -256,8 +301,32 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
     from core.cloud_detector import detect_local_cloud_installation
     info = detect_local_cloud_installation()
     if info and info.get("site_url"):
-        print(f"\n  [✔] Deployment complete! Found site URL: {info['site_url']}")
-        return info["site_url"]
+        site_url = info["site_url"].rstrip("/")
+        verify_key = QSettings("SafeLauncher", "SafeLauncher").value(
+            "cloud_secret_key", "", type=str
+        ).strip()
+        headers = {"Authorization": f"Bearer {verify_key}", "X-SafeLauncher-Key": verify_key} if verify_key else {}
+        deployed_version = ""
+        for attempt in range(3):
+            try:
+                probe = requests.get(f"{site_url}/api/health", headers=headers, timeout=6)
+                if probe.status_code == 200:
+                    deployed_version = str((probe.json() or {}).get("version") or "").strip()
+                    if deployed_version and not is_version_outdated(deployed_version, MIN_CONVEX_BACKEND_VERSION):
+                        break
+            except (requests.RequestException, ValueError, AttributeError):
+                pass
+            if attempt < 2:
+                time.sleep(1)
+        if not deployed_version or is_version_outdated(deployed_version, MIN_CONVEX_BACKEND_VERSION):
+            print(
+                f"\n  [✖] Deployment command finished, but the endpoint still reports "
+                f"backend v{deployed_version or 'unknown'} (required v{MIN_CONVEX_BACKEND_VERSION}+)."
+            )
+            print("      Check the Convex deployment selected by the backend checkout and retry.")
+            return None
+        print(f"\n  [✔] Deployment complete! Backend v{deployed_version} at {site_url}")
+        return site_url
     return None
 
 

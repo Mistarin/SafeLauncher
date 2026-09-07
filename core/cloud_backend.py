@@ -55,6 +55,7 @@ class CloudBackendError(Exception):
 def describe_cloud_error(error: Exception) -> str:
     """Return actionable guidance for a cloud error."""
     status = getattr(error, "status_code", 0) or getattr(error, "status", 0)
+    code = str(getattr(error, "code", "") or "")
     if status == 404:
         return (
             "Cloud endpoint not found (HTTP 404). The Site URL is reachable, "
@@ -68,6 +69,18 @@ def describe_cloud_error(error: Exception) -> str:
         return (
             "Cloud authentication failed. Check the Secret Access Key in "
             "Settings → Cloud and make sure it matches the deployed backend."
+        )
+    if status == 413 or code in ("payload_too_large", "save_too_large"):
+        return (
+            "The cloud backend rejected this save because it is too large. "
+            "Older deployments still enforce the former 50 MB limit; choose "
+            "Setup Cloud → Redeploy existing backend and deploy SafeLauncherCloud "
+            "v1.5.0 or newer. The current free-tier limit is 1 GB total storage."
+        )
+    if status == 507 or code == "quota_exceeded":
+        return (
+            "Cloud storage quota exceeded. The free tier is 1 GB; remove old cloud "
+            "generations or use the referral expansion option before uploading again."
         )
     return str(error)
 
