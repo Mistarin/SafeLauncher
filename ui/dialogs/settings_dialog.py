@@ -66,40 +66,44 @@ class UserSettingsDialog(QDialog):
 
         self.setWindowTitle("Settings")
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setMinimumSize(700, 540)
         self.setSizeGripEnabled(True)
 
         self.setStyleSheet("""
             QDialog {
-                background: #121214;
-                color: #ffffff;
+                background: #141416;
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
             }
             QLabel {
-                color: #e4e4e7;
+                color: #E4E4E7;
             }
-            QLineEdit, QComboBox {
-                background: #1c1c20;
-                color: #ffffff;
-                border: 1px solid #333338;
-                border-radius: 4px;
+            QLineEdit, QComboBox, QSpinBox {
+                background: #1C1C20;
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 6px;
                 padding: 7px 10px;
                 font-size: 12px;
             }
-            QLineEdit:focus, QComboBox:focus {
-                border: 1px solid #52525b;
-                background: #222227;
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+                border-color: #3F3F46;
+                background: #222228;
             }
             QPushButton {
-                background: #27272a;
-                color: #ffffff;
-                border: 1px solid #3f3f46;
-                border-radius: 4px;
+                background: #202024;
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 6px;
                 padding: 7px 14px;
                 font-size: 12px;
-                font-weight: 600;
+                font-weight: 500;
             }
             QPushButton:hover {
-                background: #3f3f46;
+                background: #27272A;
+                border-color: rgba(255, 255, 255, 0.16);
             }
         """)
 
@@ -123,7 +127,7 @@ class UserSettingsDialog(QDialog):
 
         self.tab_buttons = []
         tabs = [
-            ("General & Profile", 0),
+            ("Preferences", 0),
             ("Container Security", 1),
             ("Storage & Logs", 2),
             ("Cloud", 3),
@@ -137,21 +141,21 @@ class UserSettingsDialog(QDialog):
             btn.setStyleSheet("""
                 QPushButton {
                     background: transparent;
-                    color: #a1a1aa;
-                    border: 1px solid transparent;
+                    color: #A1A1AA;
+                    border: none;
                     border-bottom: 2px solid transparent;
                     border-radius: 0px;
                     padding: 6px 14px;
-                    font-size: 13px;
-                    font-weight: bold;
+                    font-size: 12px;
+                    font-weight: 600;
                 }
                 QPushButton:hover {
-                    color: #ffffff;
+                    color: #FFFFFF;
                 }
                 QPushButton:checked {
                     background: transparent;
-                    color: #ffffff;
-                    border-bottom: 2px solid #3b82f6;
+                    color: #FFFFFF;
+                    border-bottom: 2px solid #FFFFFF;
                 }
             """)
             btn.clicked.connect(lambda _, i=idx: self._switch_tab(i))
@@ -223,9 +227,55 @@ class UserSettingsDialog(QDialog):
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
 
+        sec_appearance = QLabel("Appearance & Card Size")
+        sec_appearance.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_appearance.setStyleSheet("color: #FFFFFF; padding-bottom: 2px;")
+        layout.addWidget(sec_appearance)
+
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        saved_card_size = settings.value("card_size", 200, type=int)
+
+        card_form = QFormLayout()
+        card_form.setSpacing(10)
+        card_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        card_row = QHBoxLayout()
+        card_row.setSpacing(8)
+
+        self.combo_card_size = QComboBox()
+        self.combo_card_size.addItem("Small (160 px)", 160)
+        self.combo_card_size.addItem("Medium (200 px)", 200)
+        self.combo_card_size.addItem("Large (240 px)", 240)
+        self.combo_card_size.addItem("Extra Large (280 px)", 280)
+
+        matched_idx = 1
+        for idx, val in enumerate([160, 200, 240, 280]):
+            if abs(saved_card_size - val) < 20:
+                matched_idx = idx
+                break
+        self.combo_card_size.setCurrentIndex(matched_idx)
+
+        self.spin_card_size = QSpinBox()
+        self.spin_card_size.setRange(140, 320)
+        self.spin_card_size.setValue(saved_card_size)
+        self.spin_card_size.setSuffix(" px")
+        self.spin_card_size.setFixedWidth(90)
+
+        self.combo_card_size.currentIndexChanged.connect(
+            lambda idx: self.spin_card_size.setValue(self.combo_card_size.currentData())
+        )
+        self.spin_card_size.valueChanged.connect(self._on_spin_card_size_changed)
+
+        card_row.addWidget(self.combo_card_size)
+        card_row.addWidget(self.spin_card_size)
+        card_row.addStretch()
+
+        card_form.addRow("Card Size:", card_row)
+        layout.addLayout(card_form)
+
         sec_profile = QLabel("Profile & Paths")
         sec_profile.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_profile.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
+        sec_profile.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_profile)
 
         form = QFormLayout()
@@ -250,7 +300,7 @@ class UserSettingsDialog(QDialog):
 
         sec_desktop = QLabel("Desktop & Menu Integration")
         sec_desktop.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_desktop.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        sec_desktop.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_desktop)
 
         is_installed = is_desktop_entry_installed()
@@ -278,7 +328,7 @@ class UserSettingsDialog(QDialog):
 
         sec_startup = QLabel("Startup Preferences")
         sec_startup.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_startup.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        sec_startup.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_startup)
 
         self.chk_welcome = QCheckBox("Show introduction wizard on startup")
@@ -287,7 +337,7 @@ class UserSettingsDialog(QDialog):
 
         sec_achievements = QLabel("Achievement Tracking & Notifications")
         sec_achievements.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_achievements.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        sec_achievements.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_achievements)
 
         settings = QSettings("SafeLauncher", "SafeLauncher")
@@ -304,7 +354,7 @@ class UserSettingsDialog(QDialog):
 
         sec_updates = QLabel("Application Updates")
         sec_updates.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_updates.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        sec_updates.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_updates)
 
         update_row = QHBoxLayout()
@@ -1074,6 +1124,8 @@ class UserSettingsDialog(QDialog):
                 settings.setValue("cloud_device_name", dev_name)
             settings.setValue("cloud_sync_workers", self.spin_sync_workers.value())
 
+            if hasattr(self, "spin_card_size"):
+                settings.setValue("card_size", self.spin_card_size.value())
             if hasattr(self, "chk_achievement_notifications"):
                 settings.setValue("achievement_notifications_enabled", self.chk_achievement_notifications.isChecked())
             if hasattr(self, "chk_achievement_desktop"):
@@ -1392,6 +1444,19 @@ class UserSettingsDialog(QDialog):
 
     def get_show_welcome_wizard(self) -> bool:
         return self.chk_welcome.isChecked()
+
+    def _on_spin_card_size_changed(self, val: int):
+        if not hasattr(self, "combo_card_size"):
+            return
+        for idx in range(self.combo_card_size.count()):
+            if self.combo_card_size.itemData(idx) == val:
+                self.combo_card_size.blockSignals(True)
+                self.combo_card_size.setCurrentIndex(idx)
+                self.combo_card_size.blockSignals(False)
+                return
+
+    def get_card_size(self) -> int:
+        return self.spin_card_size.value() if hasattr(self, "spin_card_size") else 200
 
     @staticmethod
     def _normalise_hotkey(ks: QKeySequence) -> str:

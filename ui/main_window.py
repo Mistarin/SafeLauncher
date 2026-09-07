@@ -260,6 +260,9 @@ class MainWindow(QMainWindow):
         self.title_bar = CustomTitleBar(self)
         root_vbox.addWidget(self.title_bar)
         self.title_bar.search_changed.connect(self._on_search_query_changed)
+        self.title_bar.filter_requested.connect(self._set_filter)
+        self.title_bar.settings_requested.connect(self._open_settings)
+        self.title_bar.toggle_collections_requested.connect(self._toggle_collections_panel)
         self.title_bar.sync_requested.connect(self._on_sync_sandbox)
         self.title_bar.install_archive_requested.connect(self._on_install_zip_archive)
         self.title_bar.check_updates_requested.connect(self._check_all_steam_updates)
@@ -333,12 +336,14 @@ class MainWindow(QMainWindow):
         body_layout.setSpacing(0)
         root_vbox.addWidget(body_widget)
 
-        # 1. Left Navigation Sidebar
+        # 1. Left Collections Sidebar (On by default, collapsed)
         self.sidebar = LeftSidebarWidget(self)
+        self.sidebar.setVisible(True)
+        default_compact = self.settings.value("collections_collapsed", True, type=bool)
+        self.sidebar.set_compact(default_compact)
         body_layout.addWidget(self.sidebar)
-        self.sidebar.set_compact(self.settings.value("sidebar_compact", False, type=bool))
         self.sidebar.compact_changed.connect(
-            lambda compact: self.settings.setValue("sidebar_compact", compact)
+            lambda compact: self.settings.setValue("collections_collapsed", compact)
         )
         self.sidebar.filter_selected.connect(self._set_filter)
         self.sidebar.collection_selected.connect(self._set_collection_filter)
@@ -786,15 +791,37 @@ class MainWindow(QMainWindow):
         self.splitter.setSizes([880, saved_right_w])
         self.splitter.splitterMoved.connect(self._on_splitter_moved)
 
-        # Header Title with Sorting, View Toggle, and Inspector Reveal Button
+        # Sorting, View Toggle, and Inspector Reveal Controls
         header_layout = QHBoxLayout()
-        header_layout.setSpacing(10)
-        
-        header_title = QLabel("Game Library")
-        header_title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
-        header_title.setStyleSheet(f"color: {TEXT_PRIMARY}; background: transparent;")
-        header_layout.addWidget(header_title)
+        header_layout.setSpacing(8)
         header_layout.addStretch()
+
+        # Search Bar for Grid & List views
+        self.grid_search_input = QLineEdit()
+        self.grid_search_input.setPlaceholderText("Search library...")
+        self.grid_search_input.setFixedWidth(200)
+        self.grid_search_input.setFixedHeight(30)
+        self.grid_search_input.setClearButtonEnabled(True)
+        self.grid_search_input.addAction(get_icon("ph.magnifying-glass-bold", color="#8E8E93"), QLineEdit.ActionPosition.LeadingPosition)
+        self.grid_search_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {SURFACE};
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER};
+                border-radius: 6px;
+                padding: 0 10px 0 28px;
+                font-size: 11px;
+            }}
+            QLineEdit:focus {{
+                border-color: {TEXT_MUTED};
+                background-color: {SURFACE_ELEVATED};
+            }}
+            QLineEdit::placeholder {{
+                color: {TEXT_MUTED};
+            }}
+        """)
+        self.grid_search_input.textChanged.connect(self._on_search_query_changed)
+        header_layout.addWidget(self.grid_search_input)
 
         # Sorting ComboBox
         self.sort_combo = QComboBox()
@@ -965,6 +992,7 @@ class MainWindow(QMainWindow):
         self.compact_container.favorite_toggled.connect(self._on_card_favorite_clicked)
         self.compact_container.achievements_requested.connect(self._open_achievements_dialog)
         self.compact_container.steam_page_requested.connect(self._open_steam_page_by_id)
+        self.compact_container.filter_changed.connect(self._set_filter)
 
         self.library_view_stack.addWidget(self.grid_container)      # Index 0: Standard Grid
         self.library_view_stack.addWidget(self.list_view)           # Index 1: List View
@@ -980,36 +1008,78 @@ class MainWindow(QMainWindow):
         self.scroll_area.setWidget(self.library_view_stack)
         right_layout.addWidget(self.scroll_area)
 
-        # Action Buttons Layout (Add Game on bottom-left)
-        action_layout = QHBoxLayout()
-        action_layout.setContentsMargins(0, 4, 0, 0)
-        action_layout.setSpacing(12)
-        
+        # ── Dedicated Darker Footer Bar (#0E0E10, 36px) with Add Game on bottom-left ──
+        self.footer_bar = QFrame(self)
+        self.footer_bar.setFixedHeight(36)
+        self.footer_bar.setStyleSheet("""
+            QFrame {
+                background-color: #0E0E10;
+                border: none;
+                border-top: 1px solid rgba(255, 255, 255, 0.05);
+            }
+        """)
+        footer_layout = QHBoxLayout(self.footer_bar)
+        footer_layout.setContentsMargins(12, 0, 12, 0)
+        footer_layout.setSpacing(10)
+
         self.btn_add = QPushButton("Add Game")
         self.btn_add.setObjectName("addGameButton")
-        self.btn_add.setIcon(get_app_icon("add"))
+        self.btn_add.setIcon(get_icon("ph.plus-bold", color="#FFFFFF"))
+        self.btn_add.setIconSize(QSize(13, 13))
+        self.btn_add.setFixedHeight(26)
+        self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_add.setStyleSheet("""
+            QPushButton#addGameButton {
+                background-color: #202024;
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 5px;
+                padding: 0 12px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton#addGameButton:hover {
+                background-color: #2A2A30;
+                border-color: rgba(255, 255, 255, 0.16);
+            }
+        """)
         self.btn_add.clicked.connect(self._on_add)
-        self.btn_add.setFixedHeight(34)
-        self.btn_add.setStyleSheet(btn_primary_style())
-        self.btn_add.setIconSize(QSize(15, 15))
-        action_layout.addWidget(self.btn_add)
+        footer_layout.addWidget(self.btn_add)
 
-        action_layout.addStretch()
+        footer_layout.addStretch()
 
-        # Details Button for opening the right panel (placed down in bottom bar)
+        # Kept for test and event compatibility; hidden from footer
+        self.btn_toggle_collections = QPushButton("Collections")
+        self.btn_toggle_collections.setVisible(False)
+        self.btn_toggle_collections.clicked.connect(self._toggle_collections_panel)
+
         self.btn_reveal_detail = QPushButton(" Details")
         self.btn_reveal_detail.setIcon(get_icon("ph.caret-double-left-bold", color=TEXT_SECONDARY))
-        self.btn_reveal_detail.setIconSize(QSize(14, 14))
+        self.btn_reveal_detail.setIconSize(QSize(13, 13))
         self.btn_reveal_detail.setToolTip("Open game details panel")
         self.btn_reveal_detail.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_reveal_detail.setFixedHeight(34)
-        self.btn_reveal_detail.setStyleSheet(btn_secondary_style())
+        self.btn_reveal_detail.setFixedHeight(26)
+        self.btn_reveal_detail.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #8E8E93;
+                border: none;
+                border-radius: 5px;
+                padding: 0 8px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.06);
+                color: #FFFFFF;
+            }
+        """)
         self.btn_reveal_detail.clicked.connect(lambda: self._animate_left_panel(True))
         if self.library_view_mode in ("compact", "steam"):
             self.btn_reveal_detail.setVisible(False)
-        action_layout.addWidget(self.btn_reveal_detail)
+        footer_layout.addWidget(self.btn_reveal_detail)
 
-        right_layout.addLayout(action_layout)
+        root_vbox.addWidget(self.footer_bar)
         
         self.setStyleSheet(get_application_stylesheet())
         
@@ -1202,6 +1272,10 @@ class MainWindow(QMainWindow):
             self.settings.setValue("proton_path", self.proton_path)
             self.settings.setValue("show_welcome_wizard", dialog.get_show_welcome_wizard())
             self.settings.setValue("cloud_saves_dir", dialog.get_cloud_saves_dir())
+            if hasattr(dialog, "get_card_size"):
+                card_size = dialog.get_card_size()
+                self.settings.setValue("card_size", card_size)
+                self._on_card_size_changed(card_size)
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(self.proton_path)
 
@@ -1315,16 +1389,6 @@ class MainWindow(QMainWindow):
 
     def _setup_tray_icon(self):
         """Setup system tray icon with quick launch context menu for favorites and recently played games."""
-        if not QSystemTrayIcon.isSystemTrayAvailable():
-            return
-
-        self.tray_icon = QSystemTrayIcon(self)
-        if os.path.exists(LOGO_PATH):
-            self.tray_icon.setIcon(QIcon(LOGO_PATH))
-        else:
-            self.tray_icon.setIcon(get_app_icon("library"))
-
-        self.tray_icon.setToolTip("SafeLauncher - Game Sandbox Manager")
         self.tray_menu = QMenu(self)
         self.tray_menu.setStyleSheet("""
             QMenu {
@@ -1351,57 +1415,59 @@ class MainWindow(QMainWindow):
             }
         """)
 
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        self.tray_icon = QSystemTrayIcon(self)
+        if os.path.exists(LOGO_PATH):
+            self.tray_icon.setIcon(QIcon(LOGO_PATH))
+        else:
+            self.tray_icon.setIcon(get_app_icon("library"))
+
+        self.tray_icon.setToolTip("SafeLauncher - Game Sandbox Manager")
         self.tray_icon.activated.connect(self._on_tray_icon_activated)
         self.tray_icon.show()
 
     def _update_tray_menu(self):
-        """Populate system tray menu with Favorites and Recently Played Quick Launch items."""
+        """Populate system tray menu with pure text items: Recent Games - Library - Settings - Quit."""
         if not hasattr(self, 'tray_menu'):
             return
 
         self.tray_menu.clear()
 
-        # Show / Hide Launcher
-        act_show = self.tray_menu.addAction(get_app_icon("library"), "Open SafeLauncher Library")
+        # 1. Recent Games
+        rec_games = [g for g in self.games if len(g) > 9 and g[9] > 0]
+        rec_games.sort(key=lambda x: x[9], reverse=True)
+        recent_menu = self.tray_menu.addMenu("Recent Games")
+        if rec_games:
+            for g in rec_games[:6]:
+                game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
+                act = recent_menu.addAction(name)
+                act.triggered.connect(lambda _, gid=game_id, p=path, e=exe, m=mode: self._launch_mode(gid, p, e, m or "umu"))
+        else:
+            act_empty = recent_menu.addAction("No recent games")
+            act_empty.setEnabled(False)
+
+        self.tray_menu.addSeparator()
+
+        # 2. Library
+        act_show = self.tray_menu.addAction("Library")
         act_show.triggered.connect(self._show_and_raise)
 
         self.tray_menu.addSeparator()
 
-        # Quick Launch Section: Favorites
-        fav_games = [g for g in self.games if len(g) > 8 and g[8]]
-        if fav_games:
-            lbl_fav = self.tray_menu.addAction(get_app_icon("favorite"), "Favorites Quick Launch")
-            lbl_fav.setEnabled(False)
-            for g in fav_games[:5]:
-                game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
-                act = self.tray_menu.addAction(get_app_icon("launch"), f"  Launch {name}")
-                act.triggered.connect(lambda _, gid=game_id, p=path, e=exe, m=mode: self._launch_mode(gid, p, e, m or "umu"))
-            self.tray_menu.addSeparator()
-
-        # Quick Launch Section: Recently Played
-        rec_games = [g for g in self.games if len(g) > 9 and g[9] > 0]
-        rec_games.sort(key=lambda x: x[9], reverse=True)
-        if rec_games:
-            lbl_rec = self.tray_menu.addAction(get_icon("ph.clock-bold", color="#A7ADB8"), "Recently Played")
-            lbl_rec.setEnabled(False)
-            for g in rec_games[:5]:
-                game_id, name, path, exe, mode = g[0], g[1], g[2], g[3], g[4]
-                act = self.tray_menu.addAction(get_app_icon("launch"), f"  Launch {name}")
-                act.triggered.connect(lambda _, gid=game_id, p=path, e=exe, m=mode: self._launch_mode(gid, p, e, m or "umu"))
-            self.tray_menu.addSeparator()
-
-        # Disk Manager option
-        act_disk = self.tray_menu.addAction(get_app_icon("search"), "Disk Space Manager")
-        act_disk.triggered.connect(self._open_disk_manager)
+        # 3. Settings (separated category)
+        act_settings = self.tray_menu.addAction("Settings")
+        act_settings.triggered.connect(self._open_settings)
 
         self.tray_menu.addSeparator()
 
-        # Quit through closeEvent so all background workers, trackers, RPC and
-        # hotkey grabs are shut down cleanly instead of being destroyed mid-run.
-        act_quit = self.tray_menu.addAction(get_app_icon("close"), "Quit SafeLauncher")
+        # 4. Quit
+        act_quit = self.tray_menu.addAction("Quit")
         act_quit.triggered.connect(self.close)
 
-        self.tray_icon.setContextMenu(self.tray_menu)
+        if hasattr(self, 'tray_icon') and self.tray_icon:
+            self.tray_icon.setContextMenu(self.tray_menu)
 
     def _show_and_raise(self):
         self.showNormal()
@@ -1517,6 +1583,14 @@ class MainWindow(QMainWindow):
                 self.db.add_game(name, path, exe, mode, banner_path)
                 self._refresh_library()
                 self._show_toast(f"Game '{name}' added to library.")
+
+    def _toggle_collections_panel(self):
+        """Toggle left collections panel between collapsed (small) and expanded."""
+        if self.sidebar.isHidden():
+            self.sidebar.setVisible(True)
+            self.sidebar.set_compact(False)
+        else:
+            self.sidebar.toggle_compact()
 
     def _set_filter(self, filter_mode: str):
         """Set active filter mode (all, installed, favorites, archived) and refresh view."""
@@ -1797,11 +1871,24 @@ class MainWindow(QMainWindow):
         self._schedule_size_fetches({x[0][2] for x in processed if x[0][2]})
 
         if not processed:
-            msg = f"No games matching '{self.search_query}'" if self.search_query else ("No archived games found." if self.current_filter == "archived" else "No games matching selected filter.")
+            if self.search_query:
+                msg = f"No games matching '{self.search_query}'"
+            elif self.current_filter == "favorites":
+                msg = "No favorite games added yet"
+            elif self.current_filter == "archived":
+                msg = "No archived games found."
+            elif self.current_filter == "installed":
+                msg = "No installed games found."
+            else:
+                msg = "No games matching selected filter."
             label = QLabel(msg)
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setStyleSheet("color: #777777; font-size: 14px; padding: 40px;")
             self.grid_container.set_banner_widgets([label])
+            if hasattr(self, "compact_container"):
+                self.compact_container.set_games([], self.library_selection.ids, self.update_status_by_game_id, self.cache_dir, self.cloud_save_status_cache)
+                if hasattr(self.compact_container, "game_page") and hasattr(self.compact_container.game_page, "set_empty_state"):
+                    self.compact_container.game_page.set_empty_state(msg)
             return
 
         use_virtual = len(processed) >= getattr(self, "virtualization_threshold", 200)
@@ -3910,7 +3997,17 @@ class MainWindow(QMainWindow):
                 event.accept()
                 return
         elif key == Qt.Key.Key_F and (modifiers & Qt.KeyboardModifier.ControlModifier):
-            if hasattr(self, "title_bar") and hasattr(self.title_bar, "search_input"):
+            if self.library_view_mode in ("compact", "steam") and hasattr(self, "compact_container"):
+                self.compact_container.sidebar_list.search_edit.setFocus()
+                self.compact_container.sidebar_list.search_edit.selectAll()
+                event.accept()
+                return
+            elif hasattr(self, "grid_search_input"):
+                self.grid_search_input.setFocus()
+                self.grid_search_input.selectAll()
+                event.accept()
+                return
+            elif hasattr(self, "title_bar") and hasattr(self.title_bar, "search_input"):
                 self.title_bar.search_input.setFocus()
                 self.title_bar.search_input.selectAll()
                 event.accept()

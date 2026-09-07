@@ -256,6 +256,12 @@ class CompactActionBar(QFrame):
         self.cloud_icon_lbl.setStyleSheet("background: transparent;")
         cloud_row.addWidget(self.cloud_icon_lbl)
 
+        self.update_dot = QLabel()
+        self.update_dot.setFixedSize(7, 7)
+        self.update_dot.setStyleSheet("background-color: #3CD070; border-radius: 3.5px; border: none;")
+        self.update_dot.setToolTip("Up to date")
+        cloud_row.addWidget(self.update_dot)
+
         self.cloud_text_lbl = QLabel("Up to date")
         self.cloud_text_lbl.setStyleSheet("color: #F4F4F5; font-size: 12px; font-weight: 600; background: transparent;")
         cloud_row.addWidget(self.cloud_text_lbl)
@@ -391,16 +397,31 @@ class CompactActionBar(QFrame):
         div.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); border: none;")
         return div
 
-    def update_cloud_status(self, status: Any):
-        """Update the cloud icon and text based on SyncStatus."""
+    def update_cloud_status(self, status: Any, has_update: bool = False):
+        """Update the cloud icon, dot, and text based on SyncStatus or available update."""
+        if has_update or status in (SyncStatus.CLOUD_NEWER, SyncStatus.LOCAL_NEWER):
+            self.update_dot.setStyleSheet("background-color: #FF9F0A; border-radius: 3.5px; border: none;")
+            self.update_dot.setToolTip("Update available / sync pending")
+            self.update_dot.setVisible(True)
+        elif status == SyncStatus.IN_SYNC:
+            self.update_dot.setStyleSheet("background-color: #3CD070; border-radius: 3.5px; border: none;")
+            self.update_dot.setToolTip("Up to date")
+            self.update_dot.setVisible(True)
+        elif status == SyncStatus.CONFLICT:
+            self.update_dot.setStyleSheet("background-color: #FF453A; border-radius: 3.5px; border: none;")
+            self.update_dot.setToolTip("Conflict")
+            self.update_dot.setVisible(True)
+        else:
+            self.update_dot.setVisible(False)
+
         if status == SyncStatus.IN_SYNC:
             self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-check-fill", color="#3CD070").pixmap(14, 14))
             self.cloud_text_lbl.setText("Up to date")
             self.cloud_text_lbl.setStyleSheet("color: #3CD070; font-size: 12px; font-weight: 600; background: transparent;")
         elif status == SyncStatus.LOCAL_NEWER:
-            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-arrow-up-fill", color="#3B9FE8").pixmap(14, 14))
+            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-arrow-up-fill", color="#FF9F0A").pixmap(14, 14))
             self.cloud_text_lbl.setText("Ready to upload")
-            self.cloud_text_lbl.setStyleSheet("color: #3B9FE8; font-size: 12px; font-weight: 600; background: transparent;")
+            self.cloud_text_lbl.setStyleSheet("color: #FF9F0A; font-size: 12px; font-weight: 600; background: transparent;")
         elif status == SyncStatus.CLOUD_NEWER:
             self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-arrow-down-fill", color="#FF9F0A").pixmap(14, 14))
             self.cloud_text_lbl.setText("Newer in cloud")
@@ -517,8 +538,8 @@ class CompactActivityTimelineCard(QFrame):
         self.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
+                border: none;
+                border-radius: 6px;
             }
         """)
         self.vbox = QVBoxLayout(self)
@@ -557,8 +578,8 @@ class CompactActivityTimelineCard(QFrame):
             row = QFrame()
             row.setStyleSheet("""
                 QFrame {
-                    background-color: rgba(255, 255, 255, 0.03);
-                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    background-color: #202024;
+                    border: none;
                     border-radius: 6px;
                     padding: 4px;
                 }
@@ -569,7 +590,7 @@ class CompactActivityTimelineCard(QFrame):
 
             icon_lbl = QLabel()
             icon_lbl.setFixedSize(48, 48)
-            icon_lbl.setStyleSheet("background-color: #202024; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08);")
+            icon_lbl.setStyleSheet("background-color: #27272A; border-radius: 6px; border: none;")
             icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             icon_path = ach.get("icon_path", "")
@@ -621,8 +642,8 @@ class CompactAchievementsShowcaseWidget(QFrame):
         self.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
+                border: none;
+                border-radius: 6px;
             }
         """)
         self.vbox = QVBoxLayout(self)
@@ -664,8 +685,8 @@ class CompactAchievementsShowcaseWidget(QFrame):
         self.recent_card = QFrame()
         self.recent_card.setStyleSheet("""
             QFrame {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.05);
+                background-color: #202024;
+                border: none;
                 border-radius: 6px;
             }
         """)
@@ -675,17 +696,17 @@ class CompactAchievementsShowcaseWidget(QFrame):
 
         self.recent_icon = QLabel()
         self.recent_icon.setFixedSize(42, 42)
-        self.recent_icon.setStyleSheet("background-color: #202024; border-radius: 4px;")
+        self.recent_icon.setStyleSheet("background-color: #27272A; border-radius: 4px; border: none;")
         self.recent_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rc_layout.addWidget(self.recent_icon)
 
         rc_text = QVBoxLayout()
         rc_text.setSpacing(2)
-        self.recent_title = QLabel("No achievements unlocked yet")
+        self.recent_title = QLabel("Achievements are missing")
         self.recent_title.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700; background: transparent;")
         rc_text.addWidget(self.recent_title)
 
-        self.recent_desc = QLabel("Keep playing to unlock your first achievements!")
+        self.recent_desc = QLabel("No achievements configured for this game")
         self.recent_desc.setStyleSheet("color: #A1A1AA; font-size: 11px; background: transparent;")
         rc_text.addWidget(self.recent_desc)
         rc_layout.addLayout(rc_text, 1)
@@ -703,17 +724,16 @@ class CompactAchievementsShowcaseWidget(QFrame):
         self.btn_view_all.setFixedHeight(30)
         self.btn_view_all.setStyleSheet("""
             QPushButton {
-                background-color: #242428;
+                background-color: #202024;
                 color: #D4D4D8;
-                border: 1px solid rgba(255, 255, 255, 0.06);
+                border: none;
                 border-radius: 4px;
                 font-size: 11px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background-color: #2E2E36;
+                background-color: #2A2A30;
                 color: #FFFFFF;
-                border-color: rgba(255, 255, 255, 0.14);
             }
             QPushButton:pressed {
                 background-color: #1C1C20;
@@ -726,7 +746,12 @@ class CompactAchievementsShowcaseWidget(QFrame):
         self.ratio_lbl.setText(f"{unlocked} / {total} ({percentage:.0f} %)")
         self.progress.setValue(int(percentage))
 
-        if recent_unlocked:
+        if total == 0:
+            self.recent_title.setText("Achievements are missing")
+            self.recent_desc.setText("No achievements configured for this game")
+            self.recent_icon.setPixmap(get_icon("ph.trophy-bold", color="#71717A").pixmap(20, 20))
+            self.btn_view_all.setEnabled(False)
+        elif recent_unlocked:
             first = recent_unlocked[0]
             self.recent_title.setText(first.get("display_name") or first.get("api_name") or "Achievement")
             self.recent_desc.setText(first.get("description") or "Unlocked achievement")
@@ -740,10 +765,12 @@ class CompactAchievementsShowcaseWidget(QFrame):
             else:
                 self.recent_icon.setPixmap(get_icon("ph.trophy-fill", color="#FFD60A").pixmap(20, 20))
             self.recent_card.setVisible(True)
+            self.btn_view_all.setEnabled(True)
         else:
             self.recent_title.setText("No achievements unlocked yet")
             self.recent_desc.setText("Keep playing to unlock your first achievements!")
             self.recent_icon.setPixmap(get_icon("ph.trophy-bold", color="#71717A").pixmap(20, 20))
+            self.btn_view_all.setEnabled(True)
 
         # Re-populate locked thumbnails
         while self.thumbs_row.count():
@@ -755,7 +782,7 @@ class CompactAchievementsShowcaseWidget(QFrame):
         for ach in locked_sample[:5]:
             thumb = QLabel()
             thumb.setFixedSize(36, 36)
-            thumb.setStyleSheet("background-color: #202024; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.06);")
+            thumb.setStyleSheet("background-color: #202024; border-radius: 4px; border: none;")
             thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
             icongray = ach.get("icongray_path", "")
             if icongray and os.path.isfile(icongray):
@@ -788,8 +815,8 @@ class CompactNotesWidget(QFrame):
         self.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
+                border: none;
+                border-radius: 6px;
             }
         """)
         vbox = QVBoxLayout(self)
@@ -813,16 +840,15 @@ class CompactNotesWidget(QFrame):
         self.text_edit.setFixedHeight(120)
         self.text_edit.setStyleSheet("""
             QTextEdit {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.06);
+                background-color: #202024;
+                border: none;
                 border-radius: 6px;
                 color: #E4E4E7;
                 font-size: 12px;
                 padding: 8px;
             }
             QTextEdit:focus {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid #3B9FE8;
+                background-color: #25252A;
             }
         """)
         self.text_edit.textChanged.connect(self._on_text_changed)
@@ -955,8 +981,8 @@ class CompactGamePageWidget(QWidget):
         self.specs_card.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
+                border: none;
+                border-radius: 6px;
             }
         """)
         specs_layout = QVBoxLayout(self.specs_card)
@@ -999,6 +1025,24 @@ class CompactGamePageWidget(QWidget):
         self.scroll_area.setWidget(content_widget)
         outer_layout.addWidget(self.scroll_area)
 
+        # Centered Empty Page State
+        self.empty_page = QWidget(self)
+        self.empty_page.setStyleSheet("background-color: #121214;")
+        ep_layout = QVBoxLayout(self.empty_page)
+        self.empty_page_lbl = QLabel("No games in this view")
+        self.empty_page_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_page_lbl.setStyleSheet("color: #71717A; font-size: 15px; font-weight: 500; background: transparent;")
+        ep_layout.addStretch()
+        ep_layout.addWidget(self.empty_page_lbl)
+        ep_layout.addStretch()
+        self.empty_page.setVisible(False)
+        outer_layout.addWidget(self.empty_page)
+
+    def set_empty_state(self, message: str = "No games in this view"):
+        self.empty_page_lbl.setText(message)
+        self.scroll_area.setVisible(False)
+        self.empty_page.setVisible(True)
+
     def set_game(
         self,
         game_record: Any,
@@ -1011,7 +1055,11 @@ class CompactGamePageWidget(QWidget):
     ):
         """Bind all game attributes and stats into the Compact view."""
         if not game_record:
+            self.set_empty_state("No games in this view")
             return
+
+        self.empty_page.setVisible(False)
+        self.scroll_area.setVisible(True)
 
         self.current_game_record = game_record
         if hasattr(game_record, "name"):
@@ -1231,6 +1279,7 @@ class CompactSidebarListWidget(QFrame):
     """
     game_selected = pyqtSignal(int)
     game_double_clicked = pyqtSignal(int)
+    filter_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1240,6 +1289,7 @@ class CompactSidebarListWidget(QFrame):
         self.games_data: List[tuple] = []
         self.cache_dir: Optional[str] = None
         self.cloud_status_cache: Dict[int, Any] = {}
+        self.active_filter = "all"
 
         self.setStyleSheet("""
             QFrame#compactSidebarList {
@@ -1251,7 +1301,76 @@ class CompactSidebarListWidget(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 12, 10, 12)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
+
+        # ── Quick Filter Icons Bar (All, Installed, Favorites, Archived) ──
+        filter_bar = QFrame()
+        filter_bar.setStyleSheet("""
+            QFrame {
+                background-color: #1C1C20;
+                border: none;
+                border-radius: 6px;
+            }
+        """)
+        fb_layout = QHBoxLayout(filter_bar)
+        fb_layout.setContentsMargins(4, 3, 4, 3)
+        fb_layout.setSpacing(4)
+
+        btn_filter_style = """
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 4px;
+                padding: 4px;
+                min-height: 20px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.08);
+            }
+            QPushButton:checked {
+                background: rgba(255, 255, 255, 0.16);
+            }
+        """
+
+        self.btn_f_all = QPushButton()
+        self.btn_f_all.setIcon(get_icon("ph.squares-four-bold", color="#FFFFFF"))
+        self.btn_f_all.setIconSize(QSize(15, 15))
+        self.btn_f_all.setCheckable(True)
+        self.btn_f_all.setChecked(True)
+        self.btn_f_all.setToolTip("All Games")
+        self.btn_f_all.setStyleSheet(btn_filter_style)
+        self.btn_f_all.clicked.connect(lambda: self._on_filter_btn_clicked("all"))
+        fb_layout.addWidget(self.btn_f_all)
+
+        self.btn_f_inst = QPushButton()
+        self.btn_f_inst.setIcon(get_icon("ph.check-circle-bold", color="#FFFFFF"))
+        self.btn_f_inst.setIconSize(QSize(15, 15))
+        self.btn_f_inst.setCheckable(True)
+        self.btn_f_inst.setToolTip("Installed Games")
+        self.btn_f_inst.setStyleSheet(btn_filter_style)
+        self.btn_f_inst.clicked.connect(lambda: self._on_filter_btn_clicked("installed"))
+        fb_layout.addWidget(self.btn_f_inst)
+
+        self.btn_f_fav = QPushButton()
+        self.btn_f_fav.setIcon(get_icon("ph.star-bold", color="#FFFFFF"))
+        self.btn_f_fav.setIconSize(QSize(15, 15))
+        self.btn_f_fav.setCheckable(True)
+        self.btn_f_fav.setToolTip("Favorite Games")
+        self.btn_f_fav.setStyleSheet(btn_filter_style)
+        self.btn_f_fav.clicked.connect(lambda: self._on_filter_btn_clicked("favorites"))
+        fb_layout.addWidget(self.btn_f_fav)
+
+        self.btn_f_arch = QPushButton()
+        self.btn_f_arch.setIcon(get_icon("ph.archive-bold", color="#FFFFFF"))
+        self.btn_f_arch.setIconSize(QSize(15, 15))
+        self.btn_f_arch.setCheckable(True)
+        self.btn_f_arch.setToolTip("Archived Games")
+        self.btn_f_arch.setStyleSheet(btn_filter_style)
+        self.btn_f_arch.clicked.connect(lambda: self._on_filter_btn_clicked("archived"))
+        fb_layout.addWidget(self.btn_f_arch)
+
+        self._filter_buttons = [self.btn_f_all, self.btn_f_inst, self.btn_f_fav, self.btn_f_arch]
+        layout.addWidget(filter_bar)
 
         # ── Search Input ──
         search_box = QHBoxLayout()
@@ -1324,6 +1443,27 @@ class CompactSidebarListWidget(QFrame):
         self.list_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self.list_widget)
 
+        self.empty_lbl = QLabel("No games found")
+        self.empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_lbl.setStyleSheet("color: #71717A; font-size: 12px; font-weight: 500; padding: 40px 12px; background: transparent;")
+        self.empty_lbl.setWordWrap(True)
+        self.empty_lbl.setVisible(False)
+        layout.addWidget(self.empty_lbl)
+
+    def _on_filter_btn_clicked(self, mode: str):
+        self.active_filter = mode
+        for btn in self._filter_buttons:
+            btn.setChecked(False)
+        if mode == "all":
+            self.btn_f_all.setChecked(True)
+        elif mode == "installed":
+            self.btn_f_inst.setChecked(True)
+        elif mode == "favorites":
+            self.btn_f_fav.setChecked(True)
+        elif mode == "archived":
+            self.btn_f_arch.setChecked(True)
+        self.filter_changed.emit(mode)
+
     def set_games(
         self,
         games: List[tuple],
@@ -1383,6 +1523,23 @@ class CompactSidebarListWidget(QFrame):
 
         self.list_widget.blockSignals(False)
 
+        if self.list_widget.count() == 0:
+            if self.active_filter == "favorites":
+                self.empty_lbl.setText("No favorite games added yet")
+            elif self.active_filter == "archived":
+                self.empty_lbl.setText("No archived games found")
+            elif self.active_filter == "installed":
+                self.empty_lbl.setText("No installed games found")
+            elif query:
+                self.empty_lbl.setText(f"No games matching '{query}'")
+            else:
+                self.empty_lbl.setText("No games added yet")
+            self.empty_lbl.setVisible(True)
+            self.list_widget.setVisible(False)
+        else:
+            self.empty_lbl.setVisible(False)
+            self.list_widget.setVisible(True)
+
     def select_game(self, game_id: int):
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
@@ -1424,6 +1581,7 @@ class CompactLayoutContainer(QWidget):
     favorite_toggled = pyqtSignal(int)
     achievements_requested = pyqtSignal(int)
     steam_page_requested = pyqtSignal(str)
+    filter_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1448,6 +1606,7 @@ class CompactLayoutContainer(QWidget):
         self.sidebar_list = CompactSidebarListWidget(self.splitter)
         self.sidebar_list.game_selected.connect(self.game_selected.emit)
         self.sidebar_list.game_double_clicked.connect(self.game_double_clicked.emit)
+        self.sidebar_list.filter_changed.connect(self.filter_changed.emit)
         self.splitter.addWidget(self.sidebar_list)
 
         # Right: Compact Game Detail Page
