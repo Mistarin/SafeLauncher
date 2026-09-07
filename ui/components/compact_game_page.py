@@ -1058,8 +1058,10 @@ class CompactMediaShowcaseWidget(QFrame):
 
         # 1. Determine module active state
         is_active = True
-        if force_inactive is True:
-            is_active = False
+        if force_inactive is not None:
+            # Tests/previews can deterministically select either state;
+            # normal runtime behavior continues to probe the recorder.
+            is_active = not force_inactive
         else:
             try:
                 from core.plugins.gpu_screen_recorder import GpuRecorderService
