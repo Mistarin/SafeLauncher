@@ -162,6 +162,7 @@ class MainWindow(QMainWindow):
         self._hero_attempted = set()
         self._icon_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
+        self._stopping_game_ids = set()  # game IDs transitioning from running to stopped
         self._background_workers = []  # authoritative registry for shutdown (see _register_worker)
         self._retiring_workers = []  # retain retiring threads until completely stopped to avoid GC destroying running QThread
         # running_game_ids is a derived property over playtime_trackers — it
@@ -994,6 +995,9 @@ class MainWindow(QMainWindow):
         self.compact_container.achievements_requested.connect(self._open_achievements_dialog)
         self.compact_container.steam_page_requested.connect(self._open_steam_page_by_id)
         self.compact_container.filter_changed.connect(self._set_filter)
+        self.compact_container.screenshots_requested.connect(self._open_screenshot_gallery)
+        self.compact_container.videos_requested.connect(self._open_video_gallery)
+        self.compact_container.settings_requested.connect(self._open_settings)
 
         self.library_view_stack.addWidget(self.grid_container)      # Index 0: Standard Grid
         self.library_view_stack.addWidget(self.list_view)           # Index 1: List View
@@ -2553,8 +2557,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._show_toast(f"Failed to capture screenshot: {e}", is_error=True)
 
-    def _open_screenshot_gallery(self):
+    def _open_screenshot_gallery(self, game_id: Optional[int] = None):
         """Open ScreenshotGalleryDialog for current game."""
+        if game_id is not None:
+            self._select_game_by_id(game_id)
         game = self.selected_game
         if not game:
             return
@@ -2562,8 +2568,10 @@ class MainWindow(QMainWindow):
         dialog.exec()
         self._update_detail_panel()
 
-    def _open_video_gallery(self):
+    def _open_video_gallery(self, game_id: Optional[int] = None):
         """Open the video browser for the selected game."""
+        if game_id is not None:
+            self._select_game_by_id(game_id)
         game = self.selected_game
         if not game:
             return
@@ -3532,8 +3540,22 @@ class MainWindow(QMainWindow):
                 }
             """)
 
+        # Synchronize compact container play button if compact view is active
+        if hasattr(self, "compact_container") and self.compact_container:
+            if self.selected_game and self.selected_game[0] == game_id:
+                if game_id in self._stopping_game_ids:
+                    self.compact_container.set_play_state("stopping")
+                elif game_id in self.running_game_ids:
+                    self.compact_container.set_play_state("running")
+                else:
+                    self.compact_container.set_play_state("play")
+
     def _stop_game(self, game_id: int):
         """Terminate the active game process and its sandbox container."""
+        self._stopping_game_ids.add(game_id)
+        if hasattr(self, "compact_container") and self.compact_container:
+            if self.selected_game and self.selected_game[0] == game_id:
+                self.compact_container.set_play_state("stopping")
         stopped = False
         for tracker in list(self.playtime_trackers):
             if tracker.game_id == game_id:
@@ -4137,6 +4159,7 @@ class MainWindow(QMainWindow):
 
     def _cleanup_tracker(self, tracker: PlaytimeTrackerThread):
         """Remove finished tracker from the list so it can be garbage collected."""
+        self._stopping_game_ids.discard(tracker.game_id)
         if tracker in self.playtime_trackers:
             self.playtime_trackers.remove(tracker)
         if self.selected_game and self.selected_game[0] == tracker.game_id:

@@ -12,6 +12,7 @@ Implements the modern Compact Library presentation:
 """
 
 import os
+import re
 import datetime
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -218,27 +219,6 @@ class CompactActionBar(QFrame):
         self.btn_play.setFixedSize(140, 46)
         self.btn_play.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_play.setFont(QFont("Arial", 13, QFont.Weight.Bold))
-        self.btn_play.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3CD070, stop:1 #28A745);
-                color: #FFFFFF;
-                border: none;
-                border-radius: 6px;
-                padding: 0 16px;
-                font-weight: 800;
-                letter-spacing: 0.5px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4AE080, stop:1 #32B852);
-            }
-            QPushButton:pressed {
-                background: #238A3A;
-            }
-            QPushButton:disabled {
-                background: #323236;
-                color: #71717A;
-            }
-        """)
         self.btn_play.clicked.connect(self.play_clicked.emit)
         layout.addWidget(self.btn_play, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -337,6 +317,7 @@ class CompactActionBar(QFrame):
         layout.addStretch()
 
         # ── 3. Quick Action Tool Buttons ──
+        # Kept as attributes for signal compatibility; only Favorite is added to layout to eliminate duplicate icons
         quick_btn_style = """
             QPushButton {
                 background: #202024;
@@ -360,7 +341,6 @@ class CompactActionBar(QFrame):
         self.btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_edit.setStyleSheet(quick_btn_style)
         self.btn_edit.clicked.connect(self.edit_clicked.emit)
-        layout.addWidget(self.btn_edit, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_settings = QPushButton()
         self.btn_settings.setIcon(get_icon("ph.gear-six-bold", color="#A1A1AA"))
@@ -370,7 +350,6 @@ class CompactActionBar(QFrame):
         self.btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_settings.setStyleSheet(quick_btn_style)
         self.btn_settings.clicked.connect(self.settings_clicked.emit)
-        layout.addWidget(self.btn_settings, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_folder = QPushButton()
         self.btn_folder.setIcon(get_icon("ph.folder-open-bold", color="#A1A1AA"))
@@ -380,7 +359,6 @@ class CompactActionBar(QFrame):
         self.btn_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_folder.setStyleSheet(quick_btn_style)
         self.btn_folder.clicked.connect(self.folder_clicked.emit)
-        layout.addWidget(self.btn_folder, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_save = QPushButton()
         self.btn_save.setIcon(get_icon("ph.cloud-bold", color="#A1A1AA"))
@@ -390,7 +368,6 @@ class CompactActionBar(QFrame):
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.setStyleSheet(quick_btn_style)
         self.btn_save.clicked.connect(self.save_manager_clicked.emit)
-        layout.addWidget(self.btn_save, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_fav = QPushButton()
         self.btn_fav.setIcon(get_icon("ph.heart-bold", color="#A1A1AA"))
@@ -401,6 +378,88 @@ class CompactActionBar(QFrame):
         self.btn_fav.setStyleSheet(quick_btn_style)
         self.btn_fav.clicked.connect(self.favorite_clicked.emit)
         layout.addWidget(self.btn_fav, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.set_play_state("play")
+
+    def set_play_state(self, state: str):
+        """
+        Update play button visuals according to state:
+        - 'play' / 'idle': Green PLAY button.
+        - 'running': Blue RUNNING button (clickable to stop).
+        - 'stopping': Blue STOPPING button (disabled while stopping).
+        """
+        state_lower = (state or "").lower()
+        if state_lower in ("running", "active"):
+            self.btn_play.setText("  RUNNING")
+            self.btn_play.setIcon(get_icon("fa5s.stop", color="#FFFFFF"))
+            self.btn_play.setIconSize(QSize(16, 16))
+            self.btn_play.setEnabled(True)
+            self.btn_play.setToolTip("Click to stop game")
+            self.btn_play.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2575FC, stop:1 #1A56DB);
+                    color: #FFFFFF;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 0 16px;
+                    font-weight: 800;
+                    letter-spacing: 0.5px;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3B82F6, stop:1 #2563EB);
+                }
+                QPushButton:pressed {
+                    background: #1D4ED8;
+                }
+            """)
+        elif state_lower in ("stopping", "terminating"):
+            self.btn_play.setText("  STOPPING")
+            self.btn_play.setIcon(get_icon("ph.arrows-clockwise-bold", color="#FFFFFF"))
+            self.btn_play.setIconSize(QSize(16, 16))
+            self.btn_play.setEnabled(False)
+            self.btn_play.setToolTip("Stopping game container...")
+            self.btn_play.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2575FC, stop:1 #1A56DB);
+                    color: rgba(255, 255, 255, 0.85);
+                    border: none;
+                    border-radius: 6px;
+                    padding: 0 16px;
+                    font-weight: 800;
+                    letter-spacing: 0.5px;
+                }
+                QPushButton:disabled {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2575FC, stop:1 #1A56DB);
+                    color: rgba(255, 255, 255, 0.85);
+                }
+            """)
+        else:
+            self.btn_play.setText("  PLAY")
+            self.btn_play.setIcon(get_icon("fa5s.play", color="#FFFFFF"))
+            self.btn_play.setIconSize(QSize(16, 16))
+            self.btn_play.setEnabled(True)
+            self.btn_play.setToolTip("Launch game")
+            self.btn_play.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3CD070, stop:1 #28A745);
+                    color: #FFFFFF;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 0 16px;
+                    font-weight: 800;
+                    letter-spacing: 0.5px;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4AE080, stop:1 #32B852);
+                }
+                QPushButton:pressed {
+                    background: #238A3A;
+                }
+                QPushButton:disabled {
+                    background: #323236;
+                    color: #71717A;
+                }
+            """)
 
     def _create_divider(self) -> QFrame:
         div = QFrame()
@@ -846,6 +905,369 @@ class CompactAchievementsShowcaseWidget(QFrame):
         self.thumbs_row.addStretch()
 
 
+class CompactMediaShowcaseWidget(QFrame):
+    """
+    Dedicated Screenshot / Video Screen widget displayed under Achievements.
+    If the recording/captures module is not active or installed, displays:
+    'Module not active - turn on in settings' with an 'Open Settings' button.
+    When active, displays recent screenshot and video captures with thumbnail previews
+    and direct access buttons.
+    """
+    screenshots_clicked = pyqtSignal(int)
+    videos_clicked = pyqtSignal(int)
+    settings_clicked = pyqtSignal()
+    open_screenshot_clicked = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("compactMediaShowcase")
+        self.current_game_id: Optional[int] = None
+        self.current_game_name: str = ""
+        self.setStyleSheet("""
+            QFrame#compactMediaShowcase {
+                background-color: #18181B;
+                border: none;
+                border-radius: 6px;
+            }
+        """)
+
+        self.vbox = QVBoxLayout(self)
+        self.vbox.setContentsMargins(16, 14, 16, 14)
+        self.vbox.setSpacing(10)
+
+        # Header Row
+        header_row = QHBoxLayout()
+        header_row.setSpacing(8)
+
+        self.lbl_title = QLabel("SCREENSHOTS & RECORDINGS")
+        self.lbl_title.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
+        header_row.addWidget(self.lbl_title)
+        header_row.addStretch()
+
+        self.vbox.addLayout(header_row)
+
+        # Content Area (dynamically refreshed)
+        self.content_widget = QWidget(self)
+        self.content_widget.setStyleSheet("background: transparent;")
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(8)
+        self.vbox.addWidget(self.content_widget)
+
+    def set_media_data(self, game_id: Optional[int], game_name: str = "", force_inactive: Optional[bool] = None):
+        """Populate widget with media for the game or show inactive module state."""
+        self.current_game_id = game_id
+        self.current_game_name = game_name
+
+        # Clear existing items in content_layout
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+            l = item.layout()
+            if l:
+                while l.count():
+                    sub = l.takeAt(0)
+                    sw = sub.widget()
+                    if sw:
+                        sw.deleteLater()
+
+        if not game_id:
+            return
+
+        # 1. Determine module active state
+        is_active = True
+        if force_inactive is True:
+            is_active = False
+        else:
+            try:
+                from core.plugins.gpu_screen_recorder import GpuRecorderService
+                is_installed = GpuRecorderService.is_installed()
+            except Exception:
+                is_installed = False
+
+            settings = QSettings("SafeLauncher", "SafeLauncher")
+            is_enabled = settings.value("gpu_recorder_enabled", True, type=bool)
+            is_active = is_installed and is_enabled
+
+        if not is_active:
+            # Inactive State
+            inactive_card = QFrame()
+            inactive_card.setStyleSheet("""
+                QFrame {
+                    background-color: #202024;
+                    border: 1px solid rgba(255, 255, 255, 0.06);
+                    border-radius: 6px;
+                }
+            """)
+            ic_layout = QVBoxLayout(inactive_card)
+            ic_layout.setContentsMargins(14, 14, 14, 14)
+            ic_layout.setSpacing(10)
+
+            top_row = QHBoxLayout()
+            top_row.setSpacing(10)
+            top_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+            icon_lbl = QLabel()
+            icon_lbl.setPixmap(get_icon("ph.video-camera-slash-bold", color="#71717A").pixmap(22, 22))
+            icon_lbl.setStyleSheet("background: transparent;")
+            top_row.addWidget(icon_lbl)
+
+            text_col = QVBoxLayout()
+            text_col.setSpacing(2)
+            lbl_inactive_title = QLabel("Module not active - turn on in settings")
+            lbl_inactive_title.setStyleSheet("color: #E4E4E7; font-size: 12px; font-weight: 600; background: transparent;")
+            text_col.addWidget(lbl_inactive_title)
+
+            lbl_inactive_sub = QLabel("Enable GPU Screen Recorder / Captures in settings")
+            lbl_inactive_sub.setStyleSheet("color: #71717A; font-size: 11px; background: transparent;")
+            text_col.addWidget(lbl_inactive_sub)
+
+            top_row.addLayout(text_col)
+            top_row.addStretch()
+            ic_layout.addLayout(top_row)
+
+            btn_settings = QPushButton("Open Settings")
+            btn_settings.setIcon(get_icon("ph.gear-six-bold", color="#FFFFFF"))
+            btn_settings.setIconSize(QSize(13, 13))
+            btn_settings.setFixedHeight(30)
+            btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_settings.setStyleSheet("""
+                QPushButton {
+                    background-color: #28282E;
+                    color: #FFFFFF;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background-color: #323238;
+                    border-color: rgba(255, 255, 255, 0.16);
+                }
+                QPushButton:pressed {
+                    background-color: #1E1E22;
+                }
+            """)
+            btn_settings.clicked.connect(self.settings_clicked.emit)
+            ic_layout.addWidget(btn_settings)
+
+            self.content_layout.addWidget(inactive_card)
+            return
+
+        # Active State: Locate Screenshots and Recordings
+        from database import _APP_DATA_DIR
+        shots_dir = os.path.join(_APP_DATA_DIR, "screenshots", str(game_id))
+        screenshots = []
+        if os.path.isdir(shots_dir):
+            for f in os.listdir(shots_dir):
+                if f.lower().endswith((".png", ".jpg", ".jpeg")):
+                    screenshots.append(os.path.join(shots_dir, f))
+            screenshots.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        from core.plugins.gpu_screen_recorder import DEFAULT_RECORDINGS_DIR
+        out_dir = settings.value("gpu_recorder_output_dir", DEFAULT_RECORDINGS_DIR, type=str)
+        out_dir = os.path.abspath(os.path.expanduser(out_dir))
+        game_prefix = re.sub(r"[^a-z0-9]+", "_", (game_name or "").strip().lower()).strip("_")
+        videos = []
+        if os.path.isdir(out_dir) and game_prefix:
+            for f in os.listdir(out_dir):
+                if f.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi")):
+                    if game_prefix in f.lower():
+                        videos.append(os.path.join(out_dir, f))
+            videos.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+
+        if screenshots or videos:
+            thumbs_row = QHBoxLayout()
+            thumbs_row.setSpacing(8)
+
+            for s_path in screenshots[:2]:
+                thumb_btn = QPushButton()
+                thumb_btn.setFixedSize(110, 64)
+                thumb_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                thumb_btn.setToolTip(f"View screenshot: {os.path.basename(s_path)}")
+                pix = QPixmap(s_path)
+                if not pix.isNull():
+                    rounded = _create_rounded_icon(pix, QSize(110, 64), radius=4)
+                    thumb_btn.setIcon(QIcon(rounded))
+                    thumb_btn.setIconSize(QSize(110, 64))
+                thumb_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #202024;
+                        border: 1px solid rgba(255, 255, 255, 0.08);
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        border-color: #3B9FE8;
+                    }
+                """)
+                thumb_btn.clicked.connect(lambda _, p=s_path: self.open_screenshot_clicked.emit(p))
+                thumbs_row.addWidget(thumb_btn)
+
+            if videos:
+                v_path = videos[0]
+                v_btn = QPushButton()
+                v_btn.setFixedSize(110, 64)
+                v_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                v_btn.setToolTip(f"Play recording: {os.path.basename(v_path)}")
+                v_btn.setIcon(get_icon("ph.film-strip-bold", color="#3B9FE8"))
+                v_btn.setIconSize(QSize(28, 28))
+                v_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #1A202C;
+                        border: 1px solid rgba(59, 159, 232, 0.3);
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        border-color: #3B9FE8;
+                        background-color: #232B3B;
+                    }
+                """)
+                v_btn.clicked.connect(lambda _, gid=game_id: self.videos_clicked.emit(gid))
+                thumbs_row.addWidget(v_btn)
+
+            thumbs_row.addStretch()
+            self.content_layout.addLayout(thumbs_row)
+
+            actions_row = QHBoxLayout()
+            actions_row.setSpacing(8)
+
+            btn_shots = QPushButton(f"Screenshots ({len(screenshots)})")
+            btn_shots.setIcon(get_icon("ph.image-bold", color="#A1A1AA"))
+            btn_shots.setIconSize(QSize(13, 13))
+            btn_shots.setFixedHeight(28)
+            btn_shots.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_shots.setStyleSheet("""
+                QPushButton {
+                    background-color: #202024;
+                    color: #E4E4E7;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 0 10px;
+                }
+                QPushButton:hover {
+                    background-color: #28282E;
+                    border-color: rgba(255, 255, 255, 0.16);
+                }
+            """)
+            btn_shots.clicked.connect(lambda _, gid=game_id: self.screenshots_clicked.emit(gid))
+            actions_row.addWidget(btn_shots)
+
+            btn_vids = QPushButton(f"Videos ({len(videos)})")
+            btn_vids.setIcon(get_icon("ph.film-strip-bold", color="#A1A1AA"))
+            btn_vids.setIconSize(QSize(13, 13))
+            btn_vids.setFixedHeight(28)
+            btn_vids.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_vids.setStyleSheet("""
+                QPushButton {
+                    background-color: #202024;
+                    color: #E4E4E7;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 0 10px;
+                }
+                QPushButton:hover {
+                    background-color: #28282E;
+                    border-color: rgba(255, 255, 255, 0.16);
+                }
+            """)
+            btn_vids.clicked.connect(lambda _, gid=game_id: self.videos_clicked.emit(gid))
+            actions_row.addWidget(btn_vids)
+            actions_row.addStretch()
+
+            self.content_layout.addLayout(actions_row)
+        else:
+            empty_card = QFrame()
+            empty_card.setStyleSheet("""
+                QFrame {
+                    background-color: #202024;
+                    border: 1px solid rgba(255, 255, 255, 0.06);
+                    border-radius: 6px;
+                }
+            """)
+            ec_layout = QVBoxLayout(empty_card)
+            ec_layout.setContentsMargins(14, 12, 14, 12)
+            ec_layout.setSpacing(6)
+
+            top_row = QHBoxLayout()
+            top_row.setSpacing(8)
+            top_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+            icon_lbl = QLabel()
+            icon_lbl.setPixmap(get_icon("ph.camera-bold", color="#71717A").pixmap(18, 18))
+            icon_lbl.setStyleSheet("background: transparent;")
+            top_row.addWidget(icon_lbl)
+
+            lbl_no_captures = QLabel("No captures yet")
+            lbl_no_captures.setStyleSheet("color: #E4E4E7; font-size: 12px; font-weight: 600; background: transparent;")
+            top_row.addWidget(lbl_no_captures)
+            top_row.addStretch()
+            ec_layout.addLayout(top_row)
+
+            lbl_hint = QLabel("Press F12 for screenshot, Ctrl+Shift+Y to record")
+            lbl_hint.setStyleSheet("color: #71717A; font-size: 11px; background: transparent;")
+            ec_layout.addWidget(lbl_hint)
+
+            actions_row = QHBoxLayout()
+            actions_row.setSpacing(8)
+
+            btn_shots = QPushButton("Screenshots (0)")
+            btn_shots.setIcon(get_icon("ph.image-bold", color="#A1A1AA"))
+            btn_shots.setIconSize(QSize(13, 13))
+            btn_shots.setFixedHeight(26)
+            btn_shots.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_shots.setStyleSheet("""
+                QPushButton {
+                    background-color: #28282E;
+                    color: #A1A1AA;
+                    border: 1px solid rgba(255, 255, 255, 0.06);
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 0 10px;
+                }
+                QPushButton:hover {
+                    color: #FFFFFF;
+                    border-color: rgba(255, 255, 255, 0.14);
+                }
+            """)
+            btn_shots.clicked.connect(lambda _, gid=game_id: self.screenshots_clicked.emit(gid))
+            actions_row.addWidget(btn_shots)
+
+            btn_vids = QPushButton("Videos (0)")
+            btn_vids.setIcon(get_icon("ph.film-strip-bold", color="#A1A1AA"))
+            btn_vids.setIconSize(QSize(13, 13))
+            btn_vids.setFixedHeight(26)
+            btn_vids.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_vids.setStyleSheet("""
+                QPushButton {
+                    background-color: #28282E;
+                    color: #A1A1AA;
+                    border: 1px solid rgba(255, 255, 255, 0.06);
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 0 10px;
+                }
+                QPushButton:hover {
+                    color: #FFFFFF;
+                    border-color: rgba(255, 255, 255, 0.14);
+                }
+            """)
+            btn_vids.clicked.connect(lambda _, gid=game_id: self.videos_clicked.emit(gid))
+            actions_row.addWidget(btn_vids)
+            actions_row.addStretch()
+
+            ec_layout.addLayout(actions_row)
+            self.content_layout.addWidget(empty_card)
+
+
 class CompactNotesWidget(QFrame):
     """Interactive Game Notes widget persisted in QSettings per game ID."""
     def __init__(self, parent=None):
@@ -933,6 +1355,9 @@ class CompactGamePageWidget(QWidget):
     favorite_toggled = pyqtSignal(int)
     achievements_requested = pyqtSignal(int)
     steam_page_requested = pyqtSignal(str)
+    screenshots_requested = pyqtSignal(int)
+    videos_requested = pyqtSignal(int)
+    settings_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1100,6 +1525,14 @@ class CompactGamePageWidget(QWidget):
         self.ach_widget.view_all_clicked.connect(self._on_view_achievements)
         right_col.addWidget(self.ach_widget, 0, Qt.AlignmentFlag.AlignTop)
 
+        # Dedicated Screenshots & Recordings Showcase under Achievements
+        self.media_widget = CompactMediaShowcaseWidget(content_widget)
+        self.media_widget.screenshots_clicked.connect(self._on_screenshots)
+        self.media_widget.videos_clicked.connect(self._on_videos)
+        self.media_widget.settings_clicked.connect(self._on_settings_open)
+        self.media_widget.open_screenshot_clicked.connect(self._on_open_screenshot)
+        right_col.addWidget(self.media_widget, 0, Qt.AlignmentFlag.AlignTop)
+
         self.notes_widget = CompactNotesWidget(content_widget)
         right_col.addWidget(self.notes_widget, 0, Qt.AlignmentFlag.AlignTop)
         right_col.addStretch()
@@ -1182,12 +1615,7 @@ class CompactGamePageWidget(QWidget):
         self.hero_banner.set_hero_data(hero_image_path, g_name, tags)
 
         # 2. Action Bar
-        if is_running:
-            self.action_bar.btn_play.setText("  RUNNING")
-            self.action_bar.btn_play.setEnabled(False)
-        else:
-            self.action_bar.btn_play.setText("  PLAY")
-            self.action_bar.btn_play.setEnabled(True)
+        self.action_bar.set_play_state("running" if is_running else "play")
 
         self.action_bar.update_cloud_status(cloud_status)
         self.action_bar.last_played_val.setText(_format_last_played_date(last_played))
@@ -1221,8 +1649,16 @@ class CompactGamePageWidget(QWidget):
         # 5. Achievements Showcase
         self.ach_widget.set_achievements_data(unlocked, total, pct, recent_achievements, locked_achievements)
 
-        # 6. Notes
+        # 6. Media Showcase
+        self.media_widget.set_media_data(g_id, g_name)
+
+        # 7. Notes
         self.notes_widget.load_notes_for_game(g_id)
+
+    def set_play_state(self, state: str):
+        """Update action bar play button visuals to idle, running, or stopping."""
+        if hasattr(self, "action_bar") and self.action_bar:
+            self.action_bar.set_play_state(state)
 
     def _on_play(self):
         if self.current_game_id is not None:
@@ -1252,9 +1688,26 @@ class CompactGamePageWidget(QWidget):
         if self.current_game_id is not None:
             self.prefix_maintenance_requested.emit(self.current_game_id)
 
-    def _on_screenshots(self):
-        if self.current_game_id is not None:
-            self.properties_requested.emit(self.current_game_id)
+    def _on_screenshots(self, game_id: Optional[int] = None):
+        gid = game_id or self.current_game_id
+        if gid is not None:
+            self.screenshots_requested.emit(gid)
+
+    def _on_videos(self, game_id: Optional[int] = None):
+        gid = game_id or self.current_game_id
+        if gid is not None:
+            self.videos_requested.emit(gid)
+
+    def _on_settings_open(self):
+        self.settings_requested.emit()
+
+    def _on_open_screenshot(self, path: str):
+        try:
+            from ui.dialogs.settings_dialog import ScreenshotLightboxDialog
+            dialog = ScreenshotLightboxDialog([path], 0, parent=self)
+            dialog.exec()
+        except Exception as e:
+            logger.warning(f"Error opening screenshot lightbox: {e}")
 
     def _on_steam_page(self):
         if self.current_steam_id:
@@ -1718,6 +2171,9 @@ class CompactLayoutContainer(QWidget):
     achievements_requested = pyqtSignal(int)
     steam_page_requested = pyqtSignal(str)
     filter_changed = pyqtSignal(str)
+    screenshots_requested = pyqtSignal(int)
+    videos_requested = pyqtSignal(int)
+    settings_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1757,11 +2213,19 @@ class CompactLayoutContainer(QWidget):
         self.game_page.favorite_toggled.connect(self.favorite_toggled.emit)
         self.game_page.achievements_requested.connect(self.achievements_requested.emit)
         self.game_page.steam_page_requested.connect(self.steam_page_requested.emit)
+        self.game_page.screenshots_requested.connect(self.screenshots_requested.emit)
+        self.game_page.videos_requested.connect(self.videos_requested.emit)
+        self.game_page.settings_requested.connect(self.settings_requested.emit)
         self.splitter.addWidget(self.game_page)
 
         self.splitter.setSizes([260, 920])
         main_layout.addWidget(self.splitter)
         self.sidebar = self.sidebar_list
+
+    def set_play_state(self, state: str):
+        """Update play button visual state in the compact game page."""
+        if hasattr(self, "game_page") and self.game_page:
+            self.game_page.set_play_state(state)
 
     def set_games(
         self,
