@@ -3,6 +3,7 @@
 import os
 import threading
 import requests
+from urllib.parse import urlparse
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QStackedWidget, QWidget, QMessageBox, QApplication,
@@ -215,6 +216,25 @@ class CloudWizardDialog(QDialog):
         desc1.setStyleSheet("color: #A1A1AA; font-size: 12px; margin-left: 24px;")
         f1_layout.addWidget(desc1)
         layout.addWidget(frame_connect)
+
+        frame_edit = QFrame()
+        frame_edit.setObjectName("optionBox")
+        frame_edit.setStyleSheet(frame_connect.styleSheet())
+        f3_layout = QVBoxLayout(frame_edit)
+        f3_layout.setContentsMargins(4, 4, 4, 4)
+        f3_layout.setSpacing(6)
+        self.radio_edit = QRadioButton("Edit this device's existing cloud connection")
+        self.radio_edit.setStyleSheet("font-weight: bold; font-size: 14px; color: #A78BFA;")
+        self.mode_group.addButton(self.radio_edit, 2)
+        f3_layout.addWidget(self.radio_edit)
+        desc3 = QLabel(
+            "Use this when the backend already exists but the URL or secret key changed. "
+            "SafeLauncher will test the new values before saving them."
+        )
+        desc3.setWordWrap(True)
+        desc3.setStyleSheet("color: #A1A1AA; font-size: 12px; margin-left: 24px;")
+        f3_layout.addWidget(desc3)
+        layout.addWidget(frame_edit)
 
         # Option 2: Set up a new private cloud database from scratch
         frame_new = QFrame()
@@ -598,7 +618,10 @@ class CloudWizardDialog(QDialog):
                 self.btn_next.setText("Next")
             else:
                 self.pages.setCurrentIndex(2)
-                self.subtitle_lbl.setText("Connect to your cloud database")
+                self.subtitle_lbl.setText(
+                    "Edit your cloud connection" if self.radio_edit.isChecked()
+                    else "Connect to your cloud database"
+                )
                 self.btn_back.setEnabled(True)
                 self.btn_next.setText("Test & Connect")
         elif cur == 1:
@@ -625,6 +648,20 @@ class CloudWizardDialog(QDialog):
             url = "https://" + url
             self.edit_url.setText(url)
 
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            self.status_lbl.setText(
+                "<font color='#EF4444'>Enter a valid Convex Site URL, for example "
+                "https://my-project.convex.site.</font>"
+            )
+            return
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            self.status_lbl.setText(
+                "<font color='#EF4444'>Use only the Convex Site URL. Remove credentials, "
+                "query parameters, or fragments.</font>"
+            )
+            return
+
         self.btn_next.setEnabled(False)
         self.btn_back.setEnabled(False)
         self.status_lbl.setText("<font color='#3B82F6'>Connecting to backend...</font>")
@@ -642,12 +679,21 @@ class CloudWizardDialog(QDialog):
                     return
 
                 resp_me = requests.get(f"{url}/api/me", headers=headers, timeout=6)
+                if resp_me.status_code in (401, 403):
+                    self.test_completed.emit(
+                        False,
+                        "The backend requires a valid Secret Access Key. Enter the key configured in Convex."
+                    )
+                    return
                 if resp_me.status_code == 200:
                     data = resp_me.json()
                     quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
                     self.test_completed.emit(True, f"Connected! Available quota: {quota_mb:.0f} MB")
                 else:
-                    self.test_completed.emit(True, "Backend reachable!")
+                    self.test_completed.emit(
+                        False,
+                        f"Backend is reachable, but account verification failed with HTTP {resp_me.status_code}."
+                    )
             except Exception as e:
                 self.test_completed.emit(False, str(e))
 
