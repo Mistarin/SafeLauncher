@@ -268,7 +268,7 @@ class GamePropertiesDialog(QDialog):
         body_layout.addWidget(sec_toggles)
 
         toggles_card = QFrame()
-        toggles_card.setStyleSheet("QFrame { background: #14171D; border: 1px solid #252A33; border-radius: 8px; padding: 12px; }")
+        toggles_card.setStyleSheet("QFrame { background: #18181B; border: none; border-radius: 10px; padding: 12px; }")
         tc_layout = QVBoxLayout(toggles_card)
         tc_layout.setSpacing(10)
 
@@ -331,7 +331,7 @@ class GamePropertiesDialog(QDialog):
         body_layout.addWidget(sec_custom)
 
         custom_card = QFrame()
-        custom_card.setStyleSheet("QFrame { background: #14171D; border: 1px solid #252A33; border-radius: 8px; padding: 10px; }")
+        custom_card.setStyleSheet("QFrame { background: #18181B; border: none; border-radius: 10px; padding: 10px; }")
         cc_layout = QVBoxLayout(custom_card)
         cc_layout.setSpacing(8)
 
@@ -403,7 +403,7 @@ class GamePropertiesDialog(QDialog):
         body_layout.addWidget(sec_detected)
 
         save_card = QFrame()
-        save_card.setStyleSheet("QFrame { background: #14171D; border: 1px solid #252A33; border-radius: 8px; padding: 12px; }")
+        save_card.setStyleSheet("QFrame { background: #18181B; border: none; border-radius: 10px; padding: 12px; }")
         sc_layout = QVBoxLayout(save_card)
         sc_layout.setSpacing(8)
 
@@ -432,7 +432,7 @@ class GamePropertiesDialog(QDialog):
         body_layout.addWidget(sec_sync)
 
         sync_card = QFrame()
-        sync_card.setStyleSheet("QFrame { background: #14171D; border: 1px solid #252A33; border-radius: 8px; padding: 12px; }")
+        sync_card.setStyleSheet("QFrame { background: #18181B; border: none; border-radius: 10px; padding: 12px; }")
         syc_layout = QVBoxLayout(sync_card)
         syc_layout.setSpacing(10)
 

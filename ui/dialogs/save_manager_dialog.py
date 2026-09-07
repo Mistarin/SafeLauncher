@@ -78,9 +78,9 @@ class SaveManagerDialog(QDialog):
         header_frame = QFrame()
         header_frame.setStyleSheet("""
             QFrame {
-                background: #14171D;
-                border: 1px solid #252A33;
-                border-radius: 8px;
+                background: #18181B;
+                border: none;
+                border-radius: 10px;
                 padding: 12px;
             }
         """)
@@ -104,15 +104,15 @@ class SaveManagerDialog(QDialog):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane {
-                border: 1px solid #252A33;
+                border: none;
                 border-radius: 8px;
-                background: #0D0F14;
+                background: #141416;
             }
             QTabBar::tab {
-                background: #14171D;
+                background: #18181B;
                 color: #A7ADB8;
-                border: 1px solid #252A33;
-                border-bottom: none;
+                border: none;
+                border-bottom: 2px solid transparent;
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
                 padding: 8px 16px;
@@ -123,7 +123,7 @@ class SaveManagerDialog(QDialog):
             QTabBar::tab:selected {
                 background: #1E293B;
                 color: #F5F7FA;
-                border-color: #3B9FE8;
+                border-bottom-color: #3B9FE8;
             }
         """)
 
@@ -167,8 +167,8 @@ class SaveManagerDialog(QDialog):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setStyleSheet("""
             QScrollArea {
-                background: #0D0F14;
-                border: 1px solid #252A33;
+                background: #141416;
+                border: none;
                 border-radius: 8px;
             }
         """)
@@ -359,9 +359,9 @@ class SaveManagerDialog(QDialog):
 
         self.setStyleSheet("""
             QDialog {
-                background-color: #0D0F14;
-                border: 1px solid #252A33;
-                border-radius: 10px;
+                background-color: #111113;
+                border: none;
+                border-radius: 12px;
             }
         """)
 
@@ -385,21 +385,23 @@ class SaveManagerDialog(QDialog):
             empty_lbl.setStyleSheet("color: #6F7682; padding: 40px; font-size: 12px;")
             self.scroll_layout.insertWidget(0, empty_lbl)
             self.btn_export.setEnabled(False)
+            self.btn_export.setText("Choose saves to export")
             return
 
-        self.btn_export.setEnabled(True)
+        self.btn_export.setEnabled(False)
+        self.btn_export.setText("Choose saves to export")
 
         for loc in self.save_locations:
             card = QFrame()
             card.setStyleSheet("""
                 QFrame {
-                    background: #14171D;
-                    border: 1px solid #252A33;
-                    border-radius: 6px;
+                    background: #1B1B1F;
+                    border: none;
+                    border-radius: 8px;
                     padding: 8px;
                 }
                 QFrame:hover {
-                    border-color: #353C4A;
+                    background: #222228;
                 }
             """)
             c_layout = QHBoxLayout(card)
@@ -407,20 +409,9 @@ class SaveManagerDialog(QDialog):
             c_layout.setSpacing(10)
 
             cb = QCheckBox()
-            cb.setChecked(True)
-            cb.setStyleSheet("""
-                QCheckBox::indicator {
-                    width: 18px;
-                    height: 18px;
-                    border-radius: 4px;
-                    border: 1px solid #353C4A;
-                    background: #1A1E26;
-                }
-                QCheckBox::indicator:checked {
-                    background: #3B9FE8;
-                    border-color: #3B9FE8;
-                }
-            """)
+            cb.setChecked(False)
+            cb.setStyleSheet("color: #F4F4F5; background: transparent;")
+            cb.stateChanged.connect(lambda _state: self._update_export_state())
             c_layout.addWidget(cb)
             self.checkboxes.append((cb, loc))
 
@@ -449,6 +440,13 @@ class SaveManagerDialog(QDialog):
             c_layout.addLayout(info_vbox, 1)
 
             self.scroll_layout.insertWidget(self.scroll_layout.count() - 1, card)
+
+        self._update_export_state()
+
+    def _update_export_state(self):
+        selected = any(cb.isChecked() for cb, _loc in self.checkboxes)
+        self.btn_export.setEnabled(selected)
+        self.btn_export.setText("Export selected saves" if selected else "Choose saves to export")
 
     def _export_selected(self):
         selected_locations = [loc for cb, loc in self.checkboxes if cb.isChecked()]
