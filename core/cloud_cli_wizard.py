@@ -22,6 +22,48 @@ from core.cloud_detector import (
 )
 
 
+def _convex_cli_env(server_dir: Path) -> dict[str, str]:
+    """Return the host environment plus Convex dotenv configuration.
+
+    ``convex dev`` writes project configuration to ``.env.local``.  Some
+    Convex CLI versions do not load that file for a non-interactive
+    ``convex deploy`` invocation, so pass the values explicitly.  Shell
+    variables remain authoritative over dotenv values.
+    """
+    env = host_process_env()
+    # Load the highest-priority files first.  Explicit shell variables already
+    # present in ``env`` always win through setdefault().
+    for filename in (".env.production.local", ".env.production", ".env.local", ".env"):
+        env_file = server_dir / filename
+        if not env_file.is_file():
+            continue
+        try:
+            for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[7:].lstrip()
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                if not key or not all(ch.isalnum() or ch == "_" for ch in key) or key[0].isdigit():
+                    continue
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                env.setdefault(key, value)
+        except OSError as exc:
+            print(f"  [!] Could not read {env_file}: {exc}")
+    return env
+
+
+def _has_convex_project_config(env: dict[str, str]) -> bool:
+    """Whether Convex has either a local deployment or production deploy key."""
+    return bool(env.get("CONVEX_DEPLOYMENT") or env.get("CONVEX_DEPLOY_KEY"))
+
+
 def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Path]:
     """Download or clone the SafeLauncherDatabase/SafeLauncherCloud backend repository."""
     import shutil
@@ -141,16 +183,27 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
             print("      or deploy via web browser at https://github.com/Mistarin/SafeLauncherCloud\n")
         return None
 
-    clean_env = host_process_env()
+    clean_env = _convex_cli_env(server_dir)
 
     print(f"\n  [Deploy] Installing dependencies in {server_dir}...")
     try:
         subprocess.run(["npm", "install"], cwd=str(server_dir), check=True, env=clean_env)
         
-        env_local = server_dir / ".env.local"
-        if not env_local.is_file():
-            print("\n  [Convex] First-time setup: Linking your Convex project...")
-            print("  (A browser window or terminal prompt will open to authenticate with Convex)")
+        if not _has_convex_project_config(clean_env):
+            print("\n  [Convex] First-time setup: linking this folder to your Convex project.")
+            print("  Sign in when prompted, choose an existing project or create a new one, and wait for setup to finish.")
+            subprocess.run(
+                ["npx", "convex", "dev", "--once"],
+                cwd=str(server_dir),
+                check=True,
+                env=clean_env,
+            )
+            # ``convex dev --once`` writes .env.local. Reload it before deploy.
+            clean_env = _convex_cli_env(server_dir)
+            if not _has_convex_project_config(clean_env):
+                print("  [✖] Convex setup finished without a deployment configuration.")
+                print("      Run 'npx convex dev' in the backend folder, then start setup again.")
+                return None
         
         print("  [Deploy] Deploying backend functions with 'npx convex deploy'...")
         subprocess.run(["npx", "convex", "deploy"], cwd=str(server_dir), check=True, env=clean_env)
@@ -333,6 +386,7 @@ def run_cloud_setup_wizard() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=25,
+                env=_convex_cli_env(Path(local_info["path"])),
             )
             print(f"  {GREEN}✔ Configured SAFELAUNCHER_SECRET_KEY in Convex environment!{RESET}")
         except Exception as e:
