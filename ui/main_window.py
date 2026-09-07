@@ -6,6 +6,8 @@ import subprocess
 import threading
 from datetime import datetime
 from html import escape
+from typing import Optional, List, Dict, Tuple, Any, Set
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
