@@ -20,8 +20,15 @@ fi
 
 # Private debug log location inside XDG state; avoid predictable files in /tmp.
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/safelauncher"
-mkdir -p -m 700 "$LOG_DIR"
+if ! mkdir -p -m 700 "$LOG_DIR" 2>/dev/null; then
+    LOG_DIR="/tmp/safelauncher"
+    mkdir -p -m 700 "$LOG_DIR" 2>/dev/null || true
+fi
 LOG_FILE="$LOG_DIR/run_app.log"
 
 cd "$PROJECT_DIR"
-exec "$PYTHON" "$PROJECT_DIR/main.py" >> "$LOG_FILE" 2>&1
+if touch "$LOG_FILE" 2>/dev/null; then
+    exec "$PYTHON" "$PROJECT_DIR/main.py" >> "$LOG_FILE" 2>&1
+else
+    exec "$PYTHON" "$PROJECT_DIR/main.py"
+fi
