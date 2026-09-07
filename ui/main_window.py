@@ -1006,17 +1006,23 @@ class MainWindow(QMainWindow):
         self.library_view_stack.addWidget(self.compact_container)   # Index 3: Compact Layout
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
+            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self.library_header_bar.setVisible(True)
             self.right_layout.setContentsMargins(18, 14, 18, 14)
             self.right_layout.setSpacing(12)
         elif self.library_view_mode in ("compact", "steam"):
             self.library_view_stack.setCurrentIndex(3)
+            # Compact view owns scrolling so the list and game page stay
+            # independent from the outer library container.
+            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.detail_panel.setVisible(False)
             self.library_header_bar.setVisible(False)
             self.right_layout.setContentsMargins(0, 0, 0, 0)
             self.right_layout.setSpacing(0)
         else:
             self.library_view_stack.setCurrentIndex(0)
+            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self.library_header_bar.setVisible(True)
             self.right_layout.setContentsMargins(18, 14, 18, 14)
             self.right_layout.setSpacing(12)
@@ -1759,6 +1765,7 @@ class MainWindow(QMainWindow):
             self._update_compact_game_page()
         elif use_virtual:
             self.library_view_stack.setCurrentIndex(2)
+            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             if hasattr(self, "library_header_bar"):
                 self.library_header_bar.setVisible(True)
             if hasattr(self, "right_layout"):
@@ -1771,6 +1778,7 @@ class MainWindow(QMainWindow):
                 self.btn_reveal_detail.setVisible(True)
         else:
             self.library_view_stack.setCurrentIndex(0)
+            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             if hasattr(self, "library_header_bar"):
                 self.library_header_bar.setVisible(True)
             if hasattr(self, "right_layout"):

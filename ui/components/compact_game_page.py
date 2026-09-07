@@ -242,6 +242,7 @@ class CompactActionBar(QFrame):
         super().__init__(parent)
         self.setObjectName("compactActionBar")
         self.setFixedHeight(72)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("""
@@ -572,6 +573,7 @@ class CompactSubNavBar(QFrame):
         super().__init__(parent)
         self.setObjectName("compactSubNavBar")
         self.setFixedHeight(56)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         # This navigation strip sits over the hero artwork, but should remain
         # a solid dark-grey surface rather than showing the artwork through it.
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
@@ -1008,6 +1010,30 @@ class CompactMediaShowcaseWidget(QFrame):
         self.content_layout.setSpacing(8)
         self.vbox.addWidget(self.content_widget)
 
+    def _make_media_action(self, label: str, icon_name: str, count: int, callback) -> QFrame:
+        """Create a clean text-and-icon action with a separate muted count."""
+        action = QFrame()
+        action.setCursor(Qt.CursorShape.PointingHandCursor)
+        action.setStyleSheet("QFrame { background: transparent; border: none; } QLabel { background: transparent; }")
+        action_layout = QHBoxLayout(action)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(6)
+
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(get_icon(icon_name, color="#FFFFFF").pixmap(14, 14))
+        action_layout.addWidget(icon_lbl)
+
+        text_lbl = QLabel(label)
+        text_lbl.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 600;")
+        action_layout.addWidget(text_lbl)
+
+        count_lbl = QLabel(str(count))
+        count_lbl.setStyleSheet("color: #8E8E93; font-size: 11px; font-weight: 600;")
+        action_layout.addWidget(count_lbl)
+        action_layout.addStretch()
+        action.mousePressEvent = lambda _event: callback()
+        return action
+
     def set_media_data(self, game_id: Optional[int], game_name: str = "", force_inactive: Optional[bool] = None):
         """Populate widget with media for the game or show inactive module state."""
         self.current_game_id = game_id
@@ -1119,52 +1145,30 @@ class CompactMediaShowcaseWidget(QFrame):
 
         if screenshots or videos:
             thumbs_row = QHBoxLayout()
-            thumbs_row.setSpacing(8)
+            thumbs_row.setSpacing(6)
 
-            for s_path in screenshots[:2]:
+            for s_path in screenshots[:4]:
                 thumb_btn = QPushButton()
-                thumb_btn.setFixedSize(110, 64)
+                thumb_btn.setFixedSize(84, 52)
                 thumb_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 thumb_btn.setToolTip(f"View screenshot: {os.path.basename(s_path)}")
                 pix = QPixmap(s_path)
                 if not pix.isNull():
-                    rounded = _create_rounded_icon(pix, QSize(110, 64), radius=4)
+                    rounded = _create_rounded_icon(pix, QSize(84, 52), radius=4)
                     thumb_btn.setIcon(QIcon(rounded))
-                    thumb_btn.setIconSize(QSize(110, 64))
+                    thumb_btn.setIconSize(QSize(84, 52))
                 thumb_btn.setStyleSheet("""
                     QPushButton {
-                        background-color: #202024;
-                        border: 1px solid rgba(255, 255, 255, 0.08);
-                        border-radius: 4px;
+                        background: transparent;
+                        border: none;
+                        border-radius: 0;
                     }
                     QPushButton:hover {
-                        border-color: #3B9FE8;
+                        background: rgba(255, 255, 255, 0.06);
                     }
                 """)
                 thumb_btn.clicked.connect(lambda _, p=s_path: self.open_screenshot_clicked.emit(p))
                 thumbs_row.addWidget(thumb_btn)
-
-            if videos:
-                v_path = videos[0]
-                v_btn = QPushButton()
-                v_btn.setFixedSize(110, 64)
-                v_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                v_btn.setToolTip(f"Play recording: {os.path.basename(v_path)}")
-                v_btn.setIcon(get_icon("ph.film-strip-bold", color="#3B9FE8"))
-                v_btn.setIconSize(QSize(28, 28))
-                v_btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #1A202C;
-                        border: 1px solid rgba(59, 159, 232, 0.3);
-                        border-radius: 4px;
-                    }
-                    QPushButton:hover {
-                        border-color: #3B9FE8;
-                        background-color: #232B3B;
-                    }
-                """)
-                v_btn.clicked.connect(lambda _, gid=game_id: self.videos_clicked.emit(gid))
-                thumbs_row.addWidget(v_btn)
 
             thumbs_row.addStretch()
             self.content_layout.addLayout(thumbs_row)
@@ -1172,51 +1176,14 @@ class CompactMediaShowcaseWidget(QFrame):
             actions_row = QHBoxLayout()
             actions_row.setSpacing(8)
 
-            btn_shots = QPushButton(f"Screenshots ({len(screenshots)})")
-            btn_shots.setIcon(get_icon("ph.image-bold", color="#A1A1AA"))
-            btn_shots.setIconSize(QSize(13, 13))
-            btn_shots.setFixedHeight(28)
-            btn_shots.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_shots.setStyleSheet("""
-                QPushButton {
-                    background-color: #202024;
-                    color: #E4E4E7;
-                    border: 1px solid rgba(255, 255, 255, 0.08);
-                    border-radius: 4px;
-                    font-size: 11px;
-                    font-weight: 600;
-                    padding: 0 10px;
-                }
-                QPushButton:hover {
-                    background-color: #28282E;
-                    border-color: rgba(255, 255, 255, 0.16);
-                }
-            """)
-            btn_shots.clicked.connect(lambda _, gid=game_id: self.screenshots_clicked.emit(gid))
-            actions_row.addWidget(btn_shots)
-
-            btn_vids = QPushButton(f"Videos ({len(videos)})")
-            btn_vids.setIcon(get_icon("ph.film-strip-bold", color="#A1A1AA"))
-            btn_vids.setIconSize(QSize(13, 13))
-            btn_vids.setFixedHeight(28)
-            btn_vids.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_vids.setStyleSheet("""
-                QPushButton {
-                    background-color: #202024;
-                    color: #E4E4E7;
-                    border: 1px solid rgba(255, 255, 255, 0.08);
-                    border-radius: 4px;
-                    font-size: 11px;
-                    font-weight: 600;
-                    padding: 0 10px;
-                }
-                QPushButton:hover {
-                    background-color: #28282E;
-                    border-color: rgba(255, 255, 255, 0.16);
-                }
-            """)
-            btn_vids.clicked.connect(lambda _, gid=game_id: self.videos_clicked.emit(gid))
-            actions_row.addWidget(btn_vids)
+            actions_row.addWidget(self._make_media_action(
+                "Screenshots", "ph.image-bold", len(screenshots),
+                lambda gid=game_id: self.screenshots_clicked.emit(gid)
+            ))
+            actions_row.addWidget(self._make_media_action(
+                "Videos", "ph.film-strip-bold", len(videos),
+                lambda gid=game_id: self.videos_clicked.emit(gid)
+            ))
             actions_row.addStretch()
 
             self.content_layout.addLayout(actions_row)
@@ -1244,53 +1211,14 @@ class CompactMediaShowcaseWidget(QFrame):
             actions_row = QHBoxLayout()
             actions_row.setSpacing(8)
 
-            btn_shots = QPushButton("Screenshots (0)")
-            btn_shots.setIcon(get_icon("ph.image-bold", color="#A1A1AA"))
-            btn_shots.setIconSize(QSize(13, 13))
-            btn_shots.setFixedHeight(26)
-            btn_shots.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_shots.setStyleSheet("""
-                QPushButton {
-                    background-color: #202024;
-                    color: #A1A1AA;
-                    border: 1px solid rgba(255, 255, 255, 0.08);
-                    border-radius: 4px;
-                    font-size: 11px;
-                    font-weight: 500;
-                    padding: 0 10px;
-                }
-                QPushButton:hover {
-                    color: #FFFFFF;
-                    background-color: #28282E;
-                    border-color: rgba(255, 255, 255, 0.16);
-                }
-            """)
-            btn_shots.clicked.connect(lambda _, gid=game_id: self.screenshots_clicked.emit(gid))
-            actions_row.addWidget(btn_shots)
-
-            btn_vids = QPushButton("Videos (0)")
-            btn_vids.setIcon(get_icon("ph.film-strip-bold", color="#A1A1AA"))
-            btn_vids.setIconSize(QSize(13, 13))
-            btn_vids.setFixedHeight(26)
-            btn_vids.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_vids.setStyleSheet("""
-                QPushButton {
-                    background-color: #202024;
-                    color: #A1A1AA;
-                    border: 1px solid rgba(255, 255, 255, 0.08);
-                    border-radius: 4px;
-                    font-size: 11px;
-                    font-weight: 500;
-                    padding: 0 10px;
-                }
-                QPushButton:hover {
-                    color: #FFFFFF;
-                    background-color: #28282E;
-                    border-color: rgba(255, 255, 255, 0.16);
-                }
-            """)
-            btn_vids.clicked.connect(lambda _, gid=game_id: self.videos_clicked.emit(gid))
-            actions_row.addWidget(btn_vids)
+            actions_row.addWidget(self._make_media_action(
+                "Screenshots", "ph.image-bold", 0,
+                lambda gid=game_id: self.screenshots_clicked.emit(gid)
+            ))
+            actions_row.addWidget(self._make_media_action(
+                "Videos", "ph.film-strip-bold", 0,
+                lambda gid=game_id: self.videos_clicked.emit(gid)
+            ))
             actions_row.addStretch()
 
             self.content_layout.addLayout(actions_row)
@@ -1395,6 +1323,7 @@ class CompactGamePageWidget(QWidget):
 
         self.setObjectName("compactGamePageRoot")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet("""
             QWidget#compactGamePageRoot {
                 background: transparent;
@@ -1892,6 +1821,7 @@ class CompactSidebarListWidget(QFrame):
         self.setObjectName("compactSidebarList")
         self.setMinimumWidth(220)
         self.setMaximumWidth(360)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self.games_data: List[tuple] = []
         self.cache_dir: Optional[str] = None
         self.cloud_status_cache: Dict[int, Any] = {}
@@ -1901,7 +1831,6 @@ class CompactSidebarListWidget(QFrame):
             QFrame#compactSidebarList {
                 background-color: #161618;
                 border: none;
-                border-right: 1px solid rgba(255, 255, 255, 0.06);
             }
         """)
 
@@ -2037,12 +1966,6 @@ class CompactSidebarListWidget(QFrame):
         """)
         self.sort_combo.currentIndexChanged.connect(self._on_sort_combo_changed)
         sort_row.addWidget(self.sort_combo, stretch=1)
-
-        # Clean vertical divider
-        v_divider = QFrame()
-        v_divider.setFixedSize(1, 14)
-        v_divider.setStyleSheet("background-color: rgba(255, 255, 255, 0.1); border: none;")
-        sort_row.addWidget(v_divider)
 
         # Games count label
         self.lbl_count = QLabel("0")
@@ -2260,6 +2183,7 @@ class CompactLayoutContainer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet("background: transparent;")
 
         main_layout = QHBoxLayout(self)
@@ -2272,8 +2196,8 @@ class CompactLayoutContainer(QWidget):
                 background: transparent;
             }
             QSplitter::handle {
-                background: rgba(255, 255, 255, 0.04);
-                width: 1px;
+                background: transparent;
+                width: 0px;
             }
         """)
 
