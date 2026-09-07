@@ -80,6 +80,35 @@ def _has_convex_project_config(env: dict[str, str]) -> bool:
     return bool(env.get("CONVEX_DEPLOYMENT") or env.get("CONVEX_DEPLOY_KEY"))
 
 
+def _site_url_from_backend_checkout(server_dir: Path) -> str:
+    """Read the site URL belonging to the checkout being deployed.
+
+    Global auto-discovery can find another SafeLauncherCloud checkout. Deployment
+    verification must follow the exact project directory passed to this function.
+    """
+    for filename in (".env.production.local", ".env.production", ".env.local", ".env"):
+        env_file = server_dir / filename
+        if not env_file.is_file():
+            continue
+        try:
+            values = {}
+            for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                values[key.strip()] = value.strip().strip('"').strip("'")
+            site_url = values.get("CONVEX_SITE_URL", "").strip()
+            if site_url:
+                return site_url.rstrip("/")
+            convex_url = values.get("CONVEX_URL", "").strip()
+            if convex_url:
+                return convex_url.replace(".convex.cloud", ".convex.site").rstrip("/")
+        except OSError:
+            continue
+    return ""
+
+
 def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Path]:
     """Download or clone the SafeLauncherDatabase/SafeLauncherCloud backend repository."""
     import shutil
@@ -300,8 +329,10 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
 
     from core.cloud_detector import detect_local_cloud_installation
     info = detect_local_cloud_installation()
-    if info and info.get("site_url"):
+    site_url = _site_url_from_backend_checkout(server_dir)
+    if not site_url and info and info.get("site_url"):
         site_url = info["site_url"].rstrip("/")
+    if site_url:
         verify_key = QSettings("SafeLauncher", "SafeLauncher").value(
             "cloud_secret_key", "", type=str
         ).strip()
@@ -325,6 +356,7 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
             )
             print("      Check the Convex deployment selected by the backend checkout and retry.")
             return None
+        QSettings("SafeLauncher", "SafeLauncher").setValue("convex_site_url", site_url)
         print(f"\n  [✔] Deployment complete! Backend v{deployed_version} at {site_url}")
         return site_url
     return None

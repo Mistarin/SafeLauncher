@@ -47,11 +47,18 @@ def main():
     except Exception:
         pass
 
+    logger.info("Creating Qt application instance...")
     app = QApplication(sys.argv)
+    logger.info("Qt application instance created.")
     # Set the application-level icon before any windows are created. This is
     # what Linux taskbars/window managers use for a Python-launched process.
     if LOGO_PATH:
-        app.setWindowIcon(QIcon(LOGO_PATH))
+        try:
+            app_icon = QIcon(LOGO_PATH)
+            if not app_icon.isNull():
+                app.setWindowIcon(app_icon)
+        except Exception as exc:
+            logger.warning(f"Could not load application icon; continuing without it: {exc}")
     app.setDesktopFileName("safelauncher")
 
     # 1. Fast probe: if already running, focus existing window and exit immediately
