@@ -780,9 +780,10 @@ class MainWindow(QMainWindow):
         self.right_panel.setObjectName("libraryCentralPanel")
         self.right_panel.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.right_panel.setStyleSheet("QWidget#libraryCentralPanel { background: transparent; }")
-        right_layout = QVBoxLayout(self.right_panel)
-        right_layout.setContentsMargins(18, 14, 18, 14)
-        right_layout.setSpacing(12)
+        self.right_layout = QVBoxLayout(self.right_panel)
+        self.right_layout.setContentsMargins(18, 14, 18, 14)
+        self.right_layout.setSpacing(12)
+        right_layout = self.right_layout
 
         # Add center game grid first, right detail panel second
         self.splitter.addWidget(self.right_panel)
@@ -792,8 +793,12 @@ class MainWindow(QMainWindow):
         self.splitter.setSizes([880, saved_right_w])
         self.splitter.splitterMoved.connect(self._on_splitter_moved)
 
-        # Sorting, View Toggle, and Inspector Reveal Controls
-        header_layout = QHBoxLayout()
+        # Sorting and Search Controls for Grid / List views (hidden in Compact view)
+        self.library_header_bar = QWidget(self.right_panel)
+        self.library_header_bar.setObjectName("libraryHeaderBar")
+        self.library_header_bar.setStyleSheet("QWidget#libraryHeaderBar { background: transparent; }")
+        header_layout = QHBoxLayout(self.library_header_bar)
+        header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
         header_layout.addStretch()
 
@@ -852,14 +857,7 @@ class MainWindow(QMainWindow):
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         header_layout.addWidget(self.sort_combo)
 
-        btn_labels = {"compact": "▦ Grid", "grid": "☷ List", "list": "≡ Compact", "steam": "▦ Grid"}
-        self.btn_view_toggle = QPushButton(btn_labels.get(self.library_view_mode, "▦ Grid"))
-        self.btn_view_toggle.setToolTip("Toggle Compact, Grid, or List library view")
-        self.btn_view_toggle.clicked.connect(self._toggle_library_view)
-        self.btn_view_toggle.setFixedHeight(30)
-        self.btn_view_toggle.setStyleSheet(btn_secondary_style())
-        header_layout.addWidget(self.btn_view_toggle)
-        right_layout.addLayout(header_layout)
+        right_layout.addWidget(self.library_header_bar)
 
         # ── Rich Collection Header Banner (Shown when inside a Collection) ──
         self.collection_banner = QFrame(self.right_panel)
@@ -998,6 +996,7 @@ class MainWindow(QMainWindow):
         self.compact_container.screenshots_requested.connect(self._open_screenshot_gallery)
         self.compact_container.videos_requested.connect(self._open_video_gallery)
         self.compact_container.settings_requested.connect(self._open_settings)
+        self.compact_container.sort_changed.connect(self._on_sort_changed)
 
         self.library_view_stack.addWidget(self.grid_container)      # Index 0: Standard Grid
         self.library_view_stack.addWidget(self.list_view)           # Index 1: List View
@@ -1005,15 +1004,24 @@ class MainWindow(QMainWindow):
         self.library_view_stack.addWidget(self.compact_container)   # Index 3: Compact Layout
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
+            self.library_header_bar.setVisible(True)
+            self.right_layout.setContentsMargins(18, 14, 18, 14)
+            self.right_layout.setSpacing(12)
         elif self.library_view_mode in ("compact", "steam"):
             self.library_view_stack.setCurrentIndex(3)
             self.detail_panel.setVisible(False)
+            self.library_header_bar.setVisible(False)
+            self.right_layout.setContentsMargins(0, 0, 0, 0)
+            self.right_layout.setSpacing(0)
         else:
             self.library_view_stack.setCurrentIndex(0)
+            self.library_header_bar.setVisible(True)
+            self.right_layout.setContentsMargins(18, 14, 18, 14)
+            self.right_layout.setSpacing(12)
         self.scroll_area.setWidget(self.library_view_stack)
         right_layout.addWidget(self.scroll_area)
 
-        # ── Dedicated Darker Footer Bar (#0E0E10, 36px) with Add Game on bottom-left ──
+        # ── Dedicated Darker Footer Bar (#0E0E10, 36px) with Add Game and View Toggle on bottom-left ──
         self.footer_bar = QFrame(self)
         self.footer_bar.setFixedHeight(36)
         self.footer_bar.setStyleSheet("""
@@ -1025,7 +1033,7 @@ class MainWindow(QMainWindow):
         """)
         footer_layout = QHBoxLayout(self.footer_bar)
         footer_layout.setContentsMargins(12, 0, 12, 0)
-        footer_layout.setSpacing(10)
+        footer_layout.setSpacing(8)
 
         self.btn_add = QPushButton("Add Game")
         self.btn_add.setObjectName("addGameButton")
@@ -1035,21 +1043,50 @@ class MainWindow(QMainWindow):
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add.setStyleSheet("""
             QPushButton#addGameButton {
-                background-color: #202024;
-                color: #FFFFFF;
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: transparent;
+                color: #A1A1AA;
+                border: none;
                 border-radius: 5px;
-                padding: 0 12px;
+                padding: 0 8px;
                 font-size: 11px;
-                font-weight: 600;
+                font-weight: 500;
             }
             QPushButton#addGameButton:hover {
-                background-color: #2A2A30;
-                border-color: rgba(255, 255, 255, 0.16);
+                background: rgba(255, 255, 255, 0.06);
+                color: #FFFFFF;
             }
         """)
         self.btn_add.clicked.connect(self._on_add)
         footer_layout.addWidget(self.btn_add)
+
+        footer_divider = QFrame()
+        footer_divider.setFixedSize(1, 14)
+        footer_divider.setStyleSheet("background-color: rgba(255, 255, 255, 0.1); border: none;")
+        footer_layout.addWidget(footer_divider)
+
+        btn_labels = {"compact": "▦ Grid", "grid": "☷ List", "list": "≡ Compact", "steam": "▦ Grid"}
+        self.btn_view_toggle = QPushButton(btn_labels.get(self.library_view_mode, "▦ Grid"))
+        self.btn_view_toggle.setObjectName("viewToggleButton")
+        self.btn_view_toggle.setToolTip("Toggle Compact, Grid, or List library view")
+        self.btn_view_toggle.clicked.connect(self._toggle_library_view)
+        self.btn_view_toggle.setFixedHeight(26)
+        self.btn_view_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_view_toggle.setStyleSheet("""
+            QPushButton#viewToggleButton {
+                background: transparent;
+                color: #A1A1AA;
+                border: none;
+                border-radius: 5px;
+                padding: 0 8px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QPushButton#viewToggleButton:hover {
+                background: rgba(255, 255, 255, 0.06);
+                color: #FFFFFF;
+            }
+        """)
+        footer_layout.addWidget(self.btn_view_toggle)
 
         footer_layout.addStretch()
 
@@ -1674,6 +1711,16 @@ class MainWindow(QMainWindow):
     def _on_sort_changed(self, idx: int):
         """Sort games list by title, activity, install date, size, or runner."""
         self.current_sort = idx
+        if hasattr(self, "sort_combo") and self.sort_combo.currentIndex() != idx:
+            self.sort_combo.blockSignals(True)
+            self.sort_combo.setCurrentIndex(idx)
+            self.sort_combo.blockSignals(False)
+        if hasattr(self, "compact_container") and hasattr(self.compact_container, "sidebar_list") and hasattr(self.compact_container.sidebar_list, "sort_combo"):
+            combo = self.compact_container.sidebar_list.sort_combo
+            if combo.currentIndex() != idx:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(idx)
+                combo.blockSignals(False)
         self._refresh_library()
 
     def _on_search_query_changed(self, query: str):
@@ -1688,6 +1735,11 @@ class MainWindow(QMainWindow):
         use_virtual = len(self.banner_widgets) >= getattr(self, "virtualization_threshold", 200)
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
+            if hasattr(self, "library_header_bar"):
+                self.library_header_bar.setVisible(True)
+            if hasattr(self, "right_layout"):
+                self.right_layout.setContentsMargins(18, 14, 18, 14)
+                self.right_layout.setSpacing(12)
             if self.selected_game:
                 self._animate_left_panel(True)
                 self._update_detail_panel()
@@ -1697,9 +1749,19 @@ class MainWindow(QMainWindow):
             self.library_view_stack.setCurrentIndex(3)
             self.detail_panel.setVisible(False)
             self.btn_reveal_detail.setVisible(False)
+            if hasattr(self, "library_header_bar"):
+                self.library_header_bar.setVisible(False)
+            if hasattr(self, "right_layout"):
+                self.right_layout.setContentsMargins(0, 0, 0, 0)
+                self.right_layout.setSpacing(0)
             self._update_compact_game_page()
         elif use_virtual:
             self.library_view_stack.setCurrentIndex(2)
+            if hasattr(self, "library_header_bar"):
+                self.library_header_bar.setVisible(True)
+            if hasattr(self, "right_layout"):
+                self.right_layout.setContentsMargins(18, 14, 18, 14)
+                self.right_layout.setSpacing(12)
             if self.selected_game:
                 self._animate_left_panel(True)
                 self._update_detail_panel()
@@ -1707,6 +1769,11 @@ class MainWindow(QMainWindow):
                 self.btn_reveal_detail.setVisible(True)
         else:
             self.library_view_stack.setCurrentIndex(0)
+            if hasattr(self, "library_header_bar"):
+                self.library_header_bar.setVisible(True)
+            if hasattr(self, "right_layout"):
+                self.right_layout.setContentsMargins(18, 14, 18, 14)
+                self.right_layout.setSpacing(12)
             if self.selected_game:
                 self._animate_left_panel(True)
                 self._update_detail_panel()

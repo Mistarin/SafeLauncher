@@ -346,20 +346,19 @@ class LeftSidebarWidget(QFrame):
         self.btn_add_col_row.setToolTip("Create a new Collection")
         self.btn_add_col_row.setStyleSheet("""
             QPushButton {
-                background: rgba(255, 255, 255, 0.03);
+                background: transparent;
                 color: #A1A1AA;
-                text-align: left;
+                text-align: center;
                 padding: 4px 8px;
-                border: 1px dashed rgba(255, 255, 255, 0.12);
+                border: none;
                 border-radius: 6px;
                 font-size: 11px;
                 font-weight: 500;
                 margin-top: 4px;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.07);
+                background: rgba(255, 255, 255, 0.06);
                 color: #FFFFFF;
-                border-color: rgba(255, 255, 255, 0.25);
             }
         """)
         self.btn_add_col_row.clicked.connect(self.add_collection_requested.emit)
@@ -367,7 +366,7 @@ class LeftSidebarWidget(QFrame):
             self.btn_add_col_row.setFixedSize(36, 26)
         else:
             self.btn_add_col_row.setFixedHeight(26)
-        self.col_layout.addWidget(self.btn_add_col_row)
+        self.col_layout.addWidget(self.btn_add_col_row, alignment=Qt.AlignmentFlag.AlignCenter if self.compact else Qt.AlignmentFlag.AlignHCenter)
 
     def toggle_compact(self):
         self.set_compact(not self.compact)
