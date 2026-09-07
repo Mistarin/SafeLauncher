@@ -662,7 +662,7 @@ try:
     # 1. Versioning assertions
     assert APP_VERSION == "0.6.0", f"Expected APP_VERSION == 0.6.0, got {APP_VERSION}"
 
-    assert MIN_CONVEX_BACKEND_VERSION == "1.3.0"
+    assert MIN_CONVEX_BACKEND_VERSION == "1.4.0"
     assert parse_version("0.5.5") == (0, 5, 5)
     assert parse_version("v1.2.0") == (1, 2, 0)
     assert parse_version("1.2.0-rc1") == (1, 2, 0, 1)
@@ -1960,4 +1960,3 @@ except Exception as e:
     sys.exit(1)
 
 print("\n[SUCCESS] All SafeLauncher components tested and working cleanly!")
-
