@@ -181,6 +181,56 @@ def _update_backend_code_version(limits_file: Path, new_version: str) -> bool:
     return updated
 
 
+def _update_version_test_assertions(
+    *, app_version: Optional[str] = None, backend_version: Optional[str] = None
+) -> bool:
+    """Keep the executable smoke-test version assertions in sync with bumps.
+
+    The test suite intentionally checks the version constants, so leaving its
+    literals behind makes an otherwise valid release fail in CI.  Keep this
+    update centralized so every wizard bump path applies the same change.
+    """
+    test_file = ROOT_DIR / "test.py"
+    if not test_file.is_file():
+        print(f"  {YELLOW}[!] Version test file not found: {test_file}{RESET}")
+        return False
+
+    try:
+        text = test_file.read_text(encoding="utf-8")
+        original = text
+        if app_version:
+            clean_app = app_version.strip().lstrip("vV")
+            text, count = re.subn(
+                r'assert APP_VERSION\s*==\s*"[^"]+",\s*'
+                r'f"Expected APP_VERSION == [^"]+, got \{APP_VERSION\}"',
+                f'assert APP_VERSION == "{clean_app}", '
+                f'f"Expected APP_VERSION == {clean_app}, got {{APP_VERSION}}"',
+                text,
+                count=1,
+            )
+            if count == 0:
+                print(f"  {YELLOW}[!] Could not find APP_VERSION assertion in {test_file.name}{RESET}")
+
+        if backend_version:
+            clean_backend = backend_version.strip().lstrip("vV")
+            text, count = re.subn(
+                r'assert MIN_CONVEX_BACKEND_VERSION\s*==\s*"[^"]+"',
+                f'assert MIN_CONVEX_BACKEND_VERSION == "{clean_backend}"',
+                text,
+                count=1,
+            )
+            if count == 0:
+                print(f"  {YELLOW}[!] Could not find backend version assertion in {test_file.name}{RESET}")
+
+        if text != original:
+            test_file.write_text(text, encoding="utf-8")
+            print(f"  {GREEN}[ok] Updated version assertions in {test_file.name}{RESET}")
+        return True
+    except Exception as e:
+        print(f"  {RED}[x] Failed to update version assertions: {e}{RESET}")
+        return False
+
+
 def _suggest_bumps(ver: str) -> Tuple[str, str, str]:
     """Return (patch, minor, major) suggestions based on a semver string."""
     parts = parse_version(ver)
@@ -297,6 +347,7 @@ def run_version_wizard() -> int:
 
             if new_v:
                 v_mod.set_version(new_v)
+                _update_version_test_assertions(app_version=new_v)
                 print(f"\n  {GREEN}{BOLD}[ok] Application version updated to: {new_v}{RESET}")
             _footer(GREEN)
 
@@ -331,6 +382,7 @@ def run_version_wizard() -> int:
 
             if new_b:
                 v_mod.set_version(cur_app, new_b)
+                _update_version_test_assertions(backend_version=new_b)
                 print(f"  {GREEN}{BOLD}[ok] Updated client MIN_CONVEX_BACKEND_VERSION to: {new_b}{RESET}")
 
                 if backend_info and backend_info.get("limits_file"):
@@ -354,6 +406,7 @@ def run_version_wizard() -> int:
             back_in = input(f"  {CYAN}{BOLD}>{RESET} New Backend Version [{b_patch}]: ").strip().lstrip("vV") or b_patch
 
             v_mod.set_version(app_in, back_in)
+            _update_version_test_assertions(app_version=app_in, backend_version=back_in)
             print(f"  {GREEN}{BOLD}[ok] Updated SafeLauncher to {app_in} and client min backend to {back_in}{RESET}")
 
             if backend_info and backend_info.get("limits_file"):
@@ -387,6 +440,7 @@ def run_version_wizard() -> int:
 
             print(f"\n  {BOLD}[Step 1/6]{RESET} Setting version in core/version.py to {target_v}...")
             v_mod.set_version(target_v)
+            _update_version_test_assertions(app_version=target_v)
 
             print(f"\n  {BOLD}[Step 2/6]{RESET} Staging files (git add .)...")
             if not _run_git_cmd(["add", "."], "git add"):
