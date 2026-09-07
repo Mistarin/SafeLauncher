@@ -12,6 +12,7 @@ temp file with a hard size cap and atomic rename; data keys are cached in memory
 """
 
 import hashlib
+import base64
 import json
 import os
 import tempfile
@@ -228,6 +229,34 @@ class ConvexSaveBackend:
 
     def list_games(self) -> dict:
         return self._check(self._request("GET", "/api/games", timeout=6), "Listing")
+
+    def get_game_metadata(self, name_key: str) -> dict:
+        """Fetch the separate encrypted SafeLauncher metadata record."""
+        response = self._check(
+            self._request("GET", f"/api/games/{requests.utils.quote(name_key)}/metadata", timeout=6),
+            "Metadata fetch",
+        )
+        encoded = response.get("data")
+        if not encoded:
+            return {"revision": response.get("revision"), "metadata": {}}
+        try:
+            plaintext = save_crypto.decrypt_save(base64.b64decode(encoded), self.data_key_b64())
+            metadata = json.loads(plaintext.decode("utf-8"))
+            return {"revision": response.get("revision"), "metadata": metadata if isinstance(metadata, dict) else {}}
+        except Exception as e:
+            raise CloudBackendError(f"Metadata decrypt failed: {e}", "metadata_corrupt") from e
+
+    def put_game_metadata(self, name_key: str, metadata: dict, revision=None) -> dict:
+        """Encrypt and conditionally replace the separate metadata record."""
+        plaintext = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        encoded = base64.b64encode(save_crypto.encrypt_save(plaintext, self.data_key_b64())).decode("ascii")
+        body = {"data": encoded}
+        if revision is not None:
+            body["revision"] = revision
+        return self._check(
+            self._request("PUT", f"/api/games/{requests.utils.quote(name_key)}/metadata", json_body=body, timeout=10),
+            "Metadata upload",
+        )
 
     # ------------------------------------------------------------------ #
     # Upload                                                             #

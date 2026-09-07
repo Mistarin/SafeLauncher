@@ -3928,8 +3928,11 @@ class MainWindow(QMainWindow):
                 logger.info(f"Successfully launched '{game_name}' (PID: {process.pid})")
                 # Register the tracker before refreshing UI so the derived
                 # running_game_ids already contains this game.
-                tracker = PlaytimeTrackerThread(game_id, process, parent=self)
+                session_id = self.db.create_playtime_session(game_id, started_at=int(time.time()))
+                tracker = PlaytimeTrackerThread(game_id, process, session_id=session_id, parent=self)
                 tracker.playtime_recorded.connect(self._on_playtime_recorded)
+                tracker.playtime_checkpoint.connect(self._on_playtime_checkpoint)
+                tracker.playtime_session_recorded.connect(self._on_playtime_session_recorded)
                 tracker.finished.connect(lambda t=tracker: self._cleanup_tracker(t))
                 self.playtime_trackers.append(tracker)
                 tracker.start()
@@ -4091,6 +4094,7 @@ class MainWindow(QMainWindow):
         self.achievement_status_cache[game_id] = (unlocked_count, total_count, pct, recent)
         self._achievement_checked_ts[game_id] = time.time()
         self._save_persistent_cache()
+        self._sync_launcher_metadata_async(game_id)
 
         # Retrieve display metadata
         achs = self.db.get_game_achievements(game_id)
@@ -4251,6 +4255,40 @@ class MainWindow(QMainWindow):
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_playtime(total)
         self._update_detail_panel()
+
+    def _on_playtime_checkpoint(self, session_id: str, elapsed_seconds: int):
+        """Persist an in-progress session without changing the visible total."""
+        self.db.checkpoint_playtime_session(session_id, elapsed_seconds)
+
+    def _on_playtime_session_recorded(self, session_id: str, elapsed_seconds: int, ended_at: int, finalized: bool):
+        """Finalize the idempotent session event used by cloud metadata sync."""
+        self.db.checkpoint_playtime_session(session_id, elapsed_seconds, finalized, ended_at)
+        row = self.db.conn.execute("SELECT game_id FROM playtime_sessions WHERE session_id = ?", (session_id,)).fetchone()
+        if row:
+            self._sync_launcher_metadata_async(int(row[0]))
+
+    def _sync_launcher_metadata_async(self, game_id: int):
+        """Sync launcher-owned metadata without blocking the GUI thread."""
+        game = self.games_by_id.get(game_id)
+        if not game:
+            return
+        name = game[1]
+        app_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
+        db_path = getattr(self.db, "db_path", None)
+
+        def run():
+            try:
+                from database import GameDatabase
+                from core.cloud_metadata_sync import CloudMetadataSync
+                worker_db = GameDatabase(db_path) if db_path else GameDatabase()
+                try:
+                    CloudMetadataSync.sync_game(worker_db, game_id, name, app_id)
+                finally:
+                    worker_db.close()
+            except Exception as exc:
+                logger.debug(f"Launcher metadata background sync failed for '{name}': {exc}")
+
+        threading.Thread(target=run, daemon=True, name="SafeLauncher-MetadataSync").start()
 
     def _cleanup_tracker(self, tracker: PlaytimeTrackerThread):
         """Remove finished tracker from the list so it can be garbage collected."""
@@ -4578,6 +4616,9 @@ class MainWindow(QMainWindow):
     def _start_background_achievement_sync(self):
         """Startup achievement check and sync queue across the library."""
         self.request_achievement_recheck(None, "startup")
+        for game in list(self.games):
+            if game and len(game) > 0:
+                self._sync_launcher_metadata_async(int(game[0]))
 
     def _on_achievement_status_calculated(self, game_id: int, unlocked_count: int, total_count: int, pct: float, recent: list):
         """GUI-thread slot when an achievement worker finishes computing status for a game."""
