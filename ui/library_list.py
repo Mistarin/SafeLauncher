@@ -257,21 +257,33 @@ class LibraryListItemWidget(QWidget):
         pix: Optional[QPixmap] = None
 
         # 1. Try explicit icon_url from DB
-        if self.icon_url and os.path.exists(self.icon_url):
+        if self.icon_url and os.path.exists(self.icon_url) and os.path.getsize(self.icon_url) > 0:
             loaded = QPixmap(self.icon_url)
             if not loaded.isNull():
                 pix = loaded
 
         # 2. Try cached icon file from ~/.cache/safelauncher/icons/
         if pix is None and self.cache_dir:
+            from core.steamgriddb_client import SteamGridDBClient
+            full_exe = os.path.join(self.path, self.executable) if (self.path and self.executable) else ""
+            art_key = SteamGridDBClient.get_artwork_key(steam_id=self.steam_id, game_name=self.name, exe_path=full_exe, game_id=self.game_id)
             icons_dir = os.path.join(os.path.dirname(self.cache_dir), "icons")
             for ext in (".png", ".ico", ".jpg"):
-                icon_path = os.path.join(icons_dir, f"icon_{self.game_id}{ext}")
-                if os.path.exists(icon_path):
+                icon_path = os.path.join(icons_dir, f"icon_{art_key}{ext}")
+                if os.path.exists(icon_path) and os.path.getsize(icon_path) > 0:
                     loaded = QPixmap(icon_path)
                     if not loaded.isNull():
                         pix = loaded
                         break
+
+            if pix is None and (not self.steam_id or str(self.steam_id) in ("0", "None", "")):
+                for ext in (".png", ".ico", ".jpg"):
+                    icon_path = os.path.join(icons_dir, f"icon_{self.game_id}{ext}")
+                    if os.path.exists(icon_path) and os.path.getsize(icon_path) > 0:
+                        loaded = QPixmap(icon_path)
+                        if not loaded.isNull():
+                            pix = loaded
+                            break
 
         # 3. Direct on-the-fly extraction from .exe if not yet cached
         if pix is None and self.path and self.executable:
@@ -428,6 +440,13 @@ class LibraryListView(QListWidget):
         widget = self._row_widgets_by_id.get(game_id)
         if widget is not None:
             widget.set_cloud_status(status)
+
+    def update_game_icon(self, game_id: int, icon_path: str) -> None:
+        """Dynamically update a single game's icon without reloading the list."""
+        widget = self._row_widgets_by_id.get(game_id)
+        if widget is not None:
+            widget.icon_url = icon_path
+            widget._load_icon()
 
     def selected_game_ids(self) -> Set[int]:
 
