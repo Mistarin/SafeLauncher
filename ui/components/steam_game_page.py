@@ -1019,16 +1019,18 @@ class CompactGamePageWidget(QWidget):
 
         # 4. Two-Column Lower Dashboard
         dashboard_row = QHBoxLayout()
-        dashboard_row.setContentsMargins(32, 24, 32, 0)
+        dashboard_row.setContentsMargins(32, 20, 32, 0)
         dashboard_row.setSpacing(24)
         dashboard_row.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Left Column (Activity & Details) - 62% width
         left_col = QVBoxLayout()
+        left_col.setContentsMargins(0, 0, 0, 0)
         left_col.setSpacing(18)
+        left_col.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.activity_card = CompactActivityTimelineCard(content_widget)
-        left_col.addWidget(self.activity_card)
+        left_col.addWidget(self.activity_card, 0, Qt.AlignmentFlag.AlignTop)
 
         # System & Build Specs Card
         self.specs_card = QFrame(content_widget)
@@ -1084,22 +1086,27 @@ class CompactGamePageWidget(QWidget):
         grid.setColumnStretch(1, 1)
         specs_layout.addLayout(grid)
 
-        left_col.addWidget(self.specs_card)
+        left_col.addWidget(self.specs_card, 0, Qt.AlignmentFlag.AlignTop)
+        left_col.addStretch()
         dashboard_row.addLayout(left_col, 62)
 
         # Right Column (Achievements & Notes) - 38% width
         right_col = QVBoxLayout()
+        right_col.setContentsMargins(0, 0, 0, 0)
         right_col.setSpacing(18)
+        right_col.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.ach_widget = CompactAchievementsShowcaseWidget(content_widget)
         self.ach_widget.view_all_clicked.connect(self._on_view_achievements)
-        right_col.addWidget(self.ach_widget)
+        right_col.addWidget(self.ach_widget, 0, Qt.AlignmentFlag.AlignTop)
 
         self.notes_widget = CompactNotesWidget(content_widget)
-        right_col.addWidget(self.notes_widget)
+        right_col.addWidget(self.notes_widget, 0, Qt.AlignmentFlag.AlignTop)
+        right_col.addStretch()
 
         dashboard_row.addLayout(right_col, 38)
         self.content_layout.addLayout(dashboard_row)
+        self.content_layout.addStretch()
 
         self.scroll_area.setWidget(content_widget)
         outer_layout.addWidget(self.scroll_area)
