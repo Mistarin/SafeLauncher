@@ -1210,11 +1210,15 @@ ACH_PACIFIST=0
         assert item_42.data(Qt.ItemDataRole.UserRole + 9) is True
 
         # Test MainWindow virtualization threshold integration
+        if not mw.db.get_all_games():
+            mw.db.add_game("CI Virtual Test Game", "/tmp", "game.exe", "sandbox")
+            mw._refresh_library()
         mw.set_virtualization_threshold(1)  # Force virtual grid
         assert mw.library_view_stack.currentIndex() in (1, 2)
         mw.set_virtualization_threshold(200)  # Reset
         mw.close()
         app.processEvents()
+
         print("✓ Viewport virtualization for 500+ games, custom QStyledItemDelegate, and BannerProxy verified")
 
 except Exception as e:
