@@ -1800,8 +1800,65 @@ try:
     if os.path.exists(test_hero_img):
         os.remove(test_hero_img)
 
+    # Test _format_last_played_date accuracy across day boundaries
+    import datetime
+    from ui.components.compact_game_page import _format_last_played_date
+    now = datetime.datetime.now()
+    assert _format_last_played_date(0) == "Never"
+    assert _format_last_played_date(None) == "Never"
+    today_ts = now.timestamp()
+    assert _format_last_played_date(today_ts) == "Today"
+    yesterday_ts = (now - datetime.timedelta(days=1)).timestamp()
+    assert _format_last_played_date(yesterday_ts) == "Yesterday"
+
+    # Test tuple unpacking in set_game: index 9 for last_played and index 8 for is_favorite
+    now_ts = now.timestamp()
+    tuple_game = (
+        2002, "Tuple Game", "/path", "game.exe", "umu", "", "12345", 3600, 1, now_ts, "rpg", "1", "", "", 0, "", "", 0, ""
+    )
+    compact_page.set_game(
+        tuple_game,
+        (0, 0, 0.0),
+        [],
+        [],
+        cloud_status=SyncStatus.NO_SAVES,
+        is_running=False
+    )
+    assert compact_page.action_bar.last_played_val.text() == "Today"
+    assert compact_page.action_bar.btn_fav.toolTip() == "Remove from favorites"
+
+    # Test compact layout zero margins & hidden top bar
+    assert mw_compact.library_header_bar.isHidden() is True
+    assert mw_compact.right_layout.contentsMargins().top() == 0
+    assert mw_compact.right_layout.contentsMargins().left() == 0
+    assert mw_compact.right_layout.spacing() == 0
+
+    # Test footer bar layout: Add Game and View Toggle side-by-side with transparent styling
+    footer_bar_widgets = [mw_compact.footer_bar.layout().itemAt(i).widget() for i in range(mw_compact.footer_bar.layout().count()) if mw_compact.footer_bar.layout().itemAt(i).widget()]
+    assert mw_compact.btn_add in footer_bar_widgets
+    assert mw_compact.btn_view_toggle in footer_bar_widgets
+    assert "background: transparent" in mw_compact.btn_add.styleSheet()
+    assert "border: none" in mw_compact.btn_add.styleSheet()
+    assert "background: transparent" in mw_compact.btn_view_toggle.styleSheet()
+    assert "border: none" in mw_compact.btn_view_toggle.styleSheet()
+
+    # Test Add Collection button clean styling (transparent, no dashed border, centered)
+    assert "background: transparent" in mw_compact.sidebar.btn_add_col_row.styleSheet()
+    assert "border: none" in mw_compact.sidebar.btn_add_col_row.styleSheet()
+    assert "dashed" not in mw_compact.sidebar.btn_add_col_row.styleSheet()
+
+    # Test compact sidebar sorting combo and divider
+    assert hasattr(mw_compact.compact_container.sidebar_list, "sort_combo")
+    sidebar_sort = mw_compact.compact_container.sidebar_list.sort_combo
+    assert sidebar_sort.count() == 5
+    sidebar_sort.setCurrentIndex(1)
+    assert mw_compact.current_sort == 1
+
     mw_compact._toggle_library_view()
     assert mw_compact.library_view_mode in ("compact", "grid", "list")
+    assert mw_compact.library_header_bar.isHidden() is False
+    assert mw_compact.right_layout.contentsMargins().top() == 14
+    assert mw_compact.right_layout.contentsMargins().left() == 18
     mw_compact.settings.setValue("library_view_mode", "compact")
     mw_compact.close()
 

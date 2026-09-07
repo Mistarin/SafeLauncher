@@ -20,7 +20,8 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal, QSettings
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QTextEdit, QFrame, QScrollArea, QSizePolicy,
-    QListWidget, QListWidgetItem, QLineEdit, QSplitter, QGridLayout
+    QListWidget, QListWidgetItem, QLineEdit, QSplitter, QGridLayout,
+    QComboBox
 )
 from PyQt6.QtGui import (
     QPixmap, QColor, QPainter, QLinearGradient, QFont, QIcon, QPainterPath
@@ -59,13 +60,13 @@ def _format_last_played_date(timestamp: Any) -> str:
     
     dt = datetime.datetime.fromtimestamp(ts)
     now = datetime.datetime.now()
-    diff = now - dt
+    date_diff = (now.date() - dt.date()).days
 
-    if diff.days == 0:
+    if date_diff <= 0:
         return "Today"
-    elif diff.days == 1:
+    elif date_diff == 1:
         return "Yesterday"
-    elif diff.days < 7:
+    elif 1 < date_diff < 7:
         days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         return days[dt.weekday()]
     elif dt.year == now.year:
@@ -1600,9 +1601,9 @@ class CompactGamePageWidget(QWidget):
             g_exe = game_record[3] if len(game_record) > 3 else ""
             g_mode = game_record[4] if len(game_record) > 4 else "umu"
             s_id = str(game_record[6] or "") if len(game_record) > 6 else ""
-            last_played = game_record[8] if len(game_record) > 8 else None
+            last_played = game_record[9] if len(game_record) > 9 else None
             tags = game_record[10] if len(game_record) > 10 else ""
-            is_fav = bool(game_record[13]) if len(game_record) > 13 else False
+            is_fav = bool(game_record[8]) if len(game_record) > 8 else False
             ver_override = game_record[15] if len(game_record) > 15 else ""
             p7 = game_record[7] if len(game_record) > 7 and isinstance(game_record[7], (int, float)) else 0
             p19 = game_record[19] if len(game_record) > 19 and isinstance(game_record[19], (int, float)) else 0
@@ -1857,6 +1858,7 @@ class CompactSidebarListWidget(QFrame):
     game_selected = pyqtSignal(int)
     game_double_clicked = pyqtSignal(int)
     filter_changed = pyqtSignal(str)
+    sort_changed = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1974,10 +1976,59 @@ class CompactSidebarListWidget(QFrame):
         search_box.addWidget(self.search_edit)
         layout.addLayout(search_box)
 
-        # ── Games Count / Header ──
-        self.lbl_count = QLabel("GAMES (0)")
-        self.lbl_count.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; padding-left: 4px; background: transparent;")
-        layout.addWidget(self.lbl_count)
+        # ── Sorting & Games Count Header Row ──
+        sort_row = QHBoxLayout()
+        sort_row.setContentsMargins(2, 2, 2, 2)
+        sort_row.setSpacing(6)
+
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["Sort: A–Z Title", "Sort: Most Played", "Sort: Recently Added", "Sort: Disk Size", "Sort: Runner"])
+        self.sort_combo.setFixedHeight(24)
+        self.sort_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sort_combo.setStyleSheet("""
+            QComboBox {
+                background: transparent;
+                color: #A1A1AA;
+                border: none;
+                border-radius: 4px;
+                padding: 0 4px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QComboBox:hover {
+                color: #FFFFFF;
+                background: rgba(255, 255, 255, 0.06);
+            }
+            QComboBox::drop-down { border: none; width: 14px; }
+            QComboBox QAbstractItemView {
+                background-color: #1C1C20;
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                selection-background-color: rgba(255, 255, 255, 0.12);
+                padding: 4px;
+            }
+        """)
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_combo_changed)
+        sort_row.addWidget(self.sort_combo, stretch=1)
+
+        # Clean vertical divider
+        v_divider = QFrame()
+        v_divider.setFixedSize(1, 14)
+        v_divider.setStyleSheet("background-color: rgba(255, 255, 255, 0.1); border: none;")
+        sort_row.addWidget(v_divider)
+
+        # Games count label
+        self.lbl_count = QLabel("0")
+        self.lbl_count.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; background: transparent; padding-right: 4px;")
+        sort_row.addWidget(self.lbl_count)
+
+        layout.addLayout(sort_row)
+
+        # Clean horizontal divider
+        h_divider = QFrame()
+        h_divider.setFixedHeight(1)
+        h_divider.setStyleSheet("background-color: rgba(255, 255, 255, 0.06); border: none;")
+        layout.addWidget(h_divider)
 
         # ── List Widget ──
         self.list_widget = QListWidget()
@@ -2052,7 +2103,7 @@ class CompactSidebarListWidget(QFrame):
         self.games_data = games
         self.cache_dir = cache_dir
         self.cloud_status_cache = cloud_status_cache or {}
-        self.lbl_count.setText(f"GAMES ({len(games)})")
+        self.lbl_count.setText(str(len(games)))
         self._populate_list(self.search_edit.text().strip().lower(), selected_ids)
 
     def _populate_list(self, query: str = "", selected_ids: set = None):
@@ -2135,6 +2186,9 @@ class CompactSidebarListWidget(QFrame):
                     widget._load_icon()
                 break
 
+    def _on_sort_combo_changed(self, idx: int):
+        self.sort_changed.emit(idx)
+
     def _on_search_changed(self, text: str):
         self._populate_list(text.strip().lower())
 
@@ -2171,6 +2225,7 @@ class CompactLayoutContainer(QWidget):
     achievements_requested = pyqtSignal(int)
     steam_page_requested = pyqtSignal(str)
     filter_changed = pyqtSignal(str)
+    sort_changed = pyqtSignal(int)
     screenshots_requested = pyqtSignal(int)
     videos_requested = pyqtSignal(int)
     settings_requested = pyqtSignal()
@@ -2200,6 +2255,7 @@ class CompactLayoutContainer(QWidget):
         self.sidebar_list.game_selected.connect(self.game_selected.emit)
         self.sidebar_list.game_double_clicked.connect(self.game_double_clicked.emit)
         self.sidebar_list.filter_changed.connect(self.filter_changed.emit)
+        self.sidebar_list.sort_changed.connect(self.sort_changed.emit)
         self.splitter.addWidget(self.sidebar_list)
 
         # Right: Compact Game Detail Page
