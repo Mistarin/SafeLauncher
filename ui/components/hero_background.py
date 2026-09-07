@@ -65,7 +65,7 @@ class HeroBackgroundWidget(QWidget):
         blurred = scaled_down.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
         
         res = QPixmap(w, h)
-        res.fill(QColor(13, 13, 16))
+        res.fill(QColor(18, 18, 20))
         
         painter = QPainter(res)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -75,9 +75,9 @@ class HeroBackgroundWidget(QWidget):
         painter.drawPixmap(0, 0, blurred, crop_x, crop_y, w, h)
         
         gradient = QLinearGradient(0, 0, 0, h)
-        gradient.setColorAt(0.0, QColor(11, 11, 14, 180))
-        gradient.setColorAt(0.4, QColor(11, 11, 14, 210))
-        gradient.setColorAt(1.0, QColor(11, 11, 14, 240))
+        gradient.setColorAt(0.0, QColor(18, 18, 20, 180))
+        gradient.setColorAt(0.4, QColor(18, 18, 20, 210))
+        gradient.setColorAt(1.0, QColor(18, 18, 20, 240))
         painter.fillRect(0, 0, w, h, gradient)
         
         painter.end()
@@ -94,7 +94,7 @@ class HeroBackgroundWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # Base background fill
-        painter.fillRect(self.rect(), QColor(13, 13, 16))
+        painter.fillRect(self.rect(), QColor(18, 18, 20))
 
         try:
             # Paint current background pixmap

@@ -5,13 +5,13 @@ Restrained, calm, precise, and highly polished dark aesthetic.
 """
 
 # ── Core Palette ─────────────────────────────────────────────────────────────
-BG_APP = "#0D0F14"
-SURFACE = "#14171D"
-SURFACE_ELEVATED = "#1A1E26"
-BORDER = "#252A33"
-TEXT_PRIMARY = "#F5F7FA"
-TEXT_SECONDARY = "#A7ADB8"
-TEXT_MUTED = "#6F7682"
+BG_APP = "#121214"
+SURFACE = "#18181B"
+SURFACE_ELEVATED = "#202024"
+BORDER = "#2A2A2E"
+TEXT_PRIMARY = "#F4F4F5"
+TEXT_SECONDARY = "#A1A1AA"
+TEXT_MUTED = "#71717A"
 
 # ── Brand Accent ─────────────────────────────────────────────────────────────
 ACCENT_PRIMARY = "#3B9FE8"

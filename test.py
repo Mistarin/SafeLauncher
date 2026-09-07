@@ -1584,10 +1584,11 @@ except Exception as e:
 # -------------------------------------------------------------
 try:
     from ui.components.steam_game_page import (
+        CompactGamePageWidget, CompactLayoutContainer, CompactSidebarListWidget,
         SteamGamePageWidget, SteamLayoutContainer, SteamSidebarListWidget
     )
 
-    steam_page = SteamGamePageWidget()
+    steam_page = CompactGamePageWidget()
     dummy_game = (
         1001, "Steam Test RPG", "/tmp/steam_test", "game.exe", "umu",
         "", "480", 0, 1700000000, 0, "Action, RPG", "", "", True,
@@ -1611,12 +1612,12 @@ try:
         is_running=False
     )
 
-    assert "HRAT" in steam_page.action_bar.btn_play.text()
+    assert "PLAY" in steam_page.action_bar.btn_play.text()
     assert steam_page.action_bar.playtime_val.text() == "2.0 h"
-    assert "Synchronizovano" in steam_page.action_bar.cloud_text_lbl.text()
+    assert "Up to date" in steam_page.action_bar.cloud_text_lbl.text()
     assert steam_page.action_bar.ach_ratio_lbl.text() == "12/30"
     assert steam_page.action_bar.ach_mini_progress.value() == 40
-    assert steam_page.action_bar.btn_fav.toolTip() == "Odebrat z oblibenych"
+    assert steam_page.action_bar.btn_fav.toolTip() == "Remove from favorites"
 
     # Test Notes Widget persistence
     steam_page.notes_widget.load_notes_for_game(1001)
@@ -1624,8 +1625,8 @@ try:
     steam_page.notes_widget._on_text_changed()
     assert steam_page.notes_widget.settings.value("game_notes/1001", "", type=str) == "Defeat final boss at level 50"
 
-    # Test SteamLayoutContainer instantiation and item population
-    steam_layout = SteamLayoutContainer()
+    # Test CompactLayoutContainer instantiation and item population
+    steam_layout = CompactLayoutContainer()
     processed_items = [(dummy_game, False, 7200, True)]
     steam_layout.set_games(
         processed_items,
@@ -1646,19 +1647,25 @@ try:
     assert ("play", 1001) in signal_fired
     assert ("props", 1001) in signal_fired
 
-    # Test MainWindow view mode integration
+    # Test MainWindow view mode integration & right detail panel hiding
+    from PyQt6.QtCore import QSettings
+    QSettings("SafeLauncher", "SafeLauncher").setValue("library_view_mode", "compact")
     mw_steam = MainWindow(db_mem, runner, backup)
+    assert hasattr(mw_steam, "compact_container")
     assert hasattr(mw_steam, "steam_container")
+    assert mw_steam.library_view_mode == "compact"
+    assert mw_steam.detail_panel.isVisible() is False
+    assert mw_steam.btn_reveal_detail.isVisible() is False
     mw_steam._toggle_library_view()
-    assert mw_steam.library_view_mode in ("steam", "grid", "list")
-    mw_steam.settings.setValue("library_view_mode", "grid")
+    assert mw_steam.library_view_mode in ("compact", "grid", "list")
+    mw_steam.settings.setValue("library_view_mode", "compact")
     mw_steam.close()
 
     steam_page.close()
     steam_layout.close()
     app.processEvents()
 
-    print("✓ Steam game detail page, action bar, and sidebar layout verified")
+    print("✓ Compact game detail page, English UI copy, and sidebar layout verified")
 
 except Exception as e:
     import traceback
