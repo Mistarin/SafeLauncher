@@ -1514,6 +1514,7 @@ class CompactGamePageWidget(QWidget):
         # Centered Empty Page State
         self.empty_page = QWidget(self)
         self.empty_page.setStyleSheet("background-color: #121214;")
+        self.empty_page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         ep_layout = QVBoxLayout(self.empty_page)
         self.empty_page_lbl = QLabel("No games in this view")
         self.empty_page_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1523,11 +1524,18 @@ class CompactGamePageWidget(QWidget):
         ep_layout.addStretch()
         self.empty_page.setVisible(False)
         outer_layout.addWidget(self.empty_page)
+        outer_layout.setStretch(0, 0)
+        outer_layout.setStretch(1, 1)
 
     def set_empty_state(self, message: str = "No games in this view"):
         self.empty_page_lbl.setText(message)
         self.scroll_area.setVisible(False)
         self.empty_page.setVisible(True)
+
+    def set_content_state(self):
+        """Restore the detail dashboard after leaving an empty filtered view."""
+        self.empty_page.setVisible(False)
+        self.scroll_area.setVisible(True)
 
     def refresh_media_state(self):
         """Re-read recorder settings and update the captures panel in place."""
@@ -1548,8 +1556,7 @@ class CompactGamePageWidget(QWidget):
             self.set_empty_state("No games in this view")
             return
 
-        self.empty_page.setVisible(False)
-        self.scroll_area.setVisible(True)
+        self.set_content_state()
 
         self.current_game_record = game_record
         if hasattr(game_record, "name"):
@@ -2295,6 +2302,8 @@ class CompactLayoutContainer(QWidget):
             cache_dir,
             cloud_status_cache
         )
+        if not games:
+            self.game_page.set_empty_state("No games in this view")
 
     def select_game(self, game_id: int):
         self.sidebar_list.select_game(game_id)

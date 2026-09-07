@@ -1656,7 +1656,6 @@ class MainWindow(QMainWindow):
     def _set_filter(self, filter_mode: str):
         """Set active filter mode (all, installed, favorites, archived) and refresh view."""
         self.current_filter = filter_mode
-        self.collection_filter = ""
         self._refresh_library()
 
     def _set_collection_filter(self, col_name: str):
@@ -1897,6 +1896,16 @@ class MainWindow(QMainWindow):
             label.setStyleSheet("color: #999; font-size: 14px; padding: 40px;")
             self.grid_container.set_banner_widgets([label])
             self.collection_banner.setVisible(False)
+            if hasattr(self, "compact_container"):
+                self.library_selection.clear()
+                self.selected_game = None
+                self.compact_container.set_games(
+                    [], self.library_selection.ids, self.update_status_by_game_id,
+                    self.cache_dir, self.cloud_save_status_cache
+                )
+                self.compact_container.game_page.set_empty_state(
+                    "No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started."
+                )
             return
 
         # Filter & sort games list
@@ -1918,6 +1927,11 @@ class MainWindow(QMainWindow):
             exe_exists = os.path.exists(full_exe) if full_exe else False
             is_missing = not (folder_exists and (exe_exists or not executable))
 
+            # Collection is an independent scope and must also apply to
+            # Archived/Favorites/Installed status filters.
+            if self.collection_filter and (len(g) <= 13 or str(g[13]).strip() != self.collection_filter):
+                continue
+
             # 2. Status & Archive Filtering
             if self.current_filter == "archived":
                 if not is_archived:
@@ -1928,8 +1942,6 @@ class MainWindow(QMainWindow):
                 if self.current_filter == "installed" and is_missing:
                     continue
                 elif self.current_filter == "favorites" and not is_fav:
-                    continue
-                if self.collection_filter and (len(g) <= 13 or str(g[13]).strip() != self.collection_filter):
                     continue
 
             processed.append((g, is_missing, playtime, is_fav))
@@ -1977,6 +1989,10 @@ class MainWindow(QMainWindow):
                 msg = "No installed games found."
             else:
                 msg = "No games matching selected filter."
+            if self.collection_filter:
+                msg = f"No games in collection '{self.collection_filter}' for this filter."
+            self.selected_game = None
+            self.library_selection.clear()
             label = QLabel(msg)
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setStyleSheet("color: #777777; font-size: 14px; padding: 40px;")
@@ -1986,6 +2002,13 @@ class MainWindow(QMainWindow):
                 if hasattr(self.compact_container, "game_page") and hasattr(self.compact_container.game_page, "set_empty_state"):
                     self.compact_container.game_page.set_empty_state(msg)
             return
+
+        # A selected game can disappear when a collection/status filter changes.
+        # Keep compact detail bound to a visible game, never to a stale record.
+        visible_ids = {item[0][0] for item in processed}
+        if not self.selected_game or self.selected_game[0] not in visible_ids:
+            self.selected_game = processed[0][0]
+            self.library_selection.replace({processed[0][0][0]})
 
         use_virtual = len(processed) >= getattr(self, "virtualization_threshold", 200)
 
