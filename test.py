@@ -1647,6 +1647,16 @@ try:
     assert ("play", 1001) in signal_fired
     assert ("props", 1001) in signal_fired
 
+    # Test quick filter bar and signal propagation in compact view
+    assert hasattr(steam_layout.sidebar_list, "btn_f_all")
+    assert hasattr(steam_layout.sidebar_list, "btn_f_inst")
+    assert hasattr(steam_layout.sidebar_list, "btn_f_fav")
+    assert hasattr(steam_layout.sidebar_list, "btn_f_arch")
+    filter_events = []
+    steam_layout.filter_changed.connect(lambda f: filter_events.append(f))
+    steam_layout.sidebar_list._on_filter_btn_clicked("installed")
+    assert "installed" in filter_events
+
     # Test MainWindow view mode integration & right detail panel hiding
     from PyQt6.QtCore import QSettings
     QSettings("SafeLauncher", "SafeLauncher").setValue("library_view_mode", "compact")
@@ -1656,6 +1666,55 @@ try:
     assert mw_steam.library_view_mode == "compact"
     assert mw_steam.detail_panel.isVisible() is False
     assert mw_steam.btn_reveal_detail.isVisible() is False
+
+    # Test new darker footer bar (#0E0E10) and bottom-left Add Game button
+    assert hasattr(mw_steam, "footer_bar")
+    assert hasattr(mw_steam, "btn_add")
+    assert hasattr(mw_steam, "btn_toggle_collections")
+    assert mw_steam.footer_bar.height() == 36
+
+    # Test pure collections panel (on by default, collapsed 48px width)
+    assert mw_steam.sidebar.isHidden() is False
+    assert mw_steam.sidebar.width() == 48
+    assert mw_steam.sidebar.compact is True
+    mw_steam._toggle_collections_panel()
+    assert mw_steam.sidebar.compact is False
+    assert mw_steam.sidebar.width() == 152
+    mw_steam._toggle_collections_panel()
+    assert mw_steam.sidebar.compact is True
+    assert mw_steam.sidebar.width() == 48
+
+    # Test Grid & List view search input presence
+    assert hasattr(mw_steam, "grid_search_input")
+
+    # Test update dot next to cloud icon
+    assert hasattr(mw_steam.compact_container.game_page.action_bar, "update_dot")
+
+    # Test missing achievements state
+    ach_widget = mw_steam.compact_container.game_page.ach_widget
+    ach_widget.set_achievements_data(0, 0, 0.0, [], [])
+    assert "missing" in ach_widget.recent_title.text().lower()
+
+    # Test tray menu pure text structure
+    mw_steam._update_tray_menu()
+    tray_texts = [act.text() for act in mw_steam.tray_menu.actions()]
+    assert "Library" in tray_texts
+    assert "Settings" in tray_texts
+    assert "Quit" in tray_texts
+    assert not any("Disk Space Manager" in t for t in tray_texts)
+
+    # Test HeaderBar View menu with Library submenu
+    assert hasattr(mw_steam.title_bar, "btn_view")
+    assert hasattr(mw_steam.title_bar, "lib_menu")
+
+    # Test Settings dialog frameless window hint and card size controls
+    test_settings = UserSettingsDialog("TestUser", parent=mw_steam)
+    assert bool(test_settings.windowFlags() & Qt.WindowType.FramelessWindowHint)
+    assert hasattr(test_settings, "combo_card_size")
+    assert hasattr(test_settings, "spin_card_size")
+    assert test_settings.get_card_size() == 200
+    test_settings.close()
+
     mw_steam._toggle_library_view()
     assert mw_steam.library_view_mode in ("compact", "grid", "list")
     mw_steam.settings.setValue("library_view_mode", "compact")
@@ -1665,7 +1724,7 @@ try:
     steam_layout.close()
     app.processEvents()
 
-    print("✓ Compact game detail page, English UI copy, and sidebar layout verified")
+    print("✓ Compact game detail page, dark grey styling, footer bar, and collections panel verified")
 
 except Exception as e:
     import traceback
