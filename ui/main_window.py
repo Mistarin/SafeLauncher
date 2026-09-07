@@ -3945,7 +3945,6 @@ class MainWindow(QMainWindow):
                     self._update_detail_launch_button(game_id)
                 # Update Discord Rich Presence
                 if hasattr(self, 'discord_rpc') and self.discord_rpc:
-                    import time
                     self.discord_rpc.set_activity(game_name, start_timestamp=int(time.time()), details="Playing in Sandbox")
 
                 # Auto-start GPU recorder / replay buffer on game launch if configured
