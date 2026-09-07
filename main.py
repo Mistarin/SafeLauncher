@@ -1,5 +1,6 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtGui import QIcon
 
 from core.logger import get_logger
 from core.bootstrap import setup_application_environment, check_already_running, create_single_instance_server
@@ -9,6 +10,7 @@ from core.zip_backup import ZipBackupManager
 from core.dependency_checker import install_requirements, missing_requirements
 
 from core.version import APP_VERSION, __version__
+from ui.icons import LOGO_PATH
 
 logger = get_logger("Main")
 
@@ -46,6 +48,11 @@ def main():
         pass
 
     app = QApplication(sys.argv)
+    # Set the application-level icon before any windows are created. This is
+    # what Linux taskbars/window managers use for a Python-launched process.
+    if LOGO_PATH:
+        app.setWindowIcon(QIcon(LOGO_PATH))
+    app.setDesktopFileName("safelauncher")
 
     # 1. Fast probe: if already running, focus existing window and exit immediately
     if check_already_running():
