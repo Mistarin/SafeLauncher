@@ -244,17 +244,18 @@ class HeroFetcherThread(SafeQThread):
     """Background QThread for downloading wide hero banners without blocking GUI main thread."""
     hero_downloaded = pyqtSignal(int, str)  # (game_id, image_path)
 
-    def __init__(self, game_id: int, name: str, steam_id: Optional[int], sgdb_client: SteamGridDBClient, parent=None):
+    def __init__(self, game_id: int, name: str, steam_id: Optional[int], sgdb_client: SteamGridDBClient, exe_path: str = "", parent=None):
         super().__init__(parent)
         self.game_id = game_id
         self.name = name
         self.steam_id = steam_id
         self.sgdb_client = sgdb_client
+        self.exe_path = exe_path
 
     def safe_run(self):
         if self.isInterruptionRequested():
             return
-        hero_path = self.sgdb_client.download_hero_banner(self.steam_id, self.game_id, self.name)
+        hero_path = self.sgdb_client.download_hero_banner(self.steam_id, self.game_id, self.name, exe_path=self.exe_path)
         if not self.isInterruptionRequested() and hero_path and os.path.exists(hero_path):
             self.hero_downloaded.emit(self.game_id, hero_path)
 

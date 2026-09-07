@@ -1772,6 +1772,78 @@ except Exception as e:
     print(f"✗ Compact game page test error: {e}")
     sys.exit(1)
 
+# ---------------------------------------------------------------------------
+# Test Suite: Stable Artwork Identification & Cache Collision Prevention
+# ---------------------------------------------------------------------------
+try:
+    from core.steamgriddb_client import SteamGridDBClient
+    import tempfile
+
+    # 1. Test get_artwork_key stability
+    steam_key_1 = SteamGridDBClient.get_artwork_key(steam_id="1868140", game_name="Dave the Diver", game_id=13)
+    assert steam_key_1 == "steam_1868140", f"Unexpected steam key: {steam_key_1}"
+
+    steam_key_2 = SteamGridDBClient.get_artwork_key(steam_id=392160, game_name="X4: Foundations", game_id=13)
+    assert steam_key_2 == "steam_392160", f"Unexpected steam key: {steam_key_2}"
+    assert steam_key_1 != steam_key_2, "Keys must never collide even if local game_id is identical!"
+
+    custom_key = SteamGridDBClient.get_artwork_key(steam_id="", game_name="My Custom Game", exe_path="/opt/game/run.sh")
+    assert custom_key.startswith("my_custom_game_"), f"Unexpected custom key: {custom_key}"
+
+    # 2. Test get_hero_cached_path and get_icon_cached_path with mock cache dir
+    with tempfile.TemporaryDirectory() as tmp_cache:
+        client = SteamGridDBClient(cache_dir=os.path.join(tmp_cache, "banners"))
+        heroes_dir = client.cache_dir / "heroes"
+        heroes_dir.mkdir(parents=True, exist_ok=True)
+        icons_dir = client.cache_dir.parent / "icons"
+        icons_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write canonical hero for Dave the Diver
+        dave_hero = heroes_dir / "hero_steam_1868140.jpg"
+        dave_hero.write_bytes(b"DAVE_THE_DIVER_HERO")
+
+        # Write stale legacy hero under game_id 13 (which was X4 Foundations)
+        x4_legacy_hero = heroes_dir / "hero_13.jpg"
+        x4_legacy_hero.write_bytes(b"X4_HERO")
+
+        # Resolve hero for Dave the Diver (game_id 13, steam_id 1868140)
+        resolved_dave_hero = client.get_hero_cached_path(steam_id="1868140", game_name="Dave the Diver", game_id=13)
+        assert resolved_dave_hero == str(dave_hero.resolve()), f"Must resolve canonical Dave the Diver hero, got {resolved_dave_hero}"
+
+        # Write canonical icon for Dave the Diver
+        dave_icon = icons_dir / "icon_steam_1868140.png"
+        dave_icon.write_bytes(b"DAVE_THE_DIVER_ICON")
+
+        # Resolve icon for Dave the Diver
+        resolved_dave_icon = client.get_icon_cached_path(steam_id="1868140", game_name="Dave the Diver", game_id=13)
+        assert resolved_dave_icon == str(dave_icon.resolve()), f"Must resolve canonical Dave the Diver icon, got {resolved_dave_icon}"
+
+    # 3. Test CompactSidebarListWidget update_game_icon
+    dummy_games = [
+        (13, "Dave the Diver", "/tmp/dave", "dave.exe", "umu", "", "1868140", 0, 0, 0, "", "", "", "", 0, "", "", 0, "")
+    ]
+    sidebar_list = CompactSidebarListWidget()
+    sidebar_list.set_games(dummy_games, set())
+    assert sidebar_list.list_widget.count() == 1
+    test_icon_file = "/tmp/test_dave_update.png"
+    qpix = QPixmap(24, 24)
+    qpix.fill(Qt.GlobalColor.green)
+    qpix.save(test_icon_file)
+    sidebar_list.update_game_icon(13, test_icon_file)
+    item_w = sidebar_list.list_widget.itemWidget(sidebar_list.list_widget.item(0))
+    assert item_w.icon_url == test_icon_file
+    if os.path.exists(test_icon_file):
+        os.remove(test_icon_file)
+    sidebar_list.close()
+
+    print("✓ Stable artwork keys, collision-free hero/icon caching, and live UI update verified")
+
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"✗ Artwork caching test error: {e}")
+    sys.exit(1)
+
 print("\n[SUCCESS] All SafeLauncher components tested and working cleanly!")
 
 

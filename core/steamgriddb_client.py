@@ -221,27 +221,110 @@ class SteamGridDBClient:
                 print(f"Could not create placeholder image: {e}")
         return str(placeholder.resolve()) if placeholder.exists() else None
 
-    def download_hero_banner(self, steam_id: Optional[int], game_id: int, game_name: str) -> Optional[str]:
+    @staticmethod
+    def get_artwork_key(steam_id: Optional[Any] = None, game_name: str = "", exe_path: str = "", game_id: Optional[int] = None) -> str:
+        """Derive a stable, collision-free artwork identifier for a game.
+        
+        Steam games use steam_{steam_id} which is immutable and survives database resets.
+        Custom games use a sanitized slug and identity hash derived from name and executable.
+        """
+        sid = str(steam_id).strip() if steam_id is not None else ""
+        if sid and sid not in ("0", "None", ""):
+            clean_digits = "".join(c for c in sid if c.isdigit())
+            if clean_digits and int(clean_digits) > 0:
+                return f"steam_{clean_digits}"
+            safe_sid = "".join(c for c in sid if c.isalnum() or c in ("-", "_"))
+            if safe_sid:
+                return f"steam_{safe_sid}"
+
+        norm_name = (game_name or "").strip().lower().replace(" ", "_")
+        clean_name = "".join(c for c in norm_name if c.isalnum() or c in ("-", "_"))[:24]
+        ident_src = f"{game_name}|{exe_path}"
+        ident_hash = hashlib.sha256(ident_src.encode("utf-8")).hexdigest()[:12]
+        if clean_name:
+            return f"{clean_name}_{ident_hash}"
+        if game_id and game_id > 0:
+            return f"id_{game_id}_{ident_hash}"
+        return f"custom_{ident_hash}"
+
+    def get_hero_cached_path(self, steam_id: Optional[Any] = None, game_name: str = "", exe_path: str = "", game_id: Optional[int] = None) -> Optional[str]:
+        """Return the resolved path to a cached 16:9 hero image if it exists."""
+        hero_cache_dir = self.cache_dir / "heroes"
+        if not hero_cache_dir.is_dir():
+            return None
+
+        art_key = self.get_artwork_key(steam_id=steam_id, game_name=game_name, exe_path=exe_path, game_id=game_id)
+        canonical_file = hero_cache_dir / f"hero_{art_key}.jpg"
+        if canonical_file.is_file() and canonical_file.stat().st_size > 0:
+            return str(canonical_file.resolve())
+
+        sid = str(steam_id).strip() if steam_id is not None else ""
+        if sid and sid not in ("0", "None", ""):
+            alt_steam = hero_cache_dir / f"hero_steam_{sid}.jpg"
+            if alt_steam.is_file() and alt_steam.stat().st_size > 0:
+                return str(alt_steam.resolve())
+            return None
+
+        if game_id and game_id > 0:
+            legacy_file = hero_cache_dir / f"hero_{game_id}.jpg"
+            if legacy_file.is_file() and legacy_file.stat().st_size > 0:
+                return str(legacy_file.resolve())
+        return None
+
+    def get_icon_cached_path(self, steam_id: Optional[Any] = None, game_name: str = "", exe_path: str = "", game_id: Optional[int] = None) -> Optional[str]:
+        """Return the resolved path to a cached icon if it exists."""
+        icons_dir = self.cache_dir.parent / "icons"
+        if not icons_dir.is_dir():
+            return None
+
+        art_key = self.get_artwork_key(steam_id=steam_id, game_name=game_name, exe_path=exe_path, game_id=game_id)
+        for ext in (".png", ".ico", ".jpg"):
+            canonical_file = icons_dir / f"icon_{art_key}{ext}"
+            if canonical_file.is_file() and canonical_file.stat().st_size > 0:
+                return str(canonical_file.resolve())
+
+        sid = str(steam_id).strip() if steam_id is not None else ""
+        if sid and sid not in ("0", "None", ""):
+            for ext in (".png", ".ico", ".jpg"):
+                alt_steam = icons_dir / f"icon_steam_{sid}{ext}"
+                if alt_steam.is_file() and alt_steam.stat().st_size > 0:
+                    return str(alt_steam.resolve())
+            return None
+
+        if game_id and game_id > 0:
+            for ext in (".png", ".ico", ".jpg"):
+                legacy_file = icons_dir / f"icon_{game_id}{ext}"
+                if legacy_file.is_file() and legacy_file.stat().st_size > 0:
+                    return str(legacy_file.resolve())
+        return None
+
+    def download_hero_banner(self, steam_id: Optional[Any], game_id: int, game_name: str, exe_path: str = "") -> Optional[str]:
         """Download and cache TRUE 16:9 wide library hero/background artwork (never 9:16 portrait cover art)."""
         try:
             hero_cache_dir = self.cache_dir / "heroes"
             hero_cache_dir.mkdir(exist_ok=True, parents=True)
-            
-            filename = f"hero_{game_id}.jpg"
-            cache_file = hero_cache_dir / filename
-            
-            # If cache file exists, verify it's a 16:9 landscape image (width >= height)
-            if cache_file.exists():
+
+            art_key = self.get_artwork_key(steam_id=steam_id, game_name=game_name, exe_path=exe_path, game_id=game_id)
+            canonical_file = hero_cache_dir / f"hero_{art_key}.jpg"
+            legacy_file = hero_cache_dir / f"hero_{game_id}.jpg" if game_id else None
+
+            # If canonical cache file exists, verify it's a 16:9 landscape image (width >= height)
+            if canonical_file.exists():
                 try:
                     from PIL import Image
-                    with Image.open(cache_file) as img:
+                    with Image.open(canonical_file) as img:
                         w, h = img.size
                         if w >= h:
-                            return str(cache_file.resolve())
+                            if legacy_file and legacy_file != canonical_file:
+                                try:
+                                    shutil.copyfile(str(canonical_file), str(legacy_file))
+                                except Exception:
+                                    pass
+                            return str(canonical_file.resolve())
                         else:
-                            cache_file.unlink()
+                            canonical_file.unlink()
                 except Exception:
-                    return str(cache_file.resolve())
+                    return str(canonical_file.resolve())
 
             # Resolve App ID if missing
             resolved_appid = steam_id
@@ -249,6 +332,9 @@ class SteamGridDBClient:
                 search_res = self.search_game(game_name)
                 if search_res.get("found") and search_res.get("primary"):
                     resolved_appid = search_res["primary"].get("appid")
+                    if resolved_appid:
+                        art_key = self.get_artwork_key(steam_id=resolved_appid, game_name=game_name, exe_path=exe_path, game_id=game_id)
+                        canonical_file = hero_cache_dir / f"hero_{art_key}.jpg"
 
             # Priority 1: Direct 16:9 widescreen Steam CDN endpoints
             urls_to_try = []
@@ -294,28 +380,37 @@ class SteamGridDBClient:
                         total = 0
                         for chunk in response.iter_content(chunk_size=65536):
                             total += len(chunk)
-                            # Same exhaustion guard as download_banner: never
-                            # buffer an uncapped response body into RAM.
                             if total > self._MAX_BANNER_BYTES:
                                 print(f"Refusing hero download: response exceeds {self._MAX_BANNER_BYTES // (1024*1024)} MB from {url}")
                                 break
                             chunks.append(chunk)
                         else:
-                            with open(cache_file, 'wb') as f:
+                            with open(canonical_file, 'wb') as f:
                                 for chunk in chunks:
                                     f.write(chunk)
 
                             # Verify downloaded file is widescreen landscape (width >= height)
                             try:
                                 from PIL import Image
-                                with Image.open(cache_file) as img:
+                                with Image.open(canonical_file) as img:
                                     w, h = img.size
                                     if w >= h:
-                                        return str(cache_file.resolve())
+                                        if legacy_file and legacy_file != canonical_file:
+                                            try:
+                                                shutil.copyfile(str(canonical_file), str(legacy_file))
+                                            except Exception:
+                                                pass
+                                        return str(canonical_file.resolve())
                                     else:
-                                        cache_file.unlink()
+                                        canonical_file.unlink()
                             except Exception:
-                                return str(cache_file.resolve())
+                                if canonical_file.exists():
+                                    if legacy_file and legacy_file != canonical_file:
+                                        try:
+                                            shutil.copyfile(str(canonical_file), str(legacy_file))
+                                        except Exception:
+                                            pass
+                                    return str(canonical_file.resolve())
                 except Exception:
                     continue
 
@@ -326,7 +421,7 @@ class SteamGridDBClient:
 
     def fetch_and_cache_game_icon(self, game_id: int, steam_id: Optional[str] = None, game_name: str = "", exe_path: Optional[str] = None) -> Optional[str]:
         """Fetch and locally cache a game icon."""
-        if not game_id:
+        if not game_id and not steam_id and not game_name:
             return None
 
         icons_dir = self.cache_dir.parent / "icons"
@@ -336,8 +431,16 @@ class SteamGridDBClient:
         except Exception:
             pass
 
-        cache_file = icons_dir / f"icon_{game_id}.png"
+        art_key = self.get_artwork_key(steam_id=steam_id, game_name=game_name, exe_path=exe_path or "", game_id=game_id)
+        cache_file = icons_dir / f"icon_{art_key}.png"
+        legacy_file = icons_dir / f"icon_{game_id}.png" if game_id else None
+
         if cache_file.exists() and cache_file.stat().st_size > 0:
+            if legacy_file and legacy_file != cache_file:
+                try:
+                    shutil.copyfile(str(cache_file), str(legacy_file))
+                except Exception:
+                    pass
             return str(cache_file.resolve())
 
         # 1. Direct Windows .exe embedded icon extraction (highest fidelity authentic icon)
@@ -345,6 +448,11 @@ class SteamGridDBClient:
             try:
                 from core.icon_extractor import extract_exe_icon
                 if extract_exe_icon(exe_path, str(cache_file)):
+                    if legacy_file and legacy_file != cache_file:
+                        try:
+                            shutil.copyfile(str(cache_file), str(legacy_file))
+                        except Exception:
+                            pass
                     return str(cache_file.resolve())
             except Exception:
                 pass
@@ -357,6 +465,11 @@ class SteamGridDBClient:
                 if os.path.isfile(cand_path) and os.path.getsize(cand_path) > 0:
                     try:
                         shutil.copyfile(cand_path, cache_file)
+                        if legacy_file and legacy_file != cache_file:
+                            try:
+                                shutil.copyfile(str(cache_file), str(legacy_file))
+                            except Exception:
+                                pass
                         return str(cache_file.resolve())
                     except Exception:
                         pass
@@ -367,6 +480,9 @@ class SteamGridDBClient:
                 search_res = self.search_game(game_name)
                 if search_res.get('found') and search_res.get('primary'):
                     resolved_appid = search_res['primary'].get('appid')
+                    if resolved_appid:
+                        art_key = self.get_artwork_key(steam_id=resolved_appid, game_name=game_name, exe_path=exe_path or "", game_id=game_id)
+                        cache_file = icons_dir / f"icon_{art_key}.png"
 
         urls_to_try = []
 
@@ -388,7 +504,6 @@ class SteamGridDBClient:
                 pass
 
         if resolved_appid and str(resolved_appid).isdigit() and int(resolved_appid) > 0:
-            urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/{resolved_appid}/{resolved_appid}_icon.jpg")
             urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steam/apps/{resolved_appid}/logo.png")
             urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/capsule_231x87.jpg")
             urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/header.jpg")
@@ -410,6 +525,11 @@ class SteamGridDBClient:
                         with open(cache_file, 'wb') as f:
                             for chunk in chunks:
                                 f.write(chunk)
+                        if legacy_file and legacy_file != cache_file:
+                            try:
+                                shutil.copyfile(str(cache_file), str(legacy_file))
+                            except Exception:
+                                pass
                         return str(cache_file.resolve())
             except Exception:
                 continue

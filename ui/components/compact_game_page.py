@@ -1280,6 +1280,7 @@ class CompactSidebarListItemWidget(QWidget):
         self.name = game_tuple[1]
         self.path = game_tuple[2] if len(game_tuple) > 2 else ""
         self.executable = game_tuple[3] if len(game_tuple) > 3 else ""
+        self.steam_id = game_tuple[6] if len(game_tuple) > 6 and game_tuple[6] else ""
         self.icon_url = game_tuple[18] if len(game_tuple) > 18 and game_tuple[18] else ""
         self.cache_dir = cache_dir
         self.cloud_status = cloud_status
@@ -1342,20 +1343,39 @@ class CompactSidebarListItemWidget(QWidget):
 
     def _load_icon(self):
         pix: Optional[QPixmap] = None
-        if self.icon_url and os.path.exists(self.icon_url):
+        if self.icon_url and os.path.exists(self.icon_url) and os.path.getsize(self.icon_url) > 0:
             loaded = QPixmap(self.icon_url)
             if not loaded.isNull():
                 pix = loaded
 
         if pix is None and self.cache_dir:
+            from core.steamgriddb_client import SteamGridDBClient
+            full_exe = os.path.join(self.path, self.executable) if (self.path and self.executable) else ""
+            art_key = SteamGridDBClient.get_artwork_key(
+                steam_id=self.steam_id,
+                game_name=self.name,
+                exe_path=full_exe,
+                game_id=self.game_id
+            )
             icons_dir = os.path.join(os.path.dirname(self.cache_dir), "icons")
+            # Try stable art_key first
             for ext in (".png", ".ico", ".jpg"):
-                icon_path = os.path.join(icons_dir, f"icon_{self.game_id}{ext}")
-                if os.path.exists(icon_path):
+                icon_path = os.path.join(icons_dir, f"icon_{art_key}{ext}")
+                if os.path.exists(icon_path) and os.path.getsize(icon_path) > 0:
                     loaded = QPixmap(icon_path)
                     if not loaded.isNull():
                         pix = loaded
                         break
+
+            # If no art_key icon and game is non-steam, try legacy game_id
+            if pix is None and (not self.steam_id or str(self.steam_id) in ("0", "None", "")):
+                for ext in (".png", ".ico", ".jpg"):
+                    icon_path = os.path.join(icons_dir, f"icon_{self.game_id}{ext}")
+                    if os.path.exists(icon_path) and os.path.getsize(icon_path) > 0:
+                        loaded = QPixmap(icon_path)
+                        if not loaded.isNull():
+                            pix = loaded
+                            break
 
         if pix is None and self.path and self.executable:
             full_exe = os.path.join(self.path, self.executable)
@@ -1651,6 +1671,17 @@ class CompactSidebarListWidget(QFrame):
                 self.list_widget.setCurrentItem(item)
                 break
 
+    def update_game_icon(self, game_id: int, icon_path: str):
+        """Update the icon of a game in the sidebar list in real time."""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item and item.data(Qt.ItemDataRole.UserRole) == game_id:
+                widget = self.list_widget.itemWidget(item)
+                if isinstance(widget, CompactSidebarListItemWidget):
+                    widget.icon_url = icon_path
+                    widget._load_icon()
+                break
+
     def _on_search_changed(self, text: str):
         self._populate_list(text.strip().lower())
 
@@ -1730,6 +1761,7 @@ class CompactLayoutContainer(QWidget):
 
         self.splitter.setSizes([260, 920])
         main_layout.addWidget(self.splitter)
+        self.sidebar = self.sidebar_list
 
     def set_games(
         self,
@@ -1749,6 +1781,9 @@ class CompactLayoutContainer(QWidget):
 
     def select_game(self, game_id: int):
         self.sidebar_list.select_game(game_id)
+
+    def update_game_icon(self, game_id: int, icon_path: str):
+        self.sidebar_list.update_game_icon(game_id, icon_path)
 
 
 # Backward-compatible aliases

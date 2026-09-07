@@ -1917,7 +1917,9 @@ class MainWindow(QMainWindow):
                 banner_url = g[5] if len(g) > 5 and g[5] else ""
                 steam_id = g[6] if len(g) > 6 and g[6] else ""
                 icon_url = g[18] if len(g) > 18 and g[18] else ""
-                if (banner_url is None or not icon_url) and game_id not in self._auto_fetch_attempted:
+                banner_missing = not banner_url or not os.path.exists(banner_url)
+                icon_missing = not icon_url or not os.path.exists(icon_url)
+                if (banner_missing or icon_missing) and game_id not in self._auto_fetch_attempted:
                     self._auto_fetch_attempted.add(game_id)
                     full_exe = os.path.join(path, executable) if (path and executable) else ""
                     fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
@@ -1953,10 +1955,13 @@ class MainWindow(QMainWindow):
                 if banner_url and not os.path.exists(banner_url):
                     banner_url = None
 
-                if not icon_url:
-                    cached_icon = os.path.join(self.sgdb_client.cache_dir.parent, "icons", f"icon_{game_id}.png")
-                    if os.path.exists(cached_icon):
+                if not icon_url or not os.path.exists(icon_url):
+                    full_exe = os.path.join(path, executable) if (path and executable) else ""
+                    cached_icon = self.sgdb_client.get_icon_cached_path(steam_id=steam_id, game_name=name, exe_path=full_exe, game_id=game_id)
+                    if cached_icon and os.path.exists(cached_icon):
                         icon_url = cached_icon
+                    else:
+                        icon_url = ""
                 
                 widget = GameBannerWidget(
                     game_id, name, banner_url, playtime_seconds or 0,
@@ -1977,7 +1982,9 @@ class MainWindow(QMainWindow):
                 widgets.append(widget)
                 self.banner_widgets[game_id] = widget
                 
-                if (banner_url is None or not icon_url) and game_id not in self._auto_fetch_attempted:
+                banner_missing = not banner_url or not os.path.exists(banner_url)
+                icon_missing = not icon_url or not os.path.exists(icon_url)
+                if (banner_missing or icon_missing) and game_id not in self._auto_fetch_attempted:
                     self._auto_fetch_attempted.add(game_id)
                     full_exe = os.path.join(path, executable) if (path and executable) else ""
                     fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
@@ -2049,21 +2056,24 @@ class MainWindow(QMainWindow):
 
         # Pre-cache 16:9 hero background artwork and game icons in background threads
         for game in self.games:
-            g_id, g_name, _, _, _, _, s_id = game[:7]
-            hero_cache_file = os.path.join(self.sgdb_client.cache_dir, "heroes", f"hero_{g_id}.jpg")
-            if not os.path.exists(hero_cache_file) and g_id not in self._hero_attempted:
+            g_id = game[0]
+            g_name = game[1] if len(game) > 1 else ""
+            g_path = game[2] if len(game) > 2 else ""
+            g_exe = game[3] if len(game) > 3 else ""
+            s_id = game[6] if len(game) > 6 else ""
+            full_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else ""
+
+            hero_cache_file = self.sgdb_client.get_hero_cached_path(steam_id=s_id, game_name=g_name, exe_path=full_exe, game_id=g_id)
+            if not hero_cache_file and g_id not in self._hero_attempted:
                 if not any(isinstance(f, HeroFetcherThread) and f.game_id == g_id for f in self.metadata_fetchers):
                     self._hero_attempted.add(g_id)
-                    hero_thread = HeroFetcherThread(g_id, g_name, s_id, self.sgdb_client, parent=self)
+                    hero_thread = HeroFetcherThread(g_id, g_name, s_id, self.sgdb_client, exe_path=full_exe, parent=self)
                     hero_thread.hero_downloaded.connect(self._on_hero_downloaded)
                     self._track_metadata_fetcher(hero_thread)
 
             icon_url = game[18] if len(game) > 18 and game[18] else ""
-            if not icon_url and g_id not in self._icon_attempted:
+            if (not icon_url or not os.path.exists(icon_url)) and g_id not in self._icon_attempted:
                 self._icon_attempted.add(g_id)
-                g_path = game[2] if len(game) > 2 else ""
-                g_exe = game[3] if len(game) > 3 else ""
-                full_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else ""
                 icon_thread = IconAutoFetcherThread(g_id, g_name, str(s_id or ""), self.sgdb_client, exe_path=full_exe, parent=self)
                 icon_thread.icon_downloaded.connect(self._on_icon_downloaded)
                 self._track_metadata_fetcher(icon_thread)
@@ -2084,13 +2094,34 @@ class MainWindow(QMainWindow):
         self.sidebar.update_counts(len(active_games), len(inst_games), len(fav_games), len(arch_games))
 
     def _on_icon_downloaded(self, game_id: int, icon_path: str):
-        """Save downloaded game icon path in DB and update card."""
+        """Save downloaded game icon path in DB and update card and compact list."""
         self.db.update_game_icon(game_id, icon_path)
+        for idx, g in enumerate(self.games):
+            if g[0] == game_id:
+                g_list = list(g)
+                while len(g_list) <= 18:
+                    g_list.append("")
+                g_list[18] = icon_path
+                self.games[idx] = tuple(g_list)
+                break
+
         try:
             if game_id in self.banner_widgets:
                 self.banner_widgets[game_id].set_icon(icon_path)
         except (RuntimeError, AttributeError):
             pass
+
+        if hasattr(self, "compact_container") and self.compact_container is not None:
+            try:
+                self.compact_container.update_game_icon(game_id, icon_path)
+            except Exception:
+                pass
+
+        if hasattr(self, "list_view") and self.list_view is not None:
+            try:
+                self.list_view.update_game_icon(game_id, icon_path)
+            except Exception:
+                pass
 
     def _check_games_on_drive(self):
         """Check all games in library against disk and grey out missing ones"""
@@ -2120,6 +2151,21 @@ class MainWindow(QMainWindow):
             self.db.update_game_steam_id(game_id, steam_id)
         if icon_path:
             self.db.update_game_icon(game_id, icon_path)
+
+        for idx, g in enumerate(self.games):
+            if g[0] == game_id:
+                g_list = list(g)
+                while len(g_list) <= 18:
+                    g_list.append("")
+                if icon_path:
+                    g_list[18] = icon_path
+                if image_path:
+                    g_list[5] = image_path
+                if steam_id:
+                    g_list[6] = str(steam_id)
+                self.games[idx] = tuple(g_list)
+                break
+
         try:
             if game_id in self.banner_widgets:
                 if image_path:
@@ -2128,6 +2174,18 @@ class MainWindow(QMainWindow):
                     self.banner_widgets[game_id].set_icon(icon_path)
         except (RuntimeError, AttributeError):
             pass
+
+        if icon_path and hasattr(self, "compact_container") and self.compact_container is not None:
+            try:
+                self.compact_container.update_game_icon(game_id, icon_path)
+            except Exception:
+                pass
+
+        if icon_path and hasattr(self, "list_view") and self.list_view is not None:
+            try:
+                self.list_view.update_game_icon(game_id, icon_path)
+            except Exception:
+                pass
 
     def _cleanup_auto_fetcher(self, fetcher):
         if fetcher in self.auto_fetchers:
@@ -2249,20 +2307,26 @@ class MainWindow(QMainWindow):
         else:
             c_status = SyncStatus.NO_SAVES
 
-        hero_cache_path = os.path.join(self.sgdb_client.cache_dir, "heroes", f"hero_{g_id}.jpg")
-        if os.path.exists(hero_cache_path):
+        g_name = game[1] if len(game) > 1 else ""
+        g_path = game[2] if len(game) > 2 else ""
+        g_exe = game[3] if len(game) > 3 else ""
+        s_id = game[6] if len(game) > 6 else ""
+        full_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else ""
+        banner_url = game[5] if len(game) > 5 else None
+
+        hero_cache_path = self.sgdb_client.get_hero_cached_path(steam_id=s_id, game_name=g_name, exe_path=full_exe, game_id=g_id)
+        if hero_cache_path and os.path.exists(hero_cache_path):
             hero_file = hero_cache_path
         else:
-            banner_url = game[5] if len(game) > 5 else None
             if banner_url and os.path.exists(banner_url):
                 hero_file = banner_url
             else:
                 hero_file = None
 
-        if not os.path.exists(hero_cache_path) and g_id not in self._hero_attempted:
+        if not hero_cache_path and g_id not in self._hero_attempted:
             if not any(isinstance(f, HeroFetcherThread) and f.game_id == g_id for f in self.metadata_fetchers):
                 self._hero_attempted.add(g_id)
-                hero_thread = HeroFetcherThread(g_id, game[1], game[6], self.sgdb_client, parent=self)
+                hero_thread = HeroFetcherThread(g_id, g_name, s_id, self.sgdb_client, exe_path=full_exe, parent=self)
                 hero_thread.hero_downloaded.connect(self._on_hero_downloaded)
                 self._track_metadata_fetcher(hero_thread)
 
@@ -3210,18 +3274,19 @@ class MainWindow(QMainWindow):
         tags_str = game[10] if len(game) > 10 and game[10] else ""
 
         # Update Hero Blurred Background Image (strictly 16:9 widescreen artwork with banner fallback)
-        hero_cache_path = os.path.join(self.sgdb_client.cache_dir, "heroes", f"hero_{game_id}.jpg")
-        if os.path.exists(hero_cache_path):
+        full_exe = os.path.join(path, exe) if (path and exe) else ""
+        hero_cache_path = self.sgdb_client.get_hero_cached_path(steam_id=steam_id, game_name=name, exe_path=full_exe, game_id=game_id)
+        if hero_cache_path and os.path.exists(hero_cache_path):
             self.hero_bg.set_hero_image(hero_cache_path)
         elif banner_url and os.path.exists(banner_url):
             self.hero_bg.set_hero_image(banner_url)
         else:
             self.hero_bg.set_hero_image(None)
 
-        if not os.path.exists(hero_cache_path) and game_id not in self._hero_attempted:
+        if not hero_cache_path and game_id not in self._hero_attempted:
             if not any(isinstance(f, HeroFetcherThread) and f.game_id == game_id for f in self.metadata_fetchers):
                 self._hero_attempted.add(game_id)
-                hero_thread = HeroFetcherThread(game_id, name, steam_id, self.sgdb_client, parent=self)
+                hero_thread = HeroFetcherThread(game_id, name, steam_id, self.sgdb_client, exe_path=full_exe, parent=self)
                 hero_thread.hero_downloaded.connect(self._on_hero_downloaded)
                 self._track_metadata_fetcher(hero_thread)
 
