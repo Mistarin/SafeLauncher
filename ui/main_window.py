@@ -1282,18 +1282,17 @@ class MainWindow(QMainWindow):
         """Toggle between maximized state and normal window size"""
         if self.isMaximized():
             self.showNormal()
-            if hasattr(self, 'title_bar'):
-                restore_icon = get_app_icon("maximize", color="#f4f4f5")
-                self.title_bar.btn_max.setIcon(restore_icon)
-                self.title_bar.btn_max.setText("[]" if restore_icon.isNull() else "")
-                self.title_bar.btn_max.setToolTip("Maximize window")
         else:
             self.showMaximized()
-            if hasattr(self, 'title_bar'):
-                restore_icon = get_app_icon("restore", color="#f4f4f5")
-                self.title_bar.btn_max.setIcon(restore_icon)
-                self.title_bar.btn_max.setText("=" if restore_icon.isNull() else "")
-                self.title_bar.btn_max.setToolTip("Restore window")
+        self._sync_window_controls()
+
+    def _sync_window_controls(self, *_args):
+        """Keep the custom maximize control synchronized with the real state."""
+        if not hasattr(self, "title_bar"):
+            return
+        maximized = self.isMaximized()
+        self.title_bar.btn_max.setIcon(get_app_icon("restore" if maximized else "maximize", color="#F4F4F5"))
+        self.title_bar.btn_max.setToolTip("Restore window" if maximized else "Maximize window")
 
     def _open_settings(self):
         """Open launcher preferences and persist profile changes."""
@@ -2530,6 +2529,11 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposition_reveal_button()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self._sync_window_controls()
 
     def _reposition_reveal_button(self):
         """No-op as reveal button is docked in the bottom action bar."""

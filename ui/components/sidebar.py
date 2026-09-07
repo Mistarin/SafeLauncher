@@ -617,7 +617,7 @@ class HeaderBar(QFrame):
         self.btn_max.setFixedSize(30, 30)
         self.btn_max.setToolTip("Maximize window")
         self.btn_max.setStyleSheet(control_style)
-        self.btn_max.clicked.connect(self._toggle_max_restore)
+        self.btn_max.clicked.connect(self.main_window._toggle_maximize)
         layout.addWidget(self.btn_max)
 
         self.btn_close = QPushButton()
@@ -681,6 +681,10 @@ class DialogTitleBar(QFrame):
         super().__init__(dialog)
         self.dialog = dialog
         self.drag_pos = None
+        # Dialogs must always start in their requested normal geometry. Some
+        # window managers inherit the parent's maximized state for frameless
+        # modal windows unless it is explicitly cleared.
+        self.dialog.setWindowState(self.dialog.windowState() & ~Qt.WindowState.WindowMaximized)
         self.setFixedHeight(40)
         self.setStyleSheet("""
             QFrame {
@@ -738,6 +742,16 @@ class DialogTitleBar(QFrame):
         self.btn_min.clicked.connect(self.dialog.showMinimized)
         layout.addWidget(self.btn_min)
 
+        self.btn_max = QPushButton()
+        self.btn_max.setObjectName("dialogMaximize")
+        self.btn_max.setIcon(get_app_icon("maximize", color="#8E8E93"))
+        self.btn_max.setIconSize(QSize(10, 10))
+        self.btn_max.setFixedSize(26, 26)
+        self.btn_max.setToolTip("Maximize")
+        self.btn_max.setStyleSheet(control_style)
+        self.btn_max.clicked.connect(self._toggle_max_restore)
+        layout.addWidget(self.btn_max)
+
         self.btn_close = QPushButton()
         self.btn_close.setObjectName("dialogClose")
         self.btn_close.setIcon(get_app_icon("close", color="#8E8E93"))
@@ -747,6 +761,20 @@ class DialogTitleBar(QFrame):
         self.btn_close.setStyleSheet(control_style)
         self.btn_close.clicked.connect(self.dialog.reject)
         layout.addWidget(self.btn_close)
+
+        self._sync_window_controls()
+
+    def _sync_window_controls(self):
+        maximized = self.dialog.isMaximized()
+        self.btn_max.setIcon(get_app_icon("restore" if maximized else "maximize", color="#8E8E93"))
+        self.btn_max.setToolTip("Restore" if maximized else "Maximize")
+
+    def _toggle_max_restore(self):
+        if self.dialog.isMaximized():
+            self.dialog.showNormal()
+        else:
+            self.dialog.showMaximized()
+        self._sync_window_controls()
 
     def set_title(self, title: str):
         if hasattr(self, 'title_label'):
