@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
     QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox, QSpinBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSettings
+from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QSize
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
 from PyQt6.QtWidgets import QKeySequenceEdit
 
@@ -67,44 +67,69 @@ class UserSettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-        self.setMinimumSize(700, 540)
+        self.setMinimumSize(820, 600)
+        self.resize(1040, 720)
+        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMaximized)
         self.setSizeGripEnabled(True)
 
         self.setStyleSheet("""
             QDialog {
-                background: #141416;
+                background: #111113;
                 color: #FFFFFF;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
+                border: 1px solid #2A2A2E;
+                border-radius: 12px;
             }
             QLabel {
                 color: #E4E4E7;
             }
             QLineEdit, QComboBox, QSpinBox {
-                background: #1C1C20;
+                background: #1B1B1F;
                 color: #FFFFFF;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 6px;
-                padding: 7px 10px;
+                border: 1px solid #303037;
+                border-radius: 7px;
+                padding: 8px 10px;
                 font-size: 12px;
             }
             QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-                border-color: #3F3F46;
-                background: #222228;
+                border-color: #4B9FFF;
+                background: #202026;
             }
             QPushButton {
-                background: #202024;
+                background: #222228;
                 color: #FFFFFF;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 6px;
-                padding: 7px 14px;
+                border: 1px solid #34343C;
+                border-radius: 7px;
+                padding: 8px 14px;
                 font-size: 12px;
                 font-weight: 500;
             }
             QPushButton:hover {
-                background: #27272A;
-                border-color: rgba(255, 255, 255, 0.16);
+                background: #2B2B32;
+                border-color: #4B4B56;
             }
+            QPushButton:pressed {
+                background: #17171A;
+            }
+            QCheckBox {
+                spacing: 9px;
+                color: #D4D4D8;
+                padding: 5px 0;
+            }
+            QCheckBox::indicator {
+                width: 17px; height: 17px;
+                border-radius: 5px;
+                border: 1px solid #4A4A54;
+                background: #1B1B1F;
+            }
+            QCheckBox::indicator:checked {
+                background: #3B9FE8;
+                border-color: #3B9FE8;
+            }
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:vertical { width: 7px; background: transparent; margin: 2px 0; }
+            QScrollBar::handle:vertical { background: #3A3A43; border-radius: 3px; min-height: 32px; }
+            QScrollBar::handle:vertical:hover { background: #5A5A66; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
 
         root_layout = QVBoxLayout(self)
@@ -122,8 +147,12 @@ class UserSettingsDialog(QDialog):
         body_layout.setSpacing(12)
 
         # Navigation Bar
-        nav_bar = QHBoxLayout()
-        nav_bar.setSpacing(6)
+        nav_frame = QFrame()
+        nav_frame.setObjectName("settingsNav")
+        nav_frame.setStyleSheet("QFrame#settingsNav { background: #18181B; border: 1px solid #2A2A2E; border-radius: 9px; }")
+        nav_bar = QHBoxLayout(nav_frame)
+        nav_bar.setContentsMargins(5, 5, 5, 5)
+        nav_bar.setSpacing(4)
 
         self.tab_buttons = []
         tabs = [
@@ -134,8 +163,12 @@ class UserSettingsDialog(QDialog):
             ("Plugins & Addons", 4),
         ]
 
-        for title, idx in tabs:
+        tab_icons = ["ph.sliders-horizontal-bold", "ph.shield-check-bold", "ph.hard-drives-bold", "ph.cloud-bold", "ph.puzzle-piece-bold"]
+        for (title, idx), icon_name in zip(tabs, tab_icons):
             btn = QPushButton(title)
+            btn.setIcon(get_icon(icon_name, color="#A1A1AA"))
+            btn.setIconSize(QSize(15, 15))
+            btn.setObjectName("settingsTab")
             btn.setCheckable(True)
             btn.setMinimumHeight(32)
             btn.setStyleSheet("""
@@ -143,9 +176,9 @@ class UserSettingsDialog(QDialog):
                     background: transparent;
                     color: #A1A1AA;
                     border: none;
-                    border-bottom: 2px solid transparent;
-                    border-radius: 0px;
-                    padding: 6px 14px;
+                    border: 1px solid transparent;
+                    border-radius: 7px;
+                    padding: 8px 12px;
                     font-size: 12px;
                     font-weight: 600;
                 }
@@ -153,9 +186,9 @@ class UserSettingsDialog(QDialog):
                     color: #FFFFFF;
                 }
                 QPushButton:checked {
-                    background: transparent;
+                    background: #2A2A31;
                     color: #FFFFFF;
-                    border-bottom: 2px solid #FFFFFF;
+                    border: 1px solid #42424D;
                 }
             """)
             btn.clicked.connect(lambda _, i=idx: self._switch_tab(i))
@@ -164,7 +197,7 @@ class UserSettingsDialog(QDialog):
 
         nav_bar.addStretch()
         self.tab_buttons[0].setChecked(True)
-        body_layout.addLayout(nav_bar)
+        body_layout.addWidget(nav_frame)
 
         # Stacked Pages
         self.stack = QStackedWidget()
