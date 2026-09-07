@@ -101,6 +101,7 @@ class CloudWizardDialog(QDialog):
         self.pages.addWidget(self._create_deploy_page())    # Page 1: Deploy backend
         self.pages.addWidget(self._create_connect_page())   # Page 2: Connect URL & Key
         self.layout.addWidget(self.pages, 1)
+        self._deployment_confirmed = False
 
         # Bottom Buttons
         btn_layout = QHBoxLayout()
@@ -259,6 +260,40 @@ class CloudWizardDialog(QDialog):
         layout.setContentsMargins(0, 4, 8, 8)
         layout.setSpacing(12)
 
+        guide = QFrame()
+        guide.setStyleSheet("""
+            QFrame {
+                background-color: #18181B;
+                border: 1px solid #3F3F46;
+                border-radius: 8px;
+                padding: 12px;
+            }
+        """)
+        guide_layout = QVBoxLayout(guide)
+        guide_layout.setContentsMargins(6, 6, 6, 6)
+        guide_layout.setSpacing(6)
+        guide_title = QLabel("Do this once, then click Done")
+        guide_title.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: bold;")
+        guide_layout.addWidget(guide_title)
+        guide_steps = QLabel(
+            "<b>1.</b> Choose one deployment method below.<br>"
+            "<b>2.</b> Sign in to Convex when asked and create your project.<br>"
+            "<b>3.</b> Wait until deployment finishes, then return here.<br>"
+            "<b>4.</b> Click <b>Done — continue</b>. SafeLauncher will test the connection next."
+        )
+        guide_steps.setWordWrap(True)
+        guide_steps.setStyleSheet("color: #D1D5DB; font-size: 12px;")
+        guide_layout.addWidget(guide_steps)
+        self.deploy_status_lbl = QLabel("Not deployed yet")
+        self.deploy_status_lbl.setStyleSheet("color: #FBBF24; font-size: 12px;")
+        guide_layout.addWidget(self.deploy_status_lbl)
+        self.btn_deploy_done = QPushButton("Done — continue")
+        self.btn_deploy_done.setObjectName("primaryBtn")
+        self.btn_deploy_done.setEnabled(False)
+        self.btn_deploy_done.clicked.connect(self._confirm_deployment)
+        guide_layout.addWidget(self.btn_deploy_done)
+        layout.addWidget(guide)
+
         # Section 1: Zero-CLI 1-Click Web Deployment
         web_card = QFrame()
         web_card.setStyleSheet("""
@@ -273,19 +308,20 @@ class CloudWizardDialog(QDialog):
         wc_layout.setContentsMargins(6, 6, 6, 6)
         wc_layout.setSpacing(8)
 
-        wc_title = QLabel("<b>1-Click Cloud Deploy (Recommended for Steam Deck & Zero-Terminal Users)</b>")
+        wc_title = QLabel("<b>Browser setup (no terminal on this device)</b>")
         wc_title.setStyleSheet("color: #60A5FA; font-size: 13px;")
         wc_layout.addWidget(wc_title)
 
         wc_desc = QLabel(
-            "Deploy your personal Convex database directly in your browser with zero CLI setup.<br>"
-            "• 100% Free · 1 GB Storage · No credit card required · Zero Node.js or terminal required on this machine."
+            "Open the backend setup instructions in your browser. Complete the Convex steps there, "
+            "then return here and click Done.<br>"
+            "• 100% Free · 1 GB Storage · No credit card required on this device."
         )
         wc_desc.setStyleSheet("color: #D1D5DB; font-size: 12px;")
         wc_desc.setWordWrap(True)
         wc_layout.addWidget(wc_desc)
 
-        btn_web_deploy = QPushButton("Deploy on Convex.dev (Free) ↗")
+        btn_web_deploy = QPushButton("Open browser setup instructions ↗")
         btn_web_deploy.setObjectName("primaryBtn")
         btn_web_deploy.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_web_deploy.clicked.connect(self._open_web_deploy)
@@ -385,6 +421,7 @@ class CloudWizardDialog(QDialog):
     def _open_web_deploy(self):
         """Open browser to deploy SafeLauncherCloud repository on Convex."""
         QDesktopServices.openUrl(QUrl("https://github.com/Mistarin/SafeLauncherCloud"))
+        self._deployment_started()
 
     def _launch_automated_terminal(self):
         import shutil
@@ -418,6 +455,23 @@ class CloudWizardDialog(QDialog):
                 self, "Terminal Setup",
                 f"Could not automatically detect terminal emulator.\nPlease run in your terminal:\n\n{sys.executable} {main_py} --setup-cloud"
             )
+        else:
+            self._deployment_started()
+
+    def _deployment_started(self):
+        """Enable the explicit completion step after opening deployment help."""
+        self.deploy_status_lbl.setText(
+            "Deployment instructions opened. Finish them, then click Done — continue."
+        )
+        self.deploy_status_lbl.setStyleSheet("color: #60A5FA; font-size: 12px;")
+        self.btn_deploy_done.setEnabled(True)
+
+    def _confirm_deployment(self):
+        """Record that the user finished deployment and allow the connection step."""
+        self._deployment_confirmed = True
+        self.deploy_status_lbl.setText("Deployment marked complete. Continue to connection test.")
+        self.deploy_status_lbl.setStyleSheet("color: #34D399; font-size: 12px;")
+        self.btn_next.setEnabled(True)
 
     def _create_connect_page(self) -> QWidget:
         widget = QWidget()
@@ -538,6 +592,10 @@ class CloudWizardDialog(QDialog):
                 self.btn_back.setEnabled(True)
                 self.btn_next.setText("Test & Connect")
         elif cur == 1:
+            if not self._deployment_confirmed:
+                self.deploy_status_lbl.setText("Finish deployment, then click Done — continue.")
+                self.deploy_status_lbl.setStyleSheet("color: #FBBF24; font-size: 12px;")
+                return
             self.pages.setCurrentIndex(2)
             self.subtitle_lbl.setText("Connect to your cloud database")
             self.btn_back.setEnabled(True)

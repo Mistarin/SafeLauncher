@@ -181,6 +181,81 @@ def _update_backend_code_version(limits_file: Path, new_version: str) -> bool:
     return updated
 
 
+def _convex_deploy_env(backend_path: Path) -> Optional[dict[str, str]]:
+    """Build a safe environment for Convex CLI deployment.
+
+    Convex's local development file is not reliably imported by every CLI
+    version when running ``convex deploy``.  Load only simple KEY=VALUE lines
+    from the backend's dotenv files into the child-process environment.  An
+    explicitly exported shell variable always wins, so CI and production
+    credentials are never silently replaced by a local file.
+    """
+    from core.host_process import host_process_env
+
+    env = host_process_env()
+    loaded_files = []
+    # Load highest-priority dotenv files first; setdefault preserves that
+    # precedence while still allowing explicitly exported variables to win.
+    for filename in (".env.production.local", ".env.production", ".env.local", ".env"):
+        env_file = backend_path / filename
+        if not env_file.is_file():
+            continue
+        loaded_files.append(env_file.name)
+        try:
+            for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[7:].lstrip()
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+                    continue
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                # Do not replace values explicitly supplied by the caller.
+                env.setdefault(key, value)
+        except OSError as exc:
+            print(f"  {YELLOW}[!] Could not read {env_file}: {exc}{RESET}")
+
+    if not env.get("CONVEX_DEPLOYMENT") and not env.get("CONVEX_DEPLOY_KEY"):
+        files = ", ".join(loaded_files) if loaded_files else "no dotenv file"
+        print(
+            f"  {RED}[x] Convex deployment is not configured ({files}).{RESET}\n"
+            f"  Set CONVEX_DEPLOYMENT or CONVEX_DEPLOY_KEY in the shell or in "
+            f"{backend_path}/.env.local, then run deploy again."
+        )
+        return None
+
+    return env
+
+
+def _deploy_convex_backend(backend_path: Path) -> bool:
+    """Deploy the discovered backend and report failures without hiding them."""
+    env = _convex_deploy_env(backend_path)
+    if env is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["npx", "convex", "deploy"],
+            cwd=str(backend_path),
+            env=env,
+            check=False,
+        )
+    except OSError as exc:
+        print(f"  {RED}[x] Could not start Convex CLI: {exc}{RESET}")
+        return False
+    if result.returncode != 0:
+        print(f"  {RED}[x] Convex deployment failed with exit code {result.returncode}.{RESET}")
+        return False
+    print(f"  {GREEN}[ok] Convex backend deployed successfully.{RESET}")
+    return True
+
+
 def _update_version_test_assertions(
     *, app_version: Optional[str] = None, backend_version: Optional[str] = None
 ) -> bool:
@@ -392,9 +467,8 @@ def run_version_wizard() -> int:
                 if backend_info and shutil.which("npx"):
                     do_deploy = input(f"\n  {CYAN}{BOLD}>{RESET} Deploy updated backend now with 'npx convex deploy'? [y/N]: ").strip().lower()
                     if do_deploy in ("y", "yes"):
-                        from core.host_process import host_process_env
                         print(f"  {DIM}Deploying in {backend_info['path']}...{RESET}")
-                        subprocess.run(["npx", "convex", "deploy"], cwd=str(backend_info["path"]), env=host_process_env())
+                        _deploy_convex_backend(backend_info["path"])
             _footer(YELLOW)
 
         # Option 3: Bump Both
@@ -525,10 +599,9 @@ def run_version_wizard() -> int:
         # Option 7: Deploy Backend
         elif choice == "7" and max_choice == 8:
             if backend_info:
-                from core.host_process import host_process_env
                 _banner("Deploying Convex Backend to Production", CYAN)
                 print(f"  Running 'npx convex deploy' in {backend_info['path']}...\n")
-                subprocess.run(["npx", "convex", "deploy"], cwd=str(backend_info["path"]), env=host_process_env())
+                _deploy_convex_backend(backend_info["path"])
                 _footer(CYAN)
 
         # Exit
