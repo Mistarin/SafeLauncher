@@ -1740,8 +1740,16 @@ try:
     inactive_labels = game_page.media_widget.findChildren(QLabel)
     assert any("module not active" in lbl.text().lower() for lbl in inactive_labels)
     assert any("turn on in settings" in lbl.text().lower() for lbl in inactive_labels)
-    # Verify active state
+    # Verify active state (no captures yet) has hint text and no nested box overlay
     game_page.media_widget.set_media_data(1001, "Test Game", force_inactive=False)
+    active_labels = [lbl.text() for lbl in game_page.media_widget.findChildren(QLabel)]
+    assert any("Press F12 for screenshot" in t for t in active_labels)
+    # Ensure no nested QFrame box overlays inside content_widget
+    from PyQt6.QtWidgets import QFrame
+    assert len([w for w in game_page.media_widget.content_widget.findChildren(QFrame) if type(w) is QFrame]) == 0
+
+    # Verify hero banner height expanded to 360px for unobstructed cinematic viewing
+    assert game_page.hero_banner.height() == 360
 
     # Test Action Bar cleanup: only Favorite button in layout (no duplicate folder/settings/save buttons)
     action_bar = game_page.action_bar

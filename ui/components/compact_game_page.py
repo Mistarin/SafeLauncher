@@ -112,7 +112,7 @@ class CompactHeroBanner(QWidget):
         self.hero_pixmap: Optional[QPixmap] = None
         self.game_title: str = "SafeLauncher"
         self.tags: str = ""
-        self.setFixedHeight(280)
+        self.setFixedHeight(360)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
@@ -149,34 +149,38 @@ class CompactHeroBanner(QWidget):
                 Qt.TransformationMode.SmoothTransformation
             )
             crop_x = max(0, (scaled.width() - w) // 2)
-            crop_y = max(0, (scaled.height() - h) // 4)
+            crop_y = max(0, int((scaled.height() - h) * 0.35))
             painter.drawPixmap(0, 0, scaled, crop_x, crop_y, w, h)
 
         # Dark overlay gradients:
         # 1. Subtle top vignette
-        top_grad = QLinearGradient(0, 0, 0, 80)
-        top_grad.setColorAt(0.0, QColor(18, 18, 20, 190))
+        top_grad = QLinearGradient(0, 0, 0, 60)
+        top_grad.setColorAt(0.0, QColor(18, 18, 20, 130))
         top_grad.setColorAt(1.0, QColor(18, 18, 20, 0))
-        painter.fillRect(0, 0, w, 80, top_grad)
+        painter.fillRect(0, 0, w, 60, top_grad)
 
-        # 2. Bottom blend into action bar
-        bottom_grad = QLinearGradient(0, h - 140, 0, h)
-        bottom_grad.setColorAt(0.0, QColor(18, 18, 20, 0))
-        bottom_grad.setColorAt(0.65, QColor(18, 18, 20, 210))
-        bottom_grad.setColorAt(1.0, QColor(18, 18, 20, 255))
-        painter.fillRect(0, h - 140, w, 140, bottom_grad)
+        # 2. Smooth multi-stop upward fade from the bottom into the action bar
+        fade_h = 180
+        bottom_grad = QLinearGradient(0, h - fade_h, 0, h)
+        bottom_grad.setColorAt(0.0, QColor(22, 22, 24, 0))
+        bottom_grad.setColorAt(0.30, QColor(22, 22, 24, 25))
+        bottom_grad.setColorAt(0.55, QColor(22, 22, 24, 80))
+        bottom_grad.setColorAt(0.75, QColor(22, 22, 24, 150))
+        bottom_grad.setColorAt(0.90, QColor(22, 22, 24, 215))
+        bottom_grad.setColorAt(1.0, QColor(22, 22, 24, 255))
+        painter.fillRect(0, h - fade_h, w, fade_h, bottom_grad)
 
         # Left shadow vignette for readable title text
-        left_grad = QLinearGradient(0, 0, 500, 0)
-        left_grad.setColorAt(0.0, QColor(18, 18, 20, 160))
+        left_grad = QLinearGradient(0, 0, 480, 0)
+        left_grad.setColorAt(0.0, QColor(18, 18, 20, 140))
         left_grad.setColorAt(1.0, QColor(18, 18, 20, 0))
-        painter.fillRect(0, 0, 500, h, left_grad)
+        painter.fillRect(0, 0, 480, h, left_grad)
 
         # Draw Game Title with shadow
-        painter.setPen(QColor(0, 0, 0, 180))
-        title_font = QFont("Arial", 26, QFont.Weight.Bold)
+        painter.setPen(QColor(0, 0, 0, 200))
+        title_font = QFont("Arial", 28, QFont.Weight.Bold)
         painter.setFont(title_font)
-        text_rect = self.rect().adjusted(32, h - 82, -32, -18)
+        text_rect = self.rect().adjusted(36, h - 80, -36, -18)
         painter.drawText(text_rect.adjusted(2, 2, 2, 2), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.game_title)
 
         painter.setPen(QColor(255, 255, 255))
@@ -204,7 +208,7 @@ class CompactActionBar(QFrame):
         self.setStyleSheet("""
             QFrame#compactActionBar {
                 background-color: #161618;
-                border-top: 1px solid rgba(255, 255, 255, 0.06);
+                border: none;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.06);
             }
         """)
@@ -993,25 +997,13 @@ class CompactMediaShowcaseWidget(QFrame):
             is_active = is_installed and is_enabled
 
         if not is_active:
-            # Inactive State
-            inactive_card = QFrame()
-            inactive_card.setStyleSheet("""
-                QFrame {
-                    background-color: #202024;
-                    border: 1px solid rgba(255, 255, 255, 0.06);
-                    border-radius: 6px;
-                }
-            """)
-            ic_layout = QVBoxLayout(inactive_card)
-            ic_layout.setContentsMargins(14, 14, 14, 14)
-            ic_layout.setSpacing(10)
-
+            # Inactive State: Cleanly integrated without nested card overlay
             top_row = QHBoxLayout()
             top_row.setSpacing(10)
             top_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
             icon_lbl = QLabel()
-            icon_lbl.setPixmap(get_icon("ph.video-camera-slash-bold", color="#71717A").pixmap(22, 22))
+            icon_lbl.setPixmap(get_icon("ph.video-camera-slash-bold", color="#71717A").pixmap(20, 20))
             icon_lbl.setStyleSheet("background: transparent;")
             top_row.addWidget(icon_lbl)
 
@@ -1027,34 +1019,30 @@ class CompactMediaShowcaseWidget(QFrame):
 
             top_row.addLayout(text_col)
             top_row.addStretch()
-            ic_layout.addLayout(top_row)
+            self.content_layout.addLayout(top_row)
 
             btn_settings = QPushButton("Open Settings")
             btn_settings.setIcon(get_icon("ph.gear-six-bold", color="#FFFFFF"))
             btn_settings.setIconSize(QSize(13, 13))
-            btn_settings.setFixedHeight(30)
+            btn_settings.setFixedHeight(28)
             btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_settings.setStyleSheet("""
                 QPushButton {
-                    background-color: #28282E;
+                    background-color: #202024;
                     color: #FFFFFF;
                     border: 1px solid rgba(255, 255, 255, 0.08);
                     border-radius: 4px;
                     font-size: 11px;
-                    font-weight: 600;
+                    font-weight: 500;
+                    padding: 0 12px;
                 }
                 QPushButton:hover {
-                    background-color: #323238;
+                    background-color: #28282E;
                     border-color: rgba(255, 255, 255, 0.16);
-                }
-                QPushButton:pressed {
-                    background-color: #1E1E22;
                 }
             """)
             btn_settings.clicked.connect(self.settings_clicked.emit)
-            ic_layout.addWidget(btn_settings)
-
-            self.content_layout.addWidget(inactive_card)
+            self.content_layout.addWidget(btn_settings)
             return
 
         # Active State: Locate Screenshots and Recordings
@@ -1184,18 +1172,7 @@ class CompactMediaShowcaseWidget(QFrame):
 
             self.content_layout.addLayout(actions_row)
         else:
-            empty_card = QFrame()
-            empty_card.setStyleSheet("""
-                QFrame {
-                    background-color: #202024;
-                    border: 1px solid rgba(255, 255, 255, 0.06);
-                    border-radius: 6px;
-                }
-            """)
-            ec_layout = QVBoxLayout(empty_card)
-            ec_layout.setContentsMargins(14, 12, 14, 12)
-            ec_layout.setSpacing(6)
-
+            # Empty Captures State: Clean typography and controls without nested box overlay
             top_row = QHBoxLayout()
             top_row.setSpacing(8)
             top_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
@@ -1209,11 +1186,11 @@ class CompactMediaShowcaseWidget(QFrame):
             lbl_no_captures.setStyleSheet("color: #E4E4E7; font-size: 12px; font-weight: 600; background: transparent;")
             top_row.addWidget(lbl_no_captures)
             top_row.addStretch()
-            ec_layout.addLayout(top_row)
+            self.content_layout.addLayout(top_row)
 
             lbl_hint = QLabel("Press F12 for screenshot, Ctrl+Shift+Y to record")
-            lbl_hint.setStyleSheet("color: #71717A; font-size: 11px; background: transparent;")
-            ec_layout.addWidget(lbl_hint)
+            lbl_hint.setStyleSheet("color: #71717A; font-size: 11px; background: transparent; padding-top: 1px;")
+            self.content_layout.addWidget(lbl_hint)
 
             actions_row = QHBoxLayout()
             actions_row.setSpacing(8)
@@ -1225,17 +1202,18 @@ class CompactMediaShowcaseWidget(QFrame):
             btn_shots.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_shots.setStyleSheet("""
                 QPushButton {
-                    background-color: #28282E;
+                    background-color: #202024;
                     color: #A1A1AA;
-                    border: 1px solid rgba(255, 255, 255, 0.06);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
                     border-radius: 4px;
                     font-size: 11px;
-                    font-weight: 600;
+                    font-weight: 500;
                     padding: 0 10px;
                 }
                 QPushButton:hover {
                     color: #FFFFFF;
-                    border-color: rgba(255, 255, 255, 0.14);
+                    background-color: #28282E;
+                    border-color: rgba(255, 255, 255, 0.16);
                 }
             """)
             btn_shots.clicked.connect(lambda _, gid=game_id: self.screenshots_clicked.emit(gid))
@@ -1248,25 +1226,25 @@ class CompactMediaShowcaseWidget(QFrame):
             btn_vids.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_vids.setStyleSheet("""
                 QPushButton {
-                    background-color: #28282E;
+                    background-color: #202024;
                     color: #A1A1AA;
-                    border: 1px solid rgba(255, 255, 255, 0.06);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
                     border-radius: 4px;
                     font-size: 11px;
-                    font-weight: 600;
+                    font-weight: 500;
                     padding: 0 10px;
                 }
                 QPushButton:hover {
                     color: #FFFFFF;
-                    border-color: rgba(255, 255, 255, 0.14);
+                    background-color: #28282E;
+                    border-color: rgba(255, 255, 255, 0.16);
                 }
             """)
             btn_vids.clicked.connect(lambda _, gid=game_id: self.videos_clicked.emit(gid))
             actions_row.addWidget(btn_vids)
             actions_row.addStretch()
 
-            ec_layout.addLayout(actions_row)
-            self.content_layout.addWidget(empty_card)
+            self.content_layout.addLayout(actions_row)
 
 
 class CompactNotesWidget(QFrame):
