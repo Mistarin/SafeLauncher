@@ -1580,17 +1580,17 @@ except Exception as e:
     sys.exit(1)
 
 # -------------------------------------------------------------
-# 37. Test Steam Game Page & Split Layout Presentation
+# 37. Test Compact Game Page & Split Layout Presentation
 # -------------------------------------------------------------
 try:
-    from ui.components.steam_game_page import (
+    from ui.components.compact_game_page import (
         CompactGamePageWidget, CompactLayoutContainer, CompactSidebarListWidget,
         SteamGamePageWidget, SteamLayoutContainer, SteamSidebarListWidget
     )
 
-    steam_page = CompactGamePageWidget()
+    compact_page = CompactGamePageWidget()
     dummy_game = (
-        1001, "Steam Test RPG", "/tmp/steam_test", "game.exe", "umu",
+        1001, "Compact Test RPG", "/tmp/compact_test", "game.exe", "umu",
         "", "480", 0, 1700000000, 0, "Action, RPG", "", "", True,
         1700000000, "1.0.4", "", False, "", 7200
     )
@@ -1602,7 +1602,7 @@ try:
         {"id": 2, "api_name": "ACH_MASTER", "display_name": "Grand Master", "description": "Reach max level"}
     ]
 
-    steam_page.set_game(
+    compact_page.set_game(
         dummy_game,
         ach_stats,
         recent_achs,
@@ -1612,99 +1612,99 @@ try:
         is_running=False
     )
 
-    assert "PLAY" in steam_page.action_bar.btn_play.text()
-    assert steam_page.action_bar.playtime_val.text() == "2.0 h"
-    assert "Up to date" in steam_page.action_bar.cloud_text_lbl.text()
-    assert steam_page.action_bar.ach_ratio_lbl.text() == "12/30"
-    assert steam_page.action_bar.ach_mini_progress.value() == 40
-    assert steam_page.action_bar.btn_fav.toolTip() == "Remove from favorites"
+    assert "PLAY" in compact_page.action_bar.btn_play.text()
+    assert compact_page.action_bar.playtime_val.text() == "2.0 h"
+    assert "Up to date" in compact_page.action_bar.cloud_text_lbl.text()
+    assert compact_page.action_bar.ach_ratio_lbl.text() == "12/30"
+    assert compact_page.action_bar.ach_mini_progress.value() == 40
+    assert compact_page.action_bar.btn_fav.toolTip() == "Remove from favorites"
 
     # Test Notes Widget persistence
-    steam_page.notes_widget.load_notes_for_game(1001)
-    steam_page.notes_widget.text_edit.setPlainText("Defeat final boss at level 50")
-    steam_page.notes_widget._on_text_changed()
-    assert steam_page.notes_widget.settings.value("game_notes/1001", "", type=str) == "Defeat final boss at level 50"
+    compact_page.notes_widget.load_notes_for_game(1001)
+    compact_page.notes_widget.text_edit.setPlainText("Defeat final boss at level 50")
+    compact_page.notes_widget._on_text_changed()
+    assert compact_page.notes_widget.settings.value("game_notes/1001", "", type=str) == "Defeat final boss at level 50"
 
     # Test CompactLayoutContainer instantiation and item population
-    steam_layout = CompactLayoutContainer()
+    compact_layout = CompactLayoutContainer()
     processed_items = [(dummy_game, False, 7200, True)]
-    steam_layout.set_games(
+    compact_layout.set_games(
         processed_items,
         selected_ids={1001},
         cloud_status_cache={1001: (SyncStatus.IN_SYNC, None, None)}
     )
-    assert steam_layout.sidebar_list.list_widget.count() == 1
-    item = steam_layout.sidebar_list.list_widget.item(0)
+    assert compact_layout.sidebar_list.list_widget.count() == 1
+    item = compact_layout.sidebar_list.list_widget.item(0)
     assert item.data(Qt.ItemDataRole.UserRole) == 1001
     assert item.isSelected() is True
 
     # Test signal propagation
     signal_fired = []
-    steam_page.play_requested.connect(lambda gid: signal_fired.append(("play", gid)))
-    steam_page.properties_requested.connect(lambda gid: signal_fired.append(("props", gid)))
-    steam_page.action_bar.play_clicked.emit()
-    steam_page.action_bar.settings_clicked.emit()
+    compact_page.play_requested.connect(lambda gid: signal_fired.append(("play", gid)))
+    compact_page.properties_requested.connect(lambda gid: signal_fired.append(("props", gid)))
+    compact_page.action_bar.play_clicked.emit()
+    compact_page.action_bar.settings_clicked.emit()
     assert ("play", 1001) in signal_fired
     assert ("props", 1001) in signal_fired
 
     # Test edit game buttons and signals
-    assert hasattr(steam_page.action_bar, "btn_edit")
-    assert hasattr(steam_page.sub_nav, "btn_edit")
-    steam_page.edit_requested.connect(lambda gid: signal_fired.append(("edit", gid)))
-    steam_page.action_bar.edit_clicked.emit()
-    steam_page.sub_nav.edit_clicked.emit()
+    assert hasattr(compact_page.action_bar, "btn_edit")
+    assert hasattr(compact_page.sub_nav, "btn_edit")
+    compact_page.edit_requested.connect(lambda gid: signal_fired.append(("edit", gid)))
+    compact_page.action_bar.edit_clicked.emit()
+    compact_page.sub_nav.edit_clicked.emit()
     assert ("edit", 1001) in signal_fired
 
     # Test CompactLayoutContainer edit signal forwarding
-    steam_layout.edit_requested.connect(lambda gid: signal_fired.append(("layout_edit", gid)))
-    steam_layout.game_page.edit_requested.emit(1001)
+    compact_layout.edit_requested.connect(lambda gid: signal_fired.append(("layout_edit", gid)))
+    compact_layout.game_page.edit_requested.emit(1001)
     assert ("layout_edit", 1001) in signal_fired
 
     # Test quick filter bar and signal propagation in compact view
-    assert hasattr(steam_layout.sidebar_list, "btn_f_all")
-    assert hasattr(steam_layout.sidebar_list, "btn_f_inst")
-    assert hasattr(steam_layout.sidebar_list, "btn_f_fav")
-    assert hasattr(steam_layout.sidebar_list, "btn_f_arch")
+    assert hasattr(compact_layout.sidebar_list, "btn_f_all")
+    assert hasattr(compact_layout.sidebar_list, "btn_f_inst")
+    assert hasattr(compact_layout.sidebar_list, "btn_f_fav")
+    assert hasattr(compact_layout.sidebar_list, "btn_f_arch")
     filter_events = []
-    steam_layout.filter_changed.connect(lambda f: filter_events.append(f))
-    steam_layout.sidebar_list._on_filter_btn_clicked("installed")
+    compact_layout.filter_changed.connect(lambda f: filter_events.append(f))
+    compact_layout.sidebar_list._on_filter_btn_clicked("installed")
     assert "installed" in filter_events
 
     # Test MainWindow view mode integration & right detail panel hiding
     from PyQt6.QtCore import QSettings
     QSettings("SafeLauncher", "SafeLauncher").setValue("library_view_mode", "compact")
-    mw_steam = MainWindow(db_mem, runner, backup)
-    assert hasattr(mw_steam, "compact_container")
-    assert hasattr(mw_steam, "steam_container")
-    assert mw_steam.library_view_mode == "compact"
-    assert mw_steam.detail_panel.isVisible() is False
-    assert mw_steam.btn_reveal_detail.isVisible() is False
+    mw_compact = MainWindow(db_mem, runner, backup)
+    assert hasattr(mw_compact, "compact_container")
+    assert hasattr(mw_compact, "steam_container")
+    assert mw_compact.library_view_mode == "compact"
+    assert mw_compact.detail_panel.isVisible() is False
+    assert mw_compact.btn_reveal_detail.isVisible() is False
 
     # Test new darker footer bar (#0E0E10) and bottom-left Add Game button
-    assert hasattr(mw_steam, "footer_bar")
-    assert hasattr(mw_steam, "btn_add")
-    assert hasattr(mw_steam, "btn_toggle_collections")
-    assert mw_steam.footer_bar.height() == 36
+    assert hasattr(mw_compact, "footer_bar")
+    assert hasattr(mw_compact, "btn_add")
+    assert hasattr(mw_compact, "btn_toggle_collections")
+    assert mw_compact.footer_bar.height() == 36
 
     # Test pure collections panel (on by default, collapsed 48px width)
-    assert mw_steam.sidebar.isHidden() is False
-    assert mw_steam.sidebar.width() == 48
-    assert mw_steam.sidebar.compact is True
-    mw_steam._toggle_collections_panel()
-    assert mw_steam.sidebar.compact is False
-    assert mw_steam.sidebar.width() == 152
-    mw_steam._toggle_collections_panel()
-    assert mw_steam.sidebar.compact is True
-    assert mw_steam.sidebar.width() == 48
+    assert mw_compact.sidebar.isHidden() is False
+    assert mw_compact.sidebar.width() == 48
+    assert mw_compact.sidebar.compact is True
+    mw_compact._toggle_collections_panel()
+    assert mw_compact.sidebar.compact is False
+    assert mw_compact.sidebar.width() == 152
+    mw_compact._toggle_collections_panel()
+    assert mw_compact.sidebar.compact is True
+    assert mw_compact.sidebar.width() == 48
 
     # Test Grid & List view search input presence
-    assert hasattr(mw_steam, "grid_search_input")
+    assert hasattr(mw_compact, "grid_search_input")
 
     # Test update dot next to cloud icon
-    assert hasattr(mw_steam.compact_container.game_page.action_bar, "update_dot")
+    assert hasattr(mw_compact.compact_container.game_page.action_bar, "update_dot")
 
     # Test missing achievements state
-    ach_widget = mw_steam.compact_container.game_page.ach_widget
+    ach_widget = mw_compact.compact_container.game_page.ach_widget
     ach_widget.set_achievements_data(0, 0, 0.0, [], [])
     assert "missing" in ach_widget.recent_title.text().lower()
 
@@ -1714,24 +1714,24 @@ try:
     assert ach_widget.thumbs_row.count() == 12
 
     # Test max height on activity card and runner specs card
-    assert mw_steam.compact_container.game_page.activity_card.maximumHeight() == 260
-    assert mw_steam.compact_container.game_page.specs_card.maximumHeight() == 160
+    assert mw_compact.compact_container.game_page.activity_card.maximumHeight() == 260
+    assert mw_compact.compact_container.game_page.specs_card.maximumHeight() == 160
 
     # Test tray menu pure text structure
-    mw_steam._update_tray_menu()
-    tray_texts = [act.text() for act in mw_steam.tray_menu.actions()]
+    mw_compact._update_tray_menu()
+    tray_texts = [act.text() for act in mw_compact.tray_menu.actions()]
     assert "Library" in tray_texts
     assert "Settings" in tray_texts
     assert "Quit" in tray_texts
     assert not any("Disk Space Manager" in t for t in tray_texts)
 
     # Test HeaderBar View menu with Library submenu
-    assert hasattr(mw_steam.title_bar, "btn_view")
-    assert hasattr(mw_steam.title_bar, "lib_menu")
+    assert hasattr(mw_compact.title_bar, "btn_view")
+    assert hasattr(mw_compact.title_bar, "lib_menu")
 
     # Test Settings dialog frameless window hint and card size controls
     QSettings("SafeLauncher", "SafeLauncher").setValue("card_size", 200)
-    test_settings = UserSettingsDialog("TestUser", parent=mw_steam)
+    test_settings = UserSettingsDialog("TestUser", parent=mw_compact)
     assert bool(test_settings.windowFlags() & Qt.WindowType.FramelessWindowHint)
     assert hasattr(test_settings, "combo_card_size")
     assert hasattr(test_settings, "spin_card_size")
@@ -1739,29 +1739,29 @@ try:
     test_settings.close()
 
     # Test blurred hero background integration and transparency
-    assert mw_steam.compact_container.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) is True
-    assert mw_steam.compact_container.game_page.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) is True
-    assert hasattr(mw_steam, "hero_bg")
-    assert mw_steam.hero_bg is not None
+    assert mw_compact.compact_container.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) is True
+    assert mw_compact.compact_container.game_page.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) is True
+    assert hasattr(mw_compact, "hero_bg")
+    assert mw_compact.hero_bg is not None
     test_hero_img = "/tmp/test_hero_bg.png"
     qpix = QPixmap(100, 100)
     qpix.fill(Qt.GlobalColor.blue)
     qpix.save(test_hero_img)
-    mw_steam.hero_bg.set_hero_image(test_hero_img)
-    assert mw_steam.hero_bg._current_image_path == test_hero_img
-    assert mw_steam.hero_bg.current_pixmap is not None
-    mw_steam.hero_bg.set_hero_image(None)
-    assert mw_steam.hero_bg._current_image_path is None
+    mw_compact.hero_bg.set_hero_image(test_hero_img)
+    assert mw_compact.hero_bg._current_image_path == test_hero_img
+    assert mw_compact.hero_bg.current_pixmap is not None
+    mw_compact.hero_bg.set_hero_image(None)
+    assert mw_compact.hero_bg._current_image_path is None
     if os.path.exists(test_hero_img):
         os.remove(test_hero_img)
 
-    mw_steam._toggle_library_view()
-    assert mw_steam.library_view_mode in ("compact", "grid", "list")
-    mw_steam.settings.setValue("library_view_mode", "compact")
-    mw_steam.close()
+    mw_compact._toggle_library_view()
+    assert mw_compact.library_view_mode in ("compact", "grid", "list")
+    mw_compact.settings.setValue("library_view_mode", "compact")
+    mw_compact.close()
 
-    steam_page.close()
-    steam_layout.close()
+    compact_page.close()
+    compact_layout.close()
     app.processEvents()
 
     print("✓ Compact game detail page, dark grey styling, footer bar, and collections panel verified")
@@ -1769,11 +1769,9 @@ try:
 except Exception as e:
     import traceback
     traceback.print_exc()
-    print(f"✗ Steam game page test error: {e}")
+    print(f"✗ Compact game page test error: {e}")
     sys.exit(1)
 
 print("\n[SUCCESS] All SafeLauncher components tested and working cleanly!")
-
-
 
 
