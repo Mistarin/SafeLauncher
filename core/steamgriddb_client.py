@@ -4,7 +4,7 @@ import tempfile
 import requests
 import hashlib
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Any, Optional, List, Dict
 
 # [M2 FIX] XDG-compliant cache directory: ~/.cache/safelauncher/banners/
 # Owner-only permissions (700 on dir, 600 on files) to prevent other local users
