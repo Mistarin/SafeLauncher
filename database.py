@@ -357,6 +357,20 @@ class GameDatabase:
             logger.error(f"Failed to get playtime for game {game_id}: {e}")
             return 0
 
+    def merge_playtime_metadata(self, game_id: int, playtime_seconds: int, last_played: int) -> None:
+        """Merge a cloud snapshot without double-counting sessions."""
+        try:
+            with self.conn:
+                self.conn.execute(
+                    """UPDATE games SET
+                       playtime_seconds = MAX(COALESCE(playtime_seconds, 0), ?),
+                       last_played = MAX(COALESCE(last_played, 0), ?)
+                       WHERE id = ?""",
+                    (max(0, int(playtime_seconds or 0)), max(0, int(last_played or 0)), game_id),
+                )
+        except Exception as e:
+            logger.error(f"Failed to merge playtime metadata for game {game_id}: {e}")
+
     def update_game(self, game_id: int, name: str, path: str, executable: str, mode: str, banner_url: str = None):
         try:
             with self.conn:
@@ -728,4 +742,3 @@ class GameDatabase:
                 self.conn.close()
             except Exception:
                 pass
-

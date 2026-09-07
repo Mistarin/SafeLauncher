@@ -85,7 +85,7 @@ class ZipBackupManager(IBackupManager):
 
         return _write_zip_atomically(export_zip_path, writer)
 
-    def export_save_locations(self, locations: list, export_zip_path: str, game_name: str = "", game_path: str = "") -> bool:
+    def export_save_locations(self, locations: list, export_zip_path: str, game_name: str = "", game_path: str = "", launcher_metadata: Optional[dict] = None) -> bool:
         """Export multiple detected save locations with metadata manifest."""
         if not locations:
             return False
@@ -189,7 +189,11 @@ class ZipBackupManager(IBackupManager):
                         # mtimes across machines (see SyncStatus comparison).
                         "source_max_mtime": int(effective_mtime),
                         "game_name": game_name,
-                        "items": items_meta
+                        "items": items_meta,
+                        "launcher_metadata": {
+                            "playtime_seconds": max(0, int((launcher_metadata or {}).get("playtime_seconds", 0) or 0)),
+                            "last_played": max(0, int((launcher_metadata or {}).get("last_played", 0) or 0)),
+                        },
                     }
                     if int(effective_mtime) <= 0:
                         # Only archives without a usable content clock need a
@@ -207,6 +211,22 @@ class ZipBackupManager(IBackupManager):
         except Exception as e:
             logger.error(f"Multi-location save export failed: {e}")
             return False
+
+    @staticmethod
+    def read_launcher_metadata(import_zip_path: str) -> dict:
+        """Read optional launcher metadata without extracting an archive."""
+        try:
+            with zipfile.ZipFile(import_zip_path, "r") as zipf:
+                if _MANIFEST_NAME not in zipf.namelist():
+                    return {}
+                manifest = json.loads(zipf.read(_MANIFEST_NAME).decode("utf-8"))
+                raw = manifest.get("launcher_metadata") or {}
+                return {
+                    "playtime_seconds": max(0, int(raw.get("playtime_seconds", 0) or 0)),
+                    "last_played": max(0, int(raw.get("last_played", 0) or 0)),
+                }
+        except (OSError, ValueError, TypeError, KeyError, zipfile.BadZipFile):
+            return {}
 
     def import_save(self, import_zip_path: str, destination_path: str, game_path: str = "") -> bool:
         """Import save archive into destination path (supports both manifest & raw ZIP).
