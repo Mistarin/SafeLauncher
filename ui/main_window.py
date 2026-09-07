@@ -1686,6 +1686,7 @@ class MainWindow(QMainWindow):
             self.library_view_stack.setCurrentIndex(1)
             if self.selected_game:
                 self._animate_left_panel(True)
+                self._update_detail_panel()
             else:
                 self.btn_reveal_detail.setVisible(True)
         elif self.library_view_mode in ("compact", "steam"):
@@ -1697,12 +1698,14 @@ class MainWindow(QMainWindow):
             self.library_view_stack.setCurrentIndex(2)
             if self.selected_game:
                 self._animate_left_panel(True)
+                self._update_detail_panel()
             else:
                 self.btn_reveal_detail.setVisible(True)
         else:
             self.library_view_stack.setCurrentIndex(0)
             if self.selected_game:
                 self._animate_left_panel(True)
+                self._update_detail_panel()
             else:
                 self.btn_reveal_detail.setVisible(True)
         btn_labels = {"compact": "▦ Grid", "grid": "☷ List", "list": "≡ Compact", "steam": "▦ Grid"}
@@ -2025,6 +2028,8 @@ class MainWindow(QMainWindow):
 
         if self.library_view_mode == "list":
             self.library_view_stack.setCurrentIndex(1)
+            if self.selected_game:
+                self._update_detail_panel()
         elif self.library_view_mode in ("compact", "steam"):
             self.library_view_stack.setCurrentIndex(3)
             self.detail_panel.setVisible(False)
@@ -2032,8 +2037,12 @@ class MainWindow(QMainWindow):
             self._update_steam_game_page()
         elif use_virtual:
             self.library_view_stack.setCurrentIndex(2)
+            if self.selected_game:
+                self._update_detail_panel()
         else:
             self.library_view_stack.setCurrentIndex(0)
+            if self.selected_game:
+                self._update_detail_panel()
         self._check_games_on_drive()
         self._update_tray_menu()
 
@@ -2206,8 +2215,7 @@ class MainWindow(QMainWindow):
                 except (RuntimeError, AttributeError):
                     pass
                 break
-        if self.library_view_mode not in ("compact", "steam"):
-            self._update_detail_panel()
+        self._update_detail_panel()
         self._update_steam_game_page()
 
     def _update_steam_game_page(self):
@@ -2219,6 +2227,7 @@ class MainWindow(QMainWindow):
             game = self.games[0]
             self.selected_game = game
         if not game:
+            self.hero_bg.set_hero_image(None)
             return
         g_id = game[0]
 
@@ -2239,13 +2248,24 @@ class MainWindow(QMainWindow):
         else:
             c_status = SyncStatus.NO_SAVES
 
-        hero_file = os.path.join(self.sgdb_client.cache_dir, "heroes", f"hero_{g_id}.jpg")
-        if not os.path.exists(hero_file):
+        hero_cache_path = os.path.join(self.sgdb_client.cache_dir, "heroes", f"hero_{g_id}.jpg")
+        if os.path.exists(hero_cache_path):
+            hero_file = hero_cache_path
+        else:
             banner_url = game[5] if len(game) > 5 else None
             if banner_url and os.path.exists(banner_url):
                 hero_file = banner_url
             else:
                 hero_file = None
+
+        if not os.path.exists(hero_cache_path) and g_id not in self._hero_attempted:
+            if not any(isinstance(f, HeroFetcherThread) and f.game_id == g_id for f in self.metadata_fetchers):
+                self._hero_attempted.add(g_id)
+                hero_thread = HeroFetcherThread(g_id, game[1], game[6], self.sgdb_client, parent=self)
+                hero_thread.hero_downloaded.connect(self._on_hero_downloaded)
+                self._track_metadata_fetcher(hero_thread)
+
+        self.hero_bg.set_hero_image(hero_file)
 
         is_running = g_id in self.running_game_ids
 
@@ -3174,25 +3194,40 @@ class MainWindow(QMainWindow):
     def _update_detail_panel(self):
         """Update left panel with current selected game details and trigger smooth slide animation."""
         game = self.selected_game
-        if self.library_view_mode in ("compact", "steam"):
-            self.detail_panel.setVisible(False)
-            self.btn_reveal_detail.setVisible(False)
-            if not game:
-                self.hero_bg.set_hero_image(None)
-            return
-
         if not game:
-            self._animate_left_panel(False)
+            if self.library_view_mode not in ("compact", "steam"):
+                self._animate_left_panel(False)
             self.hero_bg.set_hero_image(None)
             return
-
-        self._animate_left_panel(True)
 
         game_id, name, path, exe, mode, banner_url, steam_id = game[:7]
         playtime_seconds = game[7] if len(game) > 7 and game[7] else 0
         is_fav = bool(game[8]) if len(game) > 8 and game[8] else False
         last_played_ts = game[9] if len(game) > 9 and game[9] else 0
         tags_str = game[10] if len(game) > 10 and game[10] else ""
+
+        # Update Hero Blurred Background Image (strictly 16:9 widescreen artwork with banner fallback)
+        hero_cache_path = os.path.join(self.sgdb_client.cache_dir, "heroes", f"hero_{game_id}.jpg")
+        if os.path.exists(hero_cache_path):
+            self.hero_bg.set_hero_image(hero_cache_path)
+        elif banner_url and os.path.exists(banner_url):
+            self.hero_bg.set_hero_image(banner_url)
+        else:
+            self.hero_bg.set_hero_image(None)
+
+        if not os.path.exists(hero_cache_path) and game_id not in self._hero_attempted:
+            if not any(isinstance(f, HeroFetcherThread) and f.game_id == game_id for f in self.metadata_fetchers):
+                self._hero_attempted.add(game_id)
+                hero_thread = HeroFetcherThread(game_id, name, steam_id, self.sgdb_client, parent=self)
+                hero_thread.hero_downloaded.connect(self._on_hero_downloaded)
+                self._track_metadata_fetcher(hero_thread)
+
+        if self.library_view_mode in ("compact", "steam"):
+            self.detail_panel.setVisible(False)
+            self.btn_reveal_detail.setVisible(False)
+            return
+
+        self._animate_left_panel(True)
 
         # Update Inspector Cover Art Preview (2:3 Portrait Cover)
         if banner_url and os.path.exists(banner_url):
@@ -3207,20 +3242,6 @@ class MainWindow(QMainWindow):
         else:
             self.detail_cover.setPixmap(QPixmap())
             self.detail_cover.setText(name)
-
-        # Update Hero Blurred Background Image (strictly 16:9 widescreen artwork)
-        hero_cache_path = os.path.join(self.sgdb_client.cache_dir, "heroes", f"hero_{game_id}.jpg")
-        if os.path.exists(hero_cache_path):
-            self.hero_bg.set_hero_image(hero_cache_path)
-        else:
-            self.hero_bg.set_hero_image(None)
-
-        if not os.path.exists(hero_cache_path) and game_id not in self._hero_attempted:
-            if not any(isinstance(f, HeroFetcherThread) and f.game_id == game_id for f in self.metadata_fetchers):
-                self._hero_attempted.add(game_id)
-                hero_thread = HeroFetcherThread(game_id, name, steam_id, self.sgdb_client, parent=self)
-                hero_thread.hero_downloaded.connect(self._on_hero_downloaded)
-                self._track_metadata_fetcher(hero_thread)
 
         self.detail_title.setText(name)
         self.detail_playtime.setText(GameBannerWidget._format_playtime(playtime_seconds))

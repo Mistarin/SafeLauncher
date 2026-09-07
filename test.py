@@ -1715,6 +1715,23 @@ try:
     assert test_settings.get_card_size() == 200
     test_settings.close()
 
+    # Test blurred hero background integration and transparency
+    assert mw_steam.compact_container.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) is True
+    assert mw_steam.compact_container.game_page.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) is True
+    assert hasattr(mw_steam, "hero_bg")
+    assert mw_steam.hero_bg is not None
+    test_hero_img = "/tmp/test_hero_bg.png"
+    qpix = QPixmap(100, 100)
+    qpix.fill(Qt.GlobalColor.blue)
+    qpix.save(test_hero_img)
+    mw_steam.hero_bg.set_hero_image(test_hero_img)
+    assert mw_steam.hero_bg._current_image_path == test_hero_img
+    assert mw_steam.hero_bg.current_pixmap is not None
+    mw_steam.hero_bg.set_hero_image(None)
+    assert mw_steam.hero_bg._current_image_path is None
+    if os.path.exists(test_hero_img):
+        os.remove(test_hero_img)
+
     mw_steam._toggle_library_view()
     assert mw_steam.library_view_mode in ("compact", "grid", "list")
     mw_steam.settings.setValue("library_view_mode", "compact")

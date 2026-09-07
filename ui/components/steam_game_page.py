@@ -899,9 +899,13 @@ class CompactGamePageWidget(QWidget):
         self.current_game_record: Any = None
         self.current_steam_id: str = ""
 
+        self.setObjectName("compactGamePageRoot")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setStyleSheet("""
-            QWidget {
-                background-color: #121214;
+            QWidget#compactGamePageRoot {
+                background: transparent;
+            }
+            QLabel {
                 color: #FFFFFF;
             }
         """)
@@ -914,9 +918,11 @@ class CompactGamePageWidget(QWidget):
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.scroll_area.setStyleSheet("""
             QScrollArea {
-                background: #121214;
+                background: transparent;
+                background-color: transparent;
                 border: none;
             }
             QScrollBar:vertical {
@@ -933,9 +939,14 @@ class CompactGamePageWidget(QWidget):
                 background: rgba(255, 255, 255, 0.25);
             }
         """)
+        if self.scroll_area.viewport():
+            self.scroll_area.viewport().setAutoFillBackground(False)
+            self.scroll_area.viewport().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.scroll_area.viewport().setStyleSheet("background: transparent; background-color: transparent;")
 
         content_widget = QWidget()
-        content_widget.setStyleSheet("background-color: #121214;")
+        content_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        content_widget.setStyleSheet("background: transparent; background-color: transparent;")
         self.content_layout = QVBoxLayout(content_widget)
         self.content_layout.setContentsMargins(0, 0, 0, 32)
         self.content_layout.setSpacing(0)
@@ -1585,7 +1596,8 @@ class CompactLayoutContainer(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #121214;")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent;")
 
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
