@@ -197,6 +197,10 @@ class MainWindow(QMainWindow):
 
         self.search_query = ""
         self.settings = QSettings("SafeLauncher", "SafeLauncher")
+        # CI/UI smoke tests must not depend on DNS or third-party response
+        # timing.  This only disables *automatic* background network work;
+        # explicit user actions continue to use their normal code paths.
+        self._offline_test_mode = os.environ.get("SAFELAUNCHER_OFFLINE_TEST_MODE") == "1"
         self.library_view_mode = self.settings.value("library_view_mode", "compact", type=str)
         if self.library_view_mode in ("steam", ""):
             self.library_view_mode = "compact"
@@ -1146,9 +1150,10 @@ class MainWindow(QMainWindow):
         self._on_sync_sandbox(quiet=True)
         self._setup_tray_icon()
         self._refresh_library()
-        QTimer.singleShot(300, self._check_all_steam_updates)
-        QTimer.singleShot(800, self._start_background_cloud_sync)
-        QTimer.singleShot(1200, self._start_background_achievement_sync)
+        if not self._offline_test_mode:
+            QTimer.singleShot(300, self._check_all_steam_updates)
+            QTimer.singleShot(800, self._start_background_cloud_sync)
+            QTimer.singleShot(1200, self._start_background_achievement_sync)
         if os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") != "1":
             self._update_check_timer = QTimer(self)
             self._update_check_timer.setSingleShot(True)
@@ -2001,7 +2006,7 @@ class MainWindow(QMainWindow):
                 icon_url = g[18] if len(g) > 18 and g[18] else ""
                 banner_missing = not banner_url or not os.path.exists(banner_url)
                 icon_missing = not icon_url or not os.path.exists(icon_url)
-                if (banner_missing or icon_missing) and game_id not in self._auto_fetch_attempted:
+                if (not self._offline_test_mode and (banner_missing or icon_missing)) and game_id not in self._auto_fetch_attempted:
                     self._auto_fetch_attempted.add(game_id)
                     full_exe = os.path.join(path, executable) if (path and executable) else ""
                     fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
@@ -2066,7 +2071,7 @@ class MainWindow(QMainWindow):
                 
                 banner_missing = not banner_url or not os.path.exists(banner_url)
                 icon_missing = not icon_url or not os.path.exists(icon_url)
-                if (banner_missing or icon_missing) and game_id not in self._auto_fetch_attempted:
+                if (not self._offline_test_mode and (banner_missing or icon_missing)) and game_id not in self._auto_fetch_attempted:
                     self._auto_fetch_attempted.add(game_id)
                     full_exe = os.path.join(path, executable) if (path and executable) else ""
                     fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
@@ -2146,7 +2151,7 @@ class MainWindow(QMainWindow):
             full_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else ""
 
             hero_cache_file = self.sgdb_client.get_hero_cached_path(steam_id=s_id, game_name=g_name, exe_path=full_exe, game_id=g_id)
-            if not hero_cache_file and g_id not in self._hero_attempted:
+            if not self._offline_test_mode and not hero_cache_file and g_id not in self._hero_attempted:
                 if not any(isinstance(f, HeroFetcherThread) and f.game_id == g_id for f in self.metadata_fetchers):
                     self._hero_attempted.add(g_id)
                     hero_thread = HeroFetcherThread(g_id, g_name, s_id, self.sgdb_client, exe_path=full_exe, parent=self)
@@ -2154,7 +2159,7 @@ class MainWindow(QMainWindow):
                     self._track_metadata_fetcher(hero_thread)
 
             icon_url = game[18] if len(game) > 18 and game[18] else ""
-            if (not icon_url or not os.path.exists(icon_url)) and g_id not in self._icon_attempted:
+            if (not self._offline_test_mode and (not icon_url or not os.path.exists(icon_url))) and g_id not in self._icon_attempted:
                 self._icon_attempted.add(g_id)
                 icon_thread = IconAutoFetcherThread(g_id, g_name, str(s_id or ""), self.sgdb_client, exe_path=full_exe, parent=self)
                 icon_thread.icon_downloaded.connect(self._on_icon_downloaded)
@@ -2405,7 +2410,7 @@ class MainWindow(QMainWindow):
             else:
                 hero_file = None
 
-        if not hero_cache_path and g_id not in self._hero_attempted:
+        if not self._offline_test_mode and not hero_cache_path and g_id not in self._hero_attempted:
             if not any(isinstance(f, HeroFetcherThread) and f.game_id == g_id for f in self.metadata_fetchers):
                 self._hero_attempted.add(g_id)
                 hero_thread = HeroFetcherThread(g_id, g_name, s_id, self.sgdb_client, exe_path=full_exe, parent=self)
@@ -4509,6 +4514,8 @@ class MainWindow(QMainWindow):
 
     def _start_background_cloud_sync(self):
         """Startup cloud save check & sync queue across the library."""
+        if getattr(self, "_offline_test_mode", False):
+            return
         self.request_cloud_recheck(None, "startup")
 
     def _on_cloud_batch_finished(self, uploaded: list, newer_in_cloud: list):
@@ -4615,6 +4622,8 @@ class MainWindow(QMainWindow):
 
     def _start_background_achievement_sync(self):
         """Startup achievement check and sync queue across the library."""
+        if getattr(self, "_offline_test_mode", False):
+            return
         self.request_achievement_recheck(None, "startup")
         for game in list(self.games):
             if game and len(game) > 0:
