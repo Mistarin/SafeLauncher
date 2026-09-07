@@ -317,16 +317,31 @@ class AccountDialog(QDialog):
         self.lbl_subject.setText(f"Endpoint: {site}{dev_summary} · Server-enforced quota")
         self._style_avatar("C", ok=True)
 
-        pct = min(1.0, self._quota["used"] / max(1, self._quota["total"]))
+        used_bytes = self._quota["used"]
+        total_bytes = self._quota["total"]
+        pct = min(1.0, used_bytes / max(1, total_bytes))
         self.bar_quota.setValue(int(pct * 1000))
-        chunk_color = "#3B9FE8" if pct < 0.75 else ("#EAB308" if pct < 0.92 else "#EF4444")
-        self.bar_quota.setStyleSheet(self.bar_quota.styleSheet().replace(
-            "stop:0 #3B9FE8", f"stop:0 {chunk_color}"))
-        free = self._quota["total"] - self._quota["used"]
+        from core.cloud_backend import BASE_FREE_QUOTA_BYTES
+        over_free_tier = used_bytes > BASE_FREE_QUOTA_BYTES
+        chunk_color = "#F59E0B" if over_free_tier else (
+            "#3B9FE8" if pct < 0.75 else ("#EAB308" if pct < 0.92 else "#EF4444")
+        )
+        quota_style = self.bar_quota.styleSheet()
+        for old_color in ("#3B9FE8", "#EAB308", "#EF4444", "#F59E0B"):
+            quota_style = quota_style.replace(f"stop:0 {old_color}", f"stop:0 {chunk_color}")
+        self.bar_quota.setStyleSheet(quota_style)
+        free = total_bytes - used_bytes
+        tier_note = (
+            " · Free tier exceeded — referrals can expand storage"
+            if over_free_tier else " · 1 GB free — referrals can expand storage"
+        )
+        self.lbl_quota_text.setStyleSheet(
+            f"color: {'#F59E0B' if over_free_tier else '#9CA3AF'}; font-size: 11px;"
+        )
         self.lbl_quota_text.setText(
-            f"{format_bytes(self._quota['used'])} of {format_bytes(self._quota['total'])} "
+            f"{format_bytes(used_bytes)} of {format_bytes(total_bytes)} "
             f"used ({format_bytes(max(0, free))} free) · max {format_bytes(overview.get('maxSaveBytes', 0))} per save · "
-            f"keeping last {overview.get('keepVersions', '?')} generations"
+            f"keeping last {overview.get('keepVersions', '?')} generations{tier_note}"
         )
 
         self.btn_auth_toggle.setText("Disconnect")

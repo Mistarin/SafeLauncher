@@ -857,7 +857,13 @@ class UserSettingsDialog(QDialog):
                     total = _to_bytes(match.group(2)) or 1
                     pct = min(1.0, used / total)
                     bar = self.bar_quota_settings
-                    color = "#3B9FE8" if pct < 0.75 else ("#EAB308" if pct < 0.92 else "#EF4444")
+                    from core.cloud_backend import BASE_FREE_QUOTA_BYTES
+                    color = "#F59E0B" if used > BASE_FREE_QUOTA_BYTES else (
+                        "#3B9FE8" if pct < 0.75 else ("#EAB308" if pct < 0.92 else "#EF4444")
+                    )
+                    self.lbl_account_status.setStyleSheet(
+                        f"color: {'#F59E0B' if used > BASE_FREE_QUOTA_BYTES else '#9ca3af'};"
+                    )
                     style = (
                         "QProgressBar { background: #18181B; border: 1px solid #27272A;"
                         " border-radius: 7px; }\n"
@@ -1267,7 +1273,7 @@ class UserSettingsDialog(QDialog):
                 games = len(overview.get("games", []))
                 concurrent = overview.get("concurrentDevices", 1)
                 devices_total = overview.get("totalDevices", 1)
-                msg = f"Connected ({format_bytes(used)} / {format_bytes(quota)} used · {games} game(s) · {concurrent} concurrent device(s) online)"
+                msg = f"Connected ({format_bytes(used)} / {format_bytes(quota)} used · {games} game(s) · {concurrent} concurrent device(s) online · 1 GB free, referrals can expand storage)"
                 self.accountStatusReady.emit(msg)
             except Exception as e:
                 from core.cloud_backend import describe_cloud_error

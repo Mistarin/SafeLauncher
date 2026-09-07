@@ -128,7 +128,7 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
   * Sync game saves to your own private Convex backend with client-side AES-256-GCM encryption.
   * Independent launcher metadata sync for achievements, playtime, and last-played state.
   * Local-folder cloud mode works without Convex; Convex mode requires a deployed backend and shared secret.
-  * Up to 1 GiB quota and 50 MiB maximum save archive, subject to backend configuration.
+  * Up to 1 GiB free quota per account; save archives may use the available quota, and referrals can expand storage subject to backend configuration.
   * Two retained save generations (active plus one backup) and conflict resolution.
 
 ### 4. Library Management & Archive Installer

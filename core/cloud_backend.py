@@ -29,8 +29,11 @@ from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 
 logger = get_logger("CloudBackend")
 
-MAX_SAVE_BYTES = 50 * 1024 * 1024   # 50 MB max per save archive
-QUOTA_BYTES = 1024 * 1024 * 1024    # 1 GB per private deployment
+QUOTA_BYTES = 1024 * 1024 * 1024    # 1 GB free tier per private deployment
+BASE_FREE_QUOTA_BYTES = QUOTA_BYTES
+# A single archive may use the complete free-tier allocation. Larger storage
+# is an account/referral entitlement, not an artificial 50 MB per-save cap.
+MAX_SAVE_BYTES = QUOTA_BYTES
 _DOWNLOAD_STREAM_TIMEOUT = (10, 60)
 
 # Default endpoint (configured per-user via QSettings or 'safelauncher --setup-cloud')
@@ -295,7 +298,7 @@ class ConvexSaveBackend:
 
         if len(plaintext) > MAX_SAVE_BYTES:
             raise CloudBackendError(
-                f"Save archive ({len(plaintext) / (1024*1024):.1f} MB) exceeds maximum allowed size ({MAX_SAVE_BYTES / (1024*1024):.1f} MB).",
+                f"Save archive ({len(plaintext) / (1024*1024):.1f} MB) exceeds the maximum allowed size ({MAX_SAVE_BYTES / (1024*1024):.0f} MB).",
                 "payload_too_large", 413
             )
 
@@ -563,6 +566,6 @@ def check_backend_health(
 
 __all__ = [
     "CloudBackendError", "describe_cloud_error", "ConvexSaveBackend", "get_site_url",
-    "normalize_name_key", "MAX_SAVE_BYTES", "QUOTA_BYTES",
+    "normalize_name_key", "MAX_SAVE_BYTES", "QUOTA_BYTES", "BASE_FREE_QUOTA_BYTES",
     "check_backend_health",
 ]

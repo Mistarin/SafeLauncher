@@ -29,7 +29,7 @@ Saves sync to a local folder by default. To store them encrypted on your own pri
 2. Deploy or connect your private Convex instance (1 GB free storage on Convex without monthly fees).
 3. Optionally set a secret key (`SAFELAUNCHER_SECRET_KEY`) for secure single-tenant access.
 
-Each save upload is AES-256-GCM encrypted on your PC (50 MB max per save, 1 GB storage limit, last 3 versions retained per game).
+Each save upload is AES-256-GCM encrypted on your PC (up to the 1 GB free storage tier, with referral-based expansion available, and the last 3 versions retained per game).
 
 
 ## What's Included
