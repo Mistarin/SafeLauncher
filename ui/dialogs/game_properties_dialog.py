@@ -14,6 +14,7 @@ from PyQt6.QtGui import QFont, QIcon
 
 from ui.icons import get_icon, get_app_icon
 from ui.components.sidebar import DialogTitleBar
+from ui.components.check_field import CheckField as QCheckBox
 from ui.maintenance_dialogs import PrefixMaintenanceDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from core.host_process import host_process_env

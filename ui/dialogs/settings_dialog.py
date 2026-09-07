@@ -28,6 +28,7 @@ from ui.icons import get_icon, get_app_icon
 from typing import Optional
 from ui.icons import LOGO_PATH
 from ui.components.sidebar import DialogTitleBar
+from ui.components.check_field import CheckField as QCheckBox
 from ui.maintenance_dialogs import RuntimeInventoryDialog
 from ui.dialogs.game_dialogs import ensure_sandbox_dir
 from ui.dialogs.save_conflict_dialog import format_bytes

@@ -15,6 +15,7 @@ from core.launch_diagnostics import persist_diagnostics
 from ui.icons import get_app_icon, get_icon, LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap
 from ui.threads import BannerFetcher, BannerDownloader, ArchiveExtractorThread, SafeLaunchLogReader
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
+from ui.components.check_field import CheckField as QCheckBox
 
 DEFAULT_SANDBOX_DIR = os.path.expanduser("~/Games/Sandbox")
 
@@ -1977,6 +1978,5 @@ class RenameCollectionDialog(CreateCollectionDialog):
         self.name_input.setText(current_name)
         self.name_input.selectAll()
         self.btn_create.setText("Save Name")
-
 
 
