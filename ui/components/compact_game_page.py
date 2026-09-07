@@ -16,7 +16,7 @@ import re
 import datetime
 from typing import Optional, List, Dict, Any, Tuple
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QSettings
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QSettings, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QTextEdit, QFrame, QScrollArea, QSizePolicy,
@@ -1125,10 +1125,14 @@ class CompactMediaShowcaseWidget(QFrame):
         shots_dir = os.path.join(_APP_DATA_DIR, "screenshots", str(game_id))
         screenshots = []
         if os.path.isdir(shots_dir):
-            for f in os.listdir(shots_dir):
-                if f.lower().endswith((".png", ".jpg", ".jpeg")):
-                    screenshots.append(os.path.join(shots_dir, f))
-            screenshots.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            try:
+                for f in os.listdir(shots_dir):
+                    path = os.path.join(shots_dir, f)
+                    if f.lower().endswith((".png", ".jpg", ".jpeg")) and os.path.isfile(path):
+                        screenshots.append(path)
+                screenshots.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            except OSError:
+                screenshots = []
 
         settings = QSettings("SafeLauncher", "SafeLauncher")
         from core.plugins.gpu_screen_recorder import DEFAULT_RECORDINGS_DIR
@@ -1137,11 +1141,14 @@ class CompactMediaShowcaseWidget(QFrame):
         game_prefix = re.sub(r"[^a-z0-9]+", "_", (game_name or "").strip().lower()).strip("_")
         videos = []
         if os.path.isdir(out_dir) and game_prefix:
-            for f in os.listdir(out_dir):
-                if f.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi")):
-                    if game_prefix in f.lower():
-                        videos.append(os.path.join(out_dir, f))
-            videos.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            try:
+                for f in os.listdir(out_dir):
+                    path = os.path.join(out_dir, f)
+                    if f.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi")) and game_prefix in f.lower() and os.path.isfile(path):
+                        videos.append(path)
+                videos.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            except OSError:
+                videos = []
 
         if screenshots or videos:
             thumbs_row = QHBoxLayout()
@@ -1984,6 +1991,8 @@ class CompactSidebarListWidget(QFrame):
         self.list_widget = QListWidget()
         self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
         self.list_widget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background: transparent;
@@ -2019,6 +2028,12 @@ class CompactSidebarListWidget(QFrame):
         """)
         self.list_widget.itemClicked.connect(self._on_item_clicked)
         self.list_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
+        # Keep wheel scrolling inside the game-library pane, including when
+        # the pointer is over its filters/search controls. The detail page has
+        # its own scroll area and remains independent.
+        for wheel_target in (self, filter_bar, self.search_edit, self.sort_combo,
+                             self.list_widget, self.list_widget.viewport()):
+            wheel_target.installEventFilter(self)
         layout.addWidget(self.list_widget)
 
         self.empty_lbl = QLabel("No games found")
@@ -2027,6 +2042,16 @@ class CompactSidebarListWidget(QFrame):
         self.empty_lbl.setWordWrap(True)
         self.empty_lbl.setVisible(False)
         layout.addWidget(self.empty_lbl)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Wheel:
+            delta = event.angleDelta().y() or event.pixelDelta().y()
+            if delta:
+                scrollbar = self.list_widget.verticalScrollBar()
+                scrollbar.setValue(scrollbar.value() - int(delta / 2))
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
 
     def _on_filter_btn_clicked(self, mode: str):
         self.active_filter = mode
@@ -2191,6 +2216,9 @@ class CompactLayoutContainer(QWidget):
         main_layout.setSpacing(0)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        # Prevent wheel events that leave the detail scroll area at an edge
+        # from reaching the outer library scroll surface.
+        self.installEventFilter(self)
         self.splitter.setStyleSheet("""
             QSplitter {
                 background: transparent;
@@ -2224,6 +2252,8 @@ class CompactLayoutContainer(QWidget):
         self.game_page.videos_requested.connect(self.videos_requested.emit)
         self.game_page.settings_requested.connect(self.settings_requested.emit)
         self.splitter.addWidget(self.game_page)
+        self.splitter.setCollapsible(0, False)
+        self.splitter.setCollapsible(1, False)
 
         self.splitter.setSizes([260, 920])
         main_layout.addWidget(self.splitter)
@@ -2233,6 +2263,14 @@ class CompactLayoutContainer(QWidget):
         """Update play button visual state in the compact game page."""
         if hasattr(self, "game_page") and self.game_page:
             self.game_page.set_play_state(state)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Wheel:
+            pos = event.position().toPoint()
+            if self.game_page.geometry().contains(pos):
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
 
     def set_games(
         self,

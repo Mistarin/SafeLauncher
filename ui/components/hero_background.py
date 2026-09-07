@@ -13,6 +13,7 @@ class HeroBackgroundWidget(QWidget):
         self.target_pixmap = None
         self.opacity = 1.0
         self._current_image_path: Optional[str] = None
+        self._clearing = False
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         
         self.fade_anim = QVariantAnimation(self)
@@ -28,7 +29,11 @@ class HeroBackgroundWidget(QWidget):
         self.update()
 
     def _on_fade_finished(self):
-        if self.target_pixmap:
+        if self._clearing:
+            self.current_pixmap = None
+            self.target_pixmap = None
+            self._clearing = False
+        elif self.target_pixmap:
             self.current_pixmap = self.target_pixmap
             self.target_pixmap = None
         self.opacity = 1.0
@@ -45,10 +50,14 @@ class HeroBackgroundWidget(QWidget):
                 if self.current_pixmap is None:
                     self.current_pixmap = new_pix
                     self.opacity = 1.0
+                    self._clearing = False
                     self.update()
                 else:
                     self.target_pixmap = new_pix
+                    self._clearing = False
                     self.fade_anim.stop()
+                    self.fade_anim.setStartValue(0.0)
+                    self.fade_anim.setEndValue(1.0)
                     self.fade_anim.start()
                 return
 
@@ -56,7 +65,10 @@ class HeroBackgroundWidget(QWidget):
         # Smooth fade out if clearing background
         if self.current_pixmap is not None:
             self.target_pixmap = None
+            self._clearing = True
             self.fade_anim.stop()
+            self.fade_anim.setStartValue(1.0)
+            self.fade_anim.setEndValue(0.0)
             self.fade_anim.start()
         else:
             self.current_pixmap = None
@@ -126,4 +138,3 @@ class HeroBackgroundWidget(QWidget):
             pass
 
         painter.end()
-        super().paintEvent(event)
