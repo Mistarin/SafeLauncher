@@ -1731,6 +1731,44 @@ try:
     lib_idx = tray_texts.index("Library")
     assert lib_idx > 0, "Expected top-level recent games before Library"
 
+    # Test dedicated Screenshot / Video Showcase widget under Achievements
+    from PyQt6.QtWidgets import QLabel
+    game_page = mw_compact.compact_container.game_page
+    assert hasattr(game_page, "media_widget")
+    # Verify inactive state displays "Module not active - turn on in settings"
+    game_page.media_widget.set_media_data(1001, "Test Game", force_inactive=True)
+    inactive_labels = game_page.media_widget.findChildren(QLabel)
+    assert any("module not active" in lbl.text().lower() for lbl in inactive_labels)
+    assert any("turn on in settings" in lbl.text().lower() for lbl in inactive_labels)
+    # Verify active state
+    game_page.media_widget.set_media_data(1001, "Test Game", force_inactive=False)
+
+    # Test Action Bar cleanup: only Favorite button in layout (no duplicate folder/settings/save buttons)
+    action_bar = game_page.action_bar
+    bar_layout = action_bar.layout()
+    layout_widgets = [bar_layout.itemAt(i).widget() for i in range(bar_layout.count()) if bar_layout.itemAt(i).widget()]
+    assert action_bar.btn_fav in layout_widgets
+    assert action_bar.btn_edit not in layout_widgets
+    assert action_bar.btn_settings not in layout_widgets
+    assert action_bar.btn_folder not in layout_widgets
+    assert action_bar.btn_save not in layout_widgets
+
+    # Test Play button states: green PLAY, blue RUNNING, and blue STOPPING
+    action_bar.set_play_state("play")
+    assert "PLAY" in action_bar.btn_play.text()
+    assert action_bar.btn_play.isEnabled() is True
+    assert "#3CD070" in action_bar.btn_play.styleSheet()
+
+    action_bar.set_play_state("running")
+    assert "RUNNING" in action_bar.btn_play.text()
+    assert action_bar.btn_play.isEnabled() is True
+    assert "#2575FC" in action_bar.btn_play.styleSheet()
+
+    action_bar.set_play_state("stopping")
+    assert "STOPPING" in action_bar.btn_play.text()
+    assert action_bar.btn_play.isEnabled() is False
+    assert "#2575FC" in action_bar.btn_play.styleSheet()
+
 
     # Test HeaderBar View menu with Library submenu
     assert hasattr(mw_compact.title_bar, "btn_view")
