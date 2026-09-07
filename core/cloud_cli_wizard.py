@@ -51,11 +51,23 @@ def _convex_cli_env(server_dir: Path) -> dict[str, str]:
                 value = value.strip()
                 if not key or not all(ch.isalnum() or ch == "_" for ch in key) or key[0].isdigit():
                     continue
+                # dotenv permits an inline comment after an unquoted value.
+                if value and value[0] not in ('"', "'") and " #" in value:
+                    value = value.split(" #", 1)[0].rstrip()
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
                     value = value[1:-1]
                 env.setdefault(key, value)
         except OSError as exc:
             print(f"  [!] Could not read {env_file}: {exc}")
+    # Convex deployment identifiers are commonly written as
+    # ``dev:name``.  Normalize whitespace around the separator, including
+    # values inherited from the shell, before passing them to Node.
+    deployment = env.get("CONVEX_DEPLOYMENT", "").strip()
+    if ":" in deployment:
+        scope, name = deployment.split(":", 1)
+        env["CONVEX_DEPLOYMENT"] = f"{scope.strip()}:{name.strip()}"
+    elif deployment:
+        env["CONVEX_DEPLOYMENT"] = deployment
     return env
 
 

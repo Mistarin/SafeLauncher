@@ -40,6 +40,11 @@ def detect_local_cloud_installation() -> Optional[Dict[str, Any]]:
                                     site_url = raw_url.replace(".convex.cloud", ".convex.site")
                             elif line.startswith("CONVEX_DEPLOYMENT="):
                                 deployment = line.split("=", 1)[1].strip().strip('"').strip("'")
+                                if " #" in deployment:
+                                    deployment = deployment.split(" #", 1)[0].rstrip()
+                                if ":" in deployment:
+                                    scope, name = deployment.split(":", 1)
+                                    deployment = f"{scope.strip()}:{name.strip()}"
                 except Exception:
                     pass
 

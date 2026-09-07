@@ -215,12 +215,21 @@ def _convex_deploy_env(backend_path: Path) -> Optional[dict[str, str]]:
                 value = value.strip()
                 if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
                     continue
+                if value and value[0] not in ('"', "'") and " #" in value:
+                    value = value.split(" #", 1)[0].rstrip()
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
                     value = value[1:-1]
                 # Do not replace values explicitly supplied by the caller.
                 env.setdefault(key, value)
         except OSError as exc:
             print(f"  {YELLOW}[!] Could not read {env_file}: {exc}{RESET}")
+
+    deployment = env.get("CONVEX_DEPLOYMENT", "").strip()
+    if ":" in deployment:
+        scope, name = deployment.split(":", 1)
+        env["CONVEX_DEPLOYMENT"] = f"{scope.strip()}:{name.strip()}"
+    elif deployment:
+        env["CONVEX_DEPLOYMENT"] = deployment
 
     if not env.get("CONVEX_DEPLOYMENT") and not env.get("CONVEX_DEPLOY_KEY"):
         files = ", ".join(loaded_files) if loaded_files else "no dotenv file"
