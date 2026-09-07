@@ -660,7 +660,8 @@ try:
     from core.cloud_backend import check_backend_health, ConvexSaveBackend
 
     # 1. Versioning assertions
-    assert APP_VERSION == "0.5.5", f"Expected APP_VERSION == 0.5.5, got {APP_VERSION}"
+    assert APP_VERSION == "0.6.0", f"Expected APP_VERSION == 0.6.0, got {APP_VERSION}"
+
     assert MIN_CONVEX_BACKEND_VERSION == "1.3.0"
     assert parse_version("0.5.5") == (0, 5, 5)
     assert parse_version("v1.2.0") == (1, 2, 0)
@@ -774,10 +775,10 @@ try:
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.json = lambda: {
-                    "tag_name": "v0.5.6",
-                    "name": "Release 0.5.6",
+                    "tag_name": "v0.9.0",
+                    "name": "Release 0.9.0",
                     "body": "Bugfixes",
-                    "html_url": "https://github.com/Mistarin/SafeLauncher/releases/tag/v0.5.6",
+                    "html_url": "https://github.com/Mistarin/SafeLauncher/releases/tag/v0.9.0",
                     "assets": [
                         {"name": "SafeLauncher-arm64.AppImage", "browser_download_url": "https://arm64.url", "size": 50000000},
                         {"name": "SafeLauncher-x86_64.AppImage", "browser_download_url": "https://x86_64.url", "size": 52000000},
@@ -788,7 +789,8 @@ try:
             with patch("requests.get", side_effect=mock_release_assets):
                 update_info = check_for_updates()
                 assert update_info["update_available"] is True
-                assert update_info["latest_version"] == "v0.5.6"
+                assert update_info["latest_version"] == "v0.9.0"
+
                 assert update_info["appimage_asset"] is not None
                 assert update_info["appimage_asset"]["name"] == "SafeLauncher-x86_64.AppImage"
                 assert update_info["appimage_asset"]["download_url"] == "https://x86_64.url"
