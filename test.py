@@ -1704,6 +1704,11 @@ try:
     assert mw_compact.library_view_mode == "compact"
     assert mw_compact.detail_panel.isVisible() is False
     assert mw_compact.btn_reveal_detail.isVisible() is False
+    # Empty favorites/archives must still refresh compact view instead of
+    # raising on an uninitialized MainWindow.cache_dir.
+    mw_compact._set_filter("favorites")
+    mw_compact._set_filter("archived")
+    mw_compact._set_filter("all")
 
     # Test new darker footer bar (#0E0E10) and bottom-left Add Game button
     assert hasattr(mw_compact, "footer_bar")

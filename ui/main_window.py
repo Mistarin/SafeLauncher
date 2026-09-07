@@ -141,6 +141,9 @@ class MainWindow(QMainWindow):
         self.runner = runner
         self.backup = backup
         self.sgdb_client = SteamGridDBClient()
+        # Keep the cache path available to every library presentation,
+        # including the empty-filter branch used by compact view.
+        self.cache_dir = self.sgdb_client.cache_dir
         self.games = []
         self.selected_game = None
         self.banner_widgets = {}
@@ -4951,8 +4954,14 @@ class MainWindow(QMainWindow):
                 self.db.remove_game(game_id)
                 self._show_toast(f"Permanently removed '{game[1]}' and force deleted files.")
 
-            self._refresh_library()
+            # Clear selection before rebuilding compact view. Otherwise the
+            # page can keep rendering the archived/deleted record even though
+            # it has disappeared from the sidebar.
             self.selected_game = None
+            self.library_selection.replace(self.library_selection.ids - {game_id})
+            self._refresh_library()
+            if self.library_view_mode in ("compact", "steam"):
+                self._update_compact_game_page()
 
     def _on_export(self):
         game = self._get_selected_game()

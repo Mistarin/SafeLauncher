@@ -9,7 +9,12 @@ from typing import Optional, Dict, Any
 def detect_local_cloud_installation() -> Optional[Dict[str, Any]]:
     """Scan the system for a local SafeLauncherDatabase / SafeLauncherCloud directory."""
     home = os.path.expanduser("~")
+    launcher_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    launcher_parent = os.path.dirname(launcher_root)
     candidates = [
+        # Common sibling checkout layout: <workspace>/SafeLauncher and
+        # <workspace>/SafeLauncherCloud, including non-standard workspace names.
+        os.path.join(launcher_parent, "SafeLauncherCloud"),
         os.path.join(home, "Main", "Programming", "SafeLauncherDatabase"),
         os.path.join(home, "Main", "Programming", "SafeLauncherCloud"),
         os.path.join(home, "SafeLauncherDatabase"),
