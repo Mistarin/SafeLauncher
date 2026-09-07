@@ -576,6 +576,42 @@ class CloudSaveSyncEngine:
     # ------------------------------------------------------------------ #
 
     @classmethod
+    def _launcher_metadata(cls, game_name: str) -> dict:
+        """Read local launcher metadata for archive embedding."""
+        try:
+            from database import GameDatabase
+            db = GameDatabase()
+            try:
+                row = db.conn.execute(
+                    "SELECT playtime_seconds, last_played FROM games WHERE name = ? LIMIT 1",
+                    (game_name,),
+                ).fetchone()
+                if row:
+                    return {"playtime_seconds": int(row[0] or 0), "last_played": int(row[1] or 0)}
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug(f"Could not read launcher metadata for '{game_name}': {e}")
+        return {"playtime_seconds": 0, "last_played": 0}
+
+    @classmethod
+    def _merge_restored_metadata(cls, game_name: str, metadata: dict) -> None:
+        """Apply restored metadata to the matching local library record."""
+        if not metadata:
+            return
+        try:
+            from database import GameDatabase
+            db = GameDatabase()
+            try:
+                row = db.conn.execute("SELECT id FROM games WHERE name = ? LIMIT 1", (game_name,)).fetchone()
+                if row:
+                    db.merge_playtime_metadata(row[0], metadata.get("playtime_seconds", 0), metadata.get("last_played", 0))
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug(f"Could not merge restored launcher metadata for '{game_name}': {e}")
+
+    @classmethod
     def sync_local_to_cloud(cls, game_name: str, game_path: str, steam_id: str = "") -> bool:
         """Archive latest local save state directly into cloud save repository."""
         local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
@@ -591,7 +627,8 @@ class CloudSaveSyncEngine:
             os.close(tmp_fd)
             try:
                 if not backup_mgr.export_save_locations(
-                        locations, tmp_zip, game_name=game_name, game_path=game_path):
+                        locations, tmp_zip, game_name=game_name, game_path=game_path,
+                        launcher_metadata=cls._launcher_metadata(game_name)):
                     return False
                 result = _backend().upload_plaintext_zip(
                     normalize_name_key(game_name), game_name,
@@ -635,7 +672,8 @@ class CloudSaveSyncEngine:
             locations,
             cloud_zip,
             game_name=game_name,
-            game_path=game_path
+            game_path=game_path,
+            launcher_metadata=cls._launcher_metadata(game_name),
         )
         if success:
             logger.info(f"Uploaded local save to cloud archive: {cloud_zip} ({local_stats.file_count} files, {local_stats.size_bytes} bytes)")
@@ -689,7 +727,8 @@ class CloudSaveSyncEngine:
                         fork_zip = os.path.join(fork_dir, f"{prefix_key}_fork_{int(time.time())}.zip")
                         backup_mgr = ZipBackupManager()
                         if backup_mgr.export_save_locations(locations, fork_zip,
-                                                            game_name=game_name, game_path=game_path):
+                                                            game_name=game_name, game_path=game_path,
+                                                            launcher_metadata=cls._launcher_metadata(game_name)):
                             logger.info(f"Preserved local save fork for '{game_name}' at {fork_zip}")
                         else:
                             logger.warning(
@@ -705,6 +744,7 @@ class CloudSaveSyncEngine:
                 return False
             try:
                 backup_mgr = ZipBackupManager()
+                metadata = backup_mgr.read_launcher_metadata(plain_zip)
                 success = backup_mgr.import_save(plain_zip, target_dest, game_path=game_path)
                 if success and not backup_mgr.verify_import(plain_zip, target_dest, game_path=game_path):
                     logger.warning(f"Restored files for '{game_name}' do not match the cloud archive.")
@@ -715,6 +755,7 @@ class CloudSaveSyncEngine:
                 except OSError:
                     pass
             if success:
+                cls._merge_restored_metadata(game_name, metadata)
                 restored_ver = meta.get("version")
                 if restored_ver is not None:
                     snapshot = cls._remote_game_snapshot(key)
@@ -741,7 +782,8 @@ class CloudSaveSyncEngine:
                 fork_zip = os.path.join(os.path.dirname(cloud_zip), "save_local_fork.zip")
                 backup_mgr = ZipBackupManager()
                 if backup_mgr.export_save_locations(locations, fork_zip,
-                                                    game_name=game_name, game_path=game_path):
+                                                    game_name=game_name, game_path=game_path,
+                                                    launcher_metadata=cls._launcher_metadata(game_name)):
                     logger.info(f"Kept local save fork for '{game_name}' at {fork_zip}")
                 else:
                     logger.warning(
@@ -751,11 +793,13 @@ class CloudSaveSyncEngine:
                     return False
 
         backup_mgr = ZipBackupManager()
+        metadata = backup_mgr.read_launcher_metadata(cloud_zip)
         success = backup_mgr.import_save(cloud_zip, target_dest, game_path=game_path)
         if success and not backup_mgr.verify_import(cloud_zip, target_dest, game_path=game_path):
             logger.warning(f"Restored files for '{game_name}' do not match the cloud archive.")
             success = False
         if success:
+            cls._merge_restored_metadata(game_name, metadata)
             logger.info(f"Successfully restored cloud save archive for '{game_name}' into {target_dest}")
         else:
             logger.error(f"Failed to restore cloud save for '{game_name}'")

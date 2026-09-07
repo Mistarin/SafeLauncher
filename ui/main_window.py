@@ -4299,7 +4299,11 @@ class MainWindow(QMainWindow):
                         # Allow 0.5s settling time for Wine/kernel to flush dirty pages after process exit
                         time.sleep(0.5)
                         status, _, _ = CloudSaveSyncEngine.check_sync_status(name, gpath, sid)
-                        if status == SyncStatus.LOCAL_NEWER:
+                        # Playtime can change even when the game did not touch
+                        # a save file.  The archive manifest contains launcher
+                        # metadata, and cloud deduplication skips this upload
+                        # when both save data and metadata are unchanged.
+                        if status in (SyncStatus.LOCAL_NEWER, SyncStatus.IN_SYNC):
                             payload["outcome"] = (
                                 "uploaded" if CloudSaveSyncEngine.sync_local_to_cloud(name, gpath, sid)
                                 else "failed"
