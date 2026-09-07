@@ -672,13 +672,19 @@ class GamePropertiesDialog(QDialog):
         selected_idx = 0
         for idx, v in enumerate(self._cloud_versions):
             v_num = v.get("version", 0)
-            d = datetime.fromtimestamp(v.get("sourceMaxMtime", 0)).strftime("%Y-%m-%d %H:%M")
-            sz = format_bytes(int(v.get("sizeBytes", 0)))
+            # Cloud generations and local safety forks use different wire
+            # field names. Normalize both here so retained backups never show
+            # an empty date or zero size.
+            raw_mtime = v.get("mtime", v.get("sourceMaxMtime", 0)) or 0
+            d = datetime.fromtimestamp(float(raw_mtime)).strftime("%Y-%m-%d %H:%M") if raw_mtime else "Unknown date"
+            raw_size = v.get("size_bytes", v.get("sizeBytes", 0)) or 0
+            sz = format_bytes(int(raw_size))
             is_active = local_exists and ((active_ver is not None and v_num == active_ver) or (active_ver is None and idx == 0))
             if is_active:
                 selected_idx = idx
-            tag = " [Active on this PC]" if is_active else (" [Latest Cloud]" if idx == 0 else "")
-            display_str = f"Generation v{v_num} · {d} · {sz}{tag}"
+            source_label = "Cloud" if v.get("source") == "cloud" else "Local backup"
+            tag = " [Active on this PC]" if is_active else (" [Latest Cloud]" if idx == 0 and source_label == "Cloud" else "")
+            display_str = f"{source_label} · {d} · {sz}{tag}"
             self.combo_cloud_versions.addItem(display_str, v_num)
 
         self.combo_cloud_versions.setCurrentIndex(selected_idx)
