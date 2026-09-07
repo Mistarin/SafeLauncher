@@ -7,7 +7,6 @@ RUNE, FLT, Linux Native) and monitors unlock events in real-time via QFileSystem
 from __future__ import annotations
 
 import os
-import glob
 import json
 import configparser
 from pathlib import Path
@@ -20,6 +19,75 @@ from core.logger import get_logger
 logger = get_logger("AchievementWatcher")
 
 
+def achievement_state_candidates(prefix_path: str, game_path: str, app_id: str) -> List[Path]:
+    """Return known achievement-state locations in discovery order.
+
+    The generic Windows locations are included because some games and
+    emulators store their state beside normal saves rather than in the
+    emulator's standard directory.  We only look for known state filenames;
+    this does not recursively scan user data.
+    """
+    if not app_id or str(app_id).strip() in ("", "0"):
+        return []
+
+    app_id = str(app_id).strip()
+    prefix = Path(prefix_path).resolve() if prefix_path else None
+    game_dir = Path(game_path).resolve() if game_path else None
+    candidates: List[Path] = []
+
+    def add(path: Path) -> None:
+        if path not in candidates:
+            candidates.append(path)
+
+    if prefix and prefix.is_dir():
+        users = prefix / "drive_c/users"
+        for user_root in users.glob("*"):
+            if not user_root.is_dir() or user_root.name.lower() in ("public", "all users", "default", "default user"):
+                continue
+            # Generic Windows save roots.  These are intentionally limited to
+            # the game's folder name elsewhere by the save detector; here the
+            # app-id variants are the unambiguous achievement forms.
+            add(user_root / "AppData/Roaming/Goldberg SteamEmu Saves" / app_id / "achievements.json")
+            add(user_root / "AppData/Roaming/FLT" / app_id / "achievements.ini")
+            add(user_root / "AppData/Roaming/FLT" / app_id / "stats.ini")
+            add(user_root / "AppData/Roaming/Steam/CODEX" / app_id / "achievements.ini")
+            for root in (
+                user_root / "Documents",
+                user_root / "Documents/My Games",
+                user_root / "AppData/Roaming",
+                user_root / "AppData/Local",
+            ):
+                for filename in ("achievements.json", "achievements.ini", "achievement.json", "achievement.ini"):
+                    add(root / filename)
+                # Common layout: <Windows root>/<game name>/<state file>.
+                # Probe only one level; never recursively crawl user data.
+                if root.is_dir():
+                    try:
+                        for game_folder in root.iterdir():
+                            if game_folder.is_dir():
+                                for filename in ("achievements.json", "achievements.ini", "achievement.json", "achievement.ini"):
+                                    add(game_folder / filename)
+                    except OSError:
+                        pass
+
+        add(prefix / "drive_c/users/Public/Documents/Steam/CODEX" / app_id / "achievements.ini")
+        add(prefix / "drive_c/users/Public/Documents/Steam/RUNE" / app_id / "achievements.ini")
+
+    if game_dir and game_dir.is_dir():
+        for path in (
+            game_dir / "steam_settings/achievements.json",
+            game_dir / f"steam_settings/{app_id}/achievements.json",
+            game_dir / f"Goldberg SteamEmu Saves/{app_id}/achievements.json",
+            game_dir / "SmartSteamEmu/achievements.ini",
+            game_dir / "achievements.json",
+            game_dir / "achievements.ini",
+        ):
+            add(path)
+
+    add(Path.home() / ".local/share/Goldberg SteamEmu Saves" / app_id / "achievements.json")
+    return candidates
+
+
 def locate_achievements_file(prefix_path: str, game_path: str, app_id: str) -> Optional[Path]:
     """
     Locates the active achievements file for a given Wine prefix, game directory, and AppID.
@@ -28,46 +96,19 @@ def locate_achievements_file(prefix_path: str, game_path: str, app_id: str) -> O
     if not app_id or str(app_id).strip() in ("", "0"):
         return None
 
-    app_id = str(app_id).strip()
-    prefix = Path(prefix_path).resolve() if prefix_path else None
-    game_dir = Path(game_path).resolve() if game_path else None
-
-    search_patterns = []
-
-    # 1. Wine Prefix User AppData (Goldberg Steam Emu - Default & Most Common)
-    if prefix and prefix.is_dir():
-        search_patterns.extend([
-            prefix / "drive_c/users/*/AppData/Roaming/Goldberg SteamEmu Saves" / app_id / "achievements.json",
-            prefix / "drive_c/users/Public/Documents/Steam/CODEX" / app_id / "achievements.ini",
-            prefix / "drive_c/users/Public/Documents/Steam/RUNE" / app_id / "achievements.ini",
-            prefix / "drive_c/users/*/AppData/Roaming/FLT" / app_id / "achievements.ini",
-            prefix / "drive_c/users/*/AppData/Roaming/FLT" / app_id / "stats.ini",
-            prefix / "drive_c/users/*/AppData/Roaming/Steam/CODEX" / app_id / "achievements.ini",
-        ])
-
-    # 2. Game Installation Directory (Local overrides & portable setups)
-    if game_dir and game_dir.is_dir():
-        search_patterns.extend([
-            game_dir / "steam_settings/achievements.json",
-            game_dir / f"steam_settings/{app_id}/achievements.json",
-            game_dir / f"Goldberg SteamEmu Saves/{app_id}/achievements.json",
-            game_dir / "SmartSteamEmu/achievements.ini",
-        ])
-
-    # 3. Linux Native fallback
-    search_patterns.append(
-        Path.home() / ".local/share/Goldberg SteamEmu Saves" / app_id / "achievements.json"
-    )
-
-    # Evaluate patterns in order
-    for pattern in search_patterns:
-        matches = glob.glob(str(pattern))
-        for match in matches:
-            p = Path(match)
-            if p.is_file():
-                return p
-
-    return None
+    existing = [p for p in achievement_state_candidates(prefix_path, game_path, app_id) if p.is_file()]
+    if not existing:
+        return None
+    # Emulators commonly replace files atomically.  Prefer a non-empty state
+    # over the empty pre-seeded Goldberg file, then use mtime for the active
+    # file when several real candidates exist.
+    def priority(path: Path) -> tuple[int, int, int]:
+        try:
+            size = path.stat().st_size
+            return (int(size > 2), path.stat().st_mtime_ns, size)
+        except OSError:
+            return (0, 0, 0)
+    return max(existing, key=priority)
 
 
 def ensure_achievement_watch_target(prefix_path: str, game_path: str, app_id: str) -> Path:
@@ -173,6 +214,7 @@ class AchievementWatcher(QObject):
 
         self.watch_file: Optional[Path] = None
         self.known_unlocked: Dict[str, float] = {}
+        self._watched_dirs: set[str] = set()
 
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self._on_file_changed)
@@ -189,6 +231,15 @@ class AchievementWatcher(QObject):
 
         target_file = ensure_achievement_watch_target(self.prefix_path, self.game_path, self.app_id)
         self.watch_file = target_file
+
+        # Watch every already-existing candidate directory, not just the
+        # predicted Goldberg path.  This catches games whose state file is
+        # created in Documents/AppData after launch.
+        for candidate in achievement_state_candidates(self.prefix_path, self.game_path, self.app_id):
+            parent = candidate.parent
+            if parent.is_dir() and str(parent) not in self._watched_dirs:
+                self.watcher.addPath(str(parent))
+                self._watched_dirs.add(str(parent))
 
         if target_file and target_file.is_file():
             self.known_unlocked = parse_achievements_state(target_file)
@@ -212,17 +263,27 @@ class AchievementWatcher(QObject):
 
     def _on_directory_changed(self, path: str):
         """Directory modification handler (file created)."""
-        if self.watch_file and self.watch_file.is_file():
-            if str(self.watch_file) not in self.watcher.files():
-                self.watcher.addPath(str(self.watch_file))
+        found = locate_achievements_file(self.prefix_path, self.game_path, self.app_id)
+        if found:
+            self.watch_file = found
+            self._reattach_file()
             self.check_updates()
 
     def _on_file_changed(self, path: str):
         """File modification handler (real-time inotify)."""
         # Re-add path because some text editors/emulators replace inodes atomically on write
+        self._reattach_file()
+        self.check_updates()
+
+    def _reattach_file(self) -> None:
+        """Re-add a file watch after an atomic rename/replacement."""
         if self.watch_file and self.watch_file.is_file() and str(self.watch_file) not in self.watcher.files():
             self.watcher.addPath(str(self.watch_file))
-        self.check_updates()
+        for candidate in achievement_state_candidates(self.prefix_path, self.game_path, self.app_id):
+            parent = candidate.parent
+            if parent.is_dir() and str(parent) not in self._watched_dirs:
+                self.watcher.addPath(str(parent))
+                self._watched_dirs.add(str(parent))
 
     def check_updates(self):
         """Compare current state file against known unlocked items."""
@@ -231,8 +292,7 @@ class AchievementWatcher(QObject):
             found = locate_achievements_file(self.prefix_path, self.game_path, self.app_id)
             if found and found.is_file():
                 self.watch_file = found
-                if str(found) not in self.watcher.files():
-                    self.watcher.addPath(str(found))
+                self._reattach_file()
             else:
                 return
 

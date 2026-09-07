@@ -481,6 +481,32 @@ class LudusaviDetector:
                     source="heuristics"
                 ))
 
+        def consider_file(file_path: str, prefix: str, label_extra: str = "") -> None:
+            """Include emulator achievement state as portable game metadata.
+
+            Achievement state is not always inside a game-named directory
+            (Goldberg/CODEX commonly use the numeric AppID), so normal folder
+            name matching misses it.  It belongs in the same snapshot as the
+            saves so a restore on another device can rehydrate local unlocks.
+            """
+            if file_path in seen_paths or not os.path.isfile(file_path):
+                return
+            try:
+                stat = os.stat(file_path)
+            except OSError:
+                return
+            seen_paths.add(file_path)
+            locations.append(SaveLocation(
+                display_name=f"Achievement state{label_extra}",
+                path=file_path,
+                is_directory=False,
+                file_count=1,
+                total_size_bytes=stat.st_size,
+                last_modified=stat.st_mtime,
+                relative_to_prefix=os.path.relpath(file_path, prefix),
+                source="heuristics",
+            ))
+
         for prefix in candidate_prefixes:
             if not os.path.isdir(prefix):
                 continue
@@ -563,6 +589,18 @@ class LudusaviDetector:
                             relative_to_prefix=os.path.relpath(s_cand, prefix),
                             source="heuristics"
                         ))
+
+            # These files are keyed by AppID or emulator convention rather
+            # than the visible game name, so add them explicitly.  Import is
+            # manifest-based and restores them to their original prefix/game
+            # location on the next device.
+            try:
+                from core.achievement_watcher import achievement_state_candidates
+                for ach_file in achievement_state_candidates(prefix, game_path, steam_id):
+                    if os.path.isfile(ach_file):
+                        consider_file(str(ach_file), prefix, f" ({os.path.basename(ach_file)})")
+            except Exception as e:
+                logger.debug(f"Achievement state discovery failed: {e}")
 
         # 3. Check inside game directory itself for common standalone save
         # directories, including installs that nest one level deeper
