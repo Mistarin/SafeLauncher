@@ -82,7 +82,7 @@ from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from ui.dialogs.save_conflict_dialog import SaveConflictDialog
 from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
-from ui.components.steam_game_page import (
+from ui.components.compact_game_page import (
     CompactLayoutContainer, CompactGamePageWidget,
     SteamLayoutContainer, SteamGamePageWidget
 )
@@ -1694,7 +1694,7 @@ class MainWindow(QMainWindow):
             self.library_view_stack.setCurrentIndex(3)
             self.detail_panel.setVisible(False)
             self.btn_reveal_detail.setVisible(False)
-            self._update_steam_game_page()
+            self._update_compact_game_page()
         elif use_virtual:
             self.library_view_stack.setCurrentIndex(2)
             if self.selected_game:
@@ -1715,8 +1715,8 @@ class MainWindow(QMainWindow):
     def _visible_library_ids(self) -> set[int]:
         if self.library_view_mode == "list":
             return {int(self.list_view.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.list_view.count())}
-        elif self.library_view_mode in ("compact", "steam") and hasattr(self, "steam_container"):
-            return {int(self.steam_container.sidebar_list.list_widget.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.steam_container.sidebar_list.list_widget.count())}
+        elif self.library_view_mode in ("compact", "steam") and hasattr(self, "compact_container"):
+            return {int(self.compact_container.sidebar_list.list_widget.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.compact_container.sidebar_list.list_widget.count())}
         return set(self.banner_widgets.keys())
 
     def _select_all_visible(self):
@@ -2015,9 +2015,9 @@ class MainWindow(QMainWindow):
         except (RuntimeError, AttributeError):
             pass
 
-        if hasattr(self, "steam_container"):
+        if hasattr(self, "compact_container"):
             try:
-                self.steam_container.set_games(
+                self.compact_container.set_games(
                     processed,
                     self.library_selection.ids,
                     self.update_status_by_game_id,
@@ -2035,7 +2035,7 @@ class MainWindow(QMainWindow):
             self.library_view_stack.setCurrentIndex(3)
             self.detail_panel.setVisible(False)
             self.btn_reveal_detail.setVisible(False)
-            self._update_steam_game_page()
+            self._update_compact_game_page()
         elif use_virtual:
             self.library_view_stack.setCurrentIndex(2)
             if self.selected_game:
@@ -2217,11 +2217,11 @@ class MainWindow(QMainWindow):
                     pass
                 break
         self._update_detail_panel()
-        self._update_steam_game_page()
+        self._update_compact_game_page()
 
-    def _update_steam_game_page(self):
-        """Update the Steam Game Page widget with the selected game's details."""
-        if not hasattr(self, "steam_container"):
+    def _update_compact_game_page(self):
+        """Update the Compact Game Page widget with the selected game's details."""
+        if not hasattr(self, "compact_container"):
             return
         game = self.selected_game
         if not game and self.games:
@@ -2238,7 +2238,7 @@ class MainWindow(QMainWindow):
             all_achs = self.db.get_game_achievements(g_id)
             locked_achs = [a for a in all_achs if not a.get("unlocked")]
         except Exception as e:
-            logger.debug(f"Error fetching achievements for Steam page: {e}")
+            logger.debug(f"Error fetching achievements for Compact page: {e}")
             ach_stats = (0, 0, 0.0)
             recent_achs = []
             locked_achs = []
@@ -2270,7 +2270,7 @@ class MainWindow(QMainWindow):
 
         is_running = g_id in self.running_game_ids
 
-        self.steam_container.game_page.set_game(
+        self.compact_container.game_page.set_game(
             game,
             ach_stats,
             recent_achs,
@@ -2279,7 +2279,9 @@ class MainWindow(QMainWindow):
             hero_image_path=hero_file,
             is_running=is_running
         )
-        self.steam_container.select_game(g_id)
+        self.compact_container.select_game(g_id)
+
+    _update_steam_game_page = _update_compact_game_page
 
     def _open_game_dir_by_id(self, game_id: int):
         """Open the installation folder for the specified game."""
@@ -3046,7 +3048,7 @@ class MainWindow(QMainWindow):
     def _on_hero_downloaded(self, game_id: int, image_path: str):
         if self.selected_game and self.selected_game[0] == game_id:
             self.hero_bg.set_hero_image(image_path)
-            self._update_steam_game_page()
+            self._update_compact_game_page()
 
     def _on_disk_size_calculated(self, game_id: int, size_bytes: int):
         if self.selected_game and self.selected_game[0] == game_id:
@@ -3063,9 +3065,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        if hasattr(self, "steam_container") and self.selected_game and self.selected_game[0] == game_id:
+        if hasattr(self, "compact_container") and self.selected_game and self.selected_game[0] == game_id:
             try:
-                self.steam_container.game_page.action_bar.update_cloud_status(status)
+                self.compact_container.game_page.action_bar.update_cloud_status(status)
             except Exception:
                 pass
 
@@ -3893,7 +3895,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
         self.request_achievement_recheck([game[0]], tag="dialog_close")
         self._update_detail_panel()
-        self._update_steam_game_page()
+        self._update_compact_game_page()
 
     def _on_achievement_unlocked(self, game_id: int, app_id: str, data: dict):
         """Handle real-time achievement unlock event from watcher."""
@@ -3934,7 +3936,7 @@ class MainWindow(QMainWindow):
         if self.selected_game and self.selected_game[0] == game_id:
             steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
             self._update_achievement_inspector(game_id, steam_id)
-            self._update_steam_game_page()
+            self._update_compact_game_page()
 
     def _open_prefix_maintenance(self):
         game = self._get_selected_game()
