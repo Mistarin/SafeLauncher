@@ -110,7 +110,14 @@ def dir_size_display(dir_path: str) -> str:
 
 
 def get_dir_size(dir_path: str, use_cache: bool = True) -> int:
-    """Recursively calculate regular-file size without escaping via symlinks."""
+    """Recursively calculate regular-file size without escaping via symlinks.
+
+    Always updates the size cache with the computed result so that background
+    threads and on-demand callers share the same cached value.  The result is
+    only cached when the traversal completes without an outer exception — a
+    partial traversal due to an error would otherwise cache ``0`` for a valid
+    non-empty directory.
+    """
     if not dir_path or not os.path.exists(dir_path):
         return 0
     if use_cache:
@@ -119,12 +126,13 @@ def get_dir_size(dir_path: str, use_cache: bool = True) -> int:
             return cached
 
     total_size = 0
+    traversal_ok = False
     try:
         if os.path.isfile(dir_path):
             total_size = os.path.getsize(dir_path)
             store_dir_size(dir_path, total_size)
             return total_size
-        
+
         seen_inodes = set()
         pending = [os.path.realpath(dir_path)]
         while pending:
@@ -154,11 +162,18 @@ def get_dir_size(dir_path: str, use_cache: bool = True) -> int:
                             continue
             except (OSError, FileNotFoundError, NotADirectoryError):
                 continue
+        traversal_ok = True
     except Exception:
         pass
 
-    store_dir_size(dir_path, total_size)
+    # Only cache when the traversal actually completed — a mid-traversal
+    # exception leaves total_size at 0 or partial, which must not be cached
+    # as the authoritative size for the directory.
+    if traversal_ok:
+        store_dir_size(dir_path, total_size)
     return total_size
+
+
 
 
 def format_size(size_bytes: int) -> str:

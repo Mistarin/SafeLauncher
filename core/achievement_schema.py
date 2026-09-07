@@ -63,7 +63,17 @@ class TokenBucketRateLimiter:
             time.sleep(min(wait_time, remaining, 0.25))
 
     def penalize(self, cooldown_seconds: float = 5.0) -> None:
-        """On HTTP 429 or rate limit signal, reset token balance and force a cooldown window."""
+        """Drain tokens and shift the refill clock forward on a 429 / rate-limit signal.
+
+        Thread-safety: protected by ``_lock``; safe to call from any thread.
+
+        Implementation note: rather than sleeping here, we shift ``last_update``
+        forward by ``cooldown_seconds``.  The next ``acquire()`` call computes
+        the elapsed time as negative (``now < last_update``), so no tokens are
+        refilled until the wall clock catches up.  This means ``penalize()``
+        returns immediately without blocking the calling thread — the cooldown
+        is served lazily inside ``acquire()``'s retry loop.
+        """
         with self._lock:
             self.tokens = 0.0
             self.last_update = time.monotonic() + float(cooldown_seconds)
