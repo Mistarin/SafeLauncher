@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
     QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
-    QApplication, QSystemTrayIcon, QCheckBox, QGraphicsOpacityEffect, QPlainTextEdit, QProgressBar,
+    QApplication, QSystemTrayIcon, QCheckBox, QPlainTextEdit, QProgressBar,
     QStackedWidget, QSlider, QSplitter, QDialogButtonBox, QInputDialog, QSizePolicy,
     QProgressDialog
 )
@@ -384,14 +384,15 @@ class MainWindow(QMainWindow):
                 color: #F5F7FA;
             }
         """)
+        # Keep the inspector as a solid docked surface.  The library behind it
+        # can remain translucent, but the right-side edit panel should not
+        # reveal that background while it is opening or closing.
+        self.detail_panel.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
         self.detail_panel.setVisible(False)
 
-        # Inspector panel slide & fade animation setup
-        self.panel_opacity_effect = QGraphicsOpacityEffect(self.detail_panel)
-        self.detail_panel.setGraphicsEffect(self.panel_opacity_effect)
-        self.panel_opacity_effect.setOpacity(0.0)
-
+        # Inspector panel slide animation setup. The panel itself remains
+        # opaque throughout the animation.
         self.panel_anim = QVariantAnimation(self)
         self.panel_anim.setDuration(250)
         self.panel_anim.valueChanged.connect(self._on_panel_anim_step)
@@ -410,7 +411,8 @@ class MainWindow(QMainWindow):
         detail_content = QWidget()
         detail_content.setStyleSheet("background: transparent;")
         detail_layout = QVBoxLayout(detail_content)
-        detail_layout.setContentsMargins(16, 12, 16, 16)
+        # Keep the glassmorphism breathing room balanced vertically.
+        detail_layout.setContentsMargins(16, 16, 16, 16)
         detail_layout.setSpacing(10)
         detail_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.detail_scroll.setWidget(detail_content)
@@ -2520,12 +2522,8 @@ class MainWindow(QMainWindow):
         total_w = self.splitter.width() or self.width() or 1180
         self.splitter.setSizes([max(300, total_w - current_inspector_w), current_inspector_w])
         
-        # Opacity fade + horizontal swipe translation
-        self.panel_opacity_effect.setOpacity(normalized_val)
-        
-        # Physical horizontal swipe offset (glides in from 45px right edge)
-        swipe_offset = int((1.0 - normalized_val) * 45)
-        self.detail_panel.setContentsMargins(18 + swipe_offset, 18, max(0, 18 - swipe_offset), 18)
+        # Keep the dock flush with the right edge while it resizes.
+        self.detail_panel.setContentsMargins(0, 0, 0, 0)
 
     def _on_panel_anim_finished(self):
         if self.library_view_mode in ("compact", "steam"):
@@ -2536,7 +2534,7 @@ class MainWindow(QMainWindow):
             self.detail_panel.setVisible(False)
             self.btn_reveal_detail.setVisible(True)
         else:
-            self.detail_panel.setContentsMargins(18, 18, 18, 18)
+            self.detail_panel.setContentsMargins(0, 0, 0, 0)
             self.btn_reveal_detail.setVisible(False)
 
     def _animate_left_panel(self, expand: bool):
@@ -2552,7 +2550,7 @@ class MainWindow(QMainWindow):
                 self.detail_panel.setVisible(True)
                 self.panel_anim.stop()
                 self.panel_anim.setDuration(280)
-                self.panel_anim.setStartValue(self.panel_opacity_effect.opacity())
+                self.panel_anim.setStartValue(0.0)
                 self.panel_anim.setEndValue(1.0)
                 self.panel_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
                 self.panel_anim.start()
@@ -2561,7 +2559,7 @@ class MainWindow(QMainWindow):
                 self._panel_expanding = False
                 self.panel_anim.stop()
                 self.panel_anim.setDuration(220)
-                self.panel_anim.setStartValue(self.panel_opacity_effect.opacity())
+                self.panel_anim.setStartValue(1.0)
                 self.panel_anim.setEndValue(0.0)
                 self.panel_anim.setEasingCurve(QEasingCurve.Type.InCubic)
                 self.panel_anim.start()

@@ -571,15 +571,14 @@ class CompactSubNavBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("compactSubNavBar")
-        self.setFixedHeight(40)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedHeight(56)
+        # This navigation strip sits over the hero artwork, but should remain
+        # a solid dark-grey surface rather than showing the artwork through it.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("""
             QFrame#compactSubNavBar {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgba(16, 16, 20, 0.80),
-                    stop:1 rgba(12, 12, 16, 0.90)
-                );
+                background-color: #18181B;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.08);
                 border-left: none;
                 border-right: none;
@@ -588,7 +587,7 @@ class CompactSubNavBar(QFrame):
         """)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(32, 0, 32, 0)
+        layout.setContentsMargins(32, 16, 32, 16)
         layout.setSpacing(20)
 
         nav_style = """
