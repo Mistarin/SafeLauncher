@@ -140,7 +140,14 @@ def create_single_instance_server(on_activate_callback) -> QLocalServer:
     """Create single-instance IPC listener socket server to focus existing window on duplicate launch."""
     server = QLocalServer()
     if not server.listen(SERVER_NAME):
-        # Server might be stale from previous abnormal termination; remove stale socket file and retry
+        # Never remove a socket merely because listen failed: another launcher
+        # may have won the race between the probe and this bind attempt.
+        # Probe again before treating the endpoint as stale.
+        if check_already_running():
+            logger.info("Another SafeLauncher instance won the startup race.")
+            return server
+        # Only an endpoint that is no longer accepting connections is safe to
+        # remove after an abnormal previous termination.
         server.removeServer(SERVER_NAME)
         if not server.listen(SERVER_NAME):
             logger.warning(f"Could not bind single-instance server: {server.errorString()}")

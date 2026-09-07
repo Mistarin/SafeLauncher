@@ -98,8 +98,8 @@ class ArchiveExtractorThread(SafeQThread):
     extraction_complete = pyqtSignal(str, str, bool)  # (game_name, dest_dir, success)
     extraction_progress = pyqtSignal(int)
     
-    def __init__(self, archive_path: str, dest_dir: str):
-        super().__init__()
+    def __init__(self, archive_path: str, dest_dir: str, parent=None):
+        super().__init__(parent)
         self.archive_path = archive_path
         self.dest_dir = dest_dir
         
@@ -531,6 +531,5 @@ class AchievementBatchQueueWorker(SafeQThread):
 
         if not self.isInterruptionRequested():
             self.batch_finished.emit(total_games_with_achs, total_unlocked_overall)
-
 
 

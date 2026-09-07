@@ -116,6 +116,11 @@ def main():
     from ui.main_window import MainWindow
     window = MainWindow(db, runner, backup)
     server = create_single_instance_server(window._show_and_raise)
+    if not server.isListening():
+        # A second process may have won the bind race. Do not start a second
+        # visible application when the IPC endpoint belongs to that process.
+        window.close()
+        sys.exit(0)
 
     # 4. Ensure the bundled ludusavi save-detection engine is present.
     #    Runs on a daemon thread: never download on the GUI thread; until it

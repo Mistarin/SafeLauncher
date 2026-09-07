@@ -1,5 +1,6 @@
 import os
 import shutil
+import tempfile
 import requests
 import hashlib
 from pathlib import Path
@@ -298,6 +299,29 @@ class SteamGridDBClient:
                     return str(legacy_file.resolve())
         return None
 
+    @staticmethod
+    def _write_chunks_atomic(destination: Path, chunks: list[bytes]) -> None:
+        """Write downloaded artwork atomically so readers never see a partial file."""
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=str(destination.parent),
+                prefix=f".{destination.name}.", suffix=".tmp", delete=False
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+                for chunk in chunks:
+                    temp_file.write(chunk)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_path, destination)
+            temp_path = None
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
     def download_hero_banner(self, steam_id: Optional[Any], game_id: int, game_name: str, exe_path: str = "") -> Optional[str]:
         """Download and cache TRUE 16:9 wide library hero/background artwork (never 9:16 portrait cover art)."""
         try:
@@ -385,9 +409,7 @@ class SteamGridDBClient:
                                 break
                             chunks.append(chunk)
                         else:
-                            with open(canonical_file, 'wb') as f:
-                                for chunk in chunks:
-                                    f.write(chunk)
+                            self._write_chunks_atomic(canonical_file, chunks)
 
                             # Verify downloaded file is widescreen landscape (width >= height)
                             try:
@@ -522,9 +544,7 @@ class SteamGridDBClient:
                             break
                         chunks.append(chunk)
                     else:
-                        with open(cache_file, 'wb') as f:
-                            for chunk in chunks:
-                                f.write(chunk)
+                        self._write_chunks_atomic(cache_file, chunks)
                         if legacy_file and legacy_file != cache_file:
                             try:
                                 shutil.copyfile(str(cache_file), str(legacy_file))
@@ -535,4 +555,3 @@ class SteamGridDBClient:
                 continue
 
         return None
-

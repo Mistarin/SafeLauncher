@@ -962,6 +962,8 @@ class MainWindow(QMainWindow):
             self.scroll_area.viewport().setStyleSheet("background: transparent; background-color: transparent; border: none;")
             self.scroll_area.viewport().setAutoFillBackground(False)
             self.scroll_area.viewport().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.scroll_area.viewport().installEventFilter(self)
+        self.scroll_area.installEventFilter(self)
         
         # Dynamic Responsive Grid Container (2:3 portrait cards, default width 200px)
         self.library_view_stack = QStackedWidget(self.scroll_area)
@@ -1597,9 +1599,10 @@ class MainWindow(QMainWindow):
         # Reuse the archive worker used by AddGameDialog.  The old class name
         # here was never defined and caused a NameError when using the top-bar
         # install button.
-        thread = ArchiveExtractorThread(zip_path, dest_dir)
+        thread = ArchiveExtractorThread(zip_path, dest_dir, parent=self)
         thread.extraction_complete.connect(self._on_topbar_extraction_complete)
         self._show_toast(f"Extracting '{archive_name}' in background...")
+        self._register_worker(thread)
         thread.start()
         self.topbar_extractor_thread = thread
 
@@ -2494,6 +2497,15 @@ class MainWindow(QMainWindow):
             self.unsetCursor()
 
     def eventFilter(self, obj, event):
+        if (
+            event.type() == QEvent.Type.Wheel
+            and self.library_view_mode in ("compact", "steam")
+            and obj in (self.scroll_area, self.scroll_area.viewport())
+        ):
+            # Compact child panes own scrolling. Prevent wheel events that
+            # bubble up at their edges from moving the outer library surface.
+            event.accept()
+            return True
         if event.type() == QEvent.Type.MouseMove:
             if not self.isMaximized() and event.buttons() == Qt.MouseButton.NoButton:
                 edges = self._get_resize_edges_at_point(event.globalPosition().toPoint())
@@ -3491,22 +3503,28 @@ class MainWindow(QMainWindow):
         # Update Screenshot button badge count
         shots_dir = os.path.join(_APP_DATA_DIR, "screenshots", str(game_id))
         image_extensions = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-        count = sum(
-            1 for filename in os.listdir(shots_dir)
-            if os.path.isfile(os.path.join(shots_dir, filename))
-            and os.path.splitext(filename)[1].lower() in image_extensions
-        ) if os.path.exists(shots_dir) else 0
+        try:
+            count = sum(
+                1 for filename in os.listdir(shots_dir)
+                if os.path.isfile(os.path.join(shots_dir, filename))
+                and os.path.splitext(filename)[1].lower() in image_extensions
+            ) if os.path.isdir(shots_dir) else 0
+        except OSError:
+            count = 0
         self.btn_detail_screenshots.setText(f"Screenshots ({count})")
 
         video_dir = os.path.abspath(os.path.expanduser(self.gpu_recorder_config.output_dir))
         video_prefix = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_") or "gameplay"
         video_extensions = (".mp4", ".mkv", ".webm", ".mov", ".avi")
-        video_count = sum(
-            1 for filename in os.listdir(video_dir)
-            if os.path.isfile(os.path.join(video_dir, filename))
-            and filename.lower().endswith(video_extensions)
-            and filename.lower().startswith(video_prefix + "_")
-        ) if os.path.exists(video_dir) else 0
+        try:
+            video_count = sum(
+                1 for filename in os.listdir(video_dir)
+                if os.path.isfile(os.path.join(video_dir, filename))
+                and filename.lower().endswith(video_extensions)
+                and filename.lower().startswith(video_prefix + "_")
+            ) if os.path.isdir(video_dir) else 0
+        except OSError:
+            video_count = 0
         self.btn_detail_videos.setText(f"Videos ({video_count})")
 
         # Achievements card & badges update
