@@ -396,34 +396,22 @@ class AchievementStatusFetcherThread(SafeQThread):
             return
         try:
             from database import GameDatabase
-            from core.achievement_schema import fetch_steam_achievements_schema
-            from core.achievement_watcher import locate_achievements_file, parse_achievements_state
+            from core.achievement_providers import resolve_achievements
 
             db = GameDatabase(self.db_path) if self.db_path else GameDatabase()
             app_id = self.steam_id
 
-            target_file = None
-            if app_id:
-                target_file = locate_achievements_file(self.proton_path, self.path, app_id)
-                if target_file and target_file.is_file():
-                    disk_state = parse_achievements_state(target_file)
-                    if disk_state:
-                        db.unlock_achievements_batch(self.game_id, disk_state)
+            resolution = resolve_achievements(app_id, self.path, self.proton_path) if app_id else None
+            if resolution and resolution.state:
+                db.unlock_achievements_batch(self.game_id, resolution.state)
 
             unlocked_cnt, total_cnt, pct = db.get_achievement_stats(self.game_id)
             if total_cnt == 0 and app_id:
-                achs = fetch_steam_achievements_schema(
-                    app_id,
-                    game_path=self.path,
-                    proton_path=self.proton_path,
-                    download_icons=False
-                )
+                achs = resolution.schema if resolution else []
                 if achs:
                     db.save_achievement_schema(self.game_id, app_id, achs)
-                    if target_file and target_file.is_file():
-                        disk_state = parse_achievements_state(target_file)
-                        if disk_state:
-                            db.unlock_achievements_batch(self.game_id, disk_state)
+                    if resolution and resolution.state:
+                        db.unlock_achievements_batch(self.game_id, resolution.state)
                     unlocked_cnt, total_cnt, pct = db.get_achievement_stats(self.game_id)
 
             recent = db.get_recent_unlocked_achievements(self.game_id, limit=5)
@@ -453,8 +441,7 @@ class AchievementBatchQueueWorker(SafeQThread):
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from database import GameDatabase
-        from core.achievement_schema import fetch_steam_achievements_schema
-        from core.achievement_watcher import locate_achievements_file, parse_achievements_state
+        from core.achievement_providers import resolve_achievements
 
         total_games_with_achs = 0
         total_unlocked_overall = 0
@@ -473,32 +460,17 @@ class AchievementBatchQueueWorker(SafeQThread):
             try:
                 db = GameDatabase(self.db_path) if self.db_path else GameDatabase()
                 try:
-                    target_file = locate_achievements_file(proton_path, path, steam_id)
-                    if target_file and target_file.is_file():
-                        disk_state = parse_achievements_state(target_file)
-                        if disk_state:
-                            db.unlock_achievements_batch(game_id, disk_state)
+                    resolution = resolve_achievements(steam_id, path, proton_path)
+                    if resolution.state:
+                        db.unlock_achievements_batch(game_id, resolution.state)
 
                     unlocked_cnt, total_cnt, pct = db.get_achievement_stats(game_id)
                     if total_cnt == 0:
-                        try:
-                            achs = fetch_steam_achievements_schema(
-                                steam_id,
-                                game_path=path,
-                                proton_path=proton_path,
-                                download_icons=False
-                            )
-                        except Exception as schema_err:
-                            logger.warning(
-                                f"Achievement schema fetch failed for '{name}' (Steam ID {steam_id}): {schema_err}"
-                            )
-                            achs = None
+                        achs = resolution.schema
                         if achs:
                             db.save_achievement_schema(game_id, steam_id, achs)
-                            if target_file and target_file.is_file():
-                                disk_state = parse_achievements_state(target_file)
-                                if disk_state:
-                                    db.unlock_achievements_batch(game_id, disk_state)
+                            if resolution.state:
+                                db.unlock_achievements_batch(game_id, resolution.state)
                             unlocked_cnt, total_cnt, pct = db.get_achievement_stats(game_id)
 
                     recent = db.get_recent_unlocked_achievements(game_id, limit=5)
@@ -531,5 +503,3 @@ class AchievementBatchQueueWorker(SafeQThread):
 
         if not self.isInterruptionRequested():
             self.batch_finished.emit(total_games_with_achs, total_unlocked_overall)
-
-
