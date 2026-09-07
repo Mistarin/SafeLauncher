@@ -14,7 +14,7 @@ os.environ["SAFELAUNCHER_DISABLE_UPDATE_CHECK"] = "1"
 # The production app still performs all automatic sync/fetch work normally.
 os.environ["SAFELAUNCHER_OFFLINE_TEST_MODE"] = "1"
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 
 # 1. Test imports
 try:
@@ -336,9 +336,16 @@ try:
     assert prop_dlg.game_name == "Test Game"
     print("✓ GamePropertiesDialog instantiated cleanly offscreen")
 
-    from ui.dialogs.settings_dialog import ScreenshotLightboxDialog
+    from ui.dialogs.settings_dialog import ScreenshotLightboxDialog, ScreenshotGalleryDialog, VideoGalleryDialog
     lightbox = ScreenshotLightboxDialog([], parent=None)
     assert lightbox is not None
+    assert bool(lightbox.windowFlags() & Qt.WindowType.FramelessWindowHint)
+    screenshot_gallery = ScreenshotGalleryDialog(999, "Test Game")
+    video_gallery = VideoGalleryDialog(999, "Test Game", output_dir="/tmp")
+    assert bool(screenshot_gallery.windowFlags() & Qt.WindowType.FramelessWindowHint)
+    assert bool(video_gallery.windowFlags() & Qt.WindowType.FramelessWindowHint)
+    screenshot_gallery.close()
+    video_gallery.close()
     print("✓ ScreenshotLightboxDialog instantiated cleanly offscreen")
 
     from ui.components.banner_card import GameBannerWidget
@@ -450,6 +457,18 @@ try:
                 cloud_zip_path = CloudSaveSyncEngine.get_cloud_save_path(test_game_name)
                 assert os.path.exists(cloud_zip_path)
             print("✓ CloudSaveSyncEngine local-to-cloud upload verified")
+
+            # A Save Manager location may have cached counts but no aggregate
+            # mtime. Upload must rescan the path instead of treating it as empty.
+            from core.ludusavi_detector import SaveLocation
+            stale_location = SaveLocation(
+                "Cached save", user_save_dir, True,
+                file_count=1, total_size_bytes=0, last_modified=0.0,
+            )
+            assert CloudSaveSyncEngine.sync_local_to_cloud(
+                test_game_name, tmp_sync_game, locations=[stale_location]
+            )
+            print("✓ CloudSaveSyncEngine uploads detected zero-mtime locations")
 
             # 4. Now should be IN_SYNC
             status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(test_game_name, tmp_sync_game)
@@ -1765,6 +1784,7 @@ try:
     from PyQt6.QtWidgets import QLabel
     game_page = mw_compact.compact_container.game_page
     assert hasattr(game_page, "media_widget")
+    assert hasattr(game_page, "refresh_media_state")
     # Verify inactive state displays "Module not active - turn on in settings"
     game_page.media_widget.set_media_data(1001, "Test Game", force_inactive=True)
     inactive_labels = game_page.media_widget.findChildren(QLabel)

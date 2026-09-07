@@ -1528,6 +1528,10 @@ class CompactGamePageWidget(QWidget):
         self.scroll_area.setVisible(False)
         self.empty_page.setVisible(True)
 
+    def refresh_media_state(self):
+        """Re-read recorder settings and update the captures panel in place."""
+        self.media_widget.set_media_data(self.current_game_id, self.current_game_name)
+
     def set_game(
         self,
         game_record: Any,

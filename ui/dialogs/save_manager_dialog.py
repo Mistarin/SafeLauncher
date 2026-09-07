@@ -544,7 +544,10 @@ class SaveManagerDialog(QDialog):
             QMessageBox.critical(
                 self,
                 "Upload Failed",
-                "The save could not be uploaded. Check that cloud sync is configured and review the logs for details.",
+                "The save could not be uploaded. Save Manager rechecks the selected paths before packaging them.\n\n"
+                "Rescan this window and confirm the files still exist and are readable. If they are present, "
+                "open Settings → Cloud and verify that cloud sync is configured, then try again. Review the logs "
+                "for the exact cause.",
             )
 
     def _export_selected(self):

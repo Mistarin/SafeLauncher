@@ -1363,6 +1363,8 @@ class MainWindow(QMainWindow):
             GpuRecorderService.instance().apply_config(self.gpu_recorder_config)
             self._update_global_hotkeys()
             self._refresh_record_button_state()
+            if hasattr(self, "compact_container"):
+                self.compact_container.game_page.refresh_media_state()
 
             # Only announce an actual rename — this handler also runs when the
             # user only touched recorder/screenshot settings.

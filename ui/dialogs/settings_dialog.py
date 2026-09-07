@@ -1671,6 +1671,7 @@ class ScreenshotLightboxDialog(QDialog):
 
     def __init__(self, filepaths: list, current_index: int = 0, parent=None):
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.filepaths = [f for f in filepaths if os.path.exists(f)]
         self.current_index = max(0, min(current_index, len(self.filepaths) - 1)) if self.filepaths else 0
         self.gallery_parent = parent
@@ -1825,6 +1826,7 @@ class ScreenshotGalleryDialog(QDialog):
     """Custom dark modal dialog for browsing in-game screenshots with 16:9 ratio and Lightbox."""
     def __init__(self, game_id: int, game_name: str, parent=None):
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.game_id = game_id
         self.game_name = game_name
 
@@ -1994,6 +1996,7 @@ class VideoGalleryDialog(QDialog):
 
     def __init__(self, game_id: int, game_name: str, output_dir: str = DEFAULT_RECORDINGS_DIR, parent=None):
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.game_id = game_id
         self.game_name = game_name
         self.video_dir = os.path.abspath(os.path.expanduser(output_dir))

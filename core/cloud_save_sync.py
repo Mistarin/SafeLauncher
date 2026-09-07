@@ -51,6 +51,74 @@ class SaveStats:
     display_path: str = ""
 
 
+def _stats_for_locations(locations: List[SaveLocation]) -> SaveStats:
+    """Build stats from paths instead of trusting stale detector metadata."""
+    total_files = 0
+    total_bytes = 0
+    max_mtime = 0.0
+
+    for loc in locations:
+        path = loc.path
+        if not os.path.exists(path):
+            continue
+        paths = [path]
+        if os.path.isdir(path):
+            try:
+                paths = [
+                    os.path.join(root, name)
+                    for root, _dirs, files in os.walk(path)
+                    for name in files
+                ]
+            except OSError:
+                paths = []
+        for file_path in paths:
+            try:
+                stat = os.stat(file_path)
+            except OSError:
+                continue
+            if not os.path.isfile(file_path):
+                continue
+            total_files += 1
+            total_bytes += stat.st_size
+            max_mtime = max(max_mtime, stat.st_mtime)
+
+    # Keep cached metadata as a fallback for a transient permission/race issue,
+    # but never reject a real zero-byte save file.
+    if total_files == 0:
+        total_files = sum(max(0, int(loc.file_count or 0)) for loc in locations)
+        total_bytes = sum(max(0, int(loc.total_size_bytes or 0)) for loc in locations)
+        max_mtime = max((float(loc.last_modified or 0.0) for loc in locations), default=0.0)
+
+    non_reg_locs = [loc for loc in locations if not loc.path.lower().endswith((".reg", ".reg.old"))]
+    target_locs = non_reg_locs if non_reg_locs else locations
+    target_mtimes = []
+    for loc in target_locs:
+        if os.path.exists(loc.path):
+            try:
+                paths = [loc.path]
+                if os.path.isdir(loc.path):
+                    paths = [
+                        os.path.join(root, name)
+                        for root, _dirs, files in os.walk(loc.path)
+                        for name in files
+                    ]
+                target_mtimes.extend(os.path.getmtime(p) for p in paths if os.path.isfile(p))
+            except OSError:
+                pass
+        if not target_mtimes and loc.last_modified:
+            target_mtimes.append(float(loc.last_modified))
+    if target_mtimes:
+        max_mtime = max(target_mtimes)
+
+    return SaveStats(
+        exists=bool(locations) and total_files > 0,
+        last_modified=max_mtime,
+        size_bytes=total_bytes,
+        file_count=total_files,
+        display_path=locations[0].path if locations else "",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Backend dispatch                                                            #
 # --------------------------------------------------------------------------- #
@@ -414,24 +482,7 @@ class CloudSaveSyncEngine:
         if not locations:
             return SaveStats(exists=False), []
 
-        total_files = sum(loc.file_count for loc in locations)
-        total_bytes = sum(loc.total_size_bytes for loc in locations)
-        non_reg_locs = [loc for loc in locations if not loc.path.lower().endswith((".reg", ".reg.old"))]
-        target_locs = non_reg_locs if non_reg_locs else locations
-        max_mtime = max((loc.last_modified for loc in target_locs), default=0.0)
-        primary_path = locations[0].path if locations else ""
-
-        if total_files == 0 or max_mtime == 0.0:
-            return SaveStats(exists=False, display_path=primary_path), locations
-
-        stats = SaveStats(
-            exists=True,
-            last_modified=max_mtime,
-            size_bytes=total_bytes,
-            file_count=total_files,
-            display_path=primary_path
-        )
-        return stats, locations
+        return _stats_for_locations(locations), locations
 
     @staticmethod
     def _remote_game_snapshot(name_key: str) -> Optional[dict]:
@@ -618,16 +669,7 @@ class CloudSaveSyncEngine:
         if locations is None:
             local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
         else:
-            non_reg_locs = [loc for loc in locations if not loc.path.lower().endswith((".reg", ".reg.old"))]
-            target_locs = non_reg_locs if non_reg_locs else locations
-            max_mtime = max((loc.last_modified for loc in target_locs), default=0.0)
-            local_stats = SaveStats(
-                exists=bool(locations) and max_mtime > 0.0,
-                last_modified=max_mtime,
-                size_bytes=sum(loc.total_size_bytes for loc in locations),
-                file_count=sum(loc.file_count for loc in locations),
-                display_path=locations[0].path if locations else "",
-            )
+            local_stats = _stats_for_locations(locations)
         if not local_stats.exists or not locations:
             logger.info(f"No local save files to upload for '{game_name}'")
             return False
