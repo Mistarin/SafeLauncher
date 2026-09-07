@@ -10,6 +10,7 @@ from PyQt6.QtGui import QFont, QIcon, QPixmap
 
 from ui.icons import LOGO_PATH
 from ui.components.sidebar import DialogTitleBar
+from ui.components.check_field import CheckField as QCheckBox
 from ui.dialogs.game_dialogs import ensure_sandbox_dir, DEFAULT_SANDBOX_DIR
 
 

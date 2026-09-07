@@ -13,6 +13,7 @@ from PyQt6.QtGui import QFont, QIcon
 
 from ui.icons import get_icon, get_app_icon
 from ui.components.sidebar import DialogTitleBar
+from ui.components.check_field import CheckField as QCheckBox
 from core.cloud_save_sync import SaveStats
 
 

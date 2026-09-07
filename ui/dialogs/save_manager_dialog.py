@@ -17,6 +17,7 @@ from PyQt6.QtGui import QFont, QIcon
 
 from ui.icons import get_icon, get_app_icon
 from ui.components.sidebar import DialogTitleBar
+from ui.components.check_field import CheckField as QCheckBox
 from core.ludusavi_detector import LudusaviDetector, SaveLocation
 from core.zip_backup import ZipBackupManager
 from core.logger import get_logger
@@ -762,4 +763,3 @@ class SaveManagerDialog(QDialog):
                 self, "Restore Error",
                 f"Failed to restore '{title}'. Check logs for details."
             )
-
