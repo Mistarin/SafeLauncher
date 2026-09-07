@@ -279,15 +279,25 @@ class AccountDialog(QDialog):
             })
         except Exception as e:
             logger.warning(f"Account data load failed: {e}")
-            self._data_ready.emit({"error": str(e)})
+            from core.cloud_backend import describe_cloud_error
+            self._data_ready.emit({
+                "error": describe_cloud_error(e),
+                "status": getattr(e, "status_code", 0) or getattr(e, "status", 0),
+            })
 
     def _apply_data(self, payload: dict):
         self._busy = False
         if "error" in payload:
-            self.lbl_email.setText("Cloud unreachable")
+            is_missing_endpoint = payload.get("status") == 404
+            self.lbl_email.setText("Backend endpoint missing" if is_missing_endpoint else "Cloud unreachable")
+            self.lbl_subject.setText(
+                "The backend answered, but its SafeLauncher API is not deployed."
+                if is_missing_endpoint else "Check the endpoint and Secret Access Key."
+            )
             self.lbl_quota_text.setText(payload["error"])
             self.btn_auth_toggle.setText("Retry")
             self._populate_devices([])
+            self._populate_games([])
             return
 
         snapshot = payload.get("ok")

@@ -21,6 +21,7 @@ class CloudWizardDialog(QDialog):
     """Interactive wizard to guide users through choosing setup mode, deploying, and connecting Convex cloud saves."""
 
     test_completed = pyqtSignal(bool, str)
+    backend_upgrade_found = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -104,6 +105,8 @@ class CloudWizardDialog(QDialog):
         self.pages.addWidget(self._create_connect_page())   # Page 2: Connect URL & Key
         self.layout.addWidget(self.pages, 1)
         self._deployment_confirmed = False
+        self._redeploy_mode = False
+        self.backend_upgrade_found.connect(self._show_redeploy_option)
 
         # Bottom Buttons
         btn_layout = QHBoxLayout()
@@ -269,6 +272,31 @@ class CloudWizardDialog(QDialog):
         f2_layout.addWidget(desc2)
         layout.addWidget(frame_new)
 
+        # Option 3: upgrade an existing backend. It becomes visible only
+        # after the connection probe finds an outdated deployment.
+        self.frame_redeploy = QFrame()
+        self.frame_redeploy.setObjectName("optionBox")
+        self.frame_redeploy.setStyleSheet(
+            "QFrame#optionBox { background-color: #18181B; border: 1px solid #F59E0B; "
+            "border-radius: 8px; padding: 14px; }"
+        )
+        f3_layout = QVBoxLayout(self.frame_redeploy)
+        f3_layout.setContentsMargins(4, 4, 4, 4)
+        f3_layout.setSpacing(6)
+        self.radio_redeploy = QRadioButton("Redeploy the existing backend to get the newer version")
+        self.radio_redeploy.setStyleSheet("font-weight: bold; font-size: 14px; color: #FBBF24;")
+        self.mode_group.addButton(self.radio_redeploy, 3)
+        f3_layout.addWidget(self.radio_redeploy)
+        self.redeploy_desc = QLabel(
+            "The backend is older than SafeLauncher requires. Update the existing Convex project; "
+            "your stored saves remain in that project."
+        )
+        self.redeploy_desc.setWordWrap(True)
+        self.redeploy_desc.setStyleSheet("color: #A1A1AA; font-size: 12px; margin-left: 24px;")
+        f3_layout.addWidget(self.redeploy_desc)
+        layout.addWidget(self.frame_redeploy)
+        self.frame_redeploy.hide()
+
         layout.addStretch()
         return widget
 
@@ -293,18 +321,18 @@ class CloudWizardDialog(QDialog):
         guide_layout = QVBoxLayout(guide)
         guide_layout.setContentsMargins(6, 6, 6, 6)
         guide_layout.setSpacing(6)
-        guide_title = QLabel("Do this once, then click Done")
-        guide_title.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: bold;")
-        guide_layout.addWidget(guide_title)
-        guide_steps = QLabel(
+        self.deploy_guide_title = QLabel("Do this once, then click Done")
+        self.deploy_guide_title.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: bold;")
+        guide_layout.addWidget(self.deploy_guide_title)
+        self.deploy_guide_steps = QLabel(
             "<b>1.</b> Choose one deployment method below.<br>"
             "<b>2.</b> Sign in to Convex when asked and create your project.<br>"
             "<b>3.</b> Wait until deployment finishes, then return here.<br>"
             "<b>4.</b> Click <b>Done — continue</b>. SafeLauncher will test the connection next."
         )
-        guide_steps.setWordWrap(True)
-        guide_steps.setStyleSheet("color: #D1D5DB; font-size: 12px;")
-        guide_layout.addWidget(guide_steps)
+        self.deploy_guide_steps.setWordWrap(True)
+        self.deploy_guide_steps.setStyleSheet("color: #D1D5DB; font-size: 12px;")
+        guide_layout.addWidget(self.deploy_guide_steps)
         self.deploy_status_lbl = QLabel("Not deployed yet")
         self.deploy_status_lbl.setStyleSheet("color: #FBBF24; font-size: 12px;")
         guide_layout.addWidget(self.deploy_status_lbl)
@@ -431,13 +459,52 @@ class CloudWizardDialog(QDialog):
         nc_layout.addWidget(btn_copy_nvm)
         layout.addWidget(nvm_card)
 
-        hint = QLabel("After deploying, click 'Next' to enter your Convex Site URL.")
-        hint.setStyleSheet("color: #FBBF24; font-size: 12px;")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
+        self.deploy_hint = QLabel("After deploying, click 'Next' to enter your Convex Site URL.")
+        self.deploy_hint.setStyleSheet("color: #FBBF24; font-size: 12px;")
+        self.deploy_hint.setWordWrap(True)
+        layout.addWidget(self.deploy_hint)
 
         scroll.setWidget(content)
         return scroll
+
+    def _show_redeploy_option(self, backend_version: str):
+        """Expose the upgrade choice after probing an outdated backend."""
+        self.frame_redeploy.show()
+        self.radio_redeploy.setText(
+            f"Redeploy the existing backend (found v{backend_version}; need v{MIN_CONVEX_BACKEND_VERSION}+)"
+        )
+        self.radio_redeploy.setChecked(True)
+        self.status_lbl.setText(
+            f"<font color='#FBBF24'>Backend v{backend_version} is outdated. "
+            "Choose the redeploy option to update it.</font>"
+        )
+        self.pages.setCurrentIndex(0)
+        self.subtitle_lbl.setText("Choose your setup mode")
+        self.btn_back.setEnabled(False)
+        self.btn_next.setText("Next")
+
+    def _set_deploy_mode(self, redeploy: bool):
+        """Adjust deployment instructions for new setup versus upgrade."""
+        self._redeploy_mode = redeploy
+        if redeploy:
+            self.deploy_guide_title.setText("Redeploy the existing backend, then click Done")
+            self.deploy_guide_steps.setText(
+                "<b>1.</b> Use the automated terminal or manual commands below in the existing "
+                "SafeLauncherCloud project.<br>"
+                "<b>2.</b> Run <b>npm install</b>, then <b>npx convex deploy</b> for the same Convex project.<br>"
+                "<b>3.</b> Wait until deployment finishes, then return here.<br>"
+                "<b>4.</b> Click <b>Done — continue</b>; SafeLauncher will verify the new version."
+            )
+            self.deploy_hint.setText("Keep the same Convex project and Site URL so existing saves remain available.")
+        else:
+            self.deploy_guide_title.setText("Do this once, then click Done")
+            self.deploy_guide_steps.setText(
+                "<b>1.</b> Choose one deployment method below.<br>"
+                "<b>2.</b> Sign in to Convex when asked and create your project.<br>"
+                "<b>3.</b> Wait until deployment finishes, then return here.<br>"
+                "<b>4.</b> Click <b>Done — continue</b>. SafeLauncher will test the connection next."
+            )
+            self.deploy_hint.setText("After deploying, click 'Next' to enter your Convex Site URL.")
 
     def _open_web_deploy(self):
         """Open browser to deploy SafeLauncherCloud repository on Convex."""
@@ -598,9 +665,13 @@ class CloudWizardDialog(QDialog):
             self.btn_back.setEnabled(False)
             self.btn_next.setText("Next")
         elif cur == 2:
-            if self.radio_new.isChecked():
+            if self.radio_new.isChecked() or self.radio_redeploy.isChecked():
+                self._set_deploy_mode(self.radio_redeploy.isChecked())
                 self.pages.setCurrentIndex(1)
-                self.subtitle_lbl.setText("Deploy your free Convex backend")
+                self.subtitle_lbl.setText(
+                    "Redeploy your existing Convex backend"
+                    if self.radio_redeploy.isChecked() else "Deploy your free Convex backend"
+                )
                 self.btn_back.setEnabled(True)
                 self.btn_next.setText("Next")
             else:
@@ -612,9 +683,13 @@ class CloudWizardDialog(QDialog):
     def _go_next(self):
         cur = self.pages.currentIndex()
         if cur == 0:
-            if self.radio_new.isChecked():
+            if self.radio_new.isChecked() or self.radio_redeploy.isChecked():
+                self._set_deploy_mode(self.radio_redeploy.isChecked())
                 self.pages.setCurrentIndex(1)
-                self.subtitle_lbl.setText("Deploy your free Convex backend")
+                self.subtitle_lbl.setText(
+                    "Redeploy your existing Convex backend"
+                    if self.radio_redeploy.isChecked() else "Deploy your free Convex backend"
+                )
                 self.btn_back.setEnabled(True)
                 self.btn_next.setText("Next")
             else:
@@ -689,6 +764,7 @@ class CloudWizardDialog(QDialog):
                 health_data = resp.json() if resp.content else {}
                 backend_version = str(health_data.get("version") or "1.0.0").strip()
                 if is_version_outdated(backend_version, MIN_CONVEX_BACKEND_VERSION):
+                    self.backend_upgrade_found.emit(backend_version)
                     self.test_completed.emit(
                         False,
                         f"Backend v{backend_version} is outdated; SafeLauncher requires "

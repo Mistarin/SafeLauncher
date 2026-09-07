@@ -1270,7 +1270,8 @@ class UserSettingsDialog(QDialog):
                 msg = f"Connected ({format_bytes(used)} / {format_bytes(quota)} used · {games} game(s) · {concurrent} concurrent device(s) online)"
                 self.accountStatusReady.emit(msg)
             except Exception as e:
-                self.accountStatusReady.emit(f"Cloud unreachable: {e}")
+                from core.cloud_backend import describe_cloud_error
+                self.accountStatusReady.emit(describe_cloud_error(e))
 
         threading.Thread(target=_probe, daemon=True, name="SafeLauncher-AccountProbe").start()
 

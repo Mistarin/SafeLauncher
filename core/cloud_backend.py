@@ -49,6 +49,26 @@ class CloudBackendError(Exception):
         self.extra = extra or {}
 
 
+def describe_cloud_error(error: Exception) -> str:
+    """Return actionable guidance for a cloud error."""
+    status = getattr(error, "status_code", 0) or getattr(error, "status", 0)
+    if status == 404:
+        return (
+            "Cloud endpoint not found (HTTP 404). The Site URL is reachable, "
+            "but this deployment is missing the SafeLauncher API endpoint. "
+            "Check that the URL is the deployed *.convex.site URL (not a "
+            "dashboard or *.convex.cloud URL), then redeploy the latest "
+            "SafeLauncherCloud backend with `npm install` and `npx convex deploy`. "
+            "After deployment, run the backend probe again."
+        )
+    if status in (401, 403):
+        return (
+            "Cloud authentication failed. Check the Secret Access Key in "
+            "Settings → Cloud and make sure it matches the deployed backend."
+        )
+    return str(error)
+
+
 def get_site_url() -> str:
     settings = QSettings("SafeLauncher", "SafeLauncher")
     url = str(
@@ -542,7 +562,7 @@ def check_backend_health(
 
 
 __all__ = [
-    "CloudBackendError", "ConvexSaveBackend", "get_site_url",
+    "CloudBackendError", "describe_cloud_error", "ConvexSaveBackend", "get_site_url",
     "normalize_name_key", "MAX_SAVE_BYTES", "QUOTA_BYTES",
     "check_backend_health",
 ]

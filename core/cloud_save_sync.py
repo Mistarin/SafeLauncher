@@ -612,9 +612,22 @@ class CloudSaveSyncEngine:
             logger.debug(f"Could not merge restored launcher metadata for '{game_name}': {e}")
 
     @classmethod
-    def sync_local_to_cloud(cls, game_name: str, game_path: str, steam_id: str = "") -> bool:
+    def sync_local_to_cloud(cls, game_name: str, game_path: str, steam_id: str = "",
+                            locations: Optional[List[SaveLocation]] = None) -> bool:
         """Archive latest local save state directly into cloud save repository."""
-        local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
+        if locations is None:
+            local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
+        else:
+            non_reg_locs = [loc for loc in locations if not loc.path.lower().endswith((".reg", ".reg.old"))]
+            target_locs = non_reg_locs if non_reg_locs else locations
+            max_mtime = max((loc.last_modified for loc in target_locs), default=0.0)
+            local_stats = SaveStats(
+                exists=bool(locations) and max_mtime > 0.0,
+                last_modified=max_mtime,
+                size_bytes=sum(loc.total_size_bytes for loc in locations),
+                file_count=sum(loc.file_count for loc in locations),
+                display_path=locations[0].path if locations else "",
+            )
         if not local_stats.exists or not locations:
             logger.info(f"No local save files to upload for '{game_name}'")
             return False

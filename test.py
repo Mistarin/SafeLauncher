@@ -919,6 +919,13 @@ try:
     from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
     wizard_dlg = CloudWizardDialog()
     assert wizard_dlg.pages.count() == 3
+    assert wizard_dlg.frame_redeploy.isHidden()
+    wizard_dlg._show_redeploy_option("1.0.0")
+    assert not wizard_dlg.frame_redeploy.isHidden()
+    assert wizard_dlg.radio_redeploy.isChecked()
+    wizard_dlg._go_next()
+    assert wizard_dlg.pages.currentIndex() == 1
+    assert wizard_dlg._redeploy_mode is True
     QTimer.singleShot(50, wizard_dlg.accept)
     wizard_dlg.exec()
     print("✓ CloudWizardDialog instantiated cleanly with preflight banner and zero-CLI flow")
@@ -1430,7 +1437,21 @@ try:
         backend.heartbeat()
         assert backend._request.call_args[1].get("timeout") == 6
 
-    print("✓ Save conflict inversion, safety fork pruning, and fast backend timeouts verified")
+        # D. Account probe: a reachable deployment with a missing /api/me
+        # endpoint must produce actionable guidance instead of a generic crash.
+        from core.cloud_backend import CloudBackendError, describe_cloud_error
+        backend._request = MagicMock(return_value=MagicMock(status_code=404, json=lambda: {}))
+        try:
+            backend.account()
+            raise AssertionError("account() should reject a missing endpoint")
+        except CloudBackendError as error:
+            assert error.status_code == 404
+            guidance = describe_cloud_error(error)
+            assert "HTTP 404" in guidance
+            assert "convex.site" in guidance
+            assert "npx convex deploy" in guidance
+
+    print("✓ Save conflict inversion, safety fork pruning, backend timeout, and account 404 probe verified")
 except Exception as e:
     import traceback
     traceback.print_exc()
@@ -1514,6 +1535,7 @@ try:
         # E. Test SaveManagerDialog.btn_cloud persistence and state
         save_dlg = SaveManagerDialog(game_id=888, game_name="TestDualKeyGame", game_path=td)
         assert hasattr(save_dlg, "btn_cloud")
+        assert hasattr(save_dlg, "btn_upload")
         assert save_dlg.btn_cloud.isEnabled()
         save_dlg.close()
 

@@ -41,6 +41,7 @@ class SaveManagerDialog(QDialog):
     """Interactive save snapshot dialog displaying detected locations and metadata."""
 
     _restore_done = pyqtSignal(bool, str)
+    _upload_done = pyqtSignal(bool, str)
     _history_loaded = pyqtSignal(list)
 
     def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None):
@@ -53,6 +54,7 @@ class SaveManagerDialog(QDialog):
         self.save_locations: list[SaveLocation] = []
         self.checkboxes: list[tuple[QCheckBox, SaveLocation]] = []
         self._restore_done.connect(self._on_restore_done)
+        self._upload_done.connect(self._on_upload_done)
         self._history_loaded.connect(self._on_history_loaded)
 
 
@@ -227,6 +229,33 @@ class SaveManagerDialog(QDialog):
         self.btn_cloud.clicked.connect(self._restore_from_cloud)
         footer_layout.addWidget(self.btn_cloud)
 
+        self.btn_upload = QPushButton("Upload Selected to Cloud")
+        self.btn_upload.setIcon(get_icon("ph.cloud-arrow-up-bold", "#35C98A"))
+        self.btn_upload.setFixedHeight(36)
+        self.btn_upload.setEnabled(False)
+        self.btn_upload.setStyleSheet("""
+            QPushButton {
+                background: #17251D;
+                color: #35C98A;
+                border: 1px solid #238636;
+                border-radius: 6px;
+                padding: 0 16px;
+                font-weight: 500;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background: #1D3527;
+                border-color: #35C98A;
+            }
+            QPushButton:disabled {
+                background: #21262D;
+                color: #6F7682;
+                border-color: #30363D;
+            }
+        """)
+        self.btn_upload.clicked.connect(self._upload_selected)
+        footer_layout.addWidget(self.btn_upload)
+
         footer_layout.addStretch()
 
         self.btn_export = QPushButton("Export Selected Saves")
@@ -386,10 +415,12 @@ class SaveManagerDialog(QDialog):
             self.scroll_layout.insertWidget(0, empty_lbl)
             self.btn_export.setEnabled(False)
             self.btn_export.setText("Choose saves to export")
+            self.btn_upload.setEnabled(False)
             return
 
         self.btn_export.setEnabled(False)
         self.btn_export.setText("Choose saves to export")
+        self.btn_upload.setEnabled(False)
 
         for loc in self.save_locations:
             card = QFrame()
@@ -446,7 +477,75 @@ class SaveManagerDialog(QDialog):
     def _update_export_state(self):
         selected = any(cb.isChecked() for cb, _loc in self.checkboxes)
         self.btn_export.setEnabled(selected)
+        self.btn_upload.setEnabled(selected)
         self.btn_export.setText("Export selected saves" if selected else "Choose saves to export")
+
+    def _upload_selected(self):
+        """Upload the checked detected save locations to the active cloud backend."""
+        selected_locations = [loc for cb, loc in self.checkboxes if cb.isChecked()]
+        if not selected_locations:
+            QMessageBox.warning(self, "No Saves Selected", "Select at least one detected save location to upload.")
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Upload Saves to Cloud",
+            f"Upload {len(selected_locations)} selected save location(s) for '{self.game_name}'?\n\n"
+            "This creates or updates the cloud save snapshot. Your local files will not be changed.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        self.btn_upload.setEnabled(False)
+        self.btn_export.setEnabled(False)
+        self.btn_cloud.setEnabled(False)
+        progress = QProgressDialog(f"Uploading saves for '{self.game_name}'…", None, 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.show()
+        self._upload_progress = progress
+
+        def _worker():
+            success = False
+            try:
+                from core.cloud_save_sync import CloudSaveSyncEngine
+                success = CloudSaveSyncEngine.sync_local_to_cloud(
+                    self.game_name,
+                    self.game_path,
+                    steam_id=self.steam_id,
+                    locations=selected_locations,
+                )
+            except Exception as e:
+                logger.error(f"Cloud upload failed for '{self.game_name}': {e}")
+            self._upload_done.emit(bool(success), self.game_name)
+
+        threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-SaveUpload-{self.game_id}").start()
+
+    def _on_upload_done(self, success: bool, title: str):
+        if hasattr(self, "_upload_progress") and self._upload_progress:
+            try:
+                self._upload_progress.close()
+                self._upload_progress.deleteLater()
+            except Exception:
+                pass
+            self._upload_progress = None
+
+        self.btn_cloud.setEnabled(True)
+        self.btn_export.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
+        self.btn_upload.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
+        if success:
+            QMessageBox.information(self, "Upload Successful", f"'{title}' was uploaded to cloud storage.")
+            self._load_history()
+            self._notify_parent_changed()
+        else:
+            QMessageBox.critical(
+                self,
+                "Upload Failed",
+                "The save could not be uploaded. Check that cloud sync is configured and review the logs for details.",
+            )
 
     def _export_selected(self):
         selected_locations = [loc for cb, loc in self.checkboxes if cb.isChecked()]
