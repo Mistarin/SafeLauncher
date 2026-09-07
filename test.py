@@ -1748,8 +1748,10 @@ try:
     from PyQt6.QtWidgets import QFrame
     assert len([w for w in game_page.media_widget.content_widget.findChildren(QFrame) if type(w) is QFrame]) == 0
 
-    # Verify hero banner height expanded to 360px for unobstructed cinematic viewing
-    assert game_page.hero_banner.height() == 360
+    # Verify hero banner height expanded to 440px for unobstructed cinematic viewing and connected glassmorphic action & sub-nav bars
+    assert game_page.hero_banner.height() == 440
+    assert game_page.action_bar.parent() == game_page.hero_banner
+    assert game_page.sub_nav.parent() == game_page.hero_banner
 
     # Test Action Bar cleanup: only Favorite button in layout (no duplicate folder/settings/save buttons)
     action_bar = game_page.action_bar
