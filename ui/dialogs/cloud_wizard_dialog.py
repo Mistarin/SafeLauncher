@@ -14,6 +14,7 @@ from PyQt6.QtGui import QDesktopServices
 
 from core.cloud_detector import discover_local_cloud_backend, inspect_system_compatibility
 from core.cloud_backend import get_site_url
+from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 
 
 class CloudWizardDialog(QDialog):
@@ -674,8 +675,25 @@ class CloudWizardDialog(QDialog):
                     headers["X-SafeLauncher-Key"] = key
 
                 resp = requests.get(f"{url}/api/health", headers=headers, timeout=6)
+                if resp.status_code == 404:
+                    self.test_completed.emit(
+                        False,
+                        "This is a legacy backend: /api/health is missing. "
+                        "Redeploy the backend with npm install and npx convex deploy first."
+                    )
+                    return
                 if resp.status_code != 200:
                     self.test_completed.emit(False, f"Health check failed with HTTP {resp.status_code}")
+                    return
+
+                health_data = resp.json() if resp.content else {}
+                backend_version = str(health_data.get("version") or "1.0.0").strip()
+                if is_version_outdated(backend_version, MIN_CONVEX_BACKEND_VERSION):
+                    self.test_completed.emit(
+                        False,
+                        f"Backend v{backend_version} is outdated; SafeLauncher requires "
+                        f"v{MIN_CONVEX_BACKEND_VERSION}. Redeploy it with npm install and npx convex deploy."
+                    )
                     return
 
                 resp_me = requests.get(f"{url}/api/me", headers=headers, timeout=6)

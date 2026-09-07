@@ -49,6 +49,7 @@ class UserSettingsDialog(QDialog):
     _sandbox_size_ready = pyqtSignal(int)      # emitted from worker thread
     accountStatusReady = pyqtSignal(str)       # cloud account status from workers
     backendHealthReady = pyqtSignal(dict)      # live backend health probe result
+    backendDeployReady = pyqtSignal(bool, str) # redeploy result from worker
     appUpdateReady = pyqtSignal(dict)          # manual app update check result
     appDownloadProgress = pyqtSignal(int, int) # (downloaded, total)
     appDownloadFinished = pyqtSignal(str)      # target path
@@ -825,6 +826,7 @@ class UserSettingsDialog(QDialog):
 
         self.accountStatusReady.connect(self._apply_account_status)
         self.backendHealthReady.connect(self._apply_backend_health)
+        self.backendDeployReady.connect(self._apply_backend_deploy_result)
         self.appUpdateReady.connect(self._apply_manual_update_result)
         self.appDownloadProgress.connect(self._on_app_download_progress)
         self.appDownloadFinished.connect(self._on_app_download_finished)
@@ -1330,9 +1332,15 @@ class UserSettingsDialog(QDialog):
             self.lbl_health_version.setText(f"v{ver}")
             if is_outdated:
                 self.lbl_version_warning.setText(
-                    f"<font color='#F59E0B'>Backend update recommended: installed <b>v{ver}</b> is older than minimum supported <b>v{min_ver}</b>.</font>"
+                    f"<font color='#F59E0B'>Backend update required: installed <b>v{ver}</b> is older than minimum supported <b>v{min_ver}</b>. "
+                    "Redeploy the local backend to restore full cloud features.</font>"
                 )
-                self.btn_redeploy.setVisible(has_local_repo)
+                self.btn_redeploy.setVisible(True)
+                self.btn_redeploy.setText("Redeploy Backend" if has_local_repo else "Open Setup Wizard")
+                self.btn_redeploy.setToolTip(
+                    "Run npm install and npx convex deploy from the local backend repository."
+                    if has_local_repo else "Connect or deploy a backend using the cloud setup wizard."
+                )
                 self.btn_open_dashboard.setVisible(True)
             else:
                 self.lbl_version_warning.setText(
@@ -1346,11 +1354,45 @@ class UserSettingsDialog(QDialog):
             self.btn_redeploy.setVisible(False)
             self.btn_open_dashboard.setVisible(False)
 
+    def _apply_backend_deploy_result(self, success: bool, message: str):
+        """Handle redeploy completion on the Qt GUI thread."""
+        self.btn_redeploy.setEnabled(True)
+        if success:
+            self.lbl_version_warning.setText(
+                f"<font color='#10B981'>{message}</font>"
+            )
+            self._refresh_backend_health()
+        else:
+            self.lbl_version_warning.setText(
+                f"<font color='#EF4444'>{message}</font>"
+            )
+
     def _redeploy_backend(self):
         """Redeploy Convex backend functions from local source repository."""
         info = detect_local_cloud_installation()
         if not info or not info.get("path"):
-            QMessageBox.warning(self, "Redeploy", "Local backend repository folder not found.")
+            from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
+            self.btn_redeploy.setText("Open Setup Wizard")
+            wizard = CloudWizardDialog(self)
+            wizard.exec()
+            self._refresh_backend_health()
+            return
+
+        from core.cloud_cli_wizard import _convex_cli_env, _has_convex_project_config
+        from pathlib import Path
+        backend_path = Path(info["path"])
+        if not _has_convex_project_config(_convex_cli_env(backend_path)):
+            QMessageBox.information(
+                self,
+                "Backend linking required",
+                "This backend folder is not linked to a Convex deployment yet.\n\n"
+                "Open the Cloud Setup Wizard and choose New project or Connect existing "
+                "to finish Convex sign-in first.",
+            )
+            from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
+            wizard = CloudWizardDialog(self)
+            wizard.exec()
+            self._refresh_backend_health()
             return
 
         reply = QMessageBox.question(
@@ -1364,10 +1406,14 @@ class UserSettingsDialog(QDialog):
             self.btn_redeploy.setEnabled(False)
 
             def _worker():
-                deployed_url = deploy_convex_backend(info["path"])
-                self.btn_redeploy.setEnabled(True)
-                if deployed_url:
-                    self._refresh_backend_health()
+                try:
+                    deployed_url = deploy_convex_backend(info["path"])
+                    if deployed_url:
+                        self.backendDeployReady.emit(True, "Backend redeployed. Rechecking its version…")
+                    else:
+                        self.backendDeployReady.emit(False, "Backend redeploy did not complete. Check the terminal output and Convex credentials.")
+                except Exception as exc:
+                    self.backendDeployReady.emit(False, f"Backend redeploy failed: {exc}")
 
             import threading
             threading.Thread(target=_worker, daemon=True, name="SafeLauncher-Redeploy").start()

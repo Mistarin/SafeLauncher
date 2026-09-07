@@ -200,7 +200,7 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
 
     print(f"\n  [Deploy] Installing dependencies in {server_dir}...")
     try:
-        subprocess.run(["npm", "install"], cwd=str(server_dir), check=True, env=clean_env)
+        subprocess.run(["npm", "install"], cwd=str(server_dir), check=True, env=clean_env, timeout=180)
         
         if not _has_convex_project_config(clean_env):
             print("\n  [Convex] First-time setup: linking this folder to your Convex project.")
@@ -210,6 +210,7 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
                 cwd=str(server_dir),
                 check=True,
                 env=clean_env,
+                timeout=300,
             )
             # ``convex dev --once`` writes .env.local. Reload it before deploy.
             clean_env = _convex_cli_env(server_dir)
@@ -236,6 +237,7 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
             cwd=str(server_dir),
             check=False,
             env=clean_env,
+            timeout=60,
         )
         if secret_result.returncode != 0:
             print("  [✖] Could not apply the SafeLauncher secret key to Convex.")
@@ -245,7 +247,7 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
         print("  [✔] Secret key pushed to Convex and saved in SafeLauncher.")
         
         print("  [Deploy] Deploying backend functions with 'npx convex deploy'...")
-        subprocess.run(["npx", "convex", "deploy"], cwd=str(server_dir), check=True, env=clean_env)
+        subprocess.run(["npx", "convex", "deploy"], cwd=str(server_dir), check=True, env=clean_env, timeout=300)
     except Exception as e:
         print(f"  [✖] Deployment encountered an error: {e}")
         return None
