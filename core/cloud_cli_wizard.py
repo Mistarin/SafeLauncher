@@ -21,6 +21,7 @@ from core.cloud_detector import (
     detect_local_cloud_installation,
     inspect_system_compatibility,
 )
+from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 
 
 def _convex_cli_env(server_dir: Path) -> dict[str, str]:
@@ -284,6 +285,8 @@ def run_cloud_setup_wizard() -> int:
     discovered_url = discover_local_cloud_backend()
     active_url = current_url or discovered_url or ""
     current_key = settings.value("cloud_secret_key", "", type=str).strip()
+    active_backend_version = ""
+    active_backend_outdated = False
 
     # Fast probe: if already configured and reachable, show active status banner
     if active_url:
@@ -295,6 +298,18 @@ def run_cloud_setup_wizard() -> int:
 
             resp_health = requests.get(f"{active_url}/api/health", headers=headers, timeout=3)
             if resp_health.status_code == 200:
+                try:
+                    health_data = resp_health.json()
+                    active_backend_version = str(health_data.get("version") or "").strip()
+                    if not active_backend_version:
+                        resp_version = requests.get(f"{active_url}/api/version", headers=headers, timeout=3)
+                        if resp_version.status_code == 200:
+                            active_backend_version = str(resp_version.json().get("version") or "").strip()
+                    active_backend_outdated = bool(active_backend_version) and is_version_outdated(
+                        active_backend_version, MIN_CONVEX_BACKEND_VERSION
+                    )
+                except (ValueError, AttributeError, requests.RequestException):
+                    pass
                 resp_me = requests.get(f"{active_url}/api/me", headers=headers, timeout=3)
                 quota_info = ""
                 if resp_me.status_code == 200:
@@ -340,13 +355,19 @@ def run_cloud_setup_wizard() -> int:
     print(f"     {DIM}• Simply enter your .convex.site URL and start syncing immediately.{RESET}\n")
     print(f"  {BOLD}2) Set up a new private cloud database from scratch{RESET}")
     print(f"     {DIM}• First-time setup: Downloads server repository and guides 'npx convex deploy'.{RESET}")
+    if active_backend_outdated:
+        print(f"  {BOLD}3) Redeploy the existing cloud backend{RESET}  {YELLOW}(Update available){RESET}")
+        print(f"     {DIM}• Found backend v{active_backend_version}; SafeLauncher requires v{MIN_CONVEX_BACKEND_VERSION}+.{RESET}")
+        print(f"     {DIM}• Keeps the existing deployment and data while applying the latest backend limits and fixes.{RESET}")
     footer(CYAN)
 
-    mode_choice = input(f"  {CYAN}{BOLD}➜{RESET} Choose setup mode [1/2] (default: 1): ").strip()
+    mode_prompt = "[1/3]" if active_backend_outdated else "[1/2]"
+    mode_choice = input(f"  {CYAN}{BOLD}➜{RESET} Choose setup mode {mode_prompt} (default: 1): ").strip()
+    redeploy_existing = active_backend_outdated and mode_choice in ("3", "redeploy", "upgrade", "update")
     is_new_setup = mode_choice in ("2", "new", "deploy")
 
     local_info = None
-    if is_new_setup:
+    if is_new_setup or redeploy_existing:
         # Deployment & Auto-Detection
         local_info = detect_local_cloud_installation()
         if local_info:
@@ -356,9 +377,19 @@ def run_cloud_setup_wizard() -> int:
                 print(f"  {GREEN}{BOLD}✔ Extracted from .env.local:{RESET}  {local_info['site_url']}")
                 if local_info.get("deployment"):
                     print(f"  {DIM}• Convex deployment:{RESET}        {local_info['deployment']}")
+                if redeploy_existing:
+                    print(f"\n  {YELLOW}Redeploying the existing backend to v{MIN_CONVEX_BACKEND_VERSION}+...{RESET}")
+                    deployed_url = deploy_convex_backend(local_info["path"])
+                    if deployed_url:
+                        local_info["site_url"] = deployed_url
             else:
                 print(f"  {YELLOW}● Server folder found, but .env.local is not initialized yet.{RESET}")
-                redeploy = input(f"\n  {CYAN}{BOLD}➜{RESET} Deploy Convex backend now? [Y/n]: ").strip().lower()
+                redeploy_prompt = (
+                    f"\n  {CYAN}{BOLD}➜{RESET} Redeploy Convex backend now? [Y/n]: "
+                    if redeploy_existing else
+                    f"\n  {CYAN}{BOLD}➜{RESET} Deploy Convex backend now? [Y/n]: "
+                )
+                redeploy = input(redeploy_prompt).strip().lower()
                 if redeploy not in ("n", "no"):
                     deployed_url = deploy_convex_backend(local_info["path"])
                     if deployed_url:
