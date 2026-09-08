@@ -21,11 +21,13 @@ from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
 from core.performance_env import (
     ENABLE_GAMEMODE,
+    GAMEMODE_MODE,
     DXVK_MAX_DEVICE_MEMORY_MB,
     MANAGED_ENV_KEYS,
     MAX_VRAM_MB,
     MIN_VRAM_MB,
     gamemode_library,
+    gamemode_wrapper,
     parse_vram_mb,
 )
 
@@ -336,15 +338,36 @@ class GamePropertiesDialog(QDialog):
         )
         self.cb_gamemode.setStyleSheet("QCheckBox { color: #F5F7FA; font-weight: 600; }")
         tc_layout.addWidget(self.cb_gamemode)
+        gamemode_mode_row = QHBoxLayout()
+        gamemode_mode_row.setContentsMargins(28, 0, 0, 0)
+        gamemode_mode_row.addWidget(QLabel("GameMode method:"))
+        self.combo_gamemode_mode = QComboBox()
+        self.combo_gamemode_mode.addItems([
+            "Feral direct injection (LD_PRELOAD)",
+            "Standard wrapper (gamemoderun / Steam style)",
+        ])
+        self.combo_gamemode_mode.setCurrentIndex(
+            1 if str(self.env_vars.get(GAMEMODE_MODE, "feral")).strip().lower() == "steam" else 0
+        )
+        self.combo_gamemode_mode.setEnabled(self.cb_gamemode.isChecked())
+        self.combo_gamemode_mode.setStyleSheet(
+            "QComboBox { background: #161A22; color: #F5F7FA; border: none; "
+            "border-radius: 6px; padding: 4px 10px; min-width: 230px; }"
+        )
+        self.cb_gamemode.toggled.connect(self.combo_gamemode_mode.setEnabled)
+        gamemode_mode_row.addWidget(self.combo_gamemode_mode)
+        gamemode_mode_row.addStretch()
+        tc_layout.addLayout(gamemode_mode_row)
+        gamemode_available = bool(gamemode_library() or gamemode_wrapper())
         gamemode_note = QLabel(
-            "GameMode library detected — it will be injected when this game starts."
-            if gamemode_library()
-            else "GameMode library not detected — the game will start normally if this option is enabled."
+            "GameMode support detected — the selected method will be used when this game starts."
+            if gamemode_available
+            else "GameMode support not detected — the game will start normally if this option is enabled."
         )
         gamemode_note.setWordWrap(True)
         gamemode_note.setStyleSheet(
             "color: #8F96A3; font-size: 11px; padding-left: 28px;"
-            if gamemode_library()
+            if gamemode_available
             else "color: #D9A441; font-size: 11px; padding-left: 28px;"
         )
         tc_layout.addWidget(gamemode_note)
@@ -998,6 +1021,7 @@ class GamePropertiesDialog(QDialog):
 
         if self.cb_gamemode.isChecked():
             updated_env[ENABLE_GAMEMODE] = "1"
+            updated_env[GAMEMODE_MODE] = "steam" if self.combo_gamemode_mode.currentIndex() == 1 else "feral"
 
         if self.cb_vram_override.isChecked():
             updated_env[DXVK_MAX_DEVICE_MEMORY_MB] = str(self.spin_vram_override.value())

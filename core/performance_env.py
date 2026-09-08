@@ -9,15 +9,18 @@ from __future__ import annotations
 
 import ctypes.util
 import re
+import shutil
 from typing import Mapping
 
 
 ENABLE_GAMEMODE = "SAFELAUNCHER_ENABLE_GAMEMODE"
+GAMEMODE_MODE = "SAFELAUNCHER_GAMEMODE_MODE"
 DXVK_MAX_DEVICE_MEMORY_MB = "SAFELAUNCHER_DXVK_MAX_DEVICE_MEMORY_MB"
 
 # These are owned by the named controls rather than the free-form table.
 MANAGED_ENV_KEYS = {
     ENABLE_GAMEMODE,
+    GAMEMODE_MODE,
     DXVK_MAX_DEVICE_MEMORY_MB,
     "LD_PRELOAD",
     "DXVK_CONFIG",
@@ -42,6 +45,11 @@ def parse_vram_mb(value: object) -> int | None:
 def gamemode_library() -> str | None:
     """Resolve the GameMode preload library without requiring a shell lookup."""
     return ctypes.util.find_library("gamemodeauto") or None
+
+
+def gamemode_wrapper() -> str | None:
+    """Resolve the standard Steam-launch-option-style GameMode wrapper."""
+    return shutil.which("gamemoderun")
 
 
 def _with_dxvk_memory(config: str, value: int) -> str:
@@ -69,7 +77,7 @@ def build_launch_env(raw_env: Mapping[str, object] | None) -> tuple[dict[str, st
     launch_env: dict[str, str] = {}
     for key, value in source.items():
         key = str(key).strip()
-        if key in (ENABLE_GAMEMODE, DXVK_MAX_DEVICE_MEMORY_MB):
+        if key in (ENABLE_GAMEMODE, GAMEMODE_MODE, DXVK_MAX_DEVICE_MEMORY_MB):
             continue
         if not key or value is None or str(value).strip() == "":
             continue
@@ -79,21 +87,53 @@ def build_launch_env(raw_env: Mapping[str, object] | None) -> tuple[dict[str, st
 
     status = {
         "gamemode": "disabled",
+        "gamemode_mode": "",
         "vram_override": "disabled",
+        "enabled": "none",
     }
 
     if str(source.get(ENABLE_GAMEMODE, "0")).strip().lower() in {"1", "true", "yes", "on"}:
-        library = gamemode_library()
-        if library:
-            existing = launch_env.get("LD_PRELOAD", "").strip()
-            launch_env["LD_PRELOAD"] = f"{library}:{existing}" if existing else library
-            status["gamemode"] = f"enabled ({library})"
+        mode = str(source.get(GAMEMODE_MODE, "feral")).strip().lower()
+        if mode not in {"feral", "steam"}:
+            mode = "feral"
+        status["gamemode_mode"] = mode
+        if mode == "steam":
+            wrapper = gamemode_wrapper()
+            if wrapper:
+                status["gamemode"] = f"enabled via wrapper ({wrapper})"
+                status["gamemode_wrapper"] = wrapper
+            else:
+                status["gamemode"] = "requested standard wrapper but gamemoderun was not found"
         else:
-            status["gamemode"] = "requested but libgamemodeauto.so.0 was not found"
+            library = gamemode_library()
+            if library:
+                existing = launch_env.get("LD_PRELOAD", "").strip()
+                launch_env["LD_PRELOAD"] = f"{library}:{existing}" if existing else library
+                status["gamemode"] = f"enabled via Feral injection ({library})"
+            else:
+                status["gamemode"] = "requested Feral injection but libgamemodeauto.so.0 was not found"
 
     vram = parse_vram_mb(source.get(DXVK_MAX_DEVICE_MEMORY_MB))
     if vram is not None:
         launch_env["DXVK_CONFIG"] = _with_dxvk_memory(launch_env.get("DXVK_CONFIG", ""), vram)
         status["vram_override"] = f"{vram} MiB reported to DXVK"
+
+    enabled: list[str] = []
+    if launch_env.get("WINE_FULLSCREEN_FSR") == "1":
+        strength = launch_env.get("WINE_FULLSCREEN_FSR_STRENGTH", "default")
+        enabled.append(f"FSR (sharpness {strength})")
+    if launch_env.get("DXVK_ASYNC") == "1":
+        enabled.append("DXVK Async")
+    if "gpl" in launch_env.get("RADV_PERFTEST", "").lower():
+        enabled.append("Mesa GPL")
+    if launch_env.get("DRI_PRIME") == "1" or launch_env.get("MESA_VK_DEVICE_SELECT") == "1":
+        enabled.append("Dedicated GPU")
+    if launch_env.get("DXVK_FRAME_RATE"):
+        enabled.append(f"FPS cap {launch_env['DXVK_FRAME_RATE']}")
+    if status["gamemode"] not in {"disabled"} and status["gamemode"].startswith("enabled"):
+        enabled.append(f"GameMode ({status['gamemode_mode']})")
+    if vram is not None:
+        enabled.append(f"DXVK VRAM {vram} MiB")
+    status["enabled"] = ", ".join(enabled) if enabled else "none"
 
     return launch_env, status

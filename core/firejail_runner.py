@@ -257,7 +257,8 @@ class FirejailSandboxRunner(ISandboxRunner):
         # from leaking into the game and makes optional GameMode graceful.
         launch_env, performance_status = build_launch_env(env_vars)
         logger.info(
-            "Performance environment: GameMode=%s, VRAM=%s",
+            "Performance options enabled: %s; GameMode=%s, VRAM=%s",
+            performance_status["enabled"],
             performance_status["gamemode"],
             performance_status["vram_override"],
         )
@@ -271,8 +272,15 @@ class FirejailSandboxRunner(ISandboxRunner):
                     custom_env_flags += f"--env={clean_k}={q_v} "
                     custom_env_exports += f"export {clean_k}={q_v} && "
 
+        # The standard GameMode mode is equivalent to the common Steam launch
+        # option `gamemoderun %command%`. Keep it inside the sandbox command so
+        # GameMode observes the actual Wine/Proton process.
+        gamemode_wrapper = performance_status.get("gamemode_wrapper", "")
+
         if mode in ("umu", "umu_net"):
             runner_cmd = f"umu-run {q_exe}" if deps["umu-run"] else f"wine {q_exe}"
+            if gamemode_wrapper:
+                runner_cmd = f"{shlex.quote(gamemode_wrapper)} {runner_cmd}"
             if has_firejail:
                 net_flag = ""
                 if mode == "umu":
@@ -291,12 +299,17 @@ class FirejailSandboxRunner(ISandboxRunner):
             else:
                 cmd = f"cd {q_work_dir} && {debug_exports}{diagnostic_header}{game_id_export}{custom_env_exports}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
         elif mode == "linux":
+            linux_cmd = f"./{q_exe}"
+            if gamemode_wrapper:
+                linux_cmd = f"{shlex.quote(gamemode_wrapper)} {linux_cmd}"
             if has_firejail:
-                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--noprofile --net=none {security_flags} --whitelist={q_path} {gpu_whitelist_flags}{custom_env_flags}./{q_exe}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--noprofile --net=none {security_flags} --whitelist={q_path} {gpu_whitelist_flags}{custom_env_flags}{linux_cmd}"
             else:
-                cmd = f"cd {q_work_dir} && {diagnostic_header}{custom_env_exports}./{q_exe}"
+                cmd = f"cd {q_work_dir} && {diagnostic_header}{custom_env_exports}{linux_cmd}"
         else:  # "wine"
             runner_cmd = f"wine {q_exe}"
+            if gamemode_wrapper:
+                runner_cmd = f"{shlex.quote(gamemode_wrapper)} {runner_cmd}"
             if has_firejail:
                 cmd = (
                     f"cd {q_work_dir} && {diagnostic_header}{trace_prefix}{firejail_prefix}firejail {sandbox_name_flag}--noprofile --net=none {security_flags} "

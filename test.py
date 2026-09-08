@@ -45,7 +45,16 @@ try:
     assert "SAFELAUNCHER_DXVK_MAX_DEVICE_MEMORY_MB" not in launch_env
     assert parse_vram_mb("0") is None
     assert parse_vram_mb("8192") == 8192
+    assert "DXVK VRAM 8192 MiB" in performance_status["enabled"]
     print(f"✓ Managed performance environment validation works ({performance_status['vram_override']})")
+    with patch("core.performance_env.gamemode_wrapper", return_value="/usr/bin/gamemoderun"):
+        steam_env, steam_status = build_launch_env({
+            "SAFELAUNCHER_ENABLE_GAMEMODE": "1",
+            "SAFELAUNCHER_GAMEMODE_MODE": "steam",
+        })
+        assert "LD_PRELOAD" not in steam_env
+        assert steam_status["gamemode_wrapper"] == "/usr/bin/gamemoderun"
+    print("✓ Feral and standard GameMode modes validated")
 except Exception as e:
     print(f"✗ Managed performance environment validation failed: {e}")
     sys.exit(1)
