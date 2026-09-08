@@ -5,14 +5,13 @@ Visual save inspector powered by LudusaviDetector and ZipBackupManager.
 
 import os
 import time
-import threading
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QProgressBar,
     QTabWidget, QListWidget, QListWidgetItem, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 
 from ui.icons import get_icon, get_app_icon
@@ -20,6 +19,7 @@ from ui.components.sidebar import DialogTitleBar
 from ui.components.check_field import CheckField as QCheckBox
 from core.ludusavi_detector import LudusaviDetector, SaveLocation
 from core.zip_backup import ZipBackupManager
+from core.safe_thread import FunctionWorker
 from core.logger import get_logger
 
 logger = get_logger("SaveManagerDialog")
@@ -53,6 +53,12 @@ class SaveManagerDialog(QDialog):
         self.backup_mgr = ZipBackupManager()
         self.save_locations: list[SaveLocation] = []
         self.checkboxes: list[tuple[QCheckBox, SaveLocation]] = []
+        # Every operation that can touch the cloud or package saves belongs to
+        # this dialog. Keeping explicit references prevents a QThread from
+        # being garbage-collected while it is running and lets closeEvent wait
+        # for cooperative cancellation instead of racing a deleted widget.
+        self._background_workers: list[FunctionWorker] = []
+        self._closing = False
         self._restore_done.connect(self._on_restore_done)
         self._upload_done.connect(self._on_upload_done)
         self._history_loaded.connect(self._on_history_loaded)
@@ -397,6 +403,38 @@ class SaveManagerDialog(QDialog):
         # Run initial scan
         self._scan_saves()
 
+    def _start_managed_task(self, name: str, work, on_complete):
+        """Run a dialog operation with an owned, observable lifetime."""
+        worker = FunctionWorker(work, parent=self)
+        worker.setObjectName(name)
+        worker.completed.connect(on_complete)
+        worker.error_occurred.connect(
+            lambda error, task=name: logger.warning("Save-manager task %s failed: %s", task, error)
+        )
+
+        def _retire(w=worker):
+            if w in self._background_workers:
+                self._background_workers.remove(w)
+            w.deleteLater()
+
+        worker.finished.connect(_retire)
+        self._background_workers.append(worker)
+        worker.start()
+        return worker
+
+    def closeEvent(self, event):
+        """Do not destroy this dialog while an owned worker still runs."""
+        self._closing = True
+        running = [w for w in self._background_workers if w.isRunning()]
+        for worker in running:
+            worker.requestInterruption()
+            worker.wait(100)
+        if any(w.isRunning() for w in self._background_workers):
+            QTimer.singleShot(100, self.close)
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def _scan_saves(self):
         """Scan for save locations and populate scroll view."""
         # Clear existing items
@@ -524,9 +562,13 @@ class SaveManagerDialog(QDialog):
             except Exception as e:
                 logger.error(f"Cloud upload failed for '{self.game_name}': {e}")
                 error_message = str(e)
-            self._upload_done.emit(bool(success), self.game_name, error_message)
+            return bool(success), self.game_name, error_message
 
-        threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-SaveUpload-{self.game_id}").start()
+        self._start_managed_task(
+            f"SafeLauncher-SaveUpload-{self.game_id}",
+            _worker,
+            lambda result: self._upload_done.emit(*result),
+        )
 
     def _on_upload_done(self, success: bool, title: str, error_message: str = ""):
         if hasattr(self, "_upload_progress") and self._upload_progress:
@@ -644,10 +686,11 @@ class SaveManagerDialog(QDialog):
             except Exception as e:
                 logger.error(f"Failed to load history for '{self.game_name}': {e}")
                 versions = []
-            self._history_loaded.emit(versions)
+            return versions
 
-        import threading
-        threading.Thread(target=_work, daemon=True, name=f"SafeLauncher-HistoryLoader-{self.game_id}").start()
+        self._start_managed_task(
+            f"SafeLauncher-HistoryLoader-{self.game_id}", _work, self._history_loaded.emit
+        )
 
     def _on_history_loaded(self, versions: list):
         """Populate history list on the main thread after async worker finishes."""
@@ -723,9 +766,13 @@ class SaveManagerDialog(QDialog):
             except Exception as e:
                 logger.error(f"Worker restore failed for '{self.game_name}': {e}")
                 success = False
-            self._restore_done.emit(bool(success), title)
+            return bool(success), title
 
-        threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-HistRestore-{self.game_id}").start()
+        self._start_managed_task(
+            f"SafeLauncher-HistRestore-{self.game_id}",
+            _worker,
+            lambda result: self._restore_done.emit(*result),
+        )
 
     def _restore_from_cloud(self):
         """Restore the latest cloud save, or switch to the history tab if multiple versions exist.
@@ -756,18 +803,22 @@ class SaveManagerDialog(QDialog):
                 )
                 cloud_versions = [v for v in versions if v.get("source") == "cloud"]
                 if len(cloud_versions) > 1:
-                    self._restore_done.emit(False, "__switch_to_history__")
-                    return
+                    return False, "__switch_to_history__"
                 status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
                     self.game_name, self.game_path, self.steam_id
                 )
-                self._restore_done.emit(False, f"__preflight_ok__{cloud_stats.display_path}__exists__{cloud_stats.exists}")
+                display_path = cloud_stats.display_path if cloud_stats else "Unavailable"
+                cloud_exists = bool(cloud_stats and cloud_stats.exists)
+                return False, f"__preflight_ok__{display_path}__exists__{cloud_exists}"
             except Exception as e:
                 logger.error(f"Cloud restore preflight failed for '{self.game_name}': {e}")
-                self._restore_done.emit(False, "__preflight_error__")
+                return False, "__preflight_error__"
 
-        threading.Thread(target=_preflight, daemon=True,
-                         name=f"SafeLauncher-CloudPreflight-{self.game_id}").start()
+        self._start_managed_task(
+            f"SafeLauncher-CloudPreflight-{self.game_id}",
+            _preflight,
+            lambda result: self._restore_done.emit(*result),
+        )
 
     def _on_restore_done(self, success: bool, title: str):
         # Close any open preflight progress dialog first
@@ -838,10 +889,13 @@ class SaveManagerDialog(QDialog):
                     )
                 except Exception as e:
                     logger.error(f"Cloud restore failed for '{self.game_name}': {e}")
-                self._restore_done.emit(bool(worker_success), display_path)
+                return bool(worker_success), display_path
 
-            threading.Thread(target=_worker, daemon=True,
-                             name=f"SafeLauncher-CloudRestore-{self.game_id}").start()
+            self._start_managed_task(
+                f"SafeLauncher-CloudRestore-{self.game_id}",
+                _worker,
+                lambda result: self._restore_done.emit(*result),
+            )
             return
 
         if title == "__preflight_error__":

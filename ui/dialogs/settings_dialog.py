@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
     QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox, QSpinBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QSize, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
 from PyQt6.QtWidgets import QKeySequenceEdit
 
@@ -38,8 +38,12 @@ from core.version import APP_VERSION, MIN_CONVEX_BACKEND_VERSION
 from core.updater import check_for_updates, download_and_apply_appimage_update, restart_application, is_appimage
 from core.cloud_backend import check_backend_health
 from core.cloud_detector import detect_local_cloud_installation
+from core.safe_thread import FunctionWorker
+from core.logger import get_logger
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtCore import QUrl
+
+logger = get_logger("SettingsDialog")
 
 
 class UserSettingsDialog(QDialog):
@@ -65,6 +69,9 @@ class UserSettingsDialog(QDialog):
         self.screenshot_hotkey = screenshot_hotkey or "F12"
         from core.cloud_save_sync import CloudSaveSyncEngine
         self.cloud_saves_dir = cloud_saves_dir or CloudSaveSyncEngine.get_cloud_root()
+        self._background_workers: list[FunctionWorker] = []
+        self._account_probe_generation = 0
+        self._health_probe_generation = 0
 
         self.setWindowTitle("Settings")
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
@@ -1256,16 +1263,47 @@ class UserSettingsDialog(QDialog):
         self.accountStatusReady.emit("Disconnected (using Local sync).")
         self._refresh_backend_health()
 
+    def _start_managed_task(self, name: str, work, on_complete):
+        """Run a settings operation without leaving an unowned daemon behind."""
+        worker = FunctionWorker(work, parent=self)
+        worker.setObjectName(name)
+        worker.completed.connect(on_complete)
+        worker.error_occurred.connect(
+            lambda error, task=name: logger.warning("Settings task %s failed: %s", task, error)
+        )
+
+        def _retire(w=worker):
+            if w in self._background_workers:
+                self._background_workers.remove(w)
+            w.deleteLater()
+
+        worker.finished.connect(_retire)
+        self._background_workers.append(worker)
+        worker.start()
+        return worker
+
+    def closeEvent(self, event):
+        """Keep Qt workers alive until their cooperative cancellation completes."""
+        for worker in list(self._background_workers):
+            if worker.isRunning():
+                worker.requestInterruption()
+                worker.wait(100)
+        if any(worker.isRunning() for worker in self._background_workers):
+            QTimer.singleShot(100, self.close)
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def _refresh_account_status(self):
-        import threading
+        self._account_probe_generation += 1
+        generation = self._account_probe_generation
 
         def _probe():
             try:
                 from core.cloud_backend import ConvexSaveBackend, get_site_url
                 site = get_site_url()
                 if not site:
-                    self.accountStatusReady.emit("Not connected.")
-                    return
+                    return "Not connected."
                 backend = ConvexSaveBackend()
                 overview = backend.account()
                 used = overview.get("bytesUsed", 0)
@@ -1274,15 +1312,21 @@ class UserSettingsDialog(QDialog):
                 concurrent = overview.get("concurrentDevices", 1)
                 devices_total = overview.get("totalDevices", 1)
                 msg = f"Connected ({format_bytes(used)} / {format_bytes(quota)} used · {games} game(s) · {concurrent} concurrent device(s) online · 1 GB free, referrals can expand storage)"
-                self.accountStatusReady.emit(msg)
+                return msg
             except Exception as e:
                 from core.cloud_backend import describe_cloud_error
-                self.accountStatusReady.emit(describe_cloud_error(e))
+                return describe_cloud_error(e)
 
-        threading.Thread(target=_probe, daemon=True, name="SafeLauncher-AccountProbe").start()
+        def _apply_if_current(message, expected=generation):
+            if expected == self._account_probe_generation:
+                self.accountStatusReady.emit(message)
+
+        self._start_managed_task("SafeLauncher-AccountProbe", _probe, _apply_if_current)
 
     def _refresh_backend_health(self):
         """Probe backend health endpoint, measure latency, and check version parity."""
+        self._health_probe_generation += 1
+        generation = self._health_probe_generation
         url = self.edit_convex_url.text().strip().rstrip("/")
         key = self.edit_cloud_secret_key.text().strip()
         if not url:
@@ -1294,11 +1338,13 @@ class UserSettingsDialog(QDialog):
         self.lbl_health_latency.setStyleSheet("background: #27272A; color: #A1A1AA; padding: 3px 8px; border-radius: 4px; font-size: 11px;")
 
         def _worker():
-            res = check_backend_health(url, key)
-            self.backendHealthReady.emit(res)
+            return check_backend_health(url, key)
 
-        import threading
-        threading.Thread(target=_worker, daemon=True, name="SafeLauncher-HealthProbe").start()
+        def _apply_if_current(result, expected=generation):
+            if expected == self._health_probe_generation:
+                self.backendHealthReady.emit(result)
+
+        self._start_managed_task("SafeLauncher-HealthProbe", _worker, _apply_if_current)
 
     def _apply_backend_health(self, health: dict):
         """Update live health card with latency, status, and version parity badges."""
@@ -1416,14 +1462,16 @@ class UserSettingsDialog(QDialog):
                 try:
                     deployed_url = deploy_convex_backend(info["path"])
                     if deployed_url:
-                        self.backendDeployReady.emit(True, "Backend redeployed. Rechecking its version…")
-                    else:
-                        self.backendDeployReady.emit(False, "Backend redeploy did not complete. Check the terminal output and Convex credentials.")
+                        return True, "Backend redeployed. Rechecking its version…"
+                    return False, "Backend redeploy did not complete. Check the terminal output and Convex credentials."
                 except Exception as exc:
-                    self.backendDeployReady.emit(False, f"Backend redeploy failed: {exc}")
+                    return False, f"Backend redeploy failed: {exc}"
 
-            import threading
-            threading.Thread(target=_worker, daemon=True, name="SafeLauncher-Redeploy").start()
+            self._start_managed_task(
+                "SafeLauncher-Redeploy",
+                _worker,
+                lambda result: self.backendDeployReady.emit(*result),
+            )
 
     def _open_convex_dashboard(self):
         """Open Convex dashboard in browser."""
