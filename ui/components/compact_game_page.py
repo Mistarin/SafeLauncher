@@ -185,6 +185,12 @@ class CompactHeroBanner(QWidget):
                     )
                     painter.drawPixmap(0, slice_y, blurred_slice)
 
+                    # Keep the glassmorphism readable without washing out the
+                    # artwork behind the action and sub-navigation bars.  A
+                    # 20% black overlay is applied only to the glass layer;
+                    # the rest of the hero artwork keeps its existing tone.
+                    painter.fillRect(0, slice_y, w, glass_h, QColor(0, 0, 0, 51))
+
         # Dark overlay gradients:
         # 1. Subtle top vignette
         top_grad = QLinearGradient(0, 0, 0, 70)
