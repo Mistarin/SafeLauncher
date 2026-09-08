@@ -2441,6 +2441,11 @@ class CompactLayoutContainer(QWidget):
     def update_game_icon(self, game_id: int, icon_path: str):
         self.sidebar_list.update_game_icon(game_id, icon_path)
 
+    def update_cloud_status(self, game_id: int, status: Any):
+        """Update the compact action bar when it is showing this game."""
+        if getattr(self.game_page, "current_game_id", None) == game_id:
+            self.game_page.action_bar.update_cloud_status(status)
+
 
 # Backward-compatible aliases
 SteamHeroBanner = CompactHeroBanner

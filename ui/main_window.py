@@ -2305,17 +2305,7 @@ class MainWindow(QMainWindow):
         except (RuntimeError, AttributeError):
             pass
 
-        if hasattr(self, "compact_container") and self.compact_container is not None:
-            try:
-                self.compact_container.update_game_icon(game_id, icon_path)
-            except Exception:
-                pass
-
-        if hasattr(self, "list_view") and self.list_view is not None:
-            try:
-                self.list_view.update_game_icon(game_id, icon_path)
-            except Exception:
-                pass
+        self._update_library_item("update_game_icon", game_id, icon_path)
 
     def _check_games_on_drive(self):
         """Check all games in library against disk and grey out missing ones"""
@@ -2333,6 +2323,7 @@ class MainWindow(QMainWindow):
                     self.banner_widgets[game_id].set_missing(is_missing)
             except (RuntimeError, AttributeError):
                 pass
+            self._update_library_item("update_missing", game_id, is_missing)
 
         # Keep sidebar counts consistent with the re-checked on-disk state.
         self._update_sidebar_counts()
@@ -2369,17 +2360,8 @@ class MainWindow(QMainWindow):
         except (RuntimeError, AttributeError):
             pass
 
-        if icon_path and hasattr(self, "compact_container") and self.compact_container is not None:
-            try:
-                self.compact_container.update_game_icon(game_id, icon_path)
-            except Exception:
-                pass
-
-        if icon_path and hasattr(self, "list_view") and self.list_view is not None:
-            try:
-                self.list_view.update_game_icon(game_id, icon_path)
-            except Exception:
-                pass
+        if icon_path:
+            self._update_library_item("update_game_icon", game_id, icon_path)
 
     def _cleanup_auto_fetcher(self, fetcher):
         if fetcher in self.auto_fetchers:
@@ -2483,11 +2465,7 @@ class MainWindow(QMainWindow):
         # happened to receive the click. Keep every presentation synchronized
         # so changing view never appears to lose the current selection.
         selected_ids = self.library_selection.ids
-        for presentation in (
-            getattr(self, "list_view", None),
-            getattr(self, "virtual_grid", None),
-            getattr(self, "compact_container", None),
-        ):
+        for presentation in self._library_presentations():
             try:
                 if presentation is not None and hasattr(presentation, "set_selected_game_ids"):
                     presentation.set_selected_game_ids(selected_ids)
@@ -2504,6 +2482,28 @@ class MainWindow(QMainWindow):
                 break
         self._update_detail_panel()
         self._update_compact_game_page()
+
+    def _library_presentations(self) -> tuple:
+        """Return active library renderers behind one update boundary."""
+        return tuple(
+            presentation for presentation in (
+                getattr(self, "list_view", None),
+                getattr(self, "virtual_grid", None),
+                getattr(self, "compact_container", None),
+            )
+            if presentation is not None
+        )
+
+    def _update_library_item(self, method: str, game_id: int, *args) -> None:
+        """Fan out one derived-state change to every compatible renderer."""
+        for presentation in self._library_presentations():
+            callback = getattr(presentation, method, None)
+            if callback is None:
+                continue
+            try:
+                callback(game_id, *args)
+            except (RuntimeError, AttributeError):
+                pass
 
     def _update_compact_game_page(self):
         """Update the Compact Game Page widget with the selected game's details."""
@@ -3392,17 +3392,7 @@ class MainWindow(QMainWindow):
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_cloud_status(status)
 
-        if hasattr(self, "list_view") and self.list_view is not None:
-            try:
-                self.list_view.update_cloud_status(game_id, status)
-            except Exception:
-                pass
-
-        if hasattr(self, "compact_container") and self.selected_game and self.selected_game[0] == game_id:
-            try:
-                self.compact_container.game_page.action_bar.update_cloud_status(status)
-            except Exception:
-                pass
+        self._update_library_item("update_cloud_status", game_id, status)
 
 
         if self.selected_game and self.selected_game[0] == game_id:
