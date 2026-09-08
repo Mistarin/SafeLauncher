@@ -688,6 +688,39 @@ class UserSettingsDialog(QDialog):
         key_row.addWidget(btn_toggle_key)
         form_mode.addRow("Secret Key (Recommended):", key_row)
 
+        # A deployment key is deliberately separate from the save API key.
+        # It is only used by the optional one-click backend updater and is
+        # scoped by Convex to a single deployment.
+        saved_deploy_key = settings.value("convex_deploy_key", "", type=str)
+        deploy_key_row = QHBoxLayout()
+        self.edit_convex_deploy_key = QLineEdit(saved_deploy_key)
+        self.edit_convex_deploy_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.edit_convex_deploy_key.setPlaceholderText("Optional — enables source-free backend updates")
+        self.edit_convex_deploy_key.setToolTip(
+            "Optional Convex deployment key. It lets SafeLauncher update this backend "
+            "without keeping a server repository on this computer."
+        )
+        deploy_key_row.addWidget(self.edit_convex_deploy_key, 1)
+        btn_toggle_deploy_key = QPushButton("Show")
+        btn_toggle_deploy_key.setFixedWidth(50)
+
+        def _toggle_deploy_key():
+            hidden = self.edit_convex_deploy_key.echoMode() == QLineEdit.EchoMode.Password
+            self.edit_convex_deploy_key.setEchoMode(
+                QLineEdit.EchoMode.Normal if hidden else QLineEdit.EchoMode.Password
+            )
+            btn_toggle_deploy_key.setText("Hide" if hidden else "Show")
+
+        btn_toggle_deploy_key.clicked.connect(_toggle_deploy_key)
+        deploy_key_row.addWidget(btn_toggle_deploy_key)
+        form_mode.addRow("Convex Deploy Key:", deploy_key_row)
+        deploy_key_help = QLabel(
+            "Optional. Create a deployment-scoped key in Convex Dashboard for updates on machines not signed into the Convex CLI."
+        )
+        deploy_key_help.setWordWrap(True)
+        deploy_key_help.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        form_mode.addRow("", deploy_key_help)
+
         # Device Identity & Concurrent Devices
         from core.cloud_backend import get_device_identity
         _, current_dev_name, _ = get_device_identity()
@@ -1161,6 +1194,12 @@ class UserSettingsDialog(QDialog):
             else:
                 settings.remove("cloud_secret_key")
 
+            deploy_key = self.edit_convex_deploy_key.text().strip()
+            if deploy_key:
+                settings.setValue("convex_deploy_key", deploy_key)
+            else:
+                settings.remove("convex_deploy_key")
+
             from core.cloud_save_sync import set_cloud_mode, reset_cloud_backend
             reset_cloud_backend()
             mode = self.combo_cloud_mode.currentData() or "local"
@@ -1360,28 +1399,24 @@ class UserSettingsDialog(QDialog):
             err = health.get("error") or "Unreachable"
             self.lbl_health_status.setText(f"<font color='#EF4444'>● Unreachable ({err})</font>")
 
-        local_install = detect_local_cloud_installation()
-        has_local_repo = bool(local_install and local_install.get("path"))
-
         if ver != "unknown":
             self.lbl_health_version.setText(f"v{ver}")
             if is_outdated:
                 self.lbl_version_warning.setText(
                     f"<font color='#F59E0B'>Backend update required: installed <b>v{ver}</b> is older than minimum supported <b>v{min_ver}</b>. "
-                    "Redeploy the local backend to restore full cloud features.</font>"
+                    "Redeploy the latest SafeLauncher backend to restore full cloud features.</font>"
                 )
                 self.btn_redeploy.setVisible(True)
-                self.btn_redeploy.setText("Redeploy Backend" if has_local_repo else "Open Setup Wizard")
+                self.btn_redeploy.setText("Update & Redeploy Backend")
                 self.btn_redeploy.setToolTip(
-                    "Run npm install and npx convex deploy from the local backend repository."
-                    if has_local_repo else "Connect or deploy a backend using the cloud setup wizard."
+                    "Downloads the current backend temporarily and deploys it to your configured Convex project."
                 )
                 self.btn_open_dashboard.setVisible(True)
             else:
                 self.lbl_version_warning.setText(
                     f"<font color='#10B981'>Backend functions are up to date (v{ver} >= v{min_ver}).</font>"
                 )
-                self.btn_redeploy.setVisible(has_local_repo)
+                self.btn_redeploy.setVisible(True)
                 self.btn_open_dashboard.setVisible(True)
         else:
             self.lbl_health_version.setText("Unknown")
@@ -1403,40 +1438,36 @@ class UserSettingsDialog(QDialog):
             )
 
     def _redeploy_backend(self):
-        """Redeploy Convex backend functions from local source repository."""
+        """Redeploy fresh backend source without modifying a local checkout."""
         info = detect_local_cloud_installation()
-        if not info or not info.get("path"):
-            from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
-            self.btn_redeploy.setText("Open Setup Wizard")
-            wizard = CloudWizardDialog(self)
-            wizard.exec()
-            self._refresh_backend_health()
-            return
-
         from core.cloud_cli_wizard import _convex_cli_env, _has_convex_project_config
         from pathlib import Path
-        backend_path = Path(info["path"])
-        if not _has_convex_project_config(_convex_cli_env(backend_path)):
+        backend_path = Path(info["path"]) if info and info.get("path") else None
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        has_saved_deploy_key = bool(settings.value("convex_deploy_key", "", type=str).strip())
+        has_saved_deployment = bool(settings.value("convex_deployment", "", type=str).strip())
+        if not has_saved_deploy_key and not has_saved_deployment and (
+            not backend_path or not _has_convex_project_config(_convex_cli_env(backend_path))
+        ):
             QMessageBox.information(
                 self,
                 "Backend linking required",
-                "This backend folder is not linked to a Convex deployment yet.\n\n"
-                "Open the Cloud Setup Wizard and choose New project or Connect existing "
-                "to finish Convex sign-in first.",
+                "SafeLauncher needs a one-time Convex deployment credential before it can "
+                "perform fully automatic backend updates.\n\n"
+                "Open Cloud Setup on a machine that can sign in to Convex, or add a Convex "
+                "deploy key in Settings → Cloud. Server source files are not required.",
             )
-            from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
-            wizard = CloudWizardDialog(self)
-            wizard.exec()
-            self._refresh_backend_health()
             return
 
         reply = QMessageBox.question(
             self, "Redeploy Backend",
-            f"Redeploy Convex backend from local files at:\n{info['path']}?\n\nThis will update your backend functions to the latest version.",
+            "Download the latest SafeLauncherCloud backend into temporary staging and "
+            "deploy it to your configured Convex project?\n\n"
+            "No server repository will be created or changed on your computer.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            from core.cloud_cli_wizard import deploy_convex_backend
+            from core.cloud_cli_wizard import deploy_latest_convex_backend
             self.lbl_version_warning.setText("<font color='#3B82F6'>Deploying backend functions…</font>")
             self.btn_redeploy.setEnabled(False)
 
@@ -1445,7 +1476,9 @@ class UserSettingsDialog(QDialog):
                     # The confirmation above is the user's consent. The CLI
                     # runs in a background worker with no visible terminal,
                     # so pass its non-interactive confirmation flag here.
-                    deployed_url = deploy_convex_backend(info["path"], assume_yes=True)
+                    deployed_url = deploy_latest_convex_backend(
+                        str(backend_path) if backend_path else None, assume_yes=True
+                    )
                     if deployed_url:
                         return True, "Backend redeployed. Rechecking its version…"
                     return False, "Backend redeploy did not complete. Check the terminal output and Convex credentials."

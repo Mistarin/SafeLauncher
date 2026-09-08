@@ -109,8 +109,15 @@ def _site_url_from_backend_checkout(server_dir: Path) -> str:
     return ""
 
 
-def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Path]:
-    """Download or clone the SafeLauncherDatabase/SafeLauncherCloud backend repository."""
+def download_server_repository(
+    target_dir: Optional[Path] = None, *, prefer_archive: bool = False
+) -> Optional[Path]:
+    """Download or clone the SafeLauncherCloud backend repository.
+
+    ``prefer_archive`` is used by the in-app updater.  It deliberately avoids
+    cloning into (or updating) a user-owned checkout: the caller supplies a
+    temporary destination which is discarded after the deployment.
+    """
     import shutil
     import subprocess
     import tempfile
@@ -131,7 +138,7 @@ def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Pa
     print(f"  Downloading server files into {target}...")
 
     # Method 1: git clone using host environment
-    if shutil.which("git"):
+    if not prefer_archive and shutil.which("git"):
         try:
             res = subprocess.run(
                 ["git", "clone", "https://github.com/Mistarin/SafeLauncherCloud.git", str(target)],
@@ -163,6 +170,11 @@ def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Pa
                 parts = member.filename.split("/", 1)
                 if len(parts) > 1 and parts[1]:
                     dest_file = target / parts[1]
+                    # GitHub archives are expected to contain a single root
+                    # directory.  Keep that assumption explicit so a damaged
+                    # or malicious archive cannot escape the staging folder.
+                    if not dest_file.resolve().is_relative_to(target.resolve()):
+                        raise ValueError(f"unsafe archive member: {member.filename}")
                     if member.is_dir():
                         dest_file.mkdir(parents=True, exist_ok=True)
                     else:
@@ -181,13 +193,19 @@ def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Pa
 
 
 def deploy_convex_backend(
-    existing_path: Optional[str] = None, *, assume_yes: bool = False
+    existing_path: Optional[str] = None,
+    *,
+    assume_yes: bool = False,
+    deployment_env: Optional[Dict[str, str]] = None,
+    expected_site_url: str = "",
 ) -> Optional[str]:
     """Build, connect, and deploy Convex backend functions.
 
     ``assume_yes`` is for a GUI caller that has already obtained explicit
     confirmation in its own dialog. Convex otherwise asks in the subprocess'
     hidden stdin, which makes a Settings-triggered redeploy hang forever.
+    ``deployment_env`` lets an ephemeral source checkout deploy to an already
+    linked Convex project without copying its private dotenv files.
     """
     import shutil
     import subprocess
@@ -217,9 +235,9 @@ def deploy_convex_backend(
             return None
         server_dir = downloaded
 
-    # A redeploy must not silently redeploy an old local checkout. This was
-    # especially easy to miss because `npx convex deploy` succeeds even when
-    # the checkout still reports backend v1.4.0.
+    # A redeploy must not silently deploy an old checkout.  In-app updates use
+    # ``deploy_latest_convex_backend`` below, which always stages fresh source
+    # rather than mutating a user checkout with ``git pull``.
     limits_file = server_dir / "convex" / "lib" / "limits.ts"
     local_backend_version = ""
     try:
@@ -229,36 +247,11 @@ def deploy_convex_backend(
     except OSError:
         pass
     if local_backend_version and is_version_outdated(local_backend_version, MIN_CONVEX_BACKEND_VERSION):
-        print(f"  [Deploy] Local backend checkout is v{local_backend_version}; refreshing to v{MIN_CONVEX_BACKEND_VERSION}+...")
-        if (server_dir / ".git").is_dir():
-            try:
-                pulled = subprocess.run(
-                    ["git", "pull", "--ff-only"],
-                    cwd=str(server_dir),
-                    check=False,
-                    env=host_process_env(),
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
-                if pulled.returncode != 0:
-                    print(f"  [✖] Could not refresh the backend checkout: {(pulled.stderr or pulled.stdout).strip()}")
-                    return None
-            except Exception as exc:
-                print(f"  [✖] Could not refresh the backend checkout: {exc}")
-                return None
-            try:
-                limits_text = limits_file.read_text(encoding="utf-8")
-                match = re.search(r'BACKEND_VERSION\s*=\s*["\']([^"\']+)', limits_text)
-                local_backend_version = match.group(1).strip() if match else ""
-            except OSError:
-                local_backend_version = ""
-        if not local_backend_version or is_version_outdated(local_backend_version, MIN_CONVEX_BACKEND_VERSION):
-            print(
-                f"  [✖] Backend source is still v{local_backend_version or 'unknown'}. "
-                "Use the latest SafeLauncherCloud checkout before redeploying."
-            )
-            return None
+        print(
+            f"  [✖] Backend source is v{local_backend_version}; the minimum is "
+            f"v{MIN_CONVEX_BACKEND_VERSION}. Use the app-managed updater or a newer checkout."
+        )
+        return None
 
     compat = inspect_system_compatibility()
     if not compat["has_npm"]:
@@ -279,6 +272,13 @@ def deploy_convex_backend(
         return None
 
     clean_env = _convex_cli_env(server_dir)
+    if deployment_env:
+        # Only deployment identity is inherited.  The staged source remains
+        # isolated from arbitrary user dotenv configuration and secrets.
+        for key in ("CONVEX_DEPLOYMENT", "CONVEX_DEPLOY_KEY"):
+            value = str(deployment_env.get(key, "") or "").strip()
+            if value:
+                clean_env[key] = value
 
     print(f"\n  [Deploy] Installing dependencies in {server_dir}...")
     try:
@@ -339,7 +339,7 @@ def deploy_convex_backend(
 
     from core.cloud_detector import detect_local_cloud_installation
     info = detect_local_cloud_installation()
-    site_url = _site_url_from_backend_checkout(server_dir)
+    site_url = expected_site_url.strip().rstrip("/") or _site_url_from_backend_checkout(server_dir)
     if not site_url and info and info.get("site_url"):
         site_url = info["site_url"].rstrip("/")
     if site_url:
@@ -370,6 +370,63 @@ def deploy_convex_backend(
         print(f"\n  [✔] Deployment complete! Backend v{deployed_version} at {site_url}")
         return site_url
     return None
+
+
+def deploy_latest_convex_backend(
+    config_source_path: Optional[str] = None, *, assume_yes: bool = False
+) -> Optional[str]:
+    """Deploy the latest official backend without retaining server source files.
+
+    Convex CLI must read the function source in order to typecheck and bundle
+    it, but users do not need to clone or maintain that source.  This helper
+    downloads the official archive into a private temporary directory, borrows
+    only the Convex deployment identity from an existing checkout (or a saved
+    deploy key), deploys non-interactively, and always removes the staging
+    directory afterwards.
+    """
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    deployment_env: Dict[str, str] = {}
+    if config_source_path:
+        source_path = Path(config_source_path)
+        if source_path.is_dir():
+            source_env = _convex_cli_env(source_path)
+            for key in ("CONVEX_DEPLOYMENT", "CONVEX_DEPLOY_KEY"):
+                value = str(source_env.get(key, "") or "").strip()
+                if value:
+                    deployment_env[key] = value
+
+    saved_deploy_key = str(settings.value("convex_deploy_key", "", type=str) or "").strip()
+    if saved_deploy_key:
+        deployment_env["CONVEX_DEPLOY_KEY"] = saved_deploy_key
+    saved_deployment = str(settings.value("convex_deployment", "", type=str) or "").strip()
+    if saved_deployment and "CONVEX_DEPLOY_KEY" not in deployment_env:
+        deployment_env.setdefault("CONVEX_DEPLOYMENT", saved_deployment)
+
+    if not _has_convex_project_config(deployment_env):
+        print("  [✖] No Convex deployment credential is available for the managed update.")
+        print("      Complete Cloud Setup once, or add a deployment key in Settings → Cloud.")
+        return None
+
+    expected_site_url = str(settings.value("convex_site_url", "", type=str) or "").strip()
+    with tempfile.TemporaryDirectory(prefix="safelauncher-cloud-") as temp_root:
+        stage_dir = Path(temp_root) / "SafeLauncherCloud"
+        print("  [Deploy] Fetching the latest SafeLauncherCloud source into temporary staging...")
+        source_dir = download_server_repository(stage_dir, prefer_archive=True)
+        if not source_dir:
+            return None
+        deployed_url = deploy_convex_backend(
+            str(source_dir),
+            assume_yes=assume_yes,
+            deployment_env=deployment_env,
+            expected_site_url=expected_site_url,
+        )
+        # A local checkout is only a bootstrap source.  Retain the non-secret
+        # deployment reference after a successful update so it can be removed
+        # without disabling later app-managed redeploys. A deploy key remains
+        # the portable option when the machine is not logged into the CLI.
+        if deployed_url and deployment_env.get("CONVEX_DEPLOYMENT"):
+            settings.setValue("convex_deployment", deployment_env["CONVEX_DEPLOYMENT"])
+        return deployed_url
 
 
 def run_cloud_setup_wizard() -> int:
