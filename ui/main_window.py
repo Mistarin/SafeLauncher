@@ -3250,11 +3250,17 @@ class MainWindow(QMainWindow):
                 if not local_date and len(self.selected_game) > 14:
                     local_date = self.selected_game[14] or 0
                 local_build_id = local_build_id or "Not recorded"
+                steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
                 self.lbl_detail_update.setText("Steam check unavailable")
                 self.lbl_detail_update.setStyleSheet("background: #3f3f46; color: #d4d4d8; border: 1px solid #71717a; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
                 self.lbl_detail_versions.setText(
-                    f"Current: {local_build_id} · {self._format_version_date(local_date)}\n"
-                    "Steam: unavailable"
+                    "<table width='100%' cellspacing='0' cellpadding='1' style='margin:0; padding:0; border-collapse:collapse;'>"
+                    f"<tr><td align='left'><font color='#A7ADB8'>Version</font></td><td align='right'><b>{escape(str(self.selected_game[15] or 'Not set'))}</b></td></tr>"
+                    f"<tr><td align='left'><font color='#A7ADB8'>Steam AppID</font></td><td align='right'><b>{escape(steam_app_id)}</b></td></tr>"
+                    f"<tr><td align='left'><font color='#A7ADB8'>Installed build</font></td><td align='right'><b>{escape(str(local_build_id))}</b></td></tr>"
+                    f"<tr><td align='left'><font color='#A7ADB8'>Updated</font></td><td align='right'>{self._format_version_date(local_date)}</td></tr>"
+                    "<tr><td colspan='2' align='right'><font color='#6F7682'>Steam build unavailable</font></td></tr>"
+                    "</table>"
                 )
                 self.detail_update_widget.setVisible(True)
                 return
@@ -3266,6 +3272,7 @@ class MainWindow(QMainWindow):
             local_build_id = local_build_id or "Not recorded"
             version_override = self.selected_game[15] if len(self.selected_game) > 15 and self.selected_game[15] else "Version unavailable"
             patch_notes_url = self.selected_game[16] if len(self.selected_game) > 16 and self.selected_game[16] else ""
+            steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
             patch_link = f"<br><a href='{escape(patch_notes_url, quote=True)}'>Open patch notes</a>" if patch_notes_url else ""
             status = "Needs update" if is_update_available else "Up to date"
             status_color = ("rgba(229, 169, 61, 0.12)", "#E5A93D", "rgba(229, 169, 61, 0.3)") if is_update_available else ("rgba(53, 201, 138, 0.12)", "#35C98A", "rgba(53, 201, 138, 0.3)")
@@ -3279,6 +3286,7 @@ class MainWindow(QMainWindow):
                 "<td align='center'><font color='#6F7682'>STEAM</font></td></tr>"
                 f"<tr><td><font color='#A7ADB8'>Version</font></td><td align='center'><b>{escape(str(version_override))}</b></td>"
                 f"<td align='center'><font color='#6F7682'>—</font></td></tr>"
+                f"<tr><td><font color='#A7ADB8'>Steam AppID</font></td><td colspan='2' align='center'><b>{escape(steam_app_id)}</b></td></tr>"
                 f"<tr><td><font color='#A7ADB8'>Build</font></td><td align='center'><b>{escape(str(local_build_id))}</b></td>"
                 f"<td align='center'><b>{escape(str(latest_build_id))}</b></td></tr>"
                 f"<tr><td><font color='#A7ADB8'>Updated</font></td><td align='center'>{self._format_version_date(local_date)}</td>"
@@ -3303,6 +3311,15 @@ class MainWindow(QMainWindow):
         self._update_library_item("update_update_available", game_id, False)
         if self.selected_game and self.selected_game[0] == game_id:
             self.lbl_detail_update.setText("Steam check failed")
+            steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
+            version_override = self.selected_game[15] if len(self.selected_game) > 15 and self.selected_game[15] else "Not set"
+            self.lbl_detail_versions.setText(
+                f"<b>Version:</b> {escape(str(version_override))} &nbsp;·&nbsp; "
+                f"<b>Steam AppID:</b> {escape(steam_app_id)}<br>"
+                f"{escape(str(reason or 'Steam build check failed'))}"
+            )
+            self.detail_update_widget.setVisible(True)
+            self.btn_retry_steam.setVisible(True)
 
     @property
     def running_game_ids(self) -> set:
@@ -3334,7 +3351,12 @@ class MainWindow(QMainWindow):
         if self.selected_game and self.selected_game[0] == game_id:
             self.lbl_detail_update.setText("<font color='#6F7682'>Offline — update check not performed</font>")
             self.lbl_detail_update.setStyleSheet("background: #1A1E26; color: #A7ADB8; border: 1px solid #252A33; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 500;")
-            self.lbl_detail_versions.setText(reason)
+            steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
+            version_override = self.selected_game[15] if len(self.selected_game) > 15 and self.selected_game[15] else "Not set"
+            self.lbl_detail_versions.setText(
+                f"<b>Version:</b> {escape(str(version_override))} &nbsp;·&nbsp; "
+                f"<b>Steam AppID:</b> {escape(steam_app_id)}<br>{escape(reason)}"
+            )
             self.lbl_detail_versions.setToolTip(reason)
             self.detail_update_widget.setVisible(True)
             self.btn_retry_steam.setVisible(True)
