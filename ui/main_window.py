@@ -20,7 +20,7 @@ from PyQt6.QtCore import (
     Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer,
     QUrl, QSettings, QAbstractAnimation, QEvent,
 )
-from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices
+from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices, QKeySequence, QShortcut
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.steamgriddb_client import SteamGridDBClient
 from core.playtime_tracker import PlaytimeTrackerThread
@@ -97,6 +97,8 @@ from ui.theme import (
 import getpass
 from core.playtime_tracker import PlaytimeTrackerThread, _shutdown_firejail_sandbox
 from core.safe_thread import FunctionWorker
+from core.operation_registry import OperationRegistry
+from ui.components.activity_drawer import ActivityDrawer
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -198,6 +200,7 @@ class MainWindow(QMainWindow):
         self.library_selection = LibrarySelectionModel()
         self.library_controller = LibraryController()
         self.library_snapshot = None
+        self.operation_registry = OperationRegistry(self)
         self.achievement_watchers = {}
         self.active_toasts = []
         self._load_persistent_cache()
@@ -1143,6 +1146,30 @@ class MainWindow(QMainWindow):
         """)
         footer_layout.addWidget(self.btn_view_toggle)
 
+        self.btn_activity = QPushButton("Activity")
+        self.btn_activity.setObjectName("activityButton")
+        self.btn_activity.setIcon(get_icon("ph.arrows-clockwise-bold", color="#A1A1AA"))
+        self.btn_activity.setIconSize(QSize(13, 13))
+        self.btn_activity.setFixedHeight(26)
+        self.btn_activity.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_activity.setToolTip("Show background operations")
+        self.btn_activity.setStyleSheet("""
+            QPushButton#activityButton {
+                background: transparent;
+                color: #A1A1AA;
+                border: none;
+                border-radius: 5px;
+                padding: 0 8px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QPushButton#activityButton:hover {
+                background: rgba(255, 255, 255, 0.06);
+                color: #FFFFFF;
+            }
+        """)
+        footer_layout.addWidget(self.btn_activity)
+
         footer_layout.addStretch()
 
         # Kept for test and event compatibility; hidden from footer
@@ -1177,6 +1204,9 @@ class MainWindow(QMainWindow):
         footer_layout.addWidget(self.btn_reveal_detail)
 
         root_vbox.addWidget(self.footer_bar)
+        self.activity_drawer = ActivityDrawer(self.operation_registry, self)
+        self.btn_activity.clicked.connect(self._toggle_activity_drawer)
+        self._setup_library_shortcuts()
         
         self.setStyleSheet(get_application_stylesheet())
         
@@ -1897,6 +1927,65 @@ class MainWindow(QMainWindow):
             compact_search.blockSignals(False)
         self._refresh_library()
 
+    def _setup_library_shortcuts(self) -> None:
+        """Install safe, non-destructive shortcuts for everyday library work."""
+        self._library_shortcuts = []
+        bindings = (
+            ("Ctrl+K", self._focus_library_search),
+            ("/", self._focus_library_search),
+            ("Return", self._shortcut_launch_selected),
+            ("Space", self._shortcut_toggle_favorite),
+            ("R", self._shortcut_rescan),
+            ("Ctrl+R", self._refresh_library),
+            ("Ctrl+1", lambda: self._set_library_view_mode("compact")),
+            ("Ctrl+2", lambda: self._set_library_view_mode("grid")),
+            ("Ctrl+3", lambda: self._set_library_view_mode("list")),
+        )
+        for sequence, callback in bindings:
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(callback)
+            self._library_shortcuts.append(shortcut)
+
+    def _shortcut_allowed(self, allow_text_focus: bool = False) -> bool:
+        if allow_text_focus:
+            return True
+        focus = QApplication.focusWidget()
+        return not isinstance(focus, (QLineEdit, QPlainTextEdit))
+
+    def _focus_library_search(self) -> None:
+        search = getattr(self, "grid_search_input", None)
+        if self.library_view_mode in ("compact", "steam"):
+            search = getattr(getattr(self.compact_container, "sidebar_list", None), "search_edit", search)
+        if search is not None:
+            search.setFocus(Qt.FocusReason.ShortcutFocusReason)
+            search.selectAll()
+
+    def _shortcut_launch_selected(self) -> None:
+        if self._shortcut_allowed() and self.selected_game:
+            self._launch_game_by_id(self.selected_game[0])
+
+    def _shortcut_toggle_favorite(self) -> None:
+        if self._shortcut_allowed() and self.selected_game:
+            self._on_toggle_favorite()
+
+    def _shortcut_rescan(self) -> None:
+        if self._shortcut_allowed():
+            self._check_games_on_drive()
+            self._show_toast("Game files rescanned.")
+
+    def _set_library_view_mode(self, mode: str) -> None:
+        if mode not in {"compact", "grid", "list"} or self.library_view_mode == mode:
+            return
+        self.library_view_mode = mode
+        self.settings.setValue("library_view_mode", mode)
+        # Reuse the existing view transition logic without changing the public
+        # cycle behavior of the footer button.
+        current = self.library_view_mode
+        previous = {"compact": "list", "grid": "compact", "list": "grid"}[current]
+        self.library_view_mode = previous
+        self._toggle_library_view()
+
     def _toggle_library_view(self):
         cycle = {"compact": "grid", "grid": "list", "list": "compact", "steam": "grid"}
         self.library_view_mode = cycle.get(self.library_view_mode, "compact")
@@ -2054,7 +2143,8 @@ class MainWindow(QMainWindow):
                     self.cache_dir, self.cloud_save_status_cache
                 )
                 self.compact_container.game_page.set_empty_state(
-                    "No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started."
+                    "No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started.",
+                    show_add=True,
                 )
             return
 
@@ -2101,7 +2191,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "compact_container"):
                 self.compact_container.set_games([], self.library_selection.ids, self.update_status_by_game_id, self.cache_dir, self.cloud_save_status_cache)
                 if hasattr(self.compact_container, "game_page") and hasattr(self.compact_container.game_page, "set_empty_state"):
-                    self.compact_container.game_page.set_empty_state(msg, show_add=bool(self.collection_filter))
+                    self.compact_container.game_page.set_empty_state(msg, show_add=True)
             return
 
         # A selected game can disappear when a collection/status filter changes.
@@ -2407,13 +2497,28 @@ class MainWindow(QMainWindow):
         """Start a one-shot task owned by this window and shut it down safely."""
         worker = FunctionWorker(work, parent=self)
         worker.setObjectName(name)
+        operation = self.operation_registry.start(
+            name.replace("_", " ").strip().title(),
+            category="Background",
+            cancel=worker.requestInterruption,
+        )
+        operation.retry = lambda: self._start_managed_task(name, work, on_complete)
         if on_complete is not None:
-            worker.completed.connect(on_complete)
+            def _complete(result, callback=on_complete, op_id=operation.operation_id):
+                self.operation_registry.finish(op_id)
+                callback(result)
+            worker.completed.connect(_complete)
+        else:
+            worker.completed.connect(
+                lambda _result, op_id=operation.operation_id: self.operation_registry.finish(op_id)
+            )
         worker.error_occurred.connect(
-            lambda error, task=name: logger.warning("Background task %s failed: %s", task, error)
+            lambda error, task=name, op_id=operation.operation_id: self._on_managed_task_error(task, op_id, error)
         )
 
         def _retire(w=worker):
+            if operation.active:
+                self.operation_registry.finish(operation.operation_id, state="cancelled")
             if w in self._background_workers:
                 self._background_workers.remove(w)
             self._retiring_workers.append(w)
@@ -2422,6 +2527,32 @@ class MainWindow(QMainWindow):
         self._register_worker(worker)
         worker.start()
         return worker
+
+    def _on_managed_task_error(self, task: str, operation_id: str, error: str) -> None:
+        logger.warning("Background task %s failed: %s", task, error)
+        self.operation_registry.fail(operation_id, error)
+
+    def _toggle_activity_drawer(self) -> None:
+        drawer = getattr(self, "activity_drawer", None)
+        if drawer is None:
+            return
+        if drawer.isVisible():
+            drawer.hide()
+            return
+        self._position_activity_drawer()
+        drawer.show()
+        drawer.raise_()
+
+    def _position_activity_drawer(self) -> None:
+        drawer = getattr(self, "activity_drawer", None)
+        if drawer is None:
+            return
+        drawer.adjustSize()
+        margin = 14
+        drawer.move(
+            max(margin, self.width() - drawer.width() - margin),
+            margin + self.title_bar.height(),
+        )
 
     def _cleanup_metadata_fetcher(self, fetcher):
         if fetcher in self.metadata_fetchers:
@@ -2681,6 +2812,7 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposition_reveal_button()
+        self._position_activity_drawer()
 
     def changeEvent(self, event):
         super().changeEvent(event)
