@@ -96,6 +96,7 @@ from ui.theme import (
 
 import getpass
 from core.playtime_tracker import PlaytimeTrackerThread, _shutdown_firejail_sandbox
+from core.game_session import GameSessionManager
 from core.safe_thread import FunctionWorker, WorkerSupervisor
 from core.operation_registry import OperationRegistry
 from ui.components.activity_drawer import ActivityDrawer
@@ -179,6 +180,8 @@ class MainWindow(QMainWindow):
         self._hero_attempted = set()
         self._icon_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
+        self.game_sessions = GameSessionManager(self)
+        self.game_sessions.session_state_changed.connect(self._on_game_session_state_changed)
         self._stopping_game_ids = set()  # game IDs transitioning from running to stopped
         self._background_workers = []  # authoritative registry for shutdown (see _register_worker)
         self._retiring_workers = []  # retain retiring threads until completely stopped to avoid GC destroying running QThread
@@ -3303,16 +3306,20 @@ class MainWindow(QMainWindow):
 
     @property
     def running_game_ids(self) -> set:
-        """Game ids with a live process right now, derived from the playtime
-        trackers. A derived value can never go stale the way the old
-        manually-maintained set did (trackers that outlived their game window
-        left phantom 'running' entries behind)."""
-        live = set()
-        for tracker in getattr(self, "playtime_trackers", []):
-            proc = getattr(tracker, "process", None)
-            if proc is not None and proc.poll() is None:
-                live.add(tracker.game_id)
-        return live
+        """Game ids with an active authoritative game session."""
+        return self.game_sessions.active_game_ids()
+
+    def _on_game_session_state_changed(self, session) -> None:
+        """Keep every presentation bound to the same session state."""
+        self._update_detail_launch_button(session.game_id)
+        if hasattr(self, "compact_container") and self.compact_container:
+            if self.selected_game and self.selected_game[0] == session.game_id:
+                if session.state == "stopping":
+                    self.compact_container.set_play_state("stopping")
+                elif session.state == "running" and session.is_live:
+                    self.compact_container.set_play_state("running")
+                else:
+                    self.compact_container.set_play_state("play")
 
     def _on_update_check_offline(self, game_id: int):
         """Network unreachable: show an explicit offline state, never a
@@ -4016,6 +4023,7 @@ class MainWindow(QMainWindow):
             if self.selected_game and self.selected_game[0] == game_id:
                 self.compact_container.set_play_state("stopping")
         stopped = False
+        self.game_sessions.mark_stopping(game_id)
         for tracker in list(self.playtime_trackers):
             if tracker.game_id == game_id:
                 if tracker.process and tracker.process.poll() is None:
@@ -4326,6 +4334,10 @@ class MainWindow(QMainWindow):
         selected_mode = ctx["selected_mode"]
         selected_proton = ctx["selected_proton"]
         try:
+            existing_session = self.game_sessions.get(game_id)
+            if existing_session and existing_session.is_live:
+                self._stop_game(game_id)
+                return
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(selected_proton)
             process = self.runner.launch(path, exe, selected_mode, steam_id, sandbox=sandbox, env_vars=env_vars)
@@ -4334,7 +4346,9 @@ class MainWindow(QMainWindow):
                 # Register the tracker before refreshing UI so the derived
                 # running_game_ids already contains this game.
                 session_id = self.db.create_playtime_session(game_id, started_at=int(time.time()))
+                session = self.game_sessions.start(game_id, game_name, process, session_id=session_id)
                 tracker = PlaytimeTrackerThread(game_id, process, session_id=session_id, parent=self)
+                self.game_sessions.attach_tracker(game_id, tracker)
                 tracker.playtime_recorded.connect(self._on_playtime_recorded)
                 tracker.playtime_checkpoint.connect(self._on_playtime_checkpoint)
                 tracker.playtime_session_recorded.connect(self._on_playtime_session_recorded)
@@ -4773,6 +4787,9 @@ class MainWindow(QMainWindow):
 
     def _cleanup_tracker(self, tracker: PlaytimeTrackerThread):
         """Remove finished tracker from the list so it can be garbage collected."""
+        session = self.game_sessions.get(tracker.game_id)
+        if session is not None:
+            self.game_sessions.finish(tracker.game_id, exit_code=tracker.process.poll())
         self._stopping_game_ids.discard(tracker.game_id)
         if tracker in self.playtime_trackers:
             self.playtime_trackers.remove(tracker)
@@ -4782,6 +4799,8 @@ class MainWindow(QMainWindow):
             self._update_detail_launch_button(tracker.game_id)
         if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
             self.discord_rpc.clear_activity()
+
+        self.game_sessions.remove(tracker.game_id)
 
         # Stop Achievement Watcher for this game
         if tracker.game_id in getattr(self, "achievement_watchers", {}):
@@ -5264,6 +5283,13 @@ class MainWindow(QMainWindow):
             if fetcher.isRunning() and hasattr(fetcher, "requestInterruption"):
                 fetcher.requestInterruption()
         for tracker in list(self.playtime_trackers):
+            if tracker.process and tracker.process.poll() is None:
+                try:
+                    tracker.process.terminate()
+                except Exception:
+                    pass
+                if getattr(tracker, "sandbox_name", None):
+                    _shutdown_firejail_sandbox(sandbox_name=tracker.sandbox_name)
             tracker.stop()
 
         # WorkerSupervisor is the authoritative registry. Semantic lists are
