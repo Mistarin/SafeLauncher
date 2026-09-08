@@ -305,7 +305,7 @@ def btn_primary_style() -> str:
             background-color: #005BB5;
         }}
         QPushButton:disabled {{
-            background-color: rgba(255, 255, 255, 0.04);
+            background-color: #161A22;
             color: #636366;
             border: none;
         }}
@@ -316,7 +316,7 @@ def btn_secondary_style() -> str:
     """Dark elevated surface, light text, subtle 1px border."""
     return f"""
         QPushButton {{
-            background-color: rgba(255, 255, 255, 0.04);
+            background-color: #161A22;
             color: #F5F7FA;
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 8px;
@@ -325,12 +325,12 @@ def btn_secondary_style() -> str:
             padding: 7px 14px;
         }}
         QPushButton:hover {{
-            background-color: rgba(255, 255, 255, 0.08);
+            background-color: #202633;
             border-color: rgba(255, 255, 255, 0.12);
             color: #FFFFFF;
         }}
         QPushButton:pressed {{
-            background-color: rgba(255, 255, 255, 0.02);
+            background-color: #10141B;
             border-color: rgba(255, 255, 255, 0.05);
         }}
         QPushButton:disabled {{
@@ -353,7 +353,7 @@ def btn_tertiary_style() -> str:
             padding: 6px 12px;
         }}
         QPushButton:hover {{
-            background-color: rgba(255, 255, 255, 0.06);
+            background-color: #1A1F28;
             color: #FFFFFF;
         }}
         QPushButton:pressed {{
@@ -395,7 +395,7 @@ def search_input_style() -> str:
     """Sleek, modern search bar for header and library filter."""
     return f"""
         QLineEdit {{
-            background-color: rgba(255, 255, 255, 0.04);
+            background-color: #161A22;
             color: #FFFFFF;
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 7px;
@@ -404,7 +404,7 @@ def search_input_style() -> str:
         }}
         QLineEdit:focus {{
             border-color: #0A84FF;
-            background-color: rgba(255, 255, 255, 0.07);
+            background-color: #1D222B;
         }}
         QLineEdit::placeholder {{
             color: #636366;

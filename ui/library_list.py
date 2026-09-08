@@ -102,7 +102,7 @@ class LibraryListItemWidget(QWidget):
             ver_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
             ver_badge.setStyleSheet("""
                 QLabel {
-                    background: rgba(255, 255, 255, 0.05);
+                    background: #171B23;
                     color: #A1A1A6;
                     border: none;
                     border-radius: 4px;
@@ -358,7 +358,7 @@ class LibraryListView(QListWidget):
                 padding: 0;
             }
             QListWidget::item:hover {
-                background: rgba(255, 255, 255, 0.04);
+                    background: #161A22;
                 border-color: rgba(255, 255, 255, 0.08);
             }
             QListWidget::item:selected {

@@ -78,13 +78,13 @@ class MetricCard(QFrame):
         self.setObjectName("metricCard")
         self.setStyleSheet(f"""
             QFrame#metricCard {{
-                background-color: rgba(255, 255, 255, 0.04);
+                background-color: #161A22;
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 12px;
                 padding: 10px 14px;
             }}
             QFrame#metricCard:hover {{
-                background-color: rgba(255, 255, 255, 0.06);
+                background-color: #1A1F28;
                 border-color: rgba(255, 255, 255, 0.14);
             }}
         """)
@@ -150,7 +150,7 @@ class AppleAchievementCard(QFrame):
                 border-radius: 12px;
             }}
             QFrame#appleAchievementCard:hover {{
-                background-color: rgba(255, 255, 255, 0.05);
+                background-color: #171B23;
                 border: 1px solid {hover_border_css};
             }}
         """)
@@ -216,7 +216,7 @@ class AppleAchievementCard(QFrame):
             pill_style = "background-color: rgba(10, 132, 255, 0.12); color: #0A84FF; border: 1px solid rgba(10, 132, 255, 0.25);"
         else:
             status_text = "LOCKED"
-            pill_style = "background-color: rgba(255, 255, 255, 0.05); color: #8E8E93; border: 1px solid rgba(255, 255, 255, 0.08);"
+            pill_style = "background-color: #171B23; color: #8E8E93; border: 1px solid rgba(255, 255, 255, 0.08);"
 
         self.pill_lbl = QLabel(f" {status_text} ")
         self.pill_lbl.setStyleSheet(f"{pill_style} font-size: 9px; font-weight: 700; border-radius: 4px; padding: 2px 6px; letter-spacing: 0.5px;")
@@ -243,7 +243,7 @@ class AppleAchievementCard(QFrame):
             self.btn_reveal.setFixedHeight(26)
             self.btn_reveal.setStyleSheet("""
                 QPushButton {
-                    background-color: rgba(255, 255, 255, 0.08);
+                    background-color: #202633;
                     color: #0A84FF;
                     border: 1px solid rgba(10, 132, 255, 0.3);
                     border-radius: 13px;
@@ -302,7 +302,7 @@ class AppleAchievementCard(QFrame):
                 self.btn_reveal.setText("Hide")
                 self.btn_reveal.setStyleSheet("""
                     QPushButton {
-                        background-color: rgba(255, 255, 255, 0.05);
+                        background-color: #171B23;
                         color: #8E8E93;
                         border: 1px solid rgba(255, 255, 255, 0.1);
                         border-radius: 13px;
@@ -311,7 +311,7 @@ class AppleAchievementCard(QFrame):
                         font-weight: 600;
                     }
                     QPushButton:hover {
-                        background-color: rgba(255, 255, 255, 0.1);
+                        background-color: #252B35;
                         color: #FFFFFF;
                     }
                 """)
@@ -322,7 +322,7 @@ class AppleAchievementCard(QFrame):
                 self.btn_reveal.setText("Reveal")
                 self.btn_reveal.setStyleSheet("""
                     QPushButton {
-                        background-color: rgba(255, 255, 255, 0.08);
+                        background-color: #202633;
                         color: #0A84FF;
                         border: 1px solid rgba(10, 132, 255, 0.3);
                         border-radius: 13px;
@@ -408,7 +408,7 @@ class AchievementsDialog(QDialog):
                 height: 0px;
             }
             QLineEdit {
-                background-color: rgba(255, 255, 255, 0.05);
+                background-color: #171B23;
                 border: 1px solid rgba(255, 255, 255, 0.09);
                 border-radius: 10px;
                 padding: 7px 14px;
@@ -416,11 +416,11 @@ class AchievementsDialog(QDialog):
                 font-size: 13px;
             }
             QLineEdit:focus {
-                background-color: rgba(255, 255, 255, 0.08);
+                background-color: #202633;
                 border: 1px solid #0A84FF;
             }
             QComboBox {
-                background-color: rgba(255, 255, 255, 0.05);
+                background-color: #171B23;
                 border: 1px solid rgba(255, 255, 255, 0.09);
                 border-radius: 10px;
                 padding: 6px 12px;
@@ -491,7 +491,7 @@ class AchievementsDialog(QDialog):
 
         if self.game_steam_id:
             appid_pill = QLabel(f" Steam AppID: {self.game_steam_id} ")
-            appid_pill.setStyleSheet("background: rgba(255, 255, 255, 0.06); color: #8E8E93; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+            appid_pill.setStyleSheet("background: #1A1F28; color: #8E8E93; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
             sub_row.addWidget(appid_pill)
 
         self.status_tag = QLabel(" Synchronized ")
@@ -509,7 +509,7 @@ class AchievementsDialog(QDialog):
         self.btn_refresh.setFixedHeight(34)
         self.btn_refresh.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
+                background-color: #202633;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
                 padding: 0 16px;
@@ -522,7 +522,7 @@ class AchievementsDialog(QDialog):
                 border-color: rgba(255, 255, 255, 0.22);
             }
             QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.05);
+                background-color: #171B23;
             }
         """)
         self.btn_refresh.clicked.connect(self._load_and_sync_achievements)
@@ -555,7 +555,7 @@ class AchievementsDialog(QDialog):
         self.progress_bar.setValue(0)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
-                background-color: rgba(255, 255, 255, 0.06);
+                background-color: #1A1F28;
                 border: none;
                 border-radius: 3px;
             }
@@ -577,7 +577,7 @@ class AchievementsDialog(QDialog):
         seg_container = QFrame()
         seg_container.setStyleSheet("""
             QFrame {
-                background-color: rgba(255, 255, 255, 0.05);
+                background-color: #171B23;
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 9px;
                 padding: 2px;
@@ -865,7 +865,7 @@ class AchievementsDialog(QDialog):
             no_match = QFrame()
             no_match.setStyleSheet("""
                 QFrame {
-                    background-color: rgba(255, 255, 255, 0.02);
+                    background-color: #10141B;
                     border: 1px dashed rgba(255, 255, 255, 0.08);
                     border-radius: 12px;
                     padding: 30px;

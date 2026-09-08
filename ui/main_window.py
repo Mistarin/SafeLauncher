@@ -477,7 +477,7 @@ class MainWindow(QMainWindow):
                 border-radius: 12px;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.08);
+                background: #202633;
             }
         """)
         self.btn_hide_detail.clicked.connect(lambda: self._animate_left_panel(False))
@@ -528,7 +528,7 @@ class MainWindow(QMainWindow):
         self.detail_spec_card.setObjectName("detailSpecCard")
         self.detail_spec_card.setStyleSheet("""
             QFrame#detailSpecCard {
-                background-color: rgba(255, 255, 255, 0.03);
+                background-color: #11141A;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 10px;
             }
@@ -611,7 +611,7 @@ class MainWindow(QMainWindow):
         self.lbl_detail_versions.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_detail_versions.setWordWrap(True)
         self.lbl_detail_versions.setOpenExternalLinks(True)
-        self.lbl_detail_versions.setStyleSheet("QLabel { color: #A1A1A6; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; font-size: 10px; padding: 3px 8px; }")
+        self.lbl_detail_versions.setStyleSheet("QLabel { color: #A1A1A6; background: #161A22; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; font-size: 10px; padding: 3px 8px; }")
         self.detail_update_layout.addWidget(self.lbl_detail_versions)
 
         self.btn_retry_steam = QPushButton("Retry")
@@ -655,7 +655,7 @@ class MainWindow(QMainWindow):
 
         sec_btn_style = """
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.04);
+                background-color: #161A22;
                 color: #D1D5DB;
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 8px;
@@ -665,12 +665,12 @@ class MainWindow(QMainWindow):
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.08);
+                background-color: #202633;
                 border-color: rgba(255, 255, 255, 0.12);
                 color: #FFFFFF;
             }
             QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.02);
+                background-color: #10141B;
             }
         """
 
@@ -727,13 +727,13 @@ class MainWindow(QMainWindow):
         self.detail_ach_card.setObjectName("detailAchCard")
         self.detail_ach_card.setStyleSheet("""
             QFrame#detailAchCard {
-                background-color: rgba(255, 255, 255, 0.03);
+                background-color: #11141A;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 10px;
                 padding: 10px;
             }
             QFrame#detailAchCard:hover {
-                background-color: rgba(255, 255, 255, 0.05);
+                background-color: #171B23;
                 border-color: rgba(48, 209, 88, 0.3);
             }
         """)
@@ -765,7 +765,7 @@ class MainWindow(QMainWindow):
         self.detail_ach_progress.setValue(0)
         self.detail_ach_progress.setStyleSheet("""
             QProgressBar {
-                background-color: rgba(255, 255, 255, 0.06);
+                background-color: #1A1F28;
                 border: none;
                 border-radius: 2px;
             }

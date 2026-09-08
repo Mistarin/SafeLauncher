@@ -64,7 +64,7 @@ class LeftSidebarWidget(QFrame):
                 font-weight: 500;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.05);
+                background: #171B23;
                 color: #FFFFFF;
             }
         """)
@@ -91,11 +91,11 @@ class LeftSidebarWidget(QFrame):
                 min-height: 18px;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.05);
+                background: #171B23;
                 color: #FFFFFF;
             }
             QPushButton:checked {
-                background: rgba(255, 255, 255, 0.10);
+                background: #252B35;
                 color: #FFFFFF;
                 font-weight: 600;
             }
@@ -356,7 +356,7 @@ class LeftSidebarWidget(QFrame):
                 margin-top: 4px;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.06);
+                background: #1A1F28;
                 color: #FFFFFF;
             }
         """)
@@ -470,7 +470,7 @@ class HeaderBar(QFrame):
                 text-align: center;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.06);
+                background: #1A1F28;
                 color: #FFFFFF;
             }
             QPushButton::menu-indicator { image: none; }
@@ -591,7 +591,7 @@ class HeaderBar(QFrame):
                 font-weight: 500;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.08);
+                background: #202633;
                 color: #FFFFFF;
             }
             QPushButton#windowClose:hover {
