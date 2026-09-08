@@ -16,9 +16,9 @@ TEXT_MUTED = "#71717A"
 # Popup surfaces follow the flat, row-based desktop treatment used by the
 # reference UI.  Dialogs should use these instead of inventing local cards.
 POPUP_BACKGROUND = "#171D26"
-POPUP_SURFACE = "#222832"
-POPUP_SURFACE_ACTIVE = "#2B3441"
-POPUP_SURFACE_HOVER = "#29313C"
+POPUP_SURFACE = "#1D232C"
+POPUP_SURFACE_ACTIVE = "#27303B"
+POPUP_SURFACE_HOVER = "#242D38"
 POPUP_DIVIDER = "#303844"
 
 # ── Brand Accent ─────────────────────────────────────────────────────────────

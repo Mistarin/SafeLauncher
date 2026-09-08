@@ -718,7 +718,7 @@ class DialogTitleBar(QFrame):
                 background: transparent;
                 color: #A1A1AA;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 padding: 0;
                 margin: 0;
                 text-align: center;

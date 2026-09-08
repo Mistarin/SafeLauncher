@@ -6,11 +6,13 @@ remain responsible for their domain state and asynchronous work.
 
 from __future__ import annotations
 
+import re
 from typing import Callable, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
+    QAbstractScrollArea,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -22,12 +24,14 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QTabBar,
     QTabWidget,
+    QStackedWidget,
     QListWidget,
     QTableWidget,
     QTreeWidget,
     QTextEdit,
     QPushButton,
     QProgressBar,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -55,6 +59,8 @@ POPUP_STYLE = f"""
 QDialog#safeLauncherPopup {{
     background: {POPUP_BACKGROUND};
     color: {TEXT_PRIMARY};
+    border: none;
+    border-radius: 0;
 }}
 QDialog#safeLauncherPopup QFrame#popupBody {{
     background: {POPUP_BACKGROUND};
@@ -68,16 +74,24 @@ QDialog#safeLauncherPopup QFrame#header_frame,
 QDialog#safeLauncherPopup QFrame#recovery_frame {{
     background: {POPUP_SURFACE};
     border: none;
-    border-radius: 2px;
+    border-radius: 0;
+}}
+QDialog#safeLauncherPopup QWidget {{
+    background: {POPUP_BACKGROUND};
 }}
 QDialog#safeLauncherPopup QFrame {{
+    background: {POPUP_SURFACE};
     border: none;
+    border-radius: 0;
+}}
+QDialog#safeLauncherPopup QFrame#popupBody {{
+    background: {POPUP_BACKGROUND};
 }}
 QDialog#safeLauncherPopup QPushButton {{
     background: {POPUP_SURFACE};
     color: {TEXT_PRIMARY};
     border: none;
-    border-radius: 2px;
+    border-radius: 0;
     padding: 7px 14px;
     min-height: 28px;
     font-size: 12px;
@@ -106,7 +120,7 @@ QLineEdit#popupInput {{
     background: {POPUP_SURFACE};
     color: {TEXT_PRIMARY};
     border: none;
-    border-radius: 2px;
+    border-radius: 0;
     padding: 8px 10px;
 }}
 QLineEdit#popupInput:focus {{
@@ -121,7 +135,7 @@ QDialog#safeLauncherPopup QSpinBox {{
     background: {POPUP_SURFACE};
     color: {TEXT_PRIMARY};
     border: none;
-    border-radius: 2px;
+    border-radius: 0;
     padding: 7px 10px;
 }}
 QDialog#safeLauncherPopup QLineEdit:focus,
@@ -140,6 +154,10 @@ QDialog#safeLauncherPopup QScrollArea {{
     color: {TEXT_PRIMARY};
     border: none;
 }}
+QDialog#safeLauncherPopup QAbstractScrollArea::viewport {{
+    background: {POPUP_BACKGROUND};
+    border: none;
+}}
 QDialog#safeLauncherPopup QListWidget::item:selected,
 QDialog#safeLauncherPopup QTreeWidget::item:selected,
 QDialog#safeLauncherPopup QTableWidget::item:selected {{
@@ -155,7 +173,7 @@ QDialog#safeLauncherPopup QCheckBox::indicator {{
     height: 16px;
     background: {POPUP_SURFACE};
     border: none;
-    border-radius: 2px;
+    border-radius: 0;
 }}
 QDialog#safeLauncherPopup QCheckBox::indicator:checked {{
     background: {ACCENT_PRIMARY};
@@ -168,7 +186,7 @@ QDialog#safeLauncherPopup QTabBar::tab {{
     background: {POPUP_SURFACE};
     color: {TEXT_SECONDARY};
     border: none;
-    border-radius: 2px;
+    border-radius: 0;
     padding: 8px 14px;
     margin-right: 2px;
 }}
@@ -180,7 +198,7 @@ QPushButton#popupPrimary, QPushButton#popupSecondary,
 QPushButton#popupDestructive {{
     min-height: 30px;
     border: none;
-    border-radius: 2px;
+    border-radius: 0;
     padding: 5px 14px;
     font-size: 12px;
     font-weight: 600;
@@ -203,13 +221,13 @@ QPushButton#popupDestructive:hover {{ background: rgba(240, 93, 108, 0.14); }}
 QProgressBar#popupProgress {{
     background: {POPUP_SURFACE};
     border: none;
-    border-radius: 3px;
+    border-radius: 0;
     height: 6px;
     text-visible: false;
 }}
 QProgressBar#popupProgress::chunk {{
     background: {ACCENT_PRIMARY};
-    border-radius: 3px;
+    border-radius: 0;
 }}
 """
 
@@ -224,6 +242,7 @@ class PopupDialog(QDialog):
     def __init__(self, title: str = "", parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("safeLauncherPopup")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setStyleSheet(POPUP_STYLE)
@@ -233,9 +252,30 @@ class PopupDialog(QDialog):
         self.title_bar = DialogTitleBar(self, title)
         self._popup_root.addWidget(self.title_bar)
         self._popup_widgets_normalized = False
+        self._popup_width_hint: Optional[int] = None
+
+    def setFixedSize(self, width: int, height: int):
+        """Treat legacy fixed dialog geometry as a content-width hint.
+
+        Older dialogs used fixed heights to compensate for their old card
+        composition.  The shared shell now lets layouts determine height from
+        content while retaining the intended minimum width.
+        """
+        self._popup_width_hint = max(1, int(width))
+        self.setMinimumWidth(self._popup_width_hint)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.resize(self._popup_width_hint, max(1, int(height)))
+
+    def setFixedWidth(self, width: int):
+        self._popup_width_hint = max(1, int(width))
+        self.setMinimumWidth(self._popup_width_hint)
+        self.resize(self._popup_width_hint, self.height())
 
     def showEvent(self, event):
         self.normalize_popup_widgets()
+        self.adjustSize()
+        if self._popup_width_hint:
+            self.resize(max(self.width(), self._popup_width_hint), self.height())
         super().showEvent(event)
 
     def normalize_popup_widgets(self):
@@ -256,9 +296,38 @@ class PopupDialog(QDialog):
         for child in self.findChildren(QWidget):
             if child is self.title_bar or self.title_bar.isAncestorOf(child):
                 continue
+            if type(child) is QWidget or isinstance(child, (QFrame, QTabWidget, QStackedWidget, QScrollArea)):
+                child.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             if (type(child) is QWidget or isinstance(child, styled_types)) and child.styleSheet():
                 child.setStyleSheet("")
+            elif isinstance(child, QLabel) and child.styleSheet():
+                # Preserve semantic label colors/fonts, but remove legacy
+                # rounded badge treatment from popup labels.
+                sanitized = re.sub(r"border-radius\s*:\s*[^;{}]+;?", "", child.styleSheet(), flags=re.IGNORECASE)
+                child.setStyleSheet(sanitized)
+        for area in self.findChildren(QAbstractScrollArea):
+            area.viewport().setStyleSheet(
+                f"background: {POPUP_BACKGROUND}; border: none; border-radius: 0;"
+            )
         self._popup_widgets_normalized = True
+
+    def popup_card(self, *, object_name: str = "popupCard", margins=(16, 14, 16, 14), spacing=10) -> tuple[QFrame, QVBoxLayout]:
+        """Create a flat, content-sized card using the shared popup surface."""
+        card = QFrame(self)
+        card.setObjectName(object_name)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(*margins)
+        layout.setSpacing(spacing)
+        return card, layout
+
+    def popup_row(self, *, object_name: str = "popupRow", margins=(12, 10, 12, 10), spacing=10) -> tuple[QFrame, QHBoxLayout]:
+        """Create a flat horizontal row with content-driven height."""
+        row = QFrame(self)
+        row.setObjectName(object_name)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(*margins)
+        layout.setSpacing(spacing)
+        return row, layout
 
     def setStyleSheet(self, style_sheet: str):
         """Keep legacy dialog-specific rules, then enforce popup tokens.
