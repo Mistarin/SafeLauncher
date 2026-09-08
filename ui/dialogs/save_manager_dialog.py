@@ -19,7 +19,7 @@ from ui.components.sidebar import DialogTitleBar
 from ui.components.check_field import CheckField as QCheckBox
 from core.ludusavi_detector import LudusaviDetector, SaveLocation
 from core.zip_backup import ZipBackupManager
-from core.safe_thread import FunctionWorker
+from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
 
 logger = get_logger("SaveManagerDialog")
@@ -57,7 +57,7 @@ class SaveManagerDialog(QDialog):
         # this dialog. Keeping explicit references prevents a QThread from
         # being garbage-collected while it is running and lets closeEvent wait
         # for cooperative cancellation instead of racing a deleted widget.
-        self._background_workers: list[FunctionWorker] = []
+        self._task_supervisor = TaskSupervisor(self, logger)
         self._closing = False
         self._restore_done.connect(self._on_restore_done)
         self._upload_done.connect(self._on_upload_done)
@@ -405,31 +405,13 @@ class SaveManagerDialog(QDialog):
 
     def _start_managed_task(self, name: str, work, on_complete):
         """Run a dialog operation with an owned, observable lifetime."""
-        worker = FunctionWorker(work, parent=self)
-        worker.setObjectName(name)
-        worker.completed.connect(on_complete)
-        worker.error_occurred.connect(
-            lambda error, task=name: logger.warning("Save-manager task %s failed: %s", task, error)
-        )
-
-        def _retire(w=worker):
-            if w in self._background_workers:
-                self._background_workers.remove(w)
-            w.deleteLater()
-
-        worker.finished.connect(_retire)
-        self._background_workers.append(worker)
-        worker.start()
-        return worker
+        return self._task_supervisor.start(name, work, on_complete)
 
     def closeEvent(self, event):
         """Do not destroy this dialog while an owned worker still runs."""
         self._closing = True
-        running = [w for w in self._background_workers if w.isRunning()]
-        for worker in running:
-            worker.requestInterruption()
-            worker.wait(100)
-        if any(w.isRunning() for w in self._background_workers):
+        self._task_supervisor.cancel_all(100)
+        if self._task_supervisor.has_running_tasks():
             QTimer.singleShot(100, self.close)
             event.ignore()
             return

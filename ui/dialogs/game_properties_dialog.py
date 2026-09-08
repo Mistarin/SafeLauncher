@@ -1,7 +1,6 @@
 import os
 import json
 import subprocess
-import threading
 from typing import Optional, Dict
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
@@ -9,7 +8,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QCheckBox, QSlider, QComboBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QProgressDialog, QApplication
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 
 from ui.icons import get_icon, get_app_icon
@@ -19,6 +18,7 @@ from ui.maintenance_dialogs import PrefixMaintenanceDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from core.host_process import host_process_env
 from core.logger import get_logger
+from core.safe_thread import TaskSupervisor
 
 logger = get_logger("GamePropertiesDialog")
 
@@ -35,6 +35,7 @@ class GamePropertiesDialog(QDialog):
         super().__init__(parent)
         self.game = game
         self.parent_window = parent
+        self._task_supervisor = TaskSupervisor(self, logger)
 
         # Extract game record fields
         self.game_id = game[0]
@@ -574,6 +575,17 @@ class GamePropertiesDialog(QDialog):
 
         return scroll
 
+    def _start_managed_task(self, name: str, work, on_complete):
+        return self._task_supervisor.start(name, work, on_complete)
+
+    def closeEvent(self, event):
+        self._task_supervisor.cancel_all(100)
+        if self._task_supervisor.has_running_tasks():
+            QTimer.singleShot(100, self.close)
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def _load_save_stats_async(self):
         """Asynchronously load save detection & cloud status on worker thread."""
         def _worker():
@@ -593,13 +605,14 @@ class GamePropertiesDialog(QDialog):
                     except Exception:
                         versions = None
 
-                self._save_stats_ready.emit((status, local_stats, cloud_stats, versions))
+                return status, local_stats, cloud_stats, versions
             except Exception as e:
                 logger.warning(f"Async save stats check failed for '{self.game_name}': {e}")
-                self._save_stats_ready.emit((None, None, None, None))
+                return None, None, None, None
 
-        import threading
-        threading.Thread(target=_worker, daemon=True, name=f"SafeLauncher-PropSave-{self.game_id}").start()
+        self._start_managed_task(
+            f"SafeLauncher-PropSave-{self.game_id}", _worker, self._save_stats_ready.emit
+        )
 
     def _on_save_stats_ready(self, payload):
         """GUI-thread handler to populate Save tab metadata without blocking dialog opening."""
@@ -727,9 +740,13 @@ class GamePropertiesDialog(QDialog):
             ok = CloudSaveSyncEngine.restore_cloud_generation(
                 self.game_name, self.game_path, self.steam_id, version=int(version)
             )
-            self._gen_restore_done.emit(bool(ok), int(version or 0))
+            return bool(ok), int(version or 0)
 
-        threading.Thread(target=_work, daemon=True, name=f"SafeLauncher-GenRestore-{self.game_id}").start()
+        self._start_managed_task(
+            f"SafeLauncher-GenRestore-{self.game_id}",
+            _work,
+            lambda result: self._gen_restore_done.emit(*result),
+        )
 
     def _restore_backup_now(self):
         """Backwards-compatible wrapper for restoring backup generation."""
@@ -776,10 +793,11 @@ class GamePropertiesDialog(QDialog):
             except Exception as e:
                 logger.error(f"Manual cloud upload failed for '{self.game_name}': {e}")
                 ok = False
-            self._manual_sync_up_done.emit(bool(ok))
+            return bool(ok)
 
-        import threading
-        threading.Thread(target=_work, daemon=True, name=f"SafeLauncher-ManualSyncUp-{self.game_id}").start()
+        self._start_managed_task(
+            f"SafeLauncher-ManualSyncUp-{self.game_id}", _work, self._manual_sync_up_done.emit
+        )
 
     def _on_manual_sync_up_done(self, ok: bool):
         if hasattr(self, "_active_manual_sync_progress") and self._active_manual_sync_progress:
@@ -848,10 +866,11 @@ class GamePropertiesDialog(QDialog):
             except Exception as e:
                 logger.error(f"Manual cloud restore failed for '{self.game_name}': {e}")
                 ok = False
-            self._manual_sync_down_done.emit(bool(ok))
+            return bool(ok)
 
-        import threading
-        threading.Thread(target=_work, daemon=True, name=f"SafeLauncher-ManualSyncDown-{self.game_id}").start()
+        self._start_managed_task(
+            f"SafeLauncher-ManualSyncDown-{self.game_id}", _work, self._manual_sync_down_done.emit
+        )
 
     def _on_manual_sync_down_done(self, ok: bool):
         if hasattr(self, "_active_manual_sync_progress") and self._active_manual_sync_progress:

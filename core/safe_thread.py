@@ -7,7 +7,7 @@ background thread exceptions from crashing Qt event loops or destroying thread h
 import traceback
 from typing import Callable, Any
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from core.logger import get_logger
 
 logger = get_logger("SafeQThread")
@@ -70,3 +70,47 @@ class FunctionWorker(SafeQThread):
         result = self._work()
         if not self.isInterruptionRequested():
             self.completed.emit(result)
+
+
+class TaskSupervisor(QObject):
+    """Own one-shot UI tasks for the lifetime of a widget or window.
+
+    A caller supplies only work and a GUI-thread completion callback. The
+    supervisor retains QThread instances, logs unexpected failures, and offers
+    cooperative shutdown without unsafe ``QThread.terminate()`` calls.
+    """
+
+    def __init__(self, owner, task_logger=None):
+        super().__init__(owner)
+        self._workers: list[FunctionWorker] = []
+        self._task_logger = task_logger or logger
+
+    def start(self, name: str, work: Callable[[], Any], on_complete=None) -> FunctionWorker:
+        worker = FunctionWorker(work, parent=self)
+        worker.setObjectName(name)
+        if on_complete is not None:
+            worker.completed.connect(on_complete)
+        worker.error_occurred.connect(
+            lambda error, task=name: self._task_logger.warning(
+                "Background task %s failed: %s", task, error
+            )
+        )
+
+        def _retire(w=worker):
+            if w in self._workers:
+                self._workers.remove(w)
+            w.deleteLater()
+
+        worker.finished.connect(_retire)
+        self._workers.append(worker)
+        worker.start()
+        return worker
+
+    def cancel_all(self, wait_ms: int = 100) -> None:
+        for worker in list(self._workers):
+            if worker.isRunning():
+                worker.requestInterruption()
+                worker.wait(wait_ms)
+
+    def has_running_tasks(self) -> bool:
+        return any(worker.isRunning() for worker in self._workers)

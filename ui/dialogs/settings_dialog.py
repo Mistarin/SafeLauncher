@@ -38,7 +38,7 @@ from core.version import APP_VERSION, MIN_CONVEX_BACKEND_VERSION
 from core.updater import check_for_updates, download_and_apply_appimage_update, restart_application, is_appimage
 from core.cloud_backend import check_backend_health
 from core.cloud_detector import detect_local_cloud_installation
-from core.safe_thread import FunctionWorker
+from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtCore import QUrl
@@ -69,7 +69,7 @@ class UserSettingsDialog(QDialog):
         self.screenshot_hotkey = screenshot_hotkey or "F12"
         from core.cloud_save_sync import CloudSaveSyncEngine
         self.cloud_saves_dir = cloud_saves_dir or CloudSaveSyncEngine.get_cloud_root()
-        self._background_workers: list[FunctionWorker] = []
+        self._task_supervisor = TaskSupervisor(self, logger)
         self._account_probe_generation = 0
         self._health_probe_generation = 0
 
@@ -1265,30 +1265,12 @@ class UserSettingsDialog(QDialog):
 
     def _start_managed_task(self, name: str, work, on_complete):
         """Run a settings operation without leaving an unowned daemon behind."""
-        worker = FunctionWorker(work, parent=self)
-        worker.setObjectName(name)
-        worker.completed.connect(on_complete)
-        worker.error_occurred.connect(
-            lambda error, task=name: logger.warning("Settings task %s failed: %s", task, error)
-        )
-
-        def _retire(w=worker):
-            if w in self._background_workers:
-                self._background_workers.remove(w)
-            w.deleteLater()
-
-        worker.finished.connect(_retire)
-        self._background_workers.append(worker)
-        worker.start()
-        return worker
+        return self._task_supervisor.start(name, work, on_complete)
 
     def closeEvent(self, event):
         """Keep Qt workers alive until their cooperative cancellation completes."""
-        for worker in list(self._background_workers):
-            if worker.isRunning():
-                worker.requestInterruption()
-                worker.wait(100)
-        if any(worker.isRunning() for worker in self._background_workers):
+        self._task_supervisor.cancel_all(100)
+        if self._task_supervisor.has_running_tasks():
             QTimer.singleShot(100, self.close)
             event.ignore()
             return
