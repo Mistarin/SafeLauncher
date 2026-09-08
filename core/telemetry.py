@@ -6,7 +6,6 @@ metrics and version adoption. No personal data or game save data is ever transmi
 
 import os
 import uuid
-import threading
 import requests
 from PyQt6.QtCore import QSettings
 
@@ -31,32 +30,27 @@ def _get_anonymous_client_id() -> str:
     return client_id
 
 
-def ping_central_telemetry(app_version: str):
-    """Send non-blocking anonymous heartbeat ping in a background thread."""
-    def _worker():
-        try:
-            settings = QSettings("SafeLauncher", "SafeLauncher")
-            if not settings.value("telemetry_enabled", True, type=bool):
-                return
+def send_central_telemetry(app_version: str) -> bool:
+    """Send one bounded anonymous heartbeat in the caller's managed worker."""
+    try:
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        if not settings.value("telemetry_enabled", True, type=bool):
+            return False
 
-            payload = {
-                "clientId": _get_anonymous_client_id(),
-                "appVersion": str(app_version),
-                "platform": "linux",
-            }
-            resp = requests.post(
-                _CENTRAL_TELEMETRY_URL,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=4,
-            )
-            if resp.status_code == 200:
-                logger.debug("Central telemetry heartbeat delivered.")
-        except Exception as e:
-            logger.debug(f"Telemetry heartbeat note: {e}")
-
-    threading.Thread(
-        target=_worker,
-        daemon=True,
-        name="SafeLauncher-TelemetryPing"
-    ).start()
+        payload = {
+            "clientId": _get_anonymous_client_id(),
+            "appVersion": str(app_version),
+            "platform": "linux",
+        }
+        resp = requests.post(
+            _CENTRAL_TELEMETRY_URL,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=4,
+        )
+        if resp.status_code == 200:
+            logger.debug("Central telemetry heartbeat delivered.")
+            return True
+    except Exception as e:
+        logger.debug(f"Telemetry heartbeat note: {e}")
+    return False

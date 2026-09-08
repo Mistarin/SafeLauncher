@@ -135,6 +135,7 @@ class GlobalHotkeyListener(QObject):
         return stopped
 
     def _run_loop(self):
+        disp = None
         try:
             from Xlib import X, display
             import Xlib.threaded
@@ -230,3 +231,9 @@ class GlobalHotkeyListener(QObject):
 
         except Exception as e:
             logger.debug(f"Global hotkey loop ended: {e}")
+        finally:
+            if disp is not None:
+                try:
+                    disp.close()
+                except Exception:
+                    pass

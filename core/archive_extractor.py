@@ -155,21 +155,36 @@ def extract_archive_sandboxed(archive_path: str, dest_dir: str, cancel_callback=
             text=True,
             env=host_process_env(),
         )
-        drainer = threading.Thread(target=_drain_stderr, args=(process.stderr,), daemon=True)
+        # This helper is owned by this extraction call. It must be joined
+        # before the worker returns so no reader outlives the subprocess.
+        drainer = threading.Thread(target=_drain_stderr, args=(process.stderr,), name="SafeLauncher-ArchiveStderr")
         drainer.start()
-        while process.poll() is None:
-            if cancel_callback and cancel_callback():
-                process.terminate()
+        try:
+            while process.poll() is None:
+                if cancel_callback and cancel_callback():
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=3)
+                    _discard_staged()
+                    return False
+                if progress_callback:
+                    progress_callback(-1)
+                time.sleep(0.25)
+        finally:
+            # Closing the pipe guarantees readline() wakes after the child
+            # exits, including cancellation and exceptional paths.
+            if process.stderr:
                 try:
-                    process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                _discard_staged()
-                return False
-            if progress_callback:
-                progress_callback(-1)
-            time.sleep(0.25)
-        drainer.join(timeout=5)
+                    process.stderr.close()
+                except (OSError, ValueError):
+                    pass
+            drainer.join(timeout=5)
+            if drainer.is_alive():
+                logger_note = "Archive stderr reader did not stop within 5 seconds"
+                print(logger_note)
         # Treat only a zero exit status as success. Exit code 1 means the
         # extractor reported an error or warning and must not be silently
         # accepted as a complete installation.

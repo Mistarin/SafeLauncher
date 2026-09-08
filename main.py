@@ -40,13 +40,6 @@ def main():
 
     setup_application_environment()
 
-    # Anonymous player heartbeat to measure active installations
-    try:
-        from core.telemetry import ping_central_telemetry
-        ping_central_telemetry(__version__)
-    except Exception:
-        pass
-
     logger.info("Creating Qt application instance...")
     app = QApplication(sys.argv)
     logger.info("Qt application instance created.")
@@ -122,6 +115,13 @@ def main():
     # 3. Create main window & bind single-instance listener
     from ui.main_window import MainWindow
     window = MainWindow(db, runner, backup)
+    # Run telemetry through the same owned worker lifecycle as every other
+    # startup task; it remains silent and bounded when disabled/offline.
+    from core.telemetry import send_central_telemetry
+    window._start_managed_task(
+        "SafeLauncher-TelemetryPing",
+        lambda: send_central_telemetry(__version__),
+    )
     server = create_single_instance_server(window._show_and_raise)
     if not server.isListening():
         # A second process may have won the bind race. Do not start a second
