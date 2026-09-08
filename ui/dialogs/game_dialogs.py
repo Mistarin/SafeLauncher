@@ -1091,10 +1091,16 @@ class SafeLaunchDialog(QDialog):
             self.reader_thread.log_line.connect(self.append_log)
             self.reader_thread.start()
 
-        self.process_timer = QTimer(self)
-        self.process_timer.setInterval(200)
-        self.process_timer.timeout.connect(self._check_process_state)
-        self.process_timer.start()
+        self.process_timer = None
+        if self.session_manager is not None and self.game_id is not None:
+            self.session_manager.session_finished.connect(self._on_managed_session_finished)
+            self.session_manager.session_failed.connect(self._on_managed_session_finished)
+        else:
+            # Compatibility path for dialogs created outside MainWindow.
+            self.process_timer = QTimer(self)
+            self.process_timer.setInterval(200)
+            self.process_timer.timeout.connect(self._check_process_state)
+            self.process_timer.start()
 
         self.stack.setCurrentIndex(0)
 
@@ -1308,7 +1314,8 @@ class SafeLaunchDialog(QDialog):
             return
 
         self.launch_finished = True
-        self.process_timer.stop()
+        if self.process_timer is not None:
+            self.process_timer.stop()
         if hasattr(self, "progress_anim"):
             self.progress_anim.stop()
         if hasattr(self, "gif_timer"):
@@ -1340,6 +1347,11 @@ class SafeLaunchDialog(QDialog):
             self.header_sub.setText(f"'{self.game_name}' exited cleanly (exit code 0)")
             self.progress_bar.setValue(100)
             self.stack.setCurrentWidget(self.page_console)
+            if self.diagnostics:
+                self.diagnostics.return_code = return_code
+                self.diagnostics.output = list(self.log_lines)
+                self.diagnostics.session_observed = True
+                self._persist_session_diagnostics()
             return
 
         if return_code < 0:
@@ -1395,6 +1407,12 @@ class SafeLaunchDialog(QDialog):
         self.error_details.setPlainText(self.diagnostics.as_text() if self.diagnostics else (details or "No diagnostic output was produced."))
         self._configure_recovery_actions()
         self.stack.setCurrentWidget(self.page_error)
+
+    def _on_managed_session_finished(self, session):
+        """Render the manager's terminal result without polling the process."""
+        if self.game_id is None or session.game_id != self.game_id or self.launch_finished:
+            return
+        self._check_process_state()
 
     def _persist_session_diagnostics(self):
         """Persist through the owning game session exactly once."""
@@ -1488,6 +1506,11 @@ class SafeLaunchDialog(QDialog):
         reader = getattr(self, "reader_thread", None)
         if reader and reader.isRunning():
             reader.stop()
+        if self.session_manager is not None and self.game_id is not None:
+            try:
+                self.session_manager.release(self.game_id)
+            except RuntimeError:
+                pass
 
     def accept(self):
         self._cleanup_resources()

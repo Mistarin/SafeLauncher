@@ -187,8 +187,8 @@ class MainWindow(QMainWindow):
         self._retiring_workers = []  # retain retiring threads until completely stopped to avoid GC destroying running QThread
         self.worker_supervisor = WorkerSupervisor(self)
         self.worker_supervisor.worker_finished.connect(self._on_supervised_worker_finished)
-        # running_game_ids is a derived property over playtime_trackers — it
-        # can never go stale, unlike the old manually-maintained add/discard set.
+        # running_game_ids is derived from the session supervisor, not from
+        # UI widgets or the playtime tracker feature list.
         self.topbar_extractor_thread = None
         self._size_fetch_scheduled = set()  # game dirs queued for background sizing
         self._size_resort_timer = QTimer(self)
@@ -4807,7 +4807,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
             self.discord_rpc.clear_activity()
 
-        self.game_sessions.remove(tracker.game_id)
+        # Keep terminal sessions until diagnostics and UI consumers release
+        # them. This prevents tracker completion from racing final reports.
+        self.game_sessions.release(tracker.game_id)
 
         # Stop Achievement Watcher for this game
         if tracker.game_id in getattr(self, "achievement_watchers", {}):
@@ -5244,6 +5246,7 @@ class MainWindow(QMainWindow):
             timer = getattr(self, timer_name, None)
             if timer is not None and not timer.isActive():
                 timer.start()
+        self.game_sessions.start_observing()
         listener = getattr(self, "global_hotkeys", None)
         if listener is not None:
             try:
@@ -5265,6 +5268,7 @@ class MainWindow(QMainWindow):
         if first_attempt:
             self._shutdown_deadline = _time.monotonic() + 12.0
             self._show_shutdown_progress()
+            self.game_sessions.stop_observing()
 
             # Halt every source that schedules new background work while we
             # are trying to shut down.

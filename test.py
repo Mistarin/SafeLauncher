@@ -264,9 +264,36 @@ else:
 try:
     os.environ['QT_QPA_PLATFORM'] = 'offscreen'
     from PyQt6.QtWidgets import QApplication
+    from core.game_session import GameSessionManager
     from ui.main_window import MainWindow, AddGameDialog
 
     app = QApplication.instance() or QApplication([])
+
+    class _SessionProcess:
+        def __init__(self):
+            self.return_code = None
+
+        def poll(self):
+            return self.return_code
+
+    session_process = _SessionProcess()
+    session_manager = GameSessionManager()
+    finished_sessions = []
+    session_manager.session_finished.connect(finished_sessions.append)
+    managed_session = session_manager.start(9001, "Lifecycle Test", session_process)
+    session_manager.mark_observed(9001)
+    session_process.return_code = 0
+    session_manager.observe()
+    assert managed_session.state == "exited"
+    assert managed_session.exit_code == 0
+    assert len(finished_sessions) == 1
+    assert session_manager.finish(9001) is managed_session
+    assert len(finished_sessions) == 1
+    assert session_manager.active_game_ids() == set()
+    assert session_manager.release(9001) is managed_session
+    session_manager.stop_observing()
+    session_manager.deleteLater()
+    print("✓ GameSessionManager single-owner observation and idempotent finish verified")
     db_mem = GameDatabase(":memory:")
     # A fresh QSettings (like a CI runner) defaults show_welcome_wizard=True;
     # its modal exec() would fire inside a later nested event loop and hang

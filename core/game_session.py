@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import time
 from typing import Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 
 @dataclass
@@ -37,6 +37,7 @@ class GameSessionManager(QObject):
 
     session_started = pyqtSignal(object)
     session_state_changed = pyqtSignal(object)
+    session_observed = pyqtSignal(object)
     session_finished = pyqtSignal(object)
     session_failed = pyqtSignal(object)
     session_diagnostics_ready = pyqtSignal(object)
@@ -44,6 +45,10 @@ class GameSessionManager(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._sessions: dict[int, GameSession] = {}
+        self._observer = QTimer(self)
+        self._observer.setInterval(200)
+        self._observer.timeout.connect(self.observe)
+        self._observer.start()
 
     def start(self, game_id: int, game_name: str, process, session_id: str = "") -> GameSession:
         existing = self._sessions.get(game_id)
@@ -84,9 +89,36 @@ class GameSessionManager(QObject):
 
     def mark_observed(self, game_id: int) -> Optional[GameSession]:
         session = self._sessions.get(game_id)
-        if session is not None:
+        if session is not None and not session.observed:
             session.observed = True
+            self.session_observed.emit(session)
+            self.session_state_changed.emit(session)
         return session
+
+    def observe(self) -> None:
+        """Reconcile every managed process once per observer tick."""
+        for session in list(self.active()):
+            process = session.process
+            if process is None:
+                self.finish(session.game_id, reason="session has no process")
+                continue
+            try:
+                return_code = process.poll()
+            except Exception as exc:
+                self.finish(session.game_id, reason=f"process observation failed: {exc}")
+                continue
+            if return_code is not None:
+                self.finish(session.game_id, exit_code=return_code)
+
+    def stop_observing(self) -> None:
+        """Stop scheduling observations during application shutdown."""
+        if self._observer.isActive():
+            self._observer.stop()
+
+    def start_observing(self) -> None:
+        """Resume observations when a user cancels application shutdown."""
+        if not self._observer.isActive():
+            self._observer.start()
 
     def finalize_diagnostics(self, game_id: int, diagnostics) -> str:
         """Persist one final report for a session and make it authoritative."""
@@ -128,7 +160,18 @@ class GameSessionManager(QObject):
     def remove(self, game_id: int) -> Optional[GameSession]:
         return self._sessions.pop(game_id, None)
 
+    def release(self, game_id: int) -> Optional[GameSession]:
+        """Release a terminal session after its consumers finish cleanup."""
+        session = self._sessions.get(game_id)
+        if session is None or session.state not in {"exited", "failed"}:
+            return None
+        if session.diagnostics is not None and not session.diagnostics_finalized:
+            return None
+        return self.remove(game_id)
+
     def clear_finished(self) -> None:
         for game_id, session in list(self._sessions.items()):
-            if session.state in {"exited", "failed"}:
+            if session.state in {"exited", "failed"} and (
+                session.diagnostics is None or session.diagnostics_finalized
+            ):
                 self._sessions.pop(game_id, None)
