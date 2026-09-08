@@ -1014,6 +1014,7 @@ class MainWindow(QMainWindow):
         self.compact_container.videos_requested.connect(self._open_video_gallery)
         self.compact_container.settings_requested.connect(self._open_settings)
         self.compact_container.sort_changed.connect(self._on_sort_changed)
+        self.compact_container.search_changed.connect(self._on_search_query_changed)
 
         self.library_view_stack.addWidget(self.grid_container)      # Index 0: Standard Grid
         self.library_view_stack.addWidget(self.list_view)           # Index 1: List View
@@ -1757,6 +1758,8 @@ class MainWindow(QMainWindow):
     def _set_filter(self, filter_mode: str):
         """Set active filter mode (all, installed, favorites, archived) and refresh view."""
         self.current_filter = filter_mode
+        if hasattr(self, "compact_container"):
+            self.compact_container.set_filter(filter_mode)
         self._refresh_library()
 
     def _set_collection_filter(self, col_name: str):
@@ -1844,8 +1847,23 @@ class MainWindow(QMainWindow):
         self._refresh_library()
 
     def _on_search_query_changed(self, query: str):
-        """Filter games real-time as user types in top search box"""
-        self.search_query = query.strip().lower()
+        """Update the single shared library search state from any view."""
+        normalized = query.strip()
+        self.search_query = normalized.lower()
+        # Grid/list and compact no longer keep separate, conflicting search
+        # fields. Block signals so typing in either one causes one refresh.
+        if hasattr(self, "grid_search_input") and self.grid_search_input.text() != normalized:
+            self.grid_search_input.blockSignals(True)
+            self.grid_search_input.setText(normalized)
+            self.grid_search_input.blockSignals(False)
+        compact_search = getattr(
+            getattr(getattr(self, "compact_container", None), "sidebar_list", None),
+            "search_edit", None,
+        )
+        if compact_search is not None and compact_search.text() != normalized:
+            compact_search.blockSignals(True)
+            compact_search.setText(normalized)
+            compact_search.blockSignals(False)
         self._refresh_library()
 
     def _toggle_library_view(self):
@@ -2501,6 +2519,20 @@ class MainWindow(QMainWindow):
                 widget.set_selected(widget.game_id in self.library_selection.ids)
             except (RuntimeError, AttributeError):
                 pass
+        # Selection is application state, not a property of whichever view
+        # happened to receive the click. Keep every presentation synchronized
+        # so changing view never appears to lose the current selection.
+        selected_ids = self.library_selection.ids
+        for presentation in (
+            getattr(self, "list_view", None),
+            getattr(self, "virtual_grid", None),
+            getattr(self, "compact_container", None),
+        ):
+            try:
+                if presentation is not None and hasattr(presentation, "set_selected_game_ids"):
+                    presentation.set_selected_game_ids(selected_ids)
+            except (RuntimeError, AttributeError):
+                pass
         for game in self.games:
             if game[0] == game_id:
                 self.selected_game = game
@@ -2569,6 +2601,10 @@ class MainWindow(QMainWindow):
         self.hero_bg.set_hero_image(hero_file)
 
         is_running = g_id in self.running_game_ids
+        full_game_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else g_path
+        is_missing = not bool(g_path and os.path.exists(g_path) and (
+            not g_exe or os.path.exists(full_game_exe)
+        ))
 
         self.compact_container.game_page.set_game(
             game,
@@ -2577,7 +2613,9 @@ class MainWindow(QMainWindow):
             locked_achs,
             cloud_status=c_status,
             hero_image_path=hero_file,
-            is_running=is_running
+            is_running=is_running,
+            is_missing=is_missing,
+            is_update_available=bool(self.update_status_by_game_id.get(g_id, False)),
         )
         self.compact_container.select_game(g_id)
 

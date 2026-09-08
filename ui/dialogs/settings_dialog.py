@@ -1442,7 +1442,10 @@ class UserSettingsDialog(QDialog):
 
             def _worker():
                 try:
-                    deployed_url = deploy_convex_backend(info["path"])
+                    # The confirmation above is the user's consent. The CLI
+                    # runs in a background worker with no visible terminal,
+                    # so pass its non-interactive confirmation flag here.
+                    deployed_url = deploy_convex_backend(info["path"], assume_yes=True)
                     if deployed_url:
                         return True, "Backend redeployed. Rechecking its version…"
                     return False, "Backend redeploy did not complete. Check the terminal output and Convex credentials."

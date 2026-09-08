@@ -452,3 +452,12 @@ class LibraryListView(QListWidget):
     def selected_game_ids(self) -> Set[int]:
 
         return {int(item.data(Qt.ItemDataRole.UserRole)) for item in self.selectedItems() if item.data(Qt.ItemDataRole.UserRole) is not None}
+
+    def set_selected_game_ids(self, game_ids: Set[int]) -> None:
+        """Apply the shared library selection without rebuilding this view."""
+        self.blockSignals(True)
+        for row in range(self.count()):
+            item = self.item(row)
+            if item is not None:
+                item.setSelected(int(item.data(Qt.ItemDataRole.UserRole)) in game_ids)
+        self.blockSignals(False)

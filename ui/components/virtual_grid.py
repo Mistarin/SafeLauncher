@@ -475,6 +475,11 @@ class VirtualizedGameGridView(QListView):
                 ids.add(int(gid))
         return ids
 
+    def set_selected_game_ids(self, game_ids: Set[int]) -> None:
+        """Apply the shared library selection model to virtualized cards."""
+        for game_id in self._items_by_game_id:
+            self.set_game_selected(game_id, game_id in game_ids)
+
     def mousePressEvent(self, event) -> None:
         idx = self.indexAt(event.pos())
         if not idx.isValid():

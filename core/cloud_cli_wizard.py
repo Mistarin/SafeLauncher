@@ -180,8 +180,15 @@ def download_server_repository(target_dir: Optional[Path] = None) -> Optional[Pa
         return None
 
 
-def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
-    """Interactively build, connect, and deploy Convex backend functions."""
+def deploy_convex_backend(
+    existing_path: Optional[str] = None, *, assume_yes: bool = False
+) -> Optional[str]:
+    """Build, connect, and deploy Convex backend functions.
+
+    ``assume_yes`` is for a GUI caller that has already obtained explicit
+    confirmation in its own dialog. Convex otherwise asks in the subprocess'
+    hidden stdin, which makes a Settings-triggered redeploy hang forever.
+    """
     import shutil
     import subprocess
     from pathlib import Path
@@ -321,8 +328,11 @@ def deploy_convex_backend(existing_path: Optional[str] = None) -> Optional[str]:
         settings.setValue("cloud_secret_key", secret_key)
         print("  [✔] Secret key pushed to Convex and saved in SafeLauncher.")
         
-        print("  [Deploy] Deploying backend functions with 'npx convex deploy'...")
-        subprocess.run(["npx", "convex", "deploy"], cwd=str(server_dir), check=True, env=clean_env, timeout=300)
+        deploy_command = ["npx", "convex", "deploy"]
+        if assume_yes:
+            deploy_command.append("--yes")
+        print(f"  [Deploy] Deploying backend functions with '{' '.join(deploy_command)}'...")
+        subprocess.run(deploy_command, cwd=str(server_dir), check=True, env=clean_env, timeout=300)
     except Exception as e:
         print(f"  [✖] Deployment encountered an error: {e}")
         return None

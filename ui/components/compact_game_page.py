@@ -292,7 +292,9 @@ class CompactActionBar(QFrame):
         cloud_row.addWidget(self.cloud_icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.update_dot = QLabel()
+        self.update_dot.setStyleSheet("background: transparent;")
         self.update_dot.setVisible(False)
+        cloud_row.addWidget(self.update_dot, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.cloud_text_lbl = QLabel("Up to date")
         self.cloud_text_lbl.setStyleSheet("color: #F4F4F5; font-size: 12px; font-weight: 600; background: transparent;")
@@ -521,6 +523,10 @@ class CompactActionBar(QFrame):
     def update_cloud_status(self, status: Any, has_update: bool = False):
         """Update the cloud icon and text based on SyncStatus or available update."""
         self.update_dot.setVisible(False)
+        if has_update:
+            self.update_dot.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(12, 12))
+            self.update_dot.setToolTip("A newer version is available")
+            self.update_dot.setVisible(True)
 
         if status == SyncStatus.IN_SYNC:
             self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-check-fill", color="#3CD070").pixmap(14, 14))
@@ -1549,7 +1555,9 @@ class CompactGamePageWidget(QWidget):
         locked_achievements: List[dict],
         cloud_status: Any = None,
         hero_image_path: Optional[str] = None,
-        is_running: bool = False
+        is_running: bool = False,
+        is_missing: bool = False,
+        is_update_available: bool = False,
     ):
         """Bind all game attributes and stats into the Compact view."""
         if not game_record:
@@ -1595,8 +1603,12 @@ class CompactGamePageWidget(QWidget):
 
         # 2. Action Bar
         self.action_bar.set_play_state("running" if is_running else "play")
+        self.action_bar.btn_play.setEnabled(not is_missing)
+        self.action_bar.btn_play.setToolTip(
+            "Installation or executable is missing" if is_missing else "Launch game"
+        )
 
-        self.action_bar.update_cloud_status(cloud_status)
+        self.action_bar.update_cloud_status(cloud_status, has_update=is_update_available)
         self.action_bar.last_played_val.setText(_format_last_played_date(last_played))
         self.action_bar.playtime_val.setText(_format_playtime_hours(playtime))
 
@@ -1705,6 +1717,8 @@ class CompactSidebarListItemWidget(QWidget):
         cache_dir: Optional[str] = None,
         cloud_status: Any = None,
         is_favorite: bool = False,
+        is_missing: bool = False,
+        is_update_available: bool = False,
         parent=None
     ):
         super().__init__(parent)
@@ -1717,6 +1731,8 @@ class CompactSidebarListItemWidget(QWidget):
         self.cache_dir = cache_dir
         self.cloud_status = cloud_status
         self.is_favorite = is_favorite
+        self.is_missing = is_missing
+        self.is_update_available = is_update_available
 
         self.setFixedHeight(36)
         self._init_ui()
@@ -1737,7 +1753,10 @@ class CompactSidebarListItemWidget(QWidget):
         # 2. Game Title
         self.title_lbl = QLabel(self.name)
         self.title_lbl.setFont(QFont("Arial", 11, QFont.Weight.Medium))
-        self.title_lbl.setStyleSheet("color: #E4E4E7; background: transparent;")
+        title_color = "#FF9F0A" if self.is_missing else "#E4E4E7"
+        self.title_lbl.setStyleSheet(f"color: {title_color}; background: transparent;")
+        if self.is_missing:
+            self.title_lbl.setToolTip("Installation or executable is missing")
         layout.addWidget(self.title_lbl, 1)
 
         # 3. Favorite Star
@@ -1746,6 +1765,21 @@ class CompactSidebarListItemWidget(QWidget):
             fav_lbl.setPixmap(get_icon("ph.heart-fill", color="#FFD60A").pixmap(12, 12))
             fav_lbl.setStyleSheet("background: transparent;")
             layout.addWidget(fav_lbl)
+
+        # Keep the same installation/update facts visible in every library
+        # presentation; compact used to silently discard both fields.
+        if self.is_update_available:
+            update_lbl = QLabel()
+            update_lbl.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(12, 12))
+            update_lbl.setToolTip("A newer version is available")
+            update_lbl.setStyleSheet("background: transparent;")
+            layout.addWidget(update_lbl)
+        elif self.is_missing:
+            missing_lbl = QLabel()
+            missing_lbl.setPixmap(get_icon("ph.warning-circle-fill", color="#FF9F0A").pixmap(12, 12))
+            missing_lbl.setToolTip("Installation or executable is missing")
+            missing_lbl.setStyleSheet("background: transparent;")
+            layout.addWidget(missing_lbl)
 
         # 4. Cloud Status Icon
         self.cloud_lbl = QLabel()
@@ -1837,6 +1871,7 @@ class CompactSidebarListWidget(QFrame):
     game_double_clicked = pyqtSignal(int)
     filter_changed = pyqtSignal(str)
     sort_changed = pyqtSignal(int)
+    search_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1847,6 +1882,7 @@ class CompactSidebarListWidget(QFrame):
         self.games_data: List[tuple] = []
         self.cache_dir: Optional[str] = None
         self.cloud_status_cache: Dict[int, Any] = {}
+        self.update_status_by_game_id: Dict[int, bool] = {}
         self.active_filter = "all"
 
         self.setStyleSheet("""
@@ -2069,6 +2105,11 @@ class CompactSidebarListWidget(QFrame):
         return super().eventFilter(watched, event)
 
     def _on_filter_btn_clicked(self, mode: str):
+        self.set_filter(mode)
+        self.filter_changed.emit(mode)
+
+    def set_filter(self, mode: str):
+        """Reflect the shared filter state without emitting another change."""
         self.active_filter = mode
         for btn in self._filter_buttons:
             btn.setChecked(False)
@@ -2080,7 +2121,6 @@ class CompactSidebarListWidget(QFrame):
             self.btn_f_fav.setChecked(True)
         elif mode == "archived":
             self.btn_f_arch.setChecked(True)
-        self.filter_changed.emit(mode)
 
     def set_games(
         self,
@@ -2093,6 +2133,7 @@ class CompactSidebarListWidget(QFrame):
         self.games_data = games
         self.cache_dir = cache_dir
         self.cloud_status_cache = cloud_status_cache or {}
+        self.update_status_by_game_id = update_status_by_game_id or {}
         self.lbl_count.setText(str(len(games)))
         self._populate_list(self.search_edit.text().strip().lower(), selected_ids)
 
@@ -2132,6 +2173,8 @@ class CompactSidebarListWidget(QFrame):
                 cache_dir=self.cache_dir,
                 cloud_status=c_status,
                 is_favorite=is_fav,
+                is_missing=is_missing,
+                is_update_available=bool(self.update_status_by_game_id.get(g_id, False)),
                 parent=self.list_widget
             )
             self.list_widget.setItemWidget(item, row_widget)
@@ -2165,6 +2208,15 @@ class CompactSidebarListWidget(QFrame):
                 self.list_widget.setCurrentItem(item)
                 break
 
+    def set_selected_game_ids(self, game_ids: set[int]):
+        """Apply the same selection state used by grid and list views."""
+        self.list_widget.blockSignals(True)
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item is not None:
+                item.setSelected(int(item.data(Qt.ItemDataRole.UserRole)) in game_ids)
+        self.list_widget.blockSignals(False)
+
     def update_game_icon(self, game_id: int, icon_path: str):
         """Update the icon of a game in the sidebar list in real time."""
         for i in range(self.list_widget.count()):
@@ -2180,7 +2232,7 @@ class CompactSidebarListWidget(QFrame):
         self.sort_changed.emit(idx)
 
     def _on_search_changed(self, text: str):
-        self._populate_list(text.strip().lower())
+        self.search_changed.emit(text.strip())
 
     def _on_item_clicked(self, item: QListWidgetItem):
         if not item:
@@ -2216,6 +2268,7 @@ class CompactLayoutContainer(QWidget):
     steam_page_requested = pyqtSignal(str)
     filter_changed = pyqtSignal(str)
     sort_changed = pyqtSignal(int)
+    search_changed = pyqtSignal(str)
     screenshots_requested = pyqtSignal(int)
     videos_requested = pyqtSignal(int)
     settings_requested = pyqtSignal()
@@ -2250,6 +2303,7 @@ class CompactLayoutContainer(QWidget):
         self.sidebar_list.game_double_clicked.connect(self.game_double_clicked.emit)
         self.sidebar_list.filter_changed.connect(self.filter_changed.emit)
         self.sidebar_list.sort_changed.connect(self.sort_changed.emit)
+        self.sidebar_list.search_changed.connect(self.search_changed.emit)
         self.splitter.addWidget(self.sidebar_list)
 
         # Right: Compact Game Detail Page
@@ -2307,6 +2361,12 @@ class CompactLayoutContainer(QWidget):
 
     def select_game(self, game_id: int):
         self.sidebar_list.select_game(game_id)
+
+    def set_selected_game_ids(self, game_ids: set[int]):
+        self.sidebar_list.set_selected_game_ids(game_ids)
+
+    def set_filter(self, mode: str):
+        self.sidebar_list.set_filter(mode)
 
     def update_game_icon(self, game_id: int, icon_path: str):
         self.sidebar_list.update_game_icon(game_id, icon_path)
