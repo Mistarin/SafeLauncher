@@ -4872,20 +4872,71 @@ class MainWindow(QMainWindow):
         """GUI-thread slot when library background achievement batch queue completes."""
         logger.debug(f"Achievement batch queue complete: {total_games} games processed with achievements ({total_unlocked} total unlocked).")
 
-    def closeEvent(self, event):
-        """Stop all background workers, then destroy the main window.
+    def _show_shutdown_progress(self):
+        """Make cooperative shutdown visible instead of looking frozen."""
+        progress = getattr(self, "_shutdown_progress", None)
+        if progress is not None:
+            return progress
+        progress = QProgressDialog(
+            "Ending running games and save operations safely…", "Keep SafeLauncher Open", 0, 0, self
+        )
+        progress.setWindowTitle("Closing SafeLauncher")
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.canceled.connect(self._abort_shutdown)
+        progress.show()
+        self._shutdown_progress = progress
+        return progress
 
-        Quit must ALWAYS succeed: the window hides immediately for feedback,
-        every work source is stopped once, and past a hard deadline stubborn
-        threads are terminated instead of being waited on forever.
-        """
+    def _abort_shutdown(self):
+        """Return control instead of indefinitely hiding a stuck shutdown."""
+        if not getattr(self, "_shutdown_deadline", 0.0):
+            return
+        progress = getattr(self, "_shutdown_progress", None)
+        if progress is not None:
+            progress.close()
+            progress.deleteLater()
+        self._shutdown_progress = None
+        self._shutdown_deadline = 0.0
+        self._shutdown_overdue_logged = False
+        # A timer may already have queued one more close() pass. Consume it
+        # rather than immediately starting a new shutdown after the user chose
+        # to keep the launcher open.
+        self._shutdown_abort_requested = True
+        self.setEnabled(True)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        # A cancellation request is intentionally cooperative. It may have
+        # stopped an optional refresh, so restore the recurring sources once
+        # the user chooses to keep the launcher open.
+        for timer_name in ("drive_check_timer", "_cloud_poll_timer"):
+            timer = getattr(self, timer_name, None)
+            if timer is not None and not timer.isActive():
+                timer.start()
+        listener = getattr(self, "global_hotkeys", None)
+        if listener is not None:
+            try:
+                listener.start()
+            except Exception:
+                pass
+        self._show_toast("Shutdown cancelled. Some background work did not stop in time.", is_error=True)
+
+    def closeEvent(self, event):
+        """Cooperatively stop work without corrupting saves or freezing UI."""
         import time as _time
+
+        if getattr(self, "_shutdown_abort_requested", False):
+            self._shutdown_abort_requested = False
+            event.ignore()
+            return
 
         first_attempt = getattr(self, "_shutdown_deadline", 0.0) == 0.0
         if first_attempt:
             self._shutdown_deadline = _time.monotonic() + 12.0
-            # Immediate visual feedback: quit looks like quit.
-            self.hide()
+            self._show_shutdown_progress()
 
             # Halt every source that schedules new background work while we
             # are trying to shut down.
@@ -4926,10 +4977,16 @@ class MainWindow(QMainWindow):
                         pass
                 # Network requests use short timeouts, but allow enough time
                 # for the active request to return before Qt destroys QThread.
-                worker.wait(1500)
+                # This is deliberately tiny: closeEvent is re-entered by a
+                # timer, keeping the progress dialog responsive.
+                worker.wait(25)
 
         still_running = [w for w in workers if w.isRunning()]
         if still_running and _time.monotonic() < self._shutdown_deadline:
+            progress = self._show_shutdown_progress()
+            progress.setLabelText(
+                f"Ending {len(still_running)} running operation(s) safely…"
+            )
             QTimer.singleShot(100, self.close)
             event.ignore()
             return
@@ -4949,12 +5006,22 @@ class MainWindow(QMainWindow):
                     for worker in still_running
                 )
                 logger.warning(
-                    "Waiting for %d worker(s) to stop safely after shutdown deadline: %s",
+                    "Cancelling shutdown after %d worker(s) missed its safe deadline: %s",
                     len(still_running), names,
                 )
-            QTimer.singleShot(250, self.close)
+            # Never force-kill a Python/Qt worker: that can corrupt allocator
+            # state or an in-progress save restore. Returning the window is
+            # deterministic and leaves the user able to resolve the external
+            # process instead of a permanently hidden launcher.
+            QTimer.singleShot(0, self._abort_shutdown)
             event.ignore()
             return
+
+        progress = getattr(self, "_shutdown_progress", None)
+        if progress is not None:
+            progress.close()
+            progress.deleteLater()
+            self._shutdown_progress = None
 
         if hasattr(self, "tray_icon") and self.tray_icon:
             try:

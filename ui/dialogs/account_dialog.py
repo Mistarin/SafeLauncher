@@ -8,10 +8,9 @@ Network work happens on daemon threads; results marshal back via signals.
 """
 
 import os
-import threading
 import time
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QPushButton,
@@ -21,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from core.logger import get_logger
+from core.safe_thread import TaskSupervisor
 
 logger = get_logger("AccountDialog")
 
@@ -64,6 +64,7 @@ class AccountDialog(QDialog):
         self._games = []
         self._quota = {}
         self._busy = False
+        self._task_supervisor = TaskSupervisor(self, logger)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -252,38 +253,47 @@ class AccountDialog(QDialog):
     # Data loading                                                        #
     # ------------------------------------------------------------------ #
 
+    def _start_task(self, name, work, on_complete):
+        return self._task_supervisor.start(name, work, on_complete)
+
+    def closeEvent(self, event):
+        self._task_supervisor.cancel_all(100)
+        if self._task_supervisor.has_running_tasks():
+            QTimer.singleShot(100, self.close)
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def reload(self):
         if self._busy:
             return
         self._busy = True
         self.lbl_quota_text.setText("Loading…")
-        threading.Thread(target=self._load_worker, daemon=True,
-                         name="SafeLauncher-AccountLoad").start()
+        self._start_task("SafeLauncher-AccountLoad", self._load_worker, self._data_ready.emit)
 
     def _load_worker(self):
         try:
             from core.cloud_backend import ConvexSaveBackend, get_site_url
             site = get_site_url()
             if not site:
-                self._data_ready.emit({"ok": None})   # not connected state
-                return
+                return {"ok": None}   # not connected state
             backend = ConvexSaveBackend()
             listing = backend.list_games()
             overview = backend.account()
-            self._data_ready.emit({
+            return {
                 "ok": {
                     "email": overview.get("email") or "SafeLauncher Cloud",
                     "listing": listing,
                     "overview": overview,
                 },
-            })
+            }
         except Exception as e:
             logger.warning(f"Account data load failed: {e}")
             from core.cloud_backend import describe_cloud_error
-            self._data_ready.emit({
+            return {
                 "error": describe_cloud_error(e),
                 "status": getattr(e, "status_code", 0) or getattr(e, "status", 0),
-            })
+            }
 
     def _apply_data(self, payload: dict):
         self._busy = False
@@ -394,10 +404,9 @@ class AccountDialog(QDialog):
                 ConvexSaveBackend().revoke_device(device_id)
             except Exception as e:
                 logger.warning(f"Device revocation failed: {e}")
-            self._op_done.emit({"revoked": device_id})
+            return {"revoked": device_id}
 
-        threading.Thread(target=_work, daemon=True,
-                         name="SafeLauncher-DeviceRevoke").start()
+        self._start_task("SafeLauncher-DeviceRevoke", _work, self._op_done.emit)
 
     def _render_signed_out(self):
         self.lbl_email.setText("Not connected")
@@ -510,16 +519,15 @@ class AccountDialog(QDialog):
                     target_version=int(version)
                 )
                 if ok:
-                    self._op_done.emit({
+                    return {
                         "restored": f"Successfully restored generation v{version} for '{matched_game.name}'.",
                         "name": matched_game.name
-                    })
-                else:
-                    self._op_done.emit({"error": f"Failed to restore generation v{version} for '{matched_game.name}'. Check logs for details."})
+                    }
+                return {"error": f"Failed to restore generation v{version} for '{matched_game.name}'. Check logs for details."}
             except Exception as e:
-                self._op_done.emit({"error": f"Restore failed: {str(e)}"})
+                return {"error": f"Restore failed: {str(e)}"}
 
-        threading.Thread(target=_work, daemon=True, name="SafeLauncher-SaveRestore").start()
+        self._start_task("SafeLauncher-SaveRestore", _work, self._op_done.emit)
 
     def _delete_selected_version(self):
         game_item = self.lst_games.currentItem()
@@ -547,12 +555,11 @@ class AccountDialog(QDialog):
             try:
                 from core.cloud_backend import ConvexSaveBackend
                 deleted = ConvexSaveBackend().delete_generation(name_key, version)
-                self._op_done.emit({"deleted": deleted, "name": name_key})
+                return {"deleted": deleted, "name": name_key}
             except Exception as e:
-                self._op_done.emit({"error": str(e)})
+                return {"error": str(e)}
 
-        threading.Thread(target=_work, daemon=True,
-                         name="SafeLauncher-SaveDelete").start()
+        self._start_task("SafeLauncher-SaveDelete", _work, self._op_done.emit)
 
     def _apply_op(self, payload: dict):
         self._busy = False
