@@ -85,7 +85,7 @@ def _parse_key_sequence(key_str: str) -> Tuple[str, int]:
 
 
 class GlobalHotkeyListener(QObject):
-    """Background daemon thread listening for global hotkeys across fullscreen games and desktop."""
+    """Owned listener thread for global hotkeys across fullscreen games and desktop."""
     hotkey_triggered = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -117,14 +117,22 @@ class GlobalHotkeyListener(QObject):
 
     def start(self):
         """Start global hotkey listener thread."""
-        if self._running:
+        if self._running or (self._thread is not None and self._thread.is_alive()):
             return
         self._running = True
-        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="SafeLauncher-GlobalHotkeys")
+        self._thread = threading.Thread(target=self._run_loop, name="SafeLauncher-GlobalHotkeys")
         self._thread.start()
 
-    def stop(self):
+    def stop(self, timeout: float = 1.5) -> bool:
+        """Request listener shutdown and join its bounded polling loop."""
         self._running = False
+        thread = self._thread
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout)
+        stopped = thread is None or not thread.is_alive()
+        if stopped:
+            self._thread = None
+        return stopped
 
     def _run_loop(self):
         try:
