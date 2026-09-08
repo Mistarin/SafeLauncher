@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from core.cloud_backend import describe_cloud_error
-from core.cloud_save_sync import CloudSaveSyncEngine
+from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
 
 
 @dataclass
@@ -22,6 +22,15 @@ class CloudOperationResult:
     category: str = "unknown"
     local_modified: bool = False
     log_path: str = ""
+
+
+@dataclass
+class CloudPreflightResult:
+    """Read-only sync decision input for launch and library surfaces."""
+    status: Optional[SyncStatus] = None
+    local_stats: object = None
+    cloud_stats: object = None
+    error: Optional[CloudOperationResult] = None
 
 
 def classify_cloud_error(error: str, status: int = 0) -> tuple[str, str]:
@@ -94,6 +103,13 @@ class CloudOperationCoordinator:
             return None, None, None, _failure("Cloud status check", game_name, describe_cloud_error(exc))
 
     @staticmethod
+    def preflight(game_name: str, game_path: str, steam_id: str = "") -> CloudPreflightResult:
+        status, local_stats, cloud_stats, error = CloudOperationCoordinator.check_status(
+            game_name, game_path, steam_id
+        )
+        return CloudPreflightResult(status, local_stats, cloud_stats, error)
+
+    @staticmethod
     def load_history(game_name: str, game_path: str, steam_id: str = "") -> tuple[list, Optional[CloudOperationResult]]:
         try:
             return CloudSaveSyncEngine.get_available_versions(game_name, game_path, steam_id), None
@@ -101,4 +117,4 @@ class CloudOperationCoordinator:
             return [], _failure("History load", game_name, describe_cloud_error(exc))
 
 
-__all__ = ["CloudOperationCoordinator", "CloudOperationResult", "classify_cloud_error"]
+__all__ = ["CloudOperationCoordinator", "CloudOperationResult", "CloudPreflightResult", "classify_cloud_error"]

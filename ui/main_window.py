@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
     _prelaunch_resolved = pyqtSignal(object)  # pre-launch sync payload dict
     _startup_sync_done = pyqtSignal(object)   # startup cloud sync sweep payload dict
     _cloud_poll_changed = pyqtSignal(list)    # games whose cloud save changed mid-session
-    _save_restore_finished = pyqtSignal(int, str, bool)  # (game_id, game_name, success)
+    _save_restore_finished = pyqtSignal(object)  # structured manual restore result
     _prelaunch_restore_done = pyqtSignal(object)          # {"ctx", "ok", "toast"} after conflict restore
     _startup_backend_health_ready = pyqtSignal(object)
 
@@ -3614,30 +3614,47 @@ class MainWindow(QMainWindow):
         progress.show()
         self._active_restore_progress = progress
 
-        from core.cloud_save_sync import CloudSaveSyncEngine
-
         def _work():
-            try:
-                status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
-                    game_name, game_path, steam_id
+            from core.cloud_operations import CloudOperationCoordinator, CloudOperationResult
+            preflight = CloudOperationCoordinator.preflight(game_name, game_path, steam_id)
+            if preflight.error is not None:
+                return {
+                    "game_id": game_id,
+                    "game_name": game_name,
+                    "result": preflight.error,
+                    "error": preflight.error.error,
+                    "guidance": preflight.error.guidance,
+                }
+            if not preflight.cloud_stats or not preflight.cloud_stats.exists:
+                result = CloudOperationResult(
+                    False, "Cloud restore", game_name,
+                    error="No cloud save is available to restore.",
+                    category="cloud_missing",
+                    guidance="Upload a local save first, then try restoring again.",
                 )
-                if not cloud_stats.exists:
-                    return game_id, "__no_cloud_save__", False
-            except Exception as e:
-                logger.warning(f"Cloud status check failed for '{game_name}': {e}")
-                return game_id, game_name, False
-            ok = CloudSaveSyncEngine.sync_cloud_to_local(
-                game_name, game_path, steam_id=steam_id, preserve_local_fork=True
+                return {
+                    "game_id": game_id,
+                    "game_name": "__no_cloud_save__",
+                    "result": result,
+                    "error": result.error,
+                    "guidance": result.guidance,
+                }
+            result = CloudOperationCoordinator.restore_cloud_save(
+                game_name, game_path, steam_id=steam_id
             )
-            return game_id, game_name, ok
+            payload = {"game_id": game_id, "game_name": game_name, "result": result}
+            if not result.success:
+                payload["error"] = result.error
+                payload["guidance"] = result.guidance
+            return payload
 
         self._start_managed_task(
             "SafeLauncher-ManualRestore",
             _work,
-            lambda result: self._save_restore_finished.emit(*result),
+            self._save_restore_finished.emit,
         )
 
-    def _on_save_restore_finished(self, game_id: int, game_name: str, ok: bool):
+    def _on_save_restore_finished(self, payload: dict):
         if hasattr(self, "_active_restore_progress") and self._active_restore_progress:
             try:
                 self._active_restore_progress.close()
@@ -3645,6 +3662,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             self._active_restore_progress = None
+        game_id = payload.get("game_id")
+        game_name = payload.get("game_name", "")
+        result = payload.get("result")
+        ok = bool(getattr(result, "success", False))
         # Re-enable the restore button regardless of outcome (L-5 companion)
         if hasattr(self, "btn_detail_cloud_restore"):
             self.btn_detail_cloud_restore.setEnabled(True)
@@ -3661,8 +3682,9 @@ class MainWindow(QMainWindow):
             self._show_toast(f"Successfully restored cloud save for '{game_name}'.")
             self.request_cloud_recheck([game_id], "manual_restore")
         else:
-            QMessageBox.critical(self, "Restore Failed",
-                                 f"Failed to restore cloud save for '{game_name}'. Please check logs for details.")
+            message = getattr(result, "error", "Failed to restore cloud save.")
+            guidance = getattr(result, "guidance", "")
+            self._show_toast(f"{message} {guidance}".strip(), is_error=True)
 
 
     def _on_cloud_save_status_calculated(self, game_id: int, status, local_stats, cloud_stats):
@@ -4045,54 +4067,68 @@ class MainWindow(QMainWindow):
         game_name = ctx["game_name"]
         path = ctx["path"]
         steam_id = ctx["steam_id"]
-
-        progress = QProgressDialog(f"Checking cloud saves for '{game_name}'…", None, 0, 0, self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setCancelButton(None)
-        progress.setMinimumDuration(150)
-        self._active_prelaunch_progress = progress
-        progress.show()
+        self._show_toast(f"Checking cloud saves for '{game_name}'…")
 
         def _work():
+            from core.cloud_operations import CloudOperationCoordinator
             payload = {"proceed": True, "needs_conflict": False, "toast": "", "ctx": ctx}
-            try:
-                status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(game_name, path, steam_id)
-                if status == SyncStatus.CLOUD_OFFLINE:
-                    payload["toast"] = f"Cloud not connected — launching '{game_name}' with local saves."
-                elif status == SyncStatus.CLOUD_ONLY:
-                    auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
-                    if auto_newer:
-                        ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path, steam_id=steam_id)
-                        if ok:
-                            payload["toast"] = f"Restored cloud save for '{game_name}'."
-                        else:
-                            payload["toast"] = f"Cloud save could not be restored for '{game_name}' — launching with local state."
-                    else:
-                        payload["needs_cloud_only_prompt"] = True
-                        payload["cloud_stats"] = cloud_stats
-                elif status == SyncStatus.CLOUD_NEWER:
-                    auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
-                    if auto_newer:
-                        ok = CloudSaveSyncEngine.sync_cloud_to_local(game_name, path, steam_id=steam_id)
-                        if ok:
-                            payload["toast"] = f"Updated to newer cloud save for '{game_name}'."
+            preflight = CloudOperationCoordinator.preflight(game_name, path, steam_id)
+            if preflight.error is not None:
+                payload["cloud_error"] = preflight.error
+                payload["toast"] = (
+                    f"Cloud check failed — launching '{game_name}' with local saves."
+                )
+                payload["error"] = preflight.error.error
+                payload["guidance"] = preflight.error.guidance
+                return payload
+
+            status = preflight.status
+            local_stats = preflight.local_stats
+            cloud_stats = preflight.cloud_stats
+            if status == SyncStatus.CLOUD_OFFLINE:
+                payload["toast"] = f"Cloud not connected — launching '{game_name}' with local saves."
+            elif status == SyncStatus.CLOUD_ONLY:
+                auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
+                if auto_newer:
+                    result = CloudOperationCoordinator.restore_cloud_save(game_name, path, steam_id=steam_id)
+                    payload["cloud_result"] = result
+                    payload["toast"] = (
+                        f"Restored cloud save for '{game_name}'." if result.success else
+                        f"Cloud restore failed — launching '{game_name}' with local saves."
+                    )
+                    if not result.success:
+                        payload["error"] = result.error
+                        payload["guidance"] = result.guidance
+                else:
+                    payload["needs_cloud_only_prompt"] = True
+                    payload["cloud_stats"] = cloud_stats
+            elif status == SyncStatus.CLOUD_NEWER:
+                auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
+                if auto_newer:
+                    result = CloudOperationCoordinator.restore_cloud_save(game_name, path, steam_id=steam_id)
+                    payload["cloud_result"] = result
+                    payload["toast"] = (
+                        f"Updated to newer cloud save for '{game_name}'." if result.success else
+                        f"Cloud restore failed — launching '{game_name}' with local saves."
+                    )
+                    if not result.success:
+                        payload["error"] = result.error
+                        payload["guidance"] = result.guidance
+                else:
+                    payload["needs_conflict"] = True
+                    payload["local_stats"] = local_stats
+                    payload["cloud_stats"] = cloud_stats
+            elif status == SyncStatus.LOCAL_NEWER:
+                if not cloud_stats.exists:
+                    payload["toast"] = f"Local saves ready for '{game_name}'."
+                else:
+                    auto_local = self.settings.value("auto_prefer_local_saves", False, type=bool)
+                    if auto_local:
+                        payload["toast"] = f"Local saves preferred for '{game_name}'."
                     else:
                         payload["needs_conflict"] = True
                         payload["local_stats"] = local_stats
                         payload["cloud_stats"] = cloud_stats
-                elif status == SyncStatus.LOCAL_NEWER:
-                    if not cloud_stats.exists:
-                        payload["toast"] = f"Local saves ready for '{game_name}'."
-                    else:
-                        auto_local = self.settings.value("auto_prefer_local_saves", False, type=bool)
-                        if auto_local:
-                            payload["toast"] = f"Local saves preferred for '{game_name}'."
-                        else:
-                            payload["needs_conflict"] = True
-                            payload["local_stats"] = local_stats
-                            payload["cloud_stats"] = cloud_stats
-            except Exception as sync_check_err:
-                logger.warning(f"Pre-launch cloud sync check failed: {sync_check_err}")
             return payload
 
         self._start_managed_task(
@@ -4130,23 +4166,21 @@ class MainWindow(QMainWindow):
                         self.settings.setValue("auto_prefer_local_saves", True)
 
                 if conflict_dlg.choice == "cloud":
-                    prog = QProgressDialog(f"Restoring cloud save for '{game_name}'...", None, 0, 0, self)
-                    prog.setWindowModality(Qt.WindowModality.WindowModal)
-                    prog.setCancelButton(None)
-                    prog.setMinimumDuration(0)
-                    prog.show()
-                    self._active_prelaunch_progress = prog
-
                     def _do_cloud_restore(ctx=ctx):
-                        ok = CloudSaveSyncEngine.sync_cloud_to_local(
+                        from core.cloud_operations import CloudOperationCoordinator
+                        result = CloudOperationCoordinator.restore_cloud_save(
                             ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", "")
                         )
                         toast = (
                             f"Restored cloud save for '{ctx['game_name']}' — your previous save was kept as a local backup."
-                            if ok else
+                            if result.success else
                             f"Could not restore the cloud save for '{ctx['game_name']}' — launched with local saves."
                         )
-                        return {"ctx": ctx, "ok": ok, "toast": toast}
+                        payload = {"ctx": ctx, "ok": result.success, "toast": toast, "cloud_result": result}
+                        if not result.success:
+                            payload["error"] = result.error
+                            payload["guidance"] = result.guidance
+                        return payload
 
                     self._start_managed_task(
                         "SafeLauncher-ConflictRestore",
@@ -4157,17 +4191,22 @@ class MainWindow(QMainWindow):
                 else:
                     # Keep local: upload in background, launch immediately
                     def _do_local_upload(ctx=ctx):
-                        ok = CloudSaveSyncEngine.sync_local_to_cloud(
+                        from core.cloud_operations import CloudOperationCoordinator
+                        result = CloudOperationCoordinator.upload_local_save(
                             ctx["game_name"], ctx["path"], ctx["steam_id"]
                         )
-                        return {
-                            "ctx": ctx, "ok": ok,
+                        payload = {
+                            "ctx": ctx, "ok": result.success, "cloud_result": result,
                             "toast": (
                                 "Overwrote cloud save with local version."
-                                if ok else
+                                if result.success else
                                 "Could not upload the local save — launching with local state."
                             )
                         }
+                        if not result.success:
+                            payload["error"] = result.error
+                            payload["guidance"] = result.guidance
+                        return payload
 
                     self._start_managed_task(
                         "SafeLauncher-ConflictUpload",
@@ -4192,23 +4231,21 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Yes,
             )
             if ans == QMessageBox.StandardButton.Yes:
-                prog = QProgressDialog(f"Restoring cloud save for '{game_name}'...", None, 0, 0, self)
-                prog.setWindowModality(Qt.WindowModality.WindowModal)
-                prog.setCancelButton(None)
-                prog.setMinimumDuration(0)
-                prog.show()
-                self._active_prelaunch_progress = prog
-
                 def _do_cloud_only_restore(ctx=ctx):
-                    ok = CloudSaveSyncEngine.sync_cloud_to_local(
+                    from core.cloud_operations import CloudOperationCoordinator
+                    result = CloudOperationCoordinator.restore_cloud_save(
                         ctx["game_name"], ctx["path"], steam_id=ctx.get("steam_id", "")
                     )
                     toast = (
                         f"Restored cloud save for '{ctx.get('game_name', '')}'."
-                        if ok else
+                        if result.success else
                         f"Failed to restore cloud save for '{ctx.get('game_name', '')}'."
                     )
-                    return {"ctx": ctx, "ok": ok, "toast": toast}
+                    payload = {"ctx": ctx, "ok": result.success, "toast": toast, "cloud_result": result}
+                    if not result.success:
+                        payload["error"] = result.error
+                        payload["guidance"] = result.guidance
+                    return payload
 
                 self._start_managed_task(
                     "SafeLauncher-CloudOnlyRestore",
@@ -4225,7 +4262,10 @@ class MainWindow(QMainWindow):
             # NOTE: If adding an abort-toast path in future (e.g. preflight error
             # that should cancel the launch), return early here instead of
             # reaching _continue_launch.
-            self._show_toast(payload["toast"])
+            toast = payload["toast"]
+            if payload.get("guidance"):
+                toast = f"{toast} {payload['guidance']}"
+            self._show_toast(toast, is_error=bool(payload.get("error")))
 
         # All non-async, non-abort paths reach here and proceed to launch.
         self._continue_launch(ctx)
@@ -4241,10 +4281,16 @@ class MainWindow(QMainWindow):
             self._active_prelaunch_progress = None
 
         toast = result.get("toast", "")
+        if result.get("guidance"):
+            toast = f"{toast} {result['guidance']}".strip()
         if toast:
-            self._show_toast(toast)
+            self._show_toast(toast, is_error=bool(result.get("error")))
 
-        self._continue_launch(result["ctx"])
+        ctx = result.get("ctx", {})
+        if result.get("ok") and ctx.get("game_id") is not None:
+            self.refresh_cloud_status_for_game(ctx["game_id"])
+
+        self._continue_launch(ctx)
 
 
     def _continue_launch(self, ctx: dict):
@@ -4692,19 +4738,29 @@ class MainWindow(QMainWindow):
                 def _exit_sync(name=g_name, gpath=g_path, sid=g_steam_id, gid=tracker.game_id):
                     payload = {"game": name, "game_id": gid, "outcome": "skipped", "reason": ""}
                     try:
+                        from core.cloud_operations import CloudOperationCoordinator
                         # Allow 0.5s settling time for Wine/kernel to flush dirty pages after process exit
                         time.sleep(0.5)
-                        status, _, _ = CloudSaveSyncEngine.check_sync_status(name, gpath, sid)
+                        status, _, _, status_error = CloudOperationCoordinator.check_status(name, gpath, sid)
+                        if status_error is not None:
+                            payload["outcome"] = "failed"
+                            payload["reason"] = status_error.error
+                            payload["error"] = status_error.error
+                            payload["guidance"] = status_error.guidance
+                            payload["cloud_result"] = status_error
+                            return payload
                         # Playtime can change even when the game did not touch
                         # a save file.  The archive manifest contains launcher
                         # metadata, and cloud deduplication skips this upload
                         # when both save data and metadata are unchanged.
                         if status in (SyncStatus.LOCAL_NEWER, SyncStatus.IN_SYNC):
-                            payload["outcome"] = (
-                                "uploaded" if CloudSaveSyncEngine.sync_local_to_cloud(name, gpath, sid)
-                                else "failed"
-                            )
+                            result = CloudOperationCoordinator.upload_local_save(name, gpath, sid)
+                            payload["cloud_result"] = result
+                            payload["outcome"] = "uploaded" if result.success else "failed"
                             payload["reason"] = status.value
+                            if not result.success:
+                                payload["error"] = result.error
+                                payload["guidance"] = result.guidance
                         else:
                             payload["outcome"] = "skipped"
                             payload["reason"] = status.value
@@ -4712,6 +4768,7 @@ class MainWindow(QMainWindow):
                         logger.warning(f"Auto cloud save sync on game exit failed: {err}")
                         payload["outcome"] = "failed"
                         payload["reason"] = str(err)
+                        payload["error"] = str(err)
                     return payload
 
                 self._start_managed_task(
@@ -4737,7 +4794,12 @@ class MainWindow(QMainWindow):
                 self.refresh_cloud_status_for_game(gid)
         elif outcome == "failed":
             logger.warning(f"Exit cloud-save upload failed for '{name}'.")
-            self._show_toast(f"Cloud sync failed for '{name}' — local save preserved.")
+            guidance = payload.get("guidance", "")
+            message = payload.get("error", "Cloud sync failed.")
+            self._show_toast(
+                f"{message} Local save preserved. {guidance}".strip(),
+                is_error=True,
+            )
         elif payload.get("reason") in ("cloud_newer", "cloud_only"):
 
             logger.info(
