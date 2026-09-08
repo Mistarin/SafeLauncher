@@ -31,6 +31,7 @@ from ui.icons import get_icon, get_app_icon
 from typing import Optional
 from ui.icons import LOGO_PATH
 from ui.components.sidebar import DialogTitleBar
+from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from ui.maintenance_dialogs import RuntimeInventoryDialog
 from ui.dialogs.game_dialogs import ensure_sandbox_dir
@@ -49,7 +50,7 @@ from PyQt6.QtCore import QUrl
 logger = get_logger("SettingsDialog")
 
 
-class UserSettingsDialog(QDialog):
+class UserSettingsDialog(PopupDialog):
     """Clean, resizable settings, plugins and security diagnostics center."""
     runtime_manager_requested = pyqtSignal()
     proton_manager_requested = pyqtSignal()
@@ -63,7 +64,7 @@ class UserSettingsDialog(QDialog):
     appDownloadFailed = pyqtSignal(str)        # error message
 
     def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None):
-        super().__init__(parent)
+        super().__init__("Settings", parent)
         self.user_name = user_name
         self.proton_path = proton_path
         self.show_welcome_wizard = show_welcome_wizard
@@ -76,9 +77,7 @@ class UserSettingsDialog(QDialog):
         self._account_probe_generation = 0
         self._health_probe_generation = 0
 
-        self.setWindowTitle("Settings")
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setMinimumSize(820, 600)
         self.resize(1040, 720)
         self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMaximized)
@@ -144,19 +143,7 @@ class UserSettingsDialog(QDialog):
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # Title bar
-        self.title_bar = DialogTitleBar(self, "Settings")
-        root_layout.addWidget(self.title_bar)
-
-        # Body container
-        body = QWidget()
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(18, 14, 18, 14)
-        body_layout.setSpacing(12)
+        body_layout = self.popup_layout(margins=(18, 14, 18, 14), spacing=12)
 
         # Navigation Bar
         nav_frame = QFrame()
@@ -252,7 +239,6 @@ class UserSettingsDialog(QDialog):
         bottom_bar.addWidget(size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
 
         body_layout.addLayout(bottom_bar)
-        root_layout.addWidget(body)
 
     def _switch_tab(self, index: int):
         for i, btn in enumerate(self.tab_buttons):
@@ -1705,11 +1691,10 @@ class UserSettingsDialog(QDialog):
         return self.combo_screenshot_screen.currentData() or "current"
 
 
-class PluginInstallNoticeDialog(QDialog):
+class PluginInstallNoticeDialog(PopupDialog):
     """Notice dialog explaining why root/sudo privileges are required for AUR package installation."""
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Install GPU Screen Recorder")
+        super().__init__("Install GPU Screen Recorder", parent)
         self.setMinimumSize(540, 320)
         self.setSizeGripEnabled(True)
         self.setStyleSheet("""
@@ -1723,9 +1708,7 @@ class PluginInstallNoticeDialog(QDialog):
             QPushButton:hover { background: #3f3f46; }
         """)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        layout = self.popup_layout(margins=(20, 18, 20, 18), spacing=14)
 
         title = QLabel("Install Hardware Recorder (gpu-screen-recorder)")
         title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
@@ -1788,23 +1771,19 @@ class PluginInstallNoticeDialog(QDialog):
         self.accept()
 
 
-class ScreenshotLightboxDialog(QDialog):
+class ScreenshotLightboxDialog(PopupDialog):
     """Clean, high-resolution 16:9 lightbox modal with navigation and folder opening."""
 
     def __init__(self, filepaths: list, current_index: int = 0, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        super().__init__("Screenshot Preview", parent)
         self.filepaths = [f for f in filepaths if os.path.exists(f)]
         self.current_index = max(0, min(current_index, len(self.filepaths) - 1)) if self.filepaths else 0
         self.gallery_parent = parent
 
-        self.setWindowTitle("Screenshot Preview")
         self.setMinimumSize(850, 580)
         self.resize(1000, 680)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root = self._popup_root
 
         # Header bar
         header = QWidget()
@@ -1944,26 +1923,18 @@ class ScreenshotLightboxDialog(QDialog):
             get_logger("Settings").warning(f"Failed to delete screenshot: {e}")
 
 
-class ScreenshotGalleryDialog(QDialog):
+class ScreenshotGalleryDialog(PopupDialog):
     """Custom dark modal dialog for browsing in-game screenshots with 16:9 ratio and Lightbox."""
     def __init__(self, game_id: int, game_name: str, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        super().__init__(f"Screenshots - {game_name}", parent)
         self.game_id = game_id
         self.game_name = game_name
 
-        self.setWindowTitle(f"Screenshots - {game_name}")
         self.setMinimumSize(780, 520)
         self.resize(840, 560)
         self.setSizeGripEnabled(True)
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # Title bar
-        self.title_bar = DialogTitleBar(self, f"Screenshots - {game_name}")
-        root_layout.addWidget(self.title_bar)
+        root_layout = self._popup_root
 
         # Body container
         body = QWidget()
@@ -2008,7 +1979,6 @@ class ScreenshotGalleryDialog(QDialog):
         action_layout.addWidget(btn_close)
 
         body_layout.addLayout(action_layout)
-        root_layout.addWidget(body)
 
         self.setStyleSheet("QDialog { background-color: #121214; color: #ffffff; }")
 
@@ -2108,28 +2078,23 @@ class ScreenshotGalleryDialog(QDialog):
             pass
 
 
-class VideoGalleryDialog(QDialog):
+class VideoGalleryDialog(PopupDialog):
     """Browse recordings and replay clips belonging to one game."""
 
     VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov", ".avi")
 
     def __init__(self, game_id: int, game_name: str, output_dir: str = DEFAULT_RECORDINGS_DIR, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        super().__init__(f"Videos - {game_name}", parent)
         self.game_id = game_id
         self.game_name = game_name
         self.video_dir = os.path.abspath(os.path.expanduser(output_dir))
         self.game_prefix = re.sub(r"[^a-z0-9]+", "_", game_name.strip().lower()).strip("_") or "gameplay"
 
-        self.setWindowTitle(f"Videos - {game_name}")
         self.setMinimumSize(700, 480)
         self.resize(820, 560)
         self.setSizeGripEnabled(True)
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-        root_layout.addWidget(DialogTitleBar(self, f"Videos - {game_name}"))
+        root_layout = self._popup_root
 
         body = QWidget()
         body_layout = QVBoxLayout(body)
@@ -2158,7 +2123,6 @@ class VideoGalleryDialog(QDialog):
         actions.addWidget(close)
         actions.addWidget(QSizeGrip(self), 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
         body_layout.addLayout(actions)
-        root_layout.addWidget(body)
         self.setStyleSheet("QDialog { background-color: #121214; color: #ffffff; }")
         self.load_videos()
 
@@ -2238,7 +2202,7 @@ class VideoGalleryDialog(QDialog):
         subprocess.Popen(["xdg-open", self.video_dir], env=host_process_env())
 
 
-class DiskManagerDialog(QDialog):
+class DiskManagerDialog(PopupDialog):
     """Clean dark dialog for analyzing sandbox disk space consumption.
 
     All directory walks happen on a worker thread; results arrive via the
@@ -2247,20 +2211,13 @@ class DiskManagerDialog(QDialog):
     _sizes_ready = pyqtSignal(list)  # [(name, path, bytes)] sorted desc
 
     def __init__(self, games: list, parent=None):
-        super().__init__(parent)
+        super().__init__("Sandbox Disk Space Manager", parent)
         self.games = games
 
-        self.setWindowTitle("Disk Space Manager")
         self.setMinimumSize(660, 480)
         self.setSizeGripEnabled(True)
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # Title bar
-        self.title_bar = DialogTitleBar(self, "Sandbox Disk Space Manager")
-        root_layout.addWidget(self.title_bar)
+        root_layout = self._popup_root
 
         # Body container
         body = QWidget()
@@ -2331,7 +2288,6 @@ class DiskManagerDialog(QDialog):
         btn_row.addWidget(size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
         body_layout.addLayout(btn_row)
 
-        root_layout.addWidget(body)
         self.setStyleSheet("QDialog { background-color: #121214; color: #ffffff; }")
 
     def _on_sizes_ready(self, results: list):

@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPixmap
 
 from ui.icons import get_app_icon, get_icon, LOGO_PATH
+from ui.theme import BG_APP, SURFACE_ELEVATED, TEXT_PRIMARY, TEXT_SECONDARY, ACCENT_PRIMARY
 
 
 def add_soft_shadow(widget, blur=18, y=4, alpha=80):
@@ -688,7 +689,7 @@ class DialogTitleBar(QFrame):
         self.setFixedHeight(40)
         self.setStyleSheet("""
             QFrame {
-                background: #161618;
+                background: #121214;
                 border-bottom: none;
             }
         """)
@@ -705,8 +706,8 @@ class DialogTitleBar(QFrame):
             layout.addWidget(self.logo_lbl)
 
         self.title_label = QLabel(title)
-        self.title_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Normal))
-        self.title_label.setStyleSheet("color: #E4E4E7; background: transparent; font-weight: 400;")
+        self.title_label.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
+        self.title_label.setStyleSheet("color: #F4F4F5; background: transparent; font-weight: 600;")
         self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(self.title_label)
 
@@ -715,7 +716,7 @@ class DialogTitleBar(QFrame):
         control_style = """
             QPushButton {
                 background: transparent;
-                color: #8E8E93;
+                color: #A1A1AA;
                 border: none;
                 border-radius: 4px;
                 padding: 0;
@@ -723,7 +724,7 @@ class DialogTitleBar(QFrame):
                 text-align: center;
             }
             QPushButton:hover {
-                background: #202633;
+                background: #202024;
                 color: #FFFFFF;
             }
             QPushButton#dialogClose:hover {
@@ -734,7 +735,7 @@ class DialogTitleBar(QFrame):
 
         self.btn_min = QPushButton()
         self.btn_min.setObjectName("dialogMinimize")
-        self.btn_min.setIcon(get_app_icon("minimize", color="#8E8E93"))
+        self.btn_min.setIcon(get_app_icon("minimize", color="#A1A1AA"))
         self.btn_min.setIconSize(QSize(10, 10))
         self.btn_min.setFixedSize(26, 26)
         self.btn_min.setToolTip("Minimize")
@@ -744,7 +745,7 @@ class DialogTitleBar(QFrame):
 
         self.btn_max = QPushButton()
         self.btn_max.setObjectName("dialogMaximize")
-        self.btn_max.setIcon(get_app_icon("maximize", color="#8E8E93"))
+        self.btn_max.setIcon(get_app_icon("maximize", color="#A1A1AA"))
         self.btn_max.setIconSize(QSize(10, 10))
         self.btn_max.setFixedSize(26, 26)
         self.btn_max.setToolTip("Maximize")
@@ -754,7 +755,7 @@ class DialogTitleBar(QFrame):
 
         self.btn_close = QPushButton()
         self.btn_close.setObjectName("dialogClose")
-        self.btn_close.setIcon(get_app_icon("close", color="#8E8E93"))
+        self.btn_close.setIcon(get_app_icon("close", color="#A1A1AA"))
         self.btn_close.setIconSize(QSize(10, 10))
         self.btn_close.setFixedSize(26, 26)
         self.btn_close.setToolTip("Close")
@@ -766,7 +767,7 @@ class DialogTitleBar(QFrame):
 
     def _sync_window_controls(self):
         maximized = self.dialog.isMaximized()
-        self.btn_max.setIcon(get_app_icon("restore" if maximized else "maximize", color="#8E8E93"))
+        self.btn_max.setIcon(get_app_icon("restore" if maximized else "maximize", color="#A1A1AA"))
         self.btn_max.setToolTip("Restore" if maximized else "Maximize")
 
     def _toggle_max_restore(self):

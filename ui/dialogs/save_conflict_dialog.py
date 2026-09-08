@@ -5,7 +5,7 @@ Allows users to compare local vs. cloud save timestamps and choose which save to
 
 from datetime import datetime
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFrame, QCheckBox
 )
 from PyQt6.QtCore import Qt, QSize
@@ -13,6 +13,7 @@ from PyQt6.QtGui import QFont, QIcon
 
 from ui.icons import get_icon, get_app_icon
 from ui.components.sidebar import DialogTitleBar
+from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from core.cloud_save_sync import SaveStats
 
@@ -28,11 +29,11 @@ def format_bytes(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
-class SaveConflictDialog(QDialog):
+class SaveConflictDialog(PopupDialog):
     """Modal prompt to resolve save timestamp discrepancies between local and cloud saves."""
 
     def __init__(self, game_name: str, local_stats: SaveStats, cloud_stats: SaveStats, parent=None):
-        super().__init__(parent)
+        super().__init__("Cloud Save Conflict Detected", parent)
         self.game_name = game_name
         self.local_stats = local_stats
         self.cloud_stats = cloud_stats
@@ -41,19 +42,7 @@ class SaveConflictDialog(QDialog):
 
         self.setWindowTitle(f"Save Conflict - {game_name}")
         self.setFixedSize(540, 420)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # Title bar
-        self.title_bar = DialogTitleBar(self, "Cloud Save Conflict Detected")
-        root_layout.addWidget(self.title_bar)
-
-        # Body container
-        body = QWidget()
-        body_layout = QVBoxLayout(body)
+        body_layout = self.popup_layout()
         body_layout.setContentsMargins(20, 16, 20, 16)
         body_layout.setSpacing(14)
 
@@ -220,7 +209,6 @@ class SaveConflictDialog(QDialog):
             btn_layout.addWidget(self.btn_use_cloud)
 
         body_layout.addLayout(btn_layout)
-        root_layout.addWidget(body)
 
         self.setStyleSheet("""
             QDialog {

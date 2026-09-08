@@ -11,17 +11,17 @@ from core.proton_manager import (
     fetch_online_ge_proton_releases, list_installed_ge_proton, get_default_install_dir, GEProtonDownloader
 )
 from ui.threads import GitHubReleasesFetcherThread, UmuBootstrapWorker
+from ui.components.popup_shell import PopupDialog
 
 
-class ProtonSetupWizard(QDialog):
+class ProtonSetupWizard(PopupDialog):
     """Recovery wizard for UMU failures caused by a missing PROTONPATH."""
     def __init__(self, current_path: str = "", parent=None):
-        super().__init__(parent)
+        super().__init__("Proton Setup Wizard", parent)
         self.retry_with_network = False
-        self.setWindowTitle("Proton Setup Wizard")
         self.setMinimumWidth(560)
         self.setStyleSheet("QDialog { background: #141414; color: #fff; } QLabel { color: #d4d4d8; } QLineEdit { background: #09090b; color: #fff; border: 1px solid #333; padding: 8px; border-radius: 5px; } QPushButton { background: #52565e; color: #fff; border: none; border-radius: 5px; padding: 8px 14px; font-weight: bold; }")
-        layout = QVBoxLayout(self)
+        layout = self.popup_layout(margins=(20, 18, 20, 18), spacing=12)
         title = QLabel("Proton runtime needs setup")
         title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         layout.addWidget(title)
@@ -70,19 +70,18 @@ class ProtonSetupWizard(QDialog):
         return self.path_input.text().strip()
 
 
-class ProtonManagerDialog(QDialog):
+class ProtonManagerDialog(PopupDialog):
     """Sleek UI Manager for GE-Proton releases and local installations."""
     proton_selected = pyqtSignal(str)
     apply_to_game_requested = pyqtSignal(str)
 
     def __init__(self, current_proton_path: str = "", selected_game_name: str = "", parent=None):
-        super().__init__(parent)
+        super().__init__("GE-Proton Manager - GitHub Auto-Downloader", parent)
         self.current_proton_path = current_proton_path
         self.selected_game_name = selected_game_name
         self.downloader_thread = None
         self.fetcher_thread = None
 
-        self.setWindowTitle("GE-Proton Manager - GitHub Auto-Downloader")
         self.setMinimumSize(680, 480)
         self.resize(720, 560)
         self.setSizeGripEnabled(True)
@@ -106,7 +105,7 @@ class ProtonManagerDialog(QDialog):
             QProgressBar::chunk { background-color: #22c55e; border-radius: 5px; }
         """)
 
-        layout = QVBoxLayout(self)
+        layout = self.popup_layout(margins=(20, 18, 20, 18), spacing=12)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
@@ -330,14 +329,13 @@ class ProtonManagerDialog(QDialog):
         super().closeEvent(event)
 
 
-class UmuRuntimeManagerDialog(QDialog):
+class UmuRuntimeManagerDialog(PopupDialog):
     """Package-manager-style UI for explicitly provisioning UMU runtimes."""
     proton_path_selected = pyqtSignal(str)
 
     def __init__(self, proton_path: str = "", parent=None):
-        super().__init__(parent)
+        super().__init__("UMU Runtime Manager", parent)
         self.worker = None
-        self.setWindowTitle("UMU Runtime Manager")
         self.setMinimumSize(700, 500)
         self.setSizeGripEnabled(True)
         self.setStyleSheet("""
@@ -348,7 +346,7 @@ class UmuRuntimeManagerDialog(QDialog):
             QPushButton:hover { background: #6b707a; }
             QPlainTextEdit { background: #09090b; color: #f4f4f5; border: 1px solid #27272a; border-radius: 8px; font-family: monospace; font-size: 11px; }
         """)
-        layout = QVBoxLayout(self)
+        layout = self.popup_layout(margins=(20, 18, 20, 18), spacing=12)
         title = QLabel("UMU Runtime Packages")
         title.setFont(QFont("Arial", 17, QFont.Weight.Bold))
         layout.addWidget(title)

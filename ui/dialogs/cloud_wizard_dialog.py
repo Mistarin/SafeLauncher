@@ -4,7 +4,7 @@ import os
 import requests
 from urllib.parse import urlparse
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QStackedWidget, QWidget, QMessageBox, QApplication,
     QRadioButton, QButtonGroup, QFrame, QScrollArea
 )
@@ -15,17 +15,17 @@ from core.cloud_detector import discover_local_cloud_backend, inspect_system_com
 from core.cloud_backend import get_site_url
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 from core.safe_thread import TaskSupervisor
+from ui.components.popup_shell import PopupDialog
 
 
-class CloudWizardDialog(QDialog):
+class CloudWizardDialog(PopupDialog):
     """Interactive wizard to guide users through choosing setup mode, deploying, and connecting Convex cloud saves."""
 
     test_completed = pyqtSignal(bool, str)
     backend_upgrade_found = pyqtSignal(str)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Cloud Save Setup Wizard")
+        super().__init__("Cloud Save Setup Wizard", parent)
         self.resize(620, 520)
         self._task_supervisor = TaskSupervisor(self)
         self._test_generation = 0
@@ -84,9 +84,7 @@ class CloudWizardDialog(QDialog):
             }
         """)
 
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(24, 24, 24, 24)
-        self.layout.setSpacing(16)
+        self.layout = self.popup_layout(margins=(24, 20, 24, 20), spacing=16)
 
         # Preflight system compatibility
         self.compat = inspect_system_compatibility()

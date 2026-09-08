@@ -18,6 +18,7 @@ from PyQt6.QtCore import QUrl
 
 from ui.icons import get_icon, get_app_icon
 from ui.components.sidebar import DialogTitleBar
+from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from core.ludusavi_detector import LudusaviDetector, SaveLocation
 from core.save_validation import (
@@ -47,7 +48,7 @@ def format_bytes(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
-class SaveManagerDialog(QDialog):
+class SaveManagerDialog(PopupDialog):
     """Interactive save snapshot dialog displaying detected locations and metadata."""
 
     _restore_done = pyqtSignal(bool, str)
@@ -55,7 +56,7 @@ class SaveManagerDialog(QDialog):
     _history_loaded = pyqtSignal(object)
 
     def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None, cloud_coordinator=None):
-        super().__init__(parent)
+        super().__init__(f"Save Manager: {game_name}", parent)
         self.game_id = game_id
         self.game_name = game_name
         self.game_path = game_path
@@ -76,23 +77,8 @@ class SaveManagerDialog(QDialog):
         self._history_loaded.connect(self._on_history_loaded)
 
 
-        self.setWindowTitle(f"Save Manager - {game_name}")
         self.setFixedSize(640, 550)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # Title bar
-        self.title_bar = DialogTitleBar(self, f"Save Manager: {game_name}")
-        root_layout.addWidget(self.title_bar)
-
-        # Content container
-        body = QWidget()
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(20, 16, 20, 16)
-        body_layout.setSpacing(12)
+        body_layout = self.popup_layout(margins=(20, 16, 20, 16), spacing=12)
 
         # Header Info Banner
         header_frame = QFrame()
@@ -453,7 +439,6 @@ class SaveManagerDialog(QDialog):
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
         body_layout.addWidget(self.tabs)
-        root_layout.addWidget(body)
 
         self.setStyleSheet("""
             QDialog {

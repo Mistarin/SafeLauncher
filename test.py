@@ -17,6 +17,7 @@ os.environ["SAFELAUNCHER_DISABLE_UPDATE_CHECK"] = "1"
 os.environ["SAFELAUNCHER_OFFLINE_TEST_MODE"] = "1"
 
 from PyQt6.QtCore import QTimer, Qt
+from ui.dialogs.settings_dialog import UserSettingsDialog
 
 # 1. Test imports
 try:

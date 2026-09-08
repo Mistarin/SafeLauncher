@@ -16,6 +16,7 @@ from core.launch_diagnostics import persist_diagnostics
 from ui.icons import get_app_icon, get_icon, LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap
 from ui.threads import BannerFetcher, BannerDownloader, ArchiveExtractorThread, SafeLaunchLogReader
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
+from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 
 DEFAULT_SANDBOX_DIR = os.path.expanduser("~/Games/Sandbox")
@@ -65,11 +66,9 @@ def load_sandbox_config(dir_path: str) -> str | None:
     return None
 
 
-class AddGameDialog(QDialog):
+class AddGameDialog(PopupDialog):
     def __init__(self, parent=None, sgdb_client: SteamGridDBClient = None):
-        super().__init__(parent)
-        self.setWindowTitle("Add Game")
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        super().__init__("Add Game", parent)
         self.setMinimumSize(780, 560)
         self.resize(860, 680)
         self.setSizeGripEnabled(True)
@@ -87,13 +86,7 @@ class AddGameDialog(QDialog):
         ensure_sandbox_dir()
 
         # Root vertical layout (Title bar + Main body + Bottom action bar)
-        root_layout = QVBoxLayout()
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # Custom Draggable Title Bar
-        self.title_bar = DialogTitleBar(self, "Add Game")
-        root_layout.addWidget(self.title_bar)
+        root_layout = self._popup_root
 
         # Main Body Widget (2-Column Grid Layout)
         body_widget = QWidget()
@@ -310,8 +303,6 @@ class AddGameDialog(QDialog):
         bottom_shell_layout.setContentsMargins(20, 0, 20, 18)
         bottom_shell_layout.addWidget(bottom_frame)
         root_layout.addWidget(bottom_shell)
-        self.setLayout(root_layout)
-
         self.setStyleSheet("""
             QDialog { background: #0D0F14; border: none; border-radius: 8px; }
             QLabel { color: #F4F4F5; font-size: 12px; }
@@ -655,25 +646,16 @@ class EditGameDialog(AddGameDialog):
         return self.build_id_input.text().strip() if hasattr(self, 'build_id_input') else ""
 
 
-class LaunchOptionsDialog(QDialog):
+class LaunchOptionsDialog(PopupDialog):
     """Custom styled dark modal dialog for selecting game launch runner modes."""
     def __init__(self, game_data: tuple, parent=None):
-        super().__init__(parent)
+        super().__init__(f"Launch Options - {game_data[1]}", parent)
         game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game_data, 0)
         self.game_data = game_data
         self.selected_mode = None
 
-        self.setWindowTitle(f"Launch {name}")
         self.setFixedWidth(480)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-
-        root_layout = QVBoxLayout()
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # Draggable title bar
-        self.title_bar = DialogTitleBar(self, f"Launch Options - {name}")
-        root_layout.addWidget(self.title_bar)
+        root_layout = self._popup_root
 
         # Body container
         body = QWidget()
@@ -742,8 +724,6 @@ class LaunchOptionsDialog(QDialog):
         body_layout.addWidget(self.set_as_default_cb)
 
         root_layout.addWidget(body)
-        self.setLayout(root_layout)
-
         self.setStyleSheet("""
             QDialog {
                 background-color: #121212;
@@ -783,7 +763,7 @@ class LaunchOptionsDialog(QDialog):
         self.accept()
 
 
-class SafeLaunchDialog(QDialog):
+class SafeLaunchDialog(PopupDialog):
     """Sleek, non-blocking animated dark card diagnostic popup for game launches."""
     retry_requested = pyqtSignal(str)
     performance_retry_requested = pyqtSignal()
@@ -794,7 +774,7 @@ class SafeLaunchDialog(QDialog):
     runtime_manager_requested = pyqtSignal()
 
     def __init__(self, game_name: str, user_name: str = None, process=None, parent=None, session_manager=None, game_id: int = None):
-        super().__init__(parent)
+        super().__init__(f"Safe Launch Log - {game_name}", parent)
         self.game_name = game_name
         self.user_name = user_name or getpass.getuser().capitalize()
         self.process = process
@@ -813,7 +793,6 @@ class SafeLaunchDialog(QDialog):
         self.startup_started_at = time.monotonic()
         self.startup_grace_seconds = 15.0
 
-        self.setWindowTitle(f"Safe Launch Log - {game_name}")
         self.setMinimumSize(620, 440)
         self.resize(760, 600)
         self.setSizeGripEnabled(True)
@@ -825,12 +804,10 @@ class SafeLaunchDialog(QDialog):
                 p_geo.y() + (p_geo.height() - self.height()) // 2
             )
 
-        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(20, 20, 20, 20)
-        root_layout.setSpacing(0)
+        root_layout = self.popup_layout(margins=(20, 20, 20, 20), spacing=10)
 
         self.setStyleSheet("""
             QDialog {
@@ -1555,11 +1532,10 @@ def detect_linux_distro() -> tuple[str, str]:
     return (os_name, cmd)
 
 
-class MissingDependencyDialog(QDialog):
+class MissingDependencyDialog(PopupDialog):
     """Warning modal shown only when Firejail sandboxing dependencies are missing."""
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Sandboxing Dependencies Missing")
+        super().__init__("Sandboxing Dependencies Missing", parent)
         self.setFixedSize(520, 320)
 
         if parent:
@@ -1569,15 +1545,12 @@ class MissingDependencyDialog(QDialog):
                 p_geo.y() + (p_geo.height() - 320) // 2
             )
 
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
         distro_name, install_cmd = detect_linux_distro()
         self.install_cmd = install_cmd
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(24, 24, 24, 24)
-        root_layout.setSpacing(14)
+        root_layout = self.popup_layout(margins=(24, 20, 24, 20), spacing=14)
 
         self.setStyleSheet("""
             QDialog {
@@ -1761,13 +1734,11 @@ class ToastNotification(QFrame):
         self.deleteLater()
 
 
-class CustomRemoveDialog(QDialog):
+class CustomRemoveDialog(PopupDialog):
     """Custom styled dark confirmation dialog for game removal and archiving."""
     def __init__(self, game_name: str, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Remove / Archive Game")
+        super().__init__("Remove / Archive Game", parent)
         self.setFixedWidth(460)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setStyleSheet("""
             QDialog {
                 background-color: #14171D;
@@ -1788,9 +1759,7 @@ class CustomRemoveDialog(QDialog):
 
         self.choice = None  # 'archive_keep', 'archive_delete_disk', 'purge_permanently', or 'cancel'
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 22, 22, 22)
-        layout.setSpacing(14)
+        layout = self.popup_layout(margins=(22, 20, 22, 20), spacing=14)
 
         title_label = QLabel("Remove / Archive Game")
         title_label.setFont(QFont("Arial", 13, QFont.Weight.Bold))
@@ -1888,14 +1857,13 @@ class CustomRemoveDialog(QDialog):
         self.accept()
 
 
-class ManageCollectionGamesDialog(QDialog):
+class ManageCollectionGamesDialog(PopupDialog):
     """Sleek modal allowing the user to check/uncheck games that belong to a collection."""
     def __init__(self, collection_name: str, all_games: list, current_member_ids: set, parent=None):
-        super().__init__(parent)
+        super().__init__(f"Manage Collection: {collection_name}", parent)
         self.collection_name = collection_name
         self.all_games = all_games
         self.member_ids = set(current_member_ids)
-        self.setWindowTitle(f"Manage Collection: {collection_name}")
         self.resize(520, 560)
         self.setMinimumSize(420, 400)
         self.setSizeGripEnabled(True)
@@ -1947,7 +1915,7 @@ class ManageCollectionGamesDialog(QDialog):
             QPushButton:hover { background: #3f3f46; }
         """)
 
-        layout = QVBoxLayout(self)
+        layout = self.popup_layout(margins=(20, 18, 20, 18), spacing=12)
         layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(12)
 
@@ -2029,34 +1997,11 @@ class ManageCollectionGamesDialog(QDialog):
         return {cb.property("game_id") for cb in self.checkboxes if cb.isChecked()}
 
 
-class CreateCollectionDialog(QDialog):
+class CreateCollectionDialog(PopupDialog):
     """Custom frameless modal window for creating a new game collection."""
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        super().__init__("New Collection", parent)
         self.setFixedSize(440, 230)
-
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-
-        self.container = QFrame(self)
-        self.container.setStyleSheet("""
-            QFrame {
-                background: #111318;
-                border: 1px solid #1e222d;
-                border-radius: 12px;
-            }
-        """)
-        add_soft_shadow(self.container, blur=24, y=6, alpha=140)
-        main_layout.addWidget(self.container)
-
-        layout = QVBoxLayout(self.container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        self.title_bar = DialogTitleBar(self, "New Collection")
-        layout.addWidget(self.title_bar)
 
         body = QWidget()
         body_layout = QVBoxLayout(body)
@@ -2129,7 +2074,7 @@ class CreateCollectionDialog(QDialog):
         btn_row.addWidget(self.btn_create)
 
         body_layout.addLayout(btn_row)
-        layout.addWidget(body)
+        self.popup_layout(margins=(20, 14, 20, 18), spacing=10).addWidget(body)
 
     def showEvent(self, event):
         super().showEvent(event)

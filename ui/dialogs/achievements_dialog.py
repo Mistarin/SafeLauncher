@@ -19,7 +19,7 @@ from typing import Optional, List, Dict, Any
 
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QFrame, QProgressBar, QButtonGroup,
     QComboBox, QGraphicsDropShadowEffect, QSizePolicy, QApplication
 )
@@ -30,6 +30,7 @@ from core.achievement_schema import SteamAchievementFetcherWorker
 from core.achievement_providers import AchievementAvailability
 from core.logger import get_logger
 from ui.icons import get_icon
+from ui.components.popup_shell import PopupDialog
 
 logger = get_logger("AchievementsDialog")
 
@@ -341,13 +342,18 @@ class AppleAchievementCard(QFrame):
 AchievementCard = AppleAchievementCard
 
 
-class AchievementsDialog(QDialog):
+class AchievementsDialog(PopupDialog):
     """
     Apple macOS styled Game Achievements Viewer.
     Features frosted glass metric cards, segmented filter pills, search, and rich tooltips.
     """
     def __init__(self, game: Any, db: GameDatabase, parent: Optional[QWidget] = None):
-        super().__init__(parent)
+        initial_name = (
+            game[1] if isinstance(game, (tuple, list)) else
+            game.get("name", "Achievements") if isinstance(game, dict) else
+            getattr(game, "name", "Achievements")
+        )
+        super().__init__(f"Achievements - {initial_name}", parent)
         self.game = game
         self.db = db
 
@@ -378,7 +384,6 @@ class AchievementsDialog(QDialog):
         self.search_query = ""
         self.sort_mode = "unlocked_first"
 
-        self.setWindowTitle(f"Achievements - {self.game_name}")
         self.resize(780, 680)
         self.setMinimumSize(680, 540)
         
@@ -446,9 +451,7 @@ class AchievementsDialog(QDialog):
         self._load_and_sync_achievements()
 
     def _build_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(24, 20, 24, 20)
-        main_layout.setSpacing(16)
+        main_layout = self.popup_layout(margins=(24, 20, 24, 20), spacing=16)
 
         # -------------------------------------------------------------
         # 1. Header Hero Card with Game Title & Sync Action

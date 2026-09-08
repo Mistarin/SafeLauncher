@@ -1,22 +1,22 @@
 """Focused maintenance dialogs; orchestration stays in MainWindow."""
 
 import os
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMessageBox, QFileDialog
+from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMessageBox, QFileDialog
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 from core.runtime_inventory import RuntimeInventory
 from core.prefix_manager import PrefixManager
+from ui.components.popup_shell import PopupDialog
 
 
-class RuntimeInventoryDialog(QDialog):
+class RuntimeInventoryDialog(PopupDialog):
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Proton / Runtime Inventory")
+        super().__init__("Proton / Runtime Inventory", parent)
         self.setMinimumSize(700, 380)
         self.resize(900, 460)
         self.setSizeGripEnabled(True)
         self.inventory = RuntimeInventory()
-        layout = QVBoxLayout(self)
+        layout = self.popup_layout()
         layout.addWidget(QLabel("System Proton, GE-Proton, UMU-Proton and Steam Runtime installations"))
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["Name", "Type", "Architecture", "Status", "Version", "Disk", "Path"])
@@ -70,47 +70,13 @@ class RuntimeInventoryDialog(QDialog):
             QMessageBox.critical(self, "Cannot remove runtime", str(error))
 
 
-class PrefixMaintenanceDialog(QDialog):
+class PrefixMaintenanceDialog(PopupDialog):
     def __init__(self, game_path: str, parent=None):
-        super().__init__(parent)
+        super().__init__("Prefix Maintenance", parent)
         self.game_path = game_path
         self.manager = PrefixManager()
-        self.setWindowTitle("Prefix Maintenance")
         self.resize(620, 440)
-        self.setStyleSheet("""
-            QDialog {
-                background: #0D0F14;
-                color: #F5F7FA;
-                border: none;
-                border-radius: 8px;
-            }
-            QLabel {
-                color: #A7ADB8;
-            }
-            QPushButton {
-                background: #161A22;
-                color: #D9DEE8;
-                border: none;
-                border-radius: 5px;
-                padding: 7px 10px;
-                font-size: 11px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background: #202633;
-                color: #FFFFFF;
-                background: #202633;
-            }
-            QPushButton:pressed {
-                background: #10141B;
-            }
-            QPushButton:disabled {
-                background: #111318;
-                color: #636A76;
-                border: none;
-            }
-        """)
-        layout = QVBoxLayout(self)
+        layout = self.popup_layout()
         self.summary = QLabel()
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)

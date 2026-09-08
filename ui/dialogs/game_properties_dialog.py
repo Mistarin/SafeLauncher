@@ -4,7 +4,7 @@ import subprocess
 from html import escape as html_escape
 from typing import Optional, Dict
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QGridLayout,
     QTabWidget, QCheckBox, QSlider, QComboBox, QSpinBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QProgressDialog, QApplication
@@ -14,6 +14,7 @@ from PyQt6.QtGui import QFont, QIcon
 
 from ui.icons import get_icon, get_app_icon
 from ui.components.sidebar import DialogTitleBar
+from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from ui.maintenance_dialogs import PrefixMaintenanceDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
@@ -35,7 +36,7 @@ from core.performance_env import (
 logger = get_logger("GamePropertiesDialog")
 
 
-class GamePropertiesDialog(QDialog):
+class GamePropertiesDialog(PopupDialog):
     """Clean, consolidated Game Properties dialog with Performance Presets and Save Manager."""
 
     _save_stats_ready = pyqtSignal(object)
@@ -44,7 +45,7 @@ class GamePropertiesDialog(QDialog):
     _manual_sync_down_done = pyqtSignal(object)
 
     def __init__(self, game: tuple, parent=None):
-        super().__init__(parent)
+        super().__init__(f"Game Properties: {game[1]}", parent)
         self.game = game
         self.parent_window = parent
         self._task_supervisor = TaskSupervisor(self, logger)
@@ -72,18 +73,9 @@ class GamePropertiesDialog(QDialog):
         self._active_manual_sync_progress = None
 
 
-        self.setWindowTitle(f"Properties - {self.game_name}")
         self.setMinimumSize(640, 560)
         self.resize(660, 600)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # Title bar
-        self.title_bar = DialogTitleBar(self, f"Game Properties: {self.game_name}")
-        root_layout.addWidget(self.title_bar)
+        root_layout = self._popup_root
 
         # Tab Widget
         self.tabs = QTabWidget()

@@ -2,7 +2,7 @@
 
 import os
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QFormLayout, QFileDialog, QCheckBox, QWidget, QSizeGrip
 )
 from PyQt6.QtCore import Qt
@@ -10,18 +10,18 @@ from PyQt6.QtGui import QFont, QIcon, QPixmap
 
 from ui.icons import LOGO_PATH
 from ui.components.sidebar import DialogTitleBar
+from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from ui.dialogs.game_dialogs import ensure_sandbox_dir, DEFAULT_SANDBOX_DIR
 
 
-class WelcomeWizardDialog(QDialog):
+class WelcomeWizardDialog(PopupDialog):
     """Clean, minimalist introduction setup wizard on first launch."""
     def __init__(self, user_name: str, proton_path: str = "", parent=None):
-        super().__init__(parent)
+        super().__init__("Welcome to SafeLauncher", parent)
         self.user_name = user_name
         self.proton_path = proton_path
 
-        self.setWindowTitle("Welcome to SafeLauncher")
         if os.path.exists(LOGO_PATH):
             self.setWindowIcon(QIcon(LOGO_PATH))
         self.setMinimumSize(560, 440)
@@ -66,18 +66,7 @@ class WelcomeWizardDialog(QDialog):
             }
         """)
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # Title bar
-        self.title_bar = DialogTitleBar(self, "Welcome to SafeLauncher")
-        root_layout.addWidget(self.title_bar)
-
-        # Body container
-        body = QWidget()
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(28, 20, 28, 20)
+        body_layout = self.popup_layout(margins=(28, 20, 28, 20), spacing=12)
         body_layout.setSpacing(14)
 
         # Header
@@ -157,7 +146,6 @@ class WelcomeWizardDialog(QDialog):
         btn_start.clicked.connect(self._finish)
         body_layout.addWidget(btn_start)
 
-        root_layout.addWidget(body)
 
     def _browse_proton(self):
         path = QFileDialog.getExistingDirectory(self, "Select Proton directory", os.path.expanduser("~/.local/share"))

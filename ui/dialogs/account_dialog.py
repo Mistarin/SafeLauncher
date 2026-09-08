@@ -13,12 +13,13 @@ import time
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QPushButton,
     QProgressBar, QListWidget, QListWidgetItem, QMessageBox, QSplitter,
     QComboBox,
 )
 
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
+from ui.components.popup_shell import PopupDialog
 from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
 
@@ -50,31 +51,21 @@ def _relative_time(ts: float) -> str:
     return f"{weeks} week{'s' if weeks != 1 else ''} ago"
 
 
-class AccountDialog(QDialog):
+class AccountDialog(PopupDialog):
     """Frameless profile manager for SafeLauncher cloud saves."""
 
     _data_ready = pyqtSignal(object)   # {'ok': {...}} | {'error': str}
     _op_done = pyqtSignal(object)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("SafeLauncher Account")
+        super().__init__("Cloud Account", parent)
         self.setFixedSize(780, 560)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self._games = []
         self._quota = {}
         self._busy = False
         self._task_supervisor = TaskSupervisor(self, logger)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-        root.addWidget(DialogTitleBar(self, "Cloud Account"))
-
-        body = QWidget()
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(20, 16, 20, 16)
-        body_layout.setSpacing(12)
+        body_layout = self.popup_layout(margins=(20, 16, 20, 16), spacing=12)
 
         # --- identity header -------------------------------------------------
         header_row = QHBoxLayout()
@@ -239,7 +230,6 @@ class AccountDialog(QDialog):
         footer.addWidget(btn_close)
         body_layout.addLayout(footer)
 
-        root.addWidget(body)
         add_soft_shadow(self)
 
         self._data_ready.connect(self._apply_data)
