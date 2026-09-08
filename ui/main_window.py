@@ -210,7 +210,16 @@ class MainWindow(QMainWindow):
         # timing.  This only disables *automatic* background network work;
         # explicit user actions continue to use their normal code paths.
         self._offline_test_mode = os.environ.get("SAFELAUNCHER_OFFLINE_TEST_MODE") == "1"
-        self.library_view_mode = self.settings.value("library_view_mode", "compact", type=str)
+        # Compact is the product default.  Older releases persisted Grid/List
+        # even though Compact became the primary unified library experience,
+        # so migrate that stale preference once rather than surprising every
+        # existing user on each later launch.
+        if not self.settings.value("compact_view_default_migrated", False, type=bool):
+            self.library_view_mode = "compact"
+            self.settings.setValue("library_view_mode", self.library_view_mode)
+            self.settings.setValue("compact_view_default_migrated", True)
+        else:
+            self.library_view_mode = self.settings.value("library_view_mode", "compact", type=str)
         if self.library_view_mode in ("steam", ""):
             self.library_view_mode = "compact"
         self.virtualization_threshold = self.settings.value("virtualization_threshold", 200, type=int)
