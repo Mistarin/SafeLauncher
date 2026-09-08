@@ -95,6 +95,7 @@ from ui.theme import (
 
 import getpass
 from core.playtime_tracker import PlaytimeTrackerThread, _shutdown_firejail_sandbox
+from core.safe_thread import FunctionWorker
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -2439,6 +2440,26 @@ class MainWindow(QMainWindow):
         here can no longer survive shutdown."""
         self._background_workers.append(worker)
 
+    def _start_managed_task(self, name: str, work, on_complete=None):
+        """Start a one-shot task owned by this window and shut it down safely."""
+        worker = FunctionWorker(work, parent=self)
+        worker.setObjectName(name)
+        if on_complete is not None:
+            worker.completed.connect(on_complete)
+        worker.error_occurred.connect(
+            lambda error, task=name: logger.warning("Background task %s failed: %s", task, error)
+        )
+
+        def _retire(w=worker):
+            if w in self._background_workers:
+                self._background_workers.remove(w)
+            self._retiring_workers.append(w)
+
+        worker.finished.connect(_retire)
+        self._register_worker(worker)
+        worker.start()
+        return worker
+
     def _cleanup_metadata_fetcher(self, fetcher):
         if fetcher in self.metadata_fetchers:
             self.metadata_fetchers.remove(fetcher)
@@ -3439,19 +3460,20 @@ class MainWindow(QMainWindow):
                     game_name, game_path, steam_id
                 )
                 if not cloud_stats.exists:
-                    # Sentinel: tell _on_save_restore_finished to show "no save" info
-                    self._save_restore_finished.emit(game_id, "__no_cloud_save__", False)
-                    return
+                    return game_id, "__no_cloud_save__", False
             except Exception as e:
                 logger.warning(f"Cloud status check failed for '{game_name}': {e}")
-                self._save_restore_finished.emit(game_id, game_name, False)
-                return
+                return game_id, game_name, False
             ok = CloudSaveSyncEngine.sync_cloud_to_local(
                 game_name, game_path, steam_id=steam_id, preserve_local_fork=True
             )
-            self._save_restore_finished.emit(game_id, game_name, ok)
+            return game_id, game_name, ok
 
-        threading.Thread(target=_work, daemon=True, name="SafeLauncher-ManualRestore").start()
+        self._start_managed_task(
+            "SafeLauncher-ManualRestore",
+            _work,
+            lambda result: self._save_restore_finished.emit(*result),
+        )
 
     def _on_save_restore_finished(self, game_id: int, game_name: str, ok: bool):
         if hasattr(self, "_active_restore_progress") and self._active_restore_progress:
@@ -3909,9 +3931,13 @@ class MainWindow(QMainWindow):
                             payload["cloud_stats"] = cloud_stats
             except Exception as sync_check_err:
                 logger.warning(f"Pre-launch cloud sync check failed: {sync_check_err}")
-            self._prelaunch_resolved.emit(payload)
+            return payload
 
-        threading.Thread(target=_work, daemon=True, name="SafeLauncher-PrelaunchSync").start()
+        self._start_managed_task(
+            "SafeLauncher-PrelaunchSync",
+            _work,
+            self._prelaunch_resolved.emit,
+        )
 
     def _finish_prelaunch_sync(self, payload: dict):
         """GUI-thread continuation after the pre-launch sync worker resolves.

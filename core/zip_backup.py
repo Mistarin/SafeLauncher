@@ -250,6 +250,7 @@ class ZipBackupManager(IBackupManager):
         home_dir = os.path.expanduser("~")
 
         staging_root = None
+        rollback_root = None
         try:
             with zipfile.ZipFile(import_zip_path, 'r') as zipf:
                 namelist = zipf.namelist()
@@ -285,13 +286,42 @@ class ZipBackupManager(IBackupManager):
                             pass
                     staged.append((staged_path, final_path))
 
-            # Archive fully materialized in staging; merge onto live data now.
+            # Archive fully materialized in staging. Preserve every existing
+            # destination before applying the new version so a later disk/full
+            # permission failure cannot leave a mixed old/new save tree.
+            rollback_root = _make_staging_dir(dest_abs)
             moved_any = False
-            for staged_path, final_path in staged:
-                final_path = os.path.normpath(final_path)
-                os.makedirs(os.path.dirname(final_path), exist_ok=True)
-                shutil.move(staged_path, final_path)
-                moved_any = True
+            replaced = []
+            originals = []
+            try:
+                for idx, (staged_path, final_path) in enumerate(staged):
+                    final_path = os.path.normpath(final_path)
+                    os.makedirs(os.path.dirname(final_path), exist_ok=True)
+                    if os.path.lexists(final_path):
+                        original_path = os.path.join(rollback_root, f"old-{idx}")
+                        shutil.move(final_path, original_path)
+                        originals.append((original_path, final_path))
+                    shutil.move(staged_path, final_path)
+                    replaced.append(final_path)
+                    moved_any = True
+            except Exception:
+                # Remove only files written by this restore, then put every
+                # displaced source file back where it was. This deliberately
+                # leaves unrelated files created by the game alone.
+                for final_path in reversed(replaced):
+                    try:
+                        if os.path.lexists(final_path):
+                            os.unlink(final_path)
+                    except OSError:
+                        pass
+                for original_path, final_path in reversed(originals):
+                    try:
+                        os.makedirs(os.path.dirname(final_path), exist_ok=True)
+                        if os.path.lexists(original_path):
+                            shutil.move(original_path, final_path)
+                    except OSError as rollback_error:
+                        logger.critical("Save restore rollback failed for %s: %s", final_path, rollback_error)
+                raise
 
             if not moved_any:
                 logger.warning(f"Save archive contained no restorable files: {import_zip_path}")
@@ -303,6 +333,8 @@ class ZipBackupManager(IBackupManager):
         finally:
             if staging_root and os.path.isdir(staging_root):
                 shutil.rmtree(staging_root, ignore_errors=True)
+            if rollback_root and os.path.isdir(rollback_root):
+                shutil.rmtree(rollback_root, ignore_errors=True)
 
     def verify_import(self, import_zip_path: str, destination_path: str, game_path: str = "") -> bool:
         """Content-check a completed import: every archive member must exist on

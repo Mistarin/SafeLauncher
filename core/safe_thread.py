@@ -5,6 +5,8 @@ background thread exceptions from crashing Qt event loops or destroying thread h
 """
 
 import traceback
+from typing import Callable, Any
+
 from PyQt6.QtCore import QThread, pyqtSignal
 from core.logger import get_logger
 
@@ -47,3 +49,24 @@ class SafeQThread(QThread):
                 self.wait(1000)
         except Exception:
             pass
+
+
+class FunctionWorker(SafeQThread):
+    """Run one bounded application task with normal QThread ownership.
+
+    Small orchestration tasks previously used ad-hoc daemon threads. They had
+    no parent, could not participate in shutdown, and could emit into a window
+    that had already closed. This adapter keeps task code simple while giving
+    each run a Qt lifetime and a queued completion signal.
+    """
+
+    completed = pyqtSignal(object)
+
+    def __init__(self, work: Callable[[], Any], parent=None):
+        super().__init__(parent)
+        self._work = work
+
+    def safe_run(self):
+        result = self._work()
+        if not self.isInterruptionRequested():
+            self.completed.emit(result)

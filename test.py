@@ -8,6 +8,7 @@ import os
 import sqlite3
 import tempfile
 import zipfile
+from unittest.mock import patch
 
 os.environ["SAFELAUNCHER_DISABLE_UPDATE_CHECK"] = "1"
 # Keep the Qt smoke suite deterministic and independent of external services.
@@ -180,6 +181,32 @@ try:
         assert backup.import_save(symlink_escape_zip, dest_dir) is False, "Restore followed an escaping destination symlink"
         assert not os.path.exists(os.path.join(outside_dir, "escaped-save.dat")), "Restore wrote through a destination symlink"
         print("✓ Save restore rejects destination symlink escapes")
+
+        # A failure while committing the second file must restore the first
+        # file too; staging alone does not prevent a mixed save tree.
+        transactional_dest = os.path.join(tmp_dir, "transactional-restore")
+        os.makedirs(transactional_dest)
+        for filename in ("one.dat", "two.dat"):
+            with open(os.path.join(transactional_dest, filename), "w") as fh:
+                fh.write(f"old-{filename}")
+        transactional_zip = os.path.join(tmp_dir, "transactional.zip")
+        with zipfile.ZipFile(transactional_zip, "w") as zf:
+            zf.writestr("one.dat", "new-one")
+            zf.writestr("two.dat", "new-two")
+        import core.zip_backup as zip_backup_module
+        real_move = zip_backup_module.shutil.move
+        move_count = [0]
+        def fail_second_commit(source, destination, *args, **kwargs):
+            move_count[0] += 1
+            if move_count[0] == 4:  # old one, new one, old two, new two
+                raise OSError("simulated second-file commit failure")
+            return real_move(source, destination, *args, **kwargs)
+        with patch("core.zip_backup.shutil.move", side_effect=fail_second_commit):
+            assert backup.import_save(transactional_zip, transactional_dest) is False
+        for filename in ("one.dat", "two.dat"):
+            with open(os.path.join(transactional_dest, filename)) as fh:
+                assert fh.read() == f"old-{filename}", "Restore failure left a mixed save tree"
+        print("✓ Save restore rolls back a partial final merge")
 except Exception as e:
     print(f"✗ Backup manager error: {e}")
     sys.exit(1)
