@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import os
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -41,12 +42,13 @@ class AchievementResolution:
     state_source: str
     availability: AchievementAvailability
     reason: str = ""
+    checked_at: float = 0.0
 
 
 class AchievementProvider:
     name = "base"
 
-    def get_schema(self, app_id: str, game_path: str, proton_path: str) -> List[dict]:
+    def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False) -> List[dict]:
         return []
 
 
@@ -54,7 +56,7 @@ class LanzadorSchemaProvider(AchievementProvider):
     """Offline schemas generated from Goldberg/Steam cache files."""
     name = "lanzador-local-schema"
 
-    def get_schema(self, app_id: str, game_path: str, proton_path: str) -> List[dict]:
+    def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False) -> List[dict]:
         from core.achievement_schema import find_local_achievement_schema
         return find_local_achievement_schema(game_path, proton_path, app_id)
 
@@ -63,11 +65,11 @@ class SteamSchemaProvider(AchievementProvider):
     """Cached/public Steam schema fallback used by Sentinel-like setups."""
     name = "sentinel-steam-schema"
 
-    def get_schema(self, app_id: str, game_path: str, proton_path: str) -> List[dict]:
+    def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False) -> List[dict]:
         from core.achievement_schema import fetch_steam_achievements_schema
         return fetch_steam_achievements_schema(
             app_id, game_path=game_path, proton_path=proton_path,
-            download_icons=False,
+            download_icons=download_icons,
         )
 
 
@@ -112,11 +114,11 @@ class AchievementProviderRegistry:
     schema_providers = (LanzadorSchemaProvider(), SteamSchemaProvider())
 
     @classmethod
-    def resolve(cls, app_id: str, game_path: str = "", proton_path: str = "") -> AchievementResolution:
+    def resolve(cls, app_id: str, game_path: str = "", proton_path: str = "", download_icons: bool = False) -> AchievementResolution:
         app_id = str(app_id or "").strip()
         if not app_id or app_id == "0":
             return AchievementResolution([], {}, None, "", "", AchievementAvailability.MISSING,
-                                         "No Steam AppID is configured")
+                                         "No Steam AppID is configured", time.time())
 
         from core.achievement_watcher import locate_achievements_file, parse_achievements_state
 
@@ -136,7 +138,7 @@ class AchievementProviderRegistry:
         schema_source = ""
         for provider in cls.schema_providers:
             try:
-                schema = provider.get_schema(app_id, game_path, proton_path)
+                schema = provider.get_schema(app_id, game_path, proton_path, download_icons=download_icons)
             except Exception as exc:
                 logger.debug("Achievement provider %s failed for %s: %s", provider.name, app_id, exc)
                 continue
@@ -148,6 +150,7 @@ class AchievementProviderRegistry:
             return AchievementResolution(
                 schema, state, state_path, schema_source, state_source,
                 AchievementAvailability.AVAILABLE,
+                checked_at=time.time(),
             )
 
         # An empty result is not proof that the game has no achievements:
@@ -157,9 +160,10 @@ class AchievementProviderRegistry:
             [], state, state_path, "", state_source,
             AchievementAvailability.MISSING,
             "No authoritative achievement schema was available",
+            time.time(),
         )
 
 
-def resolve_achievements(app_id: str, game_path: str = "", proton_path: str = "") -> AchievementResolution:
+def resolve_achievements(app_id: str, game_path: str = "", proton_path: str = "", download_icons: bool = False) -> AchievementResolution:
     """Public provider entry point used by workers and future UI surfaces."""
-    return AchievementProviderRegistry.resolve(app_id, game_path, proton_path)
+    return AchievementProviderRegistry.resolve(app_id, game_path, proton_path, download_icons=download_icons)

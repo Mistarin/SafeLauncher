@@ -167,6 +167,7 @@ class MainWindow(QMainWindow):
         # asynchronous status result is bound to the generation that created it.
         self._cloud_context_generation = 0
         self.achievement_status_cache = {}
+        self.achievement_resolution_cache = {}
         self._achievement_checked_ts = {}
         self._achievement_poll_timer = None
         # A watcher can observe an unlock before its schema worker finishes.
@@ -4356,17 +4357,20 @@ class MainWindow(QMainWindow):
                         from core.achievement_schema import SteamAchievementFetcherWorker
 
                         cached_achs = self.db.get_game_achievements(game_id)
-                        if not cached_achs:
-                            fetcher = SteamAchievementFetcherWorker(
-                                game_id,
-                                str(steam_id).strip(),
-                                game_path=path,
-                                proton_path=selected_proton or "",
-                                download_icons=True,
-                                parent=self
-                            )
-                            fetcher.schema_fetched.connect(self._on_achievement_schema_fetched)
-                            self._track_metadata_fetcher(fetcher)
+                        # Launch is a bounded backfill point: reconcile local
+                        # state even when the schema is already cached.  Only
+                        # request icons when the schema itself is missing.
+                        fetcher = SteamAchievementFetcherWorker(
+                            game_id,
+                            str(steam_id).strip(),
+                            game_path=path,
+                            proton_path=selected_proton or "",
+                            download_icons=not bool(cached_achs),
+                            parent=self
+                        )
+                        fetcher.resolution_ready.connect(self._on_achievement_resolution_ready)
+                        fetcher.schema_fetched.connect(self._on_achievement_schema_fetched)
+                        self._track_metadata_fetcher(fetcher)
 
                         if game_id in self.achievement_watchers:
                             try:
@@ -4460,9 +4464,27 @@ class MainWindow(QMainWindow):
                     self.detail_ach_badges_layout.addWidget(lbl_no_yet)
                     self.detail_ach_badges_layout.addStretch()
             else:
-                self.btn_detail_achievements.setText("Achievements")
-                self.btn_detail_achievements.setVisible(True)
-                self.detail_ach_card.setVisible(False)
+                resolution = self.achievement_resolution_cache.get(game_id)
+                availability = getattr(getattr(resolution, "availability", None), "value", "") if resolution is not None else ""
+                if resolution is not None and availability == "missing":
+                    self.lbl_detail_ach_count.setText("Unavailable")
+                    self.detail_ach_progress.setValue(0)
+                    self.btn_detail_achievements.setText("Achievements · unavailable")
+                    self.btn_detail_achievements.setVisible(True)
+                    self.detail_ach_card.setVisible(True)
+                    while self.detail_ach_badges_layout.count() > 0:
+                        item = self.detail_ach_badges_layout.takeAt(0)
+                        if item.widget():
+                            item.widget().deleteLater()
+                    unavailable = QLabel("Achievement schema is not available yet. Local unlock state will be kept and reconciled when a schema is found.")
+                    unavailable.setWordWrap(True)
+                    unavailable.setStyleSheet("color: #FF9F0A; font-size: 10px; background: transparent;")
+                    self.detail_ach_badges_layout.addWidget(unavailable)
+                    self.detail_ach_badges_layout.addStretch()
+                else:
+                    self.btn_detail_achievements.setText("Achievements")
+                    self.btn_detail_achievements.setVisible(True)
+                    self.detail_ach_card.setVisible(False)
         except Exception as ach_stat_err:
             logger.debug(f"Failed getting achievement stats for game {game_id}: {ach_stat_err}")
             self.btn_detail_achievements.setVisible(False)
@@ -4545,6 +4567,29 @@ class MainWindow(QMainWindow):
             self._on_achievement_unlocked(
                 game_id, app_id, {"api_name": api_name, "unlock_time": unlock_time}
             )
+
+    def _on_achievement_resolution_ready(self, game_id: int, app_id: str, resolution):
+        """Apply one local-first resolution to the durable DB and inspector."""
+        self.achievement_resolution_cache[game_id] = resolution
+        if getattr(resolution, "schema", None):
+            self.db.save_achievement_schema(game_id, app_id, resolution.schema)
+        if getattr(resolution, "state", None):
+            self.db.unlock_achievements_batch(game_id, resolution.state)
+
+        # A watcher may report an unlock before the schema request completes.
+        # Replaying through the normal DB transition keeps notifications
+        # exactly-once while preserving the event.
+        if getattr(resolution, "schema", None) and game_id in self._pending_achievement_unlocks:
+            pending = self._pending_achievement_unlocks.pop(game_id, {})
+            for api_name, unlock_time in pending.items():
+                self._on_achievement_unlocked(
+                    game_id, app_id,
+                    {"api_name": api_name, "unlock_time": unlock_time},
+                )
+
+        if self.selected_game and self.selected_game[0] == game_id:
+            steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
+            self._update_achievement_inspector(game_id, steam_id)
 
     def _open_prefix_maintenance(self):
         game = self._get_selected_game()
@@ -5068,16 +5113,20 @@ class MainWindow(QMainWindow):
                     continue
                 db_path = getattr(self.db, "db_path", None)
                 fetcher = AchievementStatusFetcherThread(gid, g_name, g_path or "", g_steam_id, g_proton_path, db_path=db_path, parent=self)
+                fetcher.resolution_ready.connect(self._on_achievement_resolution_ready)
                 fetcher.achievement_status_calculated.connect(self._on_achievement_status_calculated)
                 self._track_metadata_fetcher(fetcher)
                 # _track_metadata_fetcher owns and starts the targeted worker,
                 # matching the full-library queue path above.
 
     def _start_background_achievement_sync(self):
-        """Startup achievement check and sync queue across the library."""
+        """Start bounded achievement monitoring without a library-wide scan."""
         if getattr(self, "_offline_test_mode", False):
             return
-        self.request_achievement_recheck(None, "startup")
+        # Achievement resolution is deliberately lazy: selection, launch,
+        # dialog open/close, and running-game polling are the explicit probes.
+        # A startup sweep caused network bursts and made unavailable schemas
+        # look like a library-wide failure.
         for game in list(self.games):
             if game and len(game) > 0:
                 self._sync_launcher_metadata_async(int(game[0]))

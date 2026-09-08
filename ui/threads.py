@@ -372,6 +372,7 @@ class CloudSaveBatchQueueWorker(SafeQThread):
 class AchievementStatusFetcherThread(SafeQThread):
     """Background QThread for checking/fetching achievement schemas and syncing local unlocks without blocking GUI."""
     achievement_status_calculated = pyqtSignal(int, int, int, float, list)  # (game_id, unlocked_count, total_count, pct, recent_unlocked)
+    resolution_ready = pyqtSignal(int, str, object)  # (game_id, app_id, AchievementResolution)
 
     def __init__(
         self,
@@ -402,6 +403,8 @@ class AchievementStatusFetcherThread(SafeQThread):
             app_id = self.steam_id
 
             resolution = resolve_achievements(app_id, self.path, self.proton_path) if app_id else None
+            if resolution is not None and not self.isInterruptionRequested():
+                self.resolution_ready.emit(self.game_id, app_id, resolution)
             if resolution and resolution.state:
                 db.unlock_achievements_batch(self.game_id, resolution.state)
 

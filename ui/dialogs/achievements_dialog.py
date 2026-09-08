@@ -26,8 +26,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPixmap, QColor, QPainter, QFont, QIcon, QPainterPath
 
 from database import GameDatabase, GameRecord
-from core.achievement_schema import fetch_steam_achievements_schema, SteamAchievementFetcherWorker
-from core.achievement_watcher import locate_achievements_file, parse_achievements_state
+from core.achievement_schema import SteamAchievementFetcherWorker
+from core.achievement_providers import AchievementAvailability
 from core.logger import get_logger
 from ui.icons import get_icon
 
@@ -702,7 +702,7 @@ class AchievementsDialog(QDialog):
         return btn
 
     def _load_and_sync_achievements(self):
-        """Sync achievements from DB and local emulator state file."""
+        """Render cached achievements, then resolve local/Steam state once."""
         app_id = self.game_steam_id.strip() if self.game_steam_id else ""
         if not app_id:
             self.status_tag.setText(" No Steam AppID ")
@@ -710,46 +710,52 @@ class AchievementsDialog(QDialog):
             self._render_cards()
             return
 
-        # 1. Sync from local state file into DB if present
-        target_file = locate_achievements_file(self.game_proton_path, self.game_path, app_id)
-        if target_file and target_file.is_file():
-            disk_state = parse_achievements_state(target_file)
-            for api_name, unlock_ts in disk_state.items():
-                self.db.unlock_achievement(self.game_id, api_name, unlock_ts)
-
-        # 2. Check DB
+        # Show the last known schema immediately, but always let the shared
+        # resolver reconcile it with local state and authenticated Steam.
         db_achs = self.db.get_game_achievements(self.game_id)
         if db_achs:
             self.achievements = db_achs
+            self.status_tag.setText(" Cached · checking… ")
+            self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #0A84FF; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+            self._render_cards()
+
+        self.status_tag.setText(" Resolving achievement data… ")
+        self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #0A84FF; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+        self.fetch_worker = SteamAchievementFetcherWorker(
+            self.game_id,
+            app_id,
+            game_path=self.game_path,
+            proton_path=self.game_proton_path,
+            download_icons=True,
+            parent=self
+        )
+        self.fetch_worker.resolution_ready.connect(self._on_resolution_ready)
+        self.fetch_worker.failed.connect(self._on_schema_failed)
+        self.fetch_worker.start()
+
+    def _on_resolution_ready(self, game_id: int, app_id: str, resolution):
+        if game_id != self.game_id:
+            return
+        if resolution.schema:
+            self.db.save_achievement_schema(game_id, app_id, resolution.schema)
+        if resolution.state:
+            self.db.unlock_achievements_batch(game_id, resolution.state)
+        self.achievements = self.db.get_game_achievements(self.game_id)
+
+        if resolution.availability == AchievementAvailability.AVAILABLE:
             self.status_tag.setText(" Synchronized ")
             self.status_tag.setStyleSheet("background: rgba(48, 209, 88, 0.12); color: #30D158; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
-            self._render_cards()
+        elif resolution.state:
+            self.status_tag.setText(" Local state · schema unavailable ")
+            self.status_tag.setStyleSheet("background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
         else:
-            # Fetch schema asynchronously in background
-            self.status_tag.setText(" Fetching Schema... ")
-            self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #0A84FF; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
-            self.fetch_worker = SteamAchievementFetcherWorker(
-                self.game_id,
-                app_id,
-                game_path=self.game_path,
-                proton_path=self.game_proton_path,
-                download_icons=True,
-                parent=self
-            )
-            self.fetch_worker.schema_fetched.connect(self._on_schema_fetched)
-            self.fetch_worker.failed.connect(self._on_schema_failed)
-            self.fetch_worker.start()
+            self.status_tag.setText(" Achievement data unavailable ")
+            self.status_tag.setStyleSheet("background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+        self._render_cards()
 
     def _on_schema_fetched(self, game_id: int, app_id: str, achs_list: list):
         if game_id == self.game_id:
             self.db.save_achievement_schema(game_id, app_id, achs_list)
-            # Re-apply any unlocked states from state file
-            target_file = locate_achievements_file(self.game_proton_path, self.game_path, app_id)
-            if target_file and target_file.is_file():
-                disk_state = parse_achievements_state(target_file)
-                for api_name, unlock_ts in disk_state.items():
-                    self.db.unlock_achievement(self.game_id, api_name, unlock_ts)
-
             self.achievements = self.db.get_game_achievements(self.game_id)
             self.status_tag.setText(" Synchronized ")
             self.status_tag.setStyleSheet("background: rgba(48, 209, 88, 0.12); color: #30D158; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
@@ -757,35 +763,9 @@ class AchievementsDialog(QDialog):
 
     def _on_schema_failed(self, game_id: int, app_id: str, error: str):
         if game_id == self.game_id:
-            # Check if there are local unlocked achievements in the state file
-            target_file = locate_achievements_file(self.game_proton_path, self.game_path, app_id)
-            if target_file and target_file.is_file():
-                disk_state = parse_achievements_state(target_file)
-                if disk_state:
-                    synth_list = []
-                    for api_name, unlock_ts in disk_state.items():
-                        synth_list.append({
-                            "api_name": api_name,
-                            "display_name": api_name,
-                            "description": "Unlocked offline",
-                            "icon_url": "",
-                            "icongray_url": "",
-                            "icon_path": "",
-                            "icongray_path": "",
-                            "hidden": 0,
-                            "unlocked": 1,
-                            "unlock_time": unlock_ts,
-                        })
-                    self.db.save_achievement_schema(game_id, app_id, synth_list)
-                    for api_name, unlock_ts in disk_state.items():
-                        self.db.unlock_achievement(game_id, api_name, unlock_ts)
-                    self.achievements = self.db.get_game_achievements(self.game_id)
-                    self.status_tag.setText(" Local Unlocks ")
-                    self.status_tag.setStyleSheet("background: rgba(48, 209, 88, 0.12); color: #30D158; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
-                    self._render_cards()
-                    return
-
-            self.status_tag.setText(" No Schema Found ")
+            # Missing schema is not an empty achievement list.  Keep any
+            # already cached cards visible and explain the unavailable source.
+            self.status_tag.setText(" Achievement data unavailable ")
             self.status_tag.setStyleSheet("background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
             self._render_cards()
 

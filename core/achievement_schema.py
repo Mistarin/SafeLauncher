@@ -479,6 +479,7 @@ def fetch_steam_achievements_schema(
 class SteamAchievementFetcherWorker(SafeQThread):
     """Background worker thread to fetch and cache achievements without freezing UI."""
     schema_fetched = pyqtSignal(int, str, list)  # game_id, app_id, achievements_list
+    resolution_ready = pyqtSignal(int, str, object)  # game_id, app_id, AchievementResolution
     failed = pyqtSignal(int, str, str)           # game_id, app_id, error_message
 
     def __init__(
@@ -504,19 +505,26 @@ class SteamAchievementFetcherWorker(SafeQThread):
             if not self.app_id:
                 self.failed.emit(self.game_id, "", "No AppID provided")
                 return
-            achs = fetch_steam_achievements_schema(
+            # Keep all local-state, authenticated-Steam, schema-cache, and
+            # public-schema precedence in the registry.  This worker is only
+            # transport/lifecycle glue; callers must not implement their own
+            # achievement interpretation beside it.
+            from core.achievement_providers import resolve_achievements
+            resolution = resolve_achievements(
                 self.app_id,
-                game_path=self.game_path,
-                proton_path=self.proton_path,
-                api_key=self.api_key,
-                download_icons=self.download_icons
+                self.game_path or "",
+                self.proton_path or "",
+                download_icons=self.download_icons,
             )
             if self.isInterruptionRequested():
                 return
-            if achs:
-                self.schema_fetched.emit(self.game_id, self.app_id, achs)
+            self.resolution_ready.emit(self.game_id, self.app_id, resolution)
+            if resolution.schema:
+                self.schema_fetched.emit(self.game_id, self.app_id, resolution.schema)
+            elif resolution.state:
+                self.failed.emit(self.game_id, self.app_id, resolution.reason or "Achievement schema unavailable; local state was read")
             else:
-                self.failed.emit(self.game_id, self.app_id, "No achievements found for this game")
+                self.failed.emit(self.game_id, self.app_id, resolution.reason or "Achievement data unavailable")
         except Exception as e:
             logger.warning(f"Achievement worker error for AppID {self.app_id}: {e}")
             self.failed.emit(self.game_id, self.app_id, str(e))
