@@ -253,11 +253,15 @@ class MainWindow(QMainWindow):
         self.wl_recorder_config = self.gpu_recorder_config
         GpuRecorderService.instance().apply_config(self.gpu_recorder_config)
 
-        # Initialize background global hotkey daemon for in-game shortcuts
+        # Headless smoke tests exercise widget wiring, not OS-wide input.
+        # Starting an X11 listener there can leave a non-daemon thread blocked
+        # on a runner display after Qt has finished, preventing CI from ever
+        # exiting. Normal application runs retain the owned listener.
         self.global_hotkeys = GlobalHotkeyListener(self)
         self._update_global_hotkeys()
         self.global_hotkeys.hotkey_triggered.connect(self._on_global_hotkey)
-        self.global_hotkeys.start()
+        if not self._offline_test_mode:
+            self.global_hotkeys.start()
 
         self.setWindowTitle("SafeLauncher - Game Sandbox Manager")
         self.resize(1180, 750)

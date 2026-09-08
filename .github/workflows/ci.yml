@@ -33,6 +33,7 @@ jobs:
       - name: Run smoke suite
         env:
           QT_QPA_PLATFORM: offscreen
+          SAFELAUNCHER_OFFLINE_TEST_MODE: "1"
           XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
         timeout-minutes: 8
         run: |
