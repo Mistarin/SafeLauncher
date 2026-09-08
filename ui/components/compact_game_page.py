@@ -291,16 +291,37 @@ class CompactActionBar(QFrame):
         self.cloud_icon_lbl.setStyleSheet("background: transparent;")
         cloud_row.addWidget(self.cloud_icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self.update_dot = QLabel()
-        self.update_dot.setStyleSheet("background: transparent;")
-        self.update_dot.setVisible(False)
-        cloud_row.addWidget(self.update_dot, 0, Qt.AlignmentFlag.AlignVCenter)
-
         self.cloud_text_lbl = QLabel("Up to date")
         self.cloud_text_lbl.setStyleSheet("color: #F4F4F5; font-size: 12px; font-weight: 600; background: transparent;")
         cloud_row.addWidget(self.cloud_text_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
         self.cloud_container.addLayout(cloud_row)
         layout.addLayout(self.cloud_container)
+
+        layout.addWidget(self._create_divider(), 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # Game-release availability is independent from cloud-save state.
+        # It needs its own labelled column; placing its arrow inside CLOUD
+        # STATUS made “newer version” appear to contradict “Up to date”.
+        self.game_update_widget = QWidget()
+        self.game_update_widget.setStyleSheet("background: transparent;")
+        game_update_layout = QVBoxLayout(self.game_update_widget)
+        game_update_layout.setContentsMargins(0, 0, 0, 0)
+        game_update_layout.setSpacing(2)
+        game_update_title = QLabel("GAME VERSION")
+        game_update_title.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        game_update_layout.addWidget(game_update_title)
+        game_update_row = QHBoxLayout()
+        game_update_row.setContentsMargins(0, 0, 0, 0)
+        game_update_row.setSpacing(6)
+        self.update_dot = QLabel()
+        self.update_dot.setStyleSheet("background: transparent;")
+        game_update_row.addWidget(self.update_dot, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.update_text_lbl = QLabel("Update available")
+        self.update_text_lbl.setStyleSheet("color: #3B9FE8; font-size: 12px; font-weight: 600; background: transparent;")
+        game_update_row.addWidget(self.update_text_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+        game_update_layout.addLayout(game_update_row)
+        self.game_update_widget.setVisible(False)
+        layout.addWidget(self.game_update_widget, 0, Qt.AlignmentFlag.AlignVCenter)
 
         layout.addWidget(self._create_divider(), 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -521,12 +542,12 @@ class CompactActionBar(QFrame):
         return div
 
     def update_cloud_status(self, status: Any, has_update: bool = False):
-        """Update the cloud icon and text based on SyncStatus or available update."""
-        self.update_dot.setVisible(False)
+        """Render independent cloud-save and game-release status columns."""
+        self.game_update_widget.setVisible(bool(has_update))
         if has_update:
             self.update_dot.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(12, 12))
-            self.update_dot.setToolTip("A newer version is available")
-            self.update_dot.setVisible(True)
+            self.update_dot.setToolTip("A newer game version is available")
+            self.update_text_lbl.setText("Update available")
 
         if status == SyncStatus.IN_SYNC:
             self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-check-fill", color="#3CD070").pixmap(14, 14))
@@ -1767,12 +1788,16 @@ class CompactSidebarListItemWidget(QWidget):
             layout.addWidget(fav_lbl)
 
         # Keep the same installation/update facts visible in every library
-        # presentation; compact used to silently discard both fields.
+        # presentation.  Use text rather than an unlabelled blue arrow: this
+        # sits beside the cloud icon and otherwise reads like a cloud action.
         if self.is_update_available:
-            update_lbl = QLabel()
-            update_lbl.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(12, 12))
-            update_lbl.setToolTip("A newer version is available")
-            update_lbl.setStyleSheet("background: transparent;")
+            update_lbl = QLabel("UPDATE")
+            update_lbl.setToolTip("Game version: a newer version is available")
+            update_lbl.setStyleSheet(
+                "color: #7DD3FC; background: rgba(14, 116, 144, 0.25); "
+                "border: 1px solid rgba(56, 189, 248, 0.55); border-radius: 4px; "
+                "padding: 1px 4px; font-size: 9px; font-weight: 800;"
+            )
             layout.addWidget(update_lbl)
         elif self.is_missing:
             missing_lbl = QLabel()
