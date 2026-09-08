@@ -1788,16 +1788,13 @@ class CompactSidebarListItemWidget(QWidget):
             layout.addWidget(fav_lbl)
 
         # Keep the same installation/update facts visible in every library
-        # presentation.  Use text rather than an unlabelled blue arrow: this
-        # sits beside the cloud icon and otherwise reads like a cloud action.
+        # presentation. The update marker is a compact, independent icon;
+        # its tooltip identifies it as game-version state, not cloud state.
         if self.is_update_available:
-            update_lbl = QLabel("UPDATE")
+            update_lbl = QLabel()
+            update_lbl.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(13, 13))
             update_lbl.setToolTip("Game version: a newer version is available")
-            update_lbl.setStyleSheet(
-                "color: #7DD3FC; background: rgba(14, 116, 144, 0.25); "
-                "border: 1px solid rgba(56, 189, 248, 0.55); border-radius: 4px; "
-                "padding: 1px 4px; font-size: 9px; font-weight: 800;"
-            )
+            update_lbl.setStyleSheet("background: transparent;")
             layout.addWidget(update_lbl)
         elif self.is_missing:
             missing_lbl = QLabel()
