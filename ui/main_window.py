@@ -3984,28 +3984,34 @@ class MainWindow(QMainWindow):
                             if ok else
                             f"Could not restore the cloud save for '{ctx['game_name']}' — launched with local saves."
                         )
-                        self._prelaunch_restore_done.emit({"ctx": ctx, "ok": ok, "toast": toast})
+                        return {"ctx": ctx, "ok": ok, "toast": toast}
 
-                    threading.Thread(
-                        target=_do_cloud_restore, daemon=True,
-                        name="SafeLauncher-ConflictRestore"
-                    ).start()
+                    self._start_managed_task(
+                        "SafeLauncher-ConflictRestore",
+                        _do_cloud_restore,
+                        self._prelaunch_restore_done.emit,
+                    )
                     return  # resume in _on_prelaunch_restore_done
                 else:
                     # Keep local: upload in background, launch immediately
                     def _do_local_upload(ctx=ctx):
-                        CloudSaveSyncEngine.sync_local_to_cloud(
+                        ok = CloudSaveSyncEngine.sync_local_to_cloud(
                             ctx["game_name"], ctx["path"], ctx["steam_id"]
                         )
-                        self._prelaunch_restore_done.emit({
-                            "ctx": ctx, "ok": True,
-                            "toast": "Overwrote cloud save with local version."
-                        })
+                        return {
+                            "ctx": ctx, "ok": ok,
+                            "toast": (
+                                "Overwrote cloud save with local version."
+                                if ok else
+                                "Could not upload the local save — launching with local state."
+                            )
+                        }
 
-                    threading.Thread(
-                        target=_do_local_upload, daemon=True,
-                        name="SafeLauncher-ConflictUpload"
-                    ).start()
+                    self._start_managed_task(
+                        "SafeLauncher-ConflictUpload",
+                        _do_local_upload,
+                        self._prelaunch_restore_done.emit,
+                    )
                     return  # resume in _on_prelaunch_restore_done
             else:
                 # Closing the conflict dialog cancels the launch — say so
@@ -4040,12 +4046,13 @@ class MainWindow(QMainWindow):
                         if ok else
                         f"Failed to restore cloud save for '{ctx.get('game_name', '')}'."
                     )
-                    self._prelaunch_restore_done.emit({"ctx": ctx, "ok": ok, "toast": toast})
+                    return {"ctx": ctx, "ok": ok, "toast": toast}
 
-                threading.Thread(
-                    target=_do_cloud_only_restore, daemon=True,
-                    name="SafeLauncher-CloudOnlyRestore"
-                ).start()
+                self._start_managed_task(
+                    "SafeLauncher-CloudOnlyRestore",
+                    _do_cloud_only_restore,
+                    self._prelaunch_restore_done.emit,
+                )
                 return  # resume in _on_prelaunch_restore_done
             else:
                 self._show_toast(f"Launching '{game_name}' without restoring cloud save.")
