@@ -3040,16 +3040,15 @@ class MainWindow(QMainWindow):
         is_available = bool(is_available)
         self.update_status_by_game_id[game_id] = is_available
 
-        # Cheap immediate paths keep visible grid cards responsive.  The
-        # coalesced refresh below rebuilds List and Compact rows (whose badge
-        # layout is constructed from state) and also covers view switches.
+        # Every presentation receives the same derived state immediately.
+        # The coalesced refresh below still rebuilds the shared snapshot so
+        # view switches and persisted state remain correct.
         try:
             if game_id in self.banner_widgets:
                 self.banner_widgets[game_id].set_update_available(is_available)
-            if hasattr(self, "virtual_grid"):
-                self.virtual_grid.update_update_available(game_id, is_available)
         except (RuntimeError, AttributeError):
             pass
+        self._update_library_item("update_update_available", game_id, is_available)
 
         if hasattr(self, "_update_status_refresh_timer"):
             self._update_status_refresh_timer.start()

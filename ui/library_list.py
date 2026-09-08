@@ -90,13 +90,13 @@ class LibraryListItemWidget(QWidget):
         top_line = QHBoxLayout()
         top_line.setSpacing(8)
 
-        title_lbl = QLabel(self.name)
-        title_lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        self.title_lbl = QLabel(self.name)
+        self.title_lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         if self.is_missing:
-            title_lbl.setStyleSheet("color: #636366; font-weight: 600; background: transparent;")
+            self.title_lbl.setStyleSheet("color: #636366; font-weight: 600; background: transparent;")
         else:
-            title_lbl.setStyleSheet("color: #FFFFFF; font-weight: 600; background: transparent;")
-        top_line.addWidget(title_lbl)
+            self.title_lbl.setStyleSheet("color: #FFFFFF; font-weight: 600; background: transparent;")
+        top_line.addWidget(self.title_lbl)
 
         if self.version:
             ver_badge = QLabel(self.version)
@@ -119,10 +119,9 @@ class LibraryListItemWidget(QWidget):
             fav_lbl.setToolTip("Favorite")
             top_line.addWidget(fav_lbl)
 
-        if self.is_update_available:
-            upd_lbl = QLabel("● Update")
-            upd_lbl.setFont(QFont("Arial", 8, QFont.Weight.Bold))
-            upd_lbl.setStyleSheet("""
+        self.update_badge = QLabel("● Update")
+        self.update_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
+        self.update_badge.setStyleSheet("""
                 QLabel {
                     background: rgba(53, 201, 138, 0.12);
                     color: #35C98A;
@@ -131,7 +130,8 @@ class LibraryListItemWidget(QWidget):
                     padding: 1px 6px;
                 }
             """)
-            top_line.addWidget(upd_lbl)
+        top_line.addWidget(self.update_badge)
+        self.update_badge.setVisible(bool(self.is_update_available))
 
         self.cloud_badge = QLabel(self)
         self.cloud_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
@@ -252,6 +252,23 @@ class LibraryListItemWidget(QWidget):
             self.cloud_badge.show()
         else:
             self.cloud_badge.hide()
+
+    def set_update_available(self, is_available: bool) -> None:
+        """Update the release badge without rebuilding this row."""
+        self.is_update_available = bool(is_available)
+        if hasattr(self, "update_badge"):
+            self.update_badge.setVisible(self.is_update_available)
+
+    def set_missing(self, is_missing: bool) -> None:
+        """Refresh installation state without recreating the list row."""
+        self.is_missing = bool(is_missing)
+        if hasattr(self, "title_lbl"):
+            color = "#636366" if self.is_missing else "#FFFFFF"
+            self.title_lbl.setStyleSheet(f"color: {color}; font-weight: 600; background: transparent;")
+        if hasattr(self, "icon_label"):
+            self._load_game_icon()
+        if hasattr(self, "btn_row_launch"):
+            self.btn_row_launch.setVisible(not self.is_missing)
 
     def _load_game_icon(self):
 
@@ -452,6 +469,18 @@ class LibraryListView(QListWidget):
         widget = self._row_widgets_by_id.get(game_id)
         if widget is not None:
             widget.set_cloud_status(status)
+
+    def update_update_available(self, game_id: int, is_available: bool) -> None:
+        """Dynamically update a single game's release badge."""
+        widget = self._row_widgets_by_id.get(game_id)
+        if widget is not None:
+            widget.set_update_available(is_available)
+
+    def update_missing(self, game_id: int, is_missing: bool) -> None:
+        """Dynamically update a single game's installation state."""
+        widget = self._row_widgets_by_id.get(game_id)
+        if widget is not None:
+            widget.set_missing(is_missing)
 
     def update_game_icon(self, game_id: int, icon_path: str) -> None:
         """Dynamically update a single game's icon without reloading the list."""

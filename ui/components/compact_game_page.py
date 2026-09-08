@@ -553,9 +553,12 @@ class CompactActionBar(QFrame):
         div.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); border: none;")
         return div
 
-    def update_cloud_status(self, status: Any, has_update: bool = False):
+    def update_cloud_status(self, status: Any, has_update: Optional[bool] = None):
         """Render independent cloud-save and game-release status columns."""
-        show_update = bool(has_update)
+        self._cloud_status = status
+        if has_update is not None:
+            self._update_available = bool(has_update)
+        show_update = bool(getattr(self, "_update_available", False))
         self.game_update_widget.setVisible(show_update)
         self.cloud_update_divider.setVisible(show_update)
         if has_update:
@@ -587,6 +590,10 @@ class CompactActionBar(QFrame):
             self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-slash-bold", color="#71717A").pixmap(14, 14))
             self.cloud_text_lbl.setText("Cloud missing")
             self.cloud_text_lbl.setStyleSheet("color: #71717A; font-size: 12px; font-weight: 600; background: transparent;")
+
+    def set_update_available(self, is_available: bool) -> None:
+        """Update only the game-release column, preserving cloud state."""
+        self.update_cloud_status(getattr(self, "_cloud_status", None), has_update=is_available)
 
     def set_favorite_active(self, is_fav: bool):
         if is_fav:
@@ -1826,18 +1833,19 @@ class CompactSidebarListItemWidget(QWidget):
         # Keep the same installation/update facts visible in every library
         # presentation. The update marker is a compact, independent icon;
         # its tooltip identifies it as game-version state, not cloud state.
-        if self.is_update_available:
-            update_lbl = QLabel()
-            update_lbl.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(13, 13))
-            update_lbl.setToolTip("Game version: a newer version is available")
-            update_lbl.setStyleSheet("background: transparent;")
-            layout.addWidget(update_lbl)
-        elif self.is_missing:
-            missing_lbl = QLabel()
-            missing_lbl.setPixmap(get_icon("ph.warning-circle-fill", color="#FF9F0A").pixmap(12, 12))
-            missing_lbl.setToolTip("Installation or executable is missing")
-            missing_lbl.setStyleSheet("background: transparent;")
-            layout.addWidget(missing_lbl)
+        self.update_lbl = QLabel()
+        self.update_lbl.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(13, 13))
+        self.update_lbl.setToolTip("Game version: a newer version is available")
+        self.update_lbl.setStyleSheet("background: transparent;")
+        self.update_lbl.setVisible(bool(self.is_update_available))
+        layout.addWidget(self.update_lbl)
+
+        self.missing_lbl = QLabel()
+        self.missing_lbl.setPixmap(get_icon("ph.warning-circle-fill", color="#FF9F0A").pixmap(12, 12))
+        self.missing_lbl.setToolTip("Installation or executable is missing")
+        self.missing_lbl.setStyleSheet("background: transparent;")
+        self.missing_lbl.setVisible(bool(self.is_missing))
+        layout.addWidget(self.missing_lbl)
 
         # 4. Cloud Status Icon
         self.cloud_lbl = QLabel()
@@ -2286,6 +2294,35 @@ class CompactSidebarListWidget(QFrame):
                     widget._load_icon()
                 break
 
+    def update_update_available(self, game_id: int, is_available: bool):
+        """Update a sidebar release icon without rebuilding the compact view."""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item and item.data(Qt.ItemDataRole.UserRole) == game_id:
+                widget = self.list_widget.itemWidget(item)
+                if isinstance(widget, CompactSidebarListItemWidget):
+                    widget.is_update_available = bool(is_available)
+                    widget.update_lbl.setVisible(widget.is_update_available)
+                break
+
+    def update_missing(self, game_id: int, is_missing: bool):
+        """Update a sidebar installation marker without rebuilding the list."""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item and item.data(Qt.ItemDataRole.UserRole) == game_id:
+                widget = self.list_widget.itemWidget(item)
+                if isinstance(widget, CompactSidebarListItemWidget):
+                    widget.is_missing = bool(is_missing)
+                    widget.title_lbl.setStyleSheet(
+                        f"color: {'#FF9F0A' if widget.is_missing else '#E4E4E7'}; background: transparent;"
+                    )
+                    widget.missing_lbl.setVisible(widget.is_missing)
+                    if widget.is_missing:
+                        widget.title_lbl.setToolTip("Installation or executable is missing")
+                    else:
+                        widget.title_lbl.setToolTip("")
+                break
+
     def _on_sort_combo_changed(self, idx: int):
         self.sort_changed.emit(idx)
 
@@ -2445,6 +2482,17 @@ class CompactLayoutContainer(QWidget):
         """Update the compact action bar when it is showing this game."""
         if getattr(self.game_page, "current_game_id", None) == game_id:
             self.game_page.action_bar.update_cloud_status(status)
+
+    def update_update_available(self, game_id: int, is_available: bool):
+        """Update both the sidebar marker and the visible detail page."""
+        self.sidebar_list.update_update_available(game_id, is_available)
+        if getattr(self.game_page, "current_game_id", None) == game_id:
+            self.game_page.action_bar.set_update_available(is_available)
+
+    def update_missing(self, game_id: int, is_missing: bool):
+        self.sidebar_list.update_missing(game_id, is_missing)
+        if getattr(self.game_page, "current_game_id", None) == game_id:
+            self.game_page.action_bar.btn_play.setEnabled(not bool(is_missing))
 
 
 # Backward-compatible aliases
