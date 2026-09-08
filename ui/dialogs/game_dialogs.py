@@ -959,9 +959,11 @@ class SafeLaunchDialog(QDialog):
 
         diagnostics_buttons = QHBoxLayout()
         copy_diagnostics = QPushButton("Copy diagnostics")
+        copy_diagnostics.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 12px; } QPushButton:hover { background: #202633; }")
         copy_diagnostics.clicked.connect(self._copy_diagnostics)
         diagnostics_buttons.addWidget(copy_diagnostics)
         open_logs = QPushButton("Open log folder")
+        open_logs.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 12px; } QPushButton:hover { background: #202633; }")
         open_logs.clicked.connect(self._open_log_folder)
         diagnostics_buttons.addWidget(open_logs)
         diagnostics_buttons.addStretch()
@@ -969,6 +971,7 @@ class SafeLaunchDialog(QDialog):
 
         recovery_buttons = QHBoxLayout()
         retry_safe = QPushButton("Retry with safe fallback")
+        retry_safe.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
         retry_safe.setToolTip("Retry using the sandboxed Wine fallback.")
         retry_safe.clicked.connect(lambda: self._request_retry("wine"))
         recovery_buttons.addWidget(retry_safe)
@@ -1102,7 +1105,7 @@ class SafeLaunchDialog(QDialog):
         # 2. Green: Success, Ready, Clean status
         elif any(token in lower for token in (
             "[success]", "[status]", "[exit]", "[ready]", "[ok]",
-            "up and running", "up to date", "all checks successful",
+            "[reason]", "up and running", "up to date", "all checks successful",
             "initialized cleanly", "finished cleanly"
         )):
             color = "#4ade80"
@@ -1333,6 +1336,14 @@ class SafeLaunchDialog(QDialog):
         elif ("proton" in lower_details or "umu" in lower_details) and not any(token in lower_details for token in ("steam_api64.dll", "steam_api.dll", "steamapi_", "steam api")):
             reason += " Check the Proton/UMU runtime and the game prefix."
 
+        # Keep the actionable conclusion as the final readable console line.
+        # This is deliberately a green SafeLauncher message, distinct from
+        # the red/orange runtime output above it.
+        self.append_log(f"[REASON] {reason}")
+        if self.diagnostics:
+            self.diagnostics.return_code = return_code
+            self.diagnostics.output = list(self.log_lines)
+            persist_diagnostics(self.diagnostics)
         self.error_summary.setText(reason)
         self.error_details.setPlainText(self.diagnostics.as_text() if self.diagnostics else (details or "No diagnostic output was produced."))
         self.stack.setCurrentWidget(self.page_error)

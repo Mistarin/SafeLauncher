@@ -74,6 +74,12 @@ class LaunchDiagnostics:
                 "Retry in windowed mode, compare a direct launch with SafeLauncher, and test an X11 desktop session. "
                 "The graphics-session preflight above shows whether DISPLAY, XRandR, or Vulkan was already failing."
             )
+        if "executable a unix path" in text or "launching with /unix option" in text:
+            return (
+                "UMU/Proton interpreted the selected game executable as a Unix path instead of a Windows executable. "
+                "Re-select the actual .exe in Edit Game, keep the executable path relative to the game directory, "
+                "and retry. SafeLauncher should launch the file from its containing directory."
+            )
         if "no permissions to create a new namespace" in text or "unprivileged_userns_clone" in text:
             return "The kernel denied user namespaces. Enable the setting for your desktop or use the clearly marked unsafe fallback."
         if "no such file" in text or "cannot open" in text:
