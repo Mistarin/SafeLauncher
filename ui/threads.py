@@ -297,11 +297,13 @@ class CloudSaveStatusFetcherThread(SafeQThread):
             return
         try:
             from core.cloud_operations import CloudSyncCoordinator
+            from core.cloud_save_sync import SyncStatus
             coordinator = self.coordinator or CloudSyncCoordinator()
             result = coordinator.check_status(
                 self.game_id, self.game_name, self.path, self.steam_id
             )
-            status, local_stats, cloud_stats = result.status, result.local_stats, result.cloud_stats
+            status = result.status or SyncStatus.CLOUD_OFFLINE
+            local_stats, cloud_stats = result.local_stats, result.cloud_stats
             if not self.isInterruptionRequested():
                 self.save_status_calculated.emit(self.game_id, status, local_stats, cloud_stats)
         except Exception as e:
@@ -347,9 +349,11 @@ class CloudSaveBatchQueueWorker(SafeQThread):
                 game_id, name, path, steam_id = g[0], g[1], g[2], str(g[3]).strip()
             try:
                 from core.cloud_operations import CloudSyncCoordinator
+                from core.cloud_save_sync import SyncStatus
                 coordinator = self.coordinator or CloudSyncCoordinator()
                 result = coordinator.check_status(game_id, name, path, steam_id)
-                status, l_stat, c_stat = result.status, result.local_stats, result.cloud_stats
+                status = result.status or SyncStatus.CLOUD_OFFLINE
+                l_stat, c_stat = result.local_stats, result.cloud_stats
                 if status == SyncStatus.LOCAL_NEWER:
                     uploaded_names.append(name)
                 elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):

@@ -5015,13 +5015,9 @@ class MainWindow(QMainWindow):
         if generation is None:
             generation = self.cloud_sync_coordinator.generation
         for gid, name, path, steam_id in targets:
-            if not self.cloud_sync_coordinator.claim(gid, "status"):
-                logger.debug(f"Cloud recheck{tag}: status operation for '{name}' already claimed.")
-                continue
             if any(isinstance(f, CloudSaveStatusFetcherThread) and f.game_id == gid and f.isRunning()
                    for f in self.metadata_fetchers):
                 logger.debug(f"Cloud recheck{tag}: fetcher for '{name}' already running.")
-                self.cloud_sync_coordinator.release(gid, "status")
                 continue
             fetcher = CloudSaveStatusFetcherThread(
                 gid,
@@ -5031,11 +5027,7 @@ class MainWindow(QMainWindow):
                 parent=self,
                 coordinator=self.cloud_sync_coordinator,
             )
-            fetcher.finished.connect(
-                lambda game_id=gid: self.cloud_sync_coordinator.release(game_id, "status")
-            )
             def _deliver(gid, status, local, cloud, g=generation, callback=on_result):
-                self.cloud_sync_coordinator.release(gid, "status")
                 if not self.cloud_sync_coordinator.accepts(g):
                     logger.debug("Discarded cloud status for game %s from retired context %s", gid, g)
                     return
