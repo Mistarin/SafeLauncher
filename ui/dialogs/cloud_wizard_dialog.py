@@ -1,7 +1,6 @@
 """Interactive setup wizard dialog for SafeLauncher private cloud saves."""
 
 import os
-import threading
 import requests
 from urllib.parse import urlparse
 from PyQt6.QtWidgets import (
@@ -9,12 +8,13 @@ from PyQt6.QtWidgets import (
     QPushButton, QStackedWidget, QWidget, QMessageBox, QApplication,
     QRadioButton, QButtonGroup, QFrame, QScrollArea
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QUrl
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings, QUrl
 from PyQt6.QtGui import QDesktopServices
 
 from core.cloud_detector import discover_local_cloud_backend, inspect_system_compatibility
 from core.cloud_backend import get_site_url
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
+from core.safe_thread import TaskSupervisor
 
 
 class CloudWizardDialog(QDialog):
@@ -27,6 +27,8 @@ class CloudWizardDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Cloud Save Setup Wizard")
         self.resize(620, 520)
+        self._task_supervisor = TaskSupervisor(self)
+        self._test_generation = 0
         self.setStyleSheet("""
             QDialog {
                 background-color: #121214;
@@ -134,6 +136,14 @@ class CloudWizardDialog(QDialog):
         discovered = discover_local_cloud_backend()
         if discovered and not self.edit_url.text().strip():
             self.edit_url.setText(discovered)
+
+    def closeEvent(self, event):
+        self._task_supervisor.cancel_all(100)
+        if self._task_supervisor.has_running_tasks():
+            QTimer.singleShot(100, self.close)
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def _create_mode_page(self) -> QWidget:
         widget = QWidget()
@@ -741,6 +751,8 @@ class CloudWizardDialog(QDialog):
         self.btn_next.setEnabled(False)
         self.btn_back.setEnabled(False)
         self.status_lbl.setText("<font color='#3B82F6'>Connecting to backend...</font>")
+        self._test_generation += 1
+        generation = self._test_generation
 
         def _worker():
             try:
@@ -751,47 +763,41 @@ class CloudWizardDialog(QDialog):
 
                 resp = requests.get(f"{url}/api/health", headers=headers, timeout=6)
                 if resp.status_code == 404:
-                    self.test_completed.emit(
-                        False,
+                    return False, (
                         "This is a legacy backend: /api/health is missing. "
                         "Redeploy the backend with npm install and npx convex deploy first."
-                    )
-                    return
+                    ), None
                 if resp.status_code != 200:
-                    self.test_completed.emit(False, f"Health check failed with HTTP {resp.status_code}")
-                    return
+                    return False, f"Health check failed with HTTP {resp.status_code}", None
 
                 health_data = resp.json() if resp.content else {}
                 backend_version = str(health_data.get("version") or "1.0.0").strip()
                 if is_version_outdated(backend_version, MIN_CONVEX_BACKEND_VERSION):
-                    self.backend_upgrade_found.emit(backend_version)
-                    self.test_completed.emit(
-                        False,
+                    return False, (
                         f"Backend v{backend_version} is outdated; SafeLauncher requires "
                         f"v{MIN_CONVEX_BACKEND_VERSION}. Redeploy it with npm install and npx convex deploy."
-                    )
-                    return
+                    ), backend_version
 
                 resp_me = requests.get(f"{url}/api/me", headers=headers, timeout=6)
                 if resp_me.status_code in (401, 403):
-                    self.test_completed.emit(
-                        False,
-                        "The backend requires a valid Secret Access Key. Enter the key configured in Convex."
-                    )
-                    return
+                    return False, "The backend requires a valid Secret Access Key. Enter the key configured in Convex.", None
                 if resp_me.status_code == 200:
                     data = resp_me.json()
                     quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
-                    self.test_completed.emit(True, f"Connected! Available quota: {quota_mb:.0f} MB")
-                else:
-                    self.test_completed.emit(
-                        False,
-                        f"Backend is reachable, but account verification failed with HTTP {resp_me.status_code}."
-                    )
+                    return True, f"Connected! Available quota: {quota_mb:.0f} MB", None
+                return False, f"Backend is reachable, but account verification failed with HTTP {resp_me.status_code}.", None
             except Exception as e:
-                self.test_completed.emit(False, str(e))
+                return False, str(e), None
 
-        threading.Thread(target=_worker, daemon=True, name="SafeLauncher-WizardTest").start()
+        def _deliver(result, expected_generation=generation):
+            if expected_generation != self._test_generation:
+                return
+            success, message, outdated_version = result
+            if outdated_version:
+                self.backend_upgrade_found.emit(outdated_version)
+            self.test_completed.emit(success, message)
+
+        self._task_supervisor.start("SafeLauncher-WizardTest", _worker, _deliver)
 
     def _on_test_completed(self, success: bool, message: str):
         self.btn_next.setEnabled(True)

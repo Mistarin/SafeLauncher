@@ -1470,11 +1470,11 @@ class UserSettingsDialog(QDialog):
         self.lbl_update_status.setText("<font color='#3B82F6'>Checking GitHub Releases for updates…</font>")
 
         def _worker():
-            info = check_for_updates()
-            self.appUpdateReady.emit(info)
+            return check_for_updates()
 
-        import threading
-        threading.Thread(target=_worker, daemon=True, name="SafeLauncher-ManualUpdate").start()
+        self._start_managed_task(
+            "SafeLauncher-ManualUpdate", _worker, self.appUpdateReady.emit
+        )
 
     def _apply_manual_update_result(self, info: dict):
         """Handle result of manual update check."""
@@ -1516,12 +1516,20 @@ class UserSettingsDialog(QDialog):
                     asset_url,
                     progress_callback=lambda d, t: self.appDownloadProgress.emit(d, t)
                 )
-                self.appDownloadFinished.emit(target)
+                return True, target
             except Exception as e:
-                self.appDownloadFailed.emit(str(e))
+                return False, str(e)
 
-        import threading
-        threading.Thread(target=_worker, daemon=True, name="SafeLauncher-AppImageDownload").start()
+        def _deliver(result):
+            success, value = result
+            if success:
+                self.appDownloadFinished.emit(value)
+            else:
+                self.appDownloadFailed.emit(value)
+
+        self._start_managed_task(
+            "SafeLauncher-AppImageDownload", _worker, _deliver
+        )
 
     def _on_app_download_progress(self, downloaded: int, total: int):
         if total > 0:
