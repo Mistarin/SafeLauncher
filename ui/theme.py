@@ -13,6 +13,14 @@ TEXT_PRIMARY = "#F4F4F5"
 TEXT_SECONDARY = "#A1A1AA"
 TEXT_MUTED = "#71717A"
 
+# Popup surfaces follow the flat, row-based desktop treatment used by the
+# reference UI.  Dialogs should use these instead of inventing local cards.
+POPUP_BACKGROUND = "#171D26"
+POPUP_SURFACE = "#222832"
+POPUP_SURFACE_ACTIVE = "#2B3441"
+POPUP_SURFACE_HOVER = "#29313C"
+POPUP_DIVIDER = "#303844"
+
 # ── Brand Accent ─────────────────────────────────────────────────────────────
 ACCENT_PRIMARY = "#3B9FE8"
 ACCENT_HOVER = "#55ACED"

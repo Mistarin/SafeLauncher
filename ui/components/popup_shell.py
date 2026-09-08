@@ -15,6 +15,17 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QComboBox,
+    QCheckBox,
+    QPlainTextEdit,
+    QScrollArea,
+    QSpinBox,
+    QTabBar,
+    QTabWidget,
+    QListWidget,
+    QTableWidget,
+    QTreeWidget,
+    QTextEdit,
     QPushButton,
     QProgressBar,
     QVBoxLayout,
@@ -33,21 +44,54 @@ from ui.theme import (
     SEMANTIC_ERROR,
     SEMANTIC_SUCCESS,
     SEMANTIC_WARNING,
+    POPUP_BACKGROUND,
+    POPUP_SURFACE,
+    POPUP_SURFACE_ACTIVE,
+    POPUP_SURFACE_HOVER,
 )
 
 
 POPUP_STYLE = f"""
 QDialog#safeLauncherPopup {{
-    background: {BG_APP};
+    background: {POPUP_BACKGROUND};
     color: {TEXT_PRIMARY};
 }}
-QFrame#popupBody {{
-    background: {BG_APP};
+QDialog#safeLauncherPopup QFrame#popupBody {{
+    background: {POPUP_BACKGROUND};
     border: none;
 }}
-QFrame#popupSection {{
-    background: {SURFACE};
+QDialog#safeLauncherPopup QFrame#popupSection,
+QDialog#safeLauncherPopup QFrame#editGameArtPanel,
+QDialog#safeLauncherPopup QFrame#editGameActionPanel,
+QDialog#safeLauncherPopup QFrame#settingsNav,
+QDialog#safeLauncherPopup QFrame#header_frame,
+QDialog#safeLauncherPopup QFrame#recovery_frame {{
+    background: {POPUP_SURFACE};
     border: none;
+    border-radius: 2px;
+}}
+QDialog#safeLauncherPopup QFrame {{
+    border: none;
+}}
+QDialog#safeLauncherPopup QPushButton {{
+    background: {POPUP_SURFACE};
+    color: {TEXT_PRIMARY};
+    border: none;
+    border-radius: 2px;
+    padding: 7px 14px;
+    min-height: 28px;
+    font-size: 12px;
+    font-weight: 600;
+}}
+QDialog#safeLauncherPopup QPushButton:hover {{
+    background: {POPUP_SURFACE_ACTIVE};
+}}
+QDialog#safeLauncherPopup QPushButton:pressed {{
+    background: {ACCENT_PRIMARY};
+    color: #ffffff;
+}}
+QDialog#safeLauncherPopup QLabel {{
+    color: {TEXT_PRIMARY};
 }}
 QLabel#popupTitle {{
     color: {TEXT_PRIMARY};
@@ -59,21 +103,84 @@ QLabel#popupSubtitle, QLabel#popupHint {{
     font-size: 12px;
 }}
 QLineEdit#popupInput {{
-    background: {SURFACE};
+    background: {POPUP_SURFACE};
     color: {TEXT_PRIMARY};
     border: none;
-    border-radius: 5px;
+    border-radius: 2px;
     padding: 8px 10px;
 }}
 QLineEdit#popupInput:focus {{
-    background: {SURFACE_ELEVATED};
-    border: 1px solid {ACCENT_PRIMARY};
+    background: {POPUP_SURFACE_HOVER};
+    border: none;
+}}
+QDialog#safeLauncherPopup QLineEdit,
+QDialog#safeLauncherPopup QTextEdit,
+QDialog#safeLauncherPopup QPlainTextEdit,
+QDialog#safeLauncherPopup QComboBox,
+QDialog#safeLauncherPopup QSpinBox {{
+    background: {POPUP_SURFACE};
+    color: {TEXT_PRIMARY};
+    border: none;
+    border-radius: 2px;
+    padding: 7px 10px;
+}}
+QDialog#safeLauncherPopup QLineEdit:focus,
+QDialog#safeLauncherPopup QTextEdit:focus,
+QDialog#safeLauncherPopup QPlainTextEdit:focus,
+QDialog#safeLauncherPopup QComboBox:focus,
+QDialog#safeLauncherPopup QSpinBox:focus {{
+    background: {POPUP_SURFACE_HOVER};
+    border: none;
+}}
+QDialog#safeLauncherPopup QListWidget,
+QDialog#safeLauncherPopup QTreeWidget,
+QDialog#safeLauncherPopup QTableWidget,
+QDialog#safeLauncherPopup QScrollArea {{
+    background: {POPUP_SURFACE};
+    color: {TEXT_PRIMARY};
+    border: none;
+}}
+QDialog#safeLauncherPopup QListWidget::item:selected,
+QDialog#safeLauncherPopup QTreeWidget::item:selected,
+QDialog#safeLauncherPopup QTableWidget::item:selected {{
+    background: {ACCENT_PRIMARY};
+    color: #ffffff;
+}}
+QDialog#safeLauncherPopup QCheckBox {{
+    color: {TEXT_SECONDARY};
+    spacing: 8px;
+}}
+QDialog#safeLauncherPopup QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    background: {POPUP_SURFACE};
+    border: none;
+    border-radius: 2px;
+}}
+QDialog#safeLauncherPopup QCheckBox::indicator:checked {{
+    background: {ACCENT_PRIMARY};
+}}
+QDialog#safeLauncherPopup QTabWidget::pane {{
+    background: {POPUP_BACKGROUND};
+    border: none;
+}}
+QDialog#safeLauncherPopup QTabBar::tab {{
+    background: {POPUP_SURFACE};
+    color: {TEXT_SECONDARY};
+    border: none;
+    border-radius: 2px;
+    padding: 8px 14px;
+    margin-right: 2px;
+}}
+QDialog#safeLauncherPopup QTabBar::tab:selected {{
+    background: {ACCENT_PRIMARY};
+    color: #ffffff;
 }}
 QPushButton#popupPrimary, QPushButton#popupSecondary,
 QPushButton#popupDestructive {{
     min-height: 30px;
     border: none;
-    border-radius: 5px;
+    border-radius: 2px;
     padding: 5px 14px;
     font-size: 12px;
     font-weight: 600;
@@ -94,7 +201,7 @@ QPushButton#popupDestructive {{
 }}
 QPushButton#popupDestructive:hover {{ background: rgba(240, 93, 108, 0.14); }}
 QProgressBar#popupProgress {{
-    background: {SURFACE};
+    background: {POPUP_SURFACE};
     border: none;
     border-radius: 3px;
     height: 6px;
@@ -125,6 +232,42 @@ class PopupDialog(QDialog):
         self._popup_root.setSpacing(0)
         self.title_bar = DialogTitleBar(self, title)
         self._popup_root.addWidget(self.title_bar)
+        self._popup_widgets_normalized = False
+
+    def showEvent(self, event):
+        self.normalize_popup_widgets()
+        super().showEvent(event)
+
+    def normalize_popup_widgets(self):
+        """Remove legacy child-level palettes before the popup is displayed.
+
+        A number of older dialogs set their own stylesheet directly on every
+        button/card.  Parent styles cannot override those rules reliably in
+        Qt, so the shared shell clears only presentation-bearing child rules.
+        Labels retain local typography and the title bar retains its controls.
+        """
+        if self._popup_widgets_normalized:
+            return
+        styled_types = (
+            QFrame, QPushButton, QLineEdit, QTextEdit, QPlainTextEdit,
+            QComboBox, QCheckBox, QScrollArea, QSpinBox, QTabWidget,
+            QTabBar, QListWidget, QTableWidget, QTreeWidget, QProgressBar,
+        )
+        for child in self.findChildren(QWidget):
+            if child is self.title_bar or self.title_bar.isAncestorOf(child):
+                continue
+            if (type(child) is QWidget or isinstance(child, styled_types)) and child.styleSheet():
+                child.setStyleSheet("")
+        self._popup_widgets_normalized = True
+
+    def setStyleSheet(self, style_sheet: str):
+        """Keep legacy dialog-specific rules, then enforce popup tokens.
+
+        Older dialogs still provide local styles for special controls.  The
+        shared popup rules are appended last so backgrounds, borders, inputs,
+        and buttons cannot drift back to the old grey-card palette.
+        """
+        QDialog.setStyleSheet(self, f"{style_sheet}\n{POPUP_STYLE}")
 
     def popup_layout(self, *, margins=(20, 16, 20, 16), spacing=12) -> QVBoxLayout:
         body = QFrame(self)
@@ -305,4 +448,3 @@ class OperationDialog(PopupDialog):
         self.progress.setVisible(False)
         self.cancel_button.setVisible(False)
         self.setWindowTitle("Completed" if success else "Operation failed")
-
