@@ -22,6 +22,7 @@ from PyQt6.QtGui import (
 from ui.icons import get_icon
 from core.cloud_save_sync import SyncStatus
 from core.library_controller import LibrarySnapshot
+from core.game_status import cloud_indicator
 
 
 GAME_ID_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -145,7 +146,8 @@ class GameCardItemDelegate(QStyledItemDelegate):
         # Update indicator (top-left)
         if is_update:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#35C98A"))
+            from core.game_status import update_indicator
+            painter.setBrush(QColor(update_indicator(True).color))
             painter.drawEllipse(cover_rect.x() + 8, cover_rect.y() + 8, 9, 9)
 
         # Favorite star (top-right)
@@ -226,34 +228,12 @@ class GameCardItemDelegate(QStyledItemDelegate):
         painter.fillPath(badge_path, QColor(20, 23, 29, 225))
 
         icon_rect = QRect(badge_x + 3, badge_y + 1, 16, 16)
-        if status == SyncStatus.IN_SYNC:
-            painter.setPen(QColor(53, 201, 138, 100))
-            painter.drawPath(badge_path)
-            get_icon("ph.cloud-check-fill", color="#35C98A").paint(painter, icon_rect)
-        elif status == SyncStatus.LOCAL_NEWER:
-            painter.setPen(QColor(59, 159, 232, 100))
-            painter.drawPath(badge_path)
-            get_icon("ph.cloud-arrow-up-fill", color="#3B9FE8").paint(painter, icon_rect)
-        elif status == SyncStatus.CLOUD_NEWER:
-            painter.setPen(QColor(229, 169, 61, 100))
-            painter.drawPath(badge_path)
-            get_icon("ph.cloud-arrow-down-fill", color="#E5A93D").paint(painter, icon_rect)
-        elif status == SyncStatus.CLOUD_ONLY:
-            painter.setPen(QColor(59, 159, 232, 100))
-            painter.drawPath(badge_path)
-            get_icon("ph.cloud-arrow-down-fill", color="#3B9FE8").paint(painter, icon_rect)
-        elif status == SyncStatus.CONFLICT:
-            painter.setPen(QColor(229, 169, 61, 100))
-            painter.drawPath(badge_path)
-            get_icon("ph.warning-circle-bold", color="#E5A93D").paint(painter, icon_rect)
-        elif status == SyncStatus.NO_SAVES:
-            painter.setPen(QColor(240, 93, 108, 100))
-            painter.drawPath(badge_path)
-            get_icon("ph.cloud-slash-bold", color="#F05D6C").paint(painter, icon_rect)
-        elif status == SyncStatus.CLOUD_OFFLINE:
-            painter.setPen(QColor(111, 118, 130, 100))
-            painter.drawPath(badge_path)
-            get_icon("ph.cloud-slash-bold", color="#6F7682").paint(painter, icon_rect)
+        meta = cloud_indicator(status)
+        if not meta.visible:
+            return
+        painter.setPen(QColor(meta.color))
+        painter.drawPath(badge_path)
+        get_icon(meta.icon, color=meta.color).paint(painter, icon_rect)
 
 
     def _get_cached_cover(self, game_id: int, banner_path: str, name: str, is_missing: bool) -> QPixmap:

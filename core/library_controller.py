@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from core.disk_utils import peek_dir_size
+from core.game_status import GameStatusState
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class LibraryItemState:
     is_archived: bool
     update_available: bool = False
     cloud_status: Any = None
+    status: GameStatusState = field(default_factory=GameStatusState)
 
     @property
     def game_id(self) -> int:
@@ -83,9 +85,11 @@ class LibraryController:
         query: LibraryQuery,
         update_status: Mapping[int, bool] | None = None,
         cloud_status: Mapping[int, Any] | None = None,
+        status: Mapping[int, GameStatusState] | None = None,
     ) -> LibrarySnapshot:
         update_status = update_status or {}
         cloud_status = cloud_status or {}
+        status = status or {}
         normalized_search = (query.search or "").strip().lower()
         normalized_filter = query.filter_mode or "all"
         normalized_collection = (query.collection or "").strip()
@@ -140,15 +144,20 @@ class LibraryController:
                 if normalized_filter == "favorites" and not is_favorite:
                     continue
 
+            item_status = status.get(int(game_id)) or GameStatusState(
+                update_available=bool(update_status.get(int(game_id), False)),
+                cloud_status=(cloud_status.get(int(game_id), (None,))[0]
+                              if cloud_status.get(int(game_id)) else None),
+            )
             items.append(LibraryItemState(
                 game=game,
                 is_missing=is_missing,
                 playtime_seconds=int(game[7] or 0) if len(game) > 7 else 0,
                 is_favorite=is_favorite,
                 is_archived=is_archived,
-                update_available=bool(update_status.get(int(game_id), False)),
-                cloud_status=(cloud_status.get(int(game_id), (None,))[0]
-                              if cloud_status.get(int(game_id)) else None),
+                update_available=item_status.update_available,
+                cloud_status=item_status.cloud_status,
+                status=item_status,
             ))
 
         if query.sort_index == 1:

@@ -30,6 +30,7 @@ from PyQt6.QtGui import (
 from ui.icons import get_icon
 from core.cloud_save_sync import SyncStatus
 from core.library_controller import LibrarySnapshot
+from core.game_status import cloud_indicator, update_indicator
 from core.logger import get_logger
 
 logger = get_logger("CompactGamePage")
@@ -561,35 +562,19 @@ class CompactActionBar(QFrame):
         show_update = bool(getattr(self, "_update_available", False))
         self.game_update_widget.setVisible(show_update)
         self.cloud_update_divider.setVisible(show_update)
-        if has_update:
-            self.update_dot.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(12, 12))
-            self.update_dot.setToolTip("A newer game version is available")
-            self.update_text_lbl.setText("Update available")
+        if show_update:
+            update_meta = update_indicator(True)
+            self.update_dot.setPixmap(get_icon(update_meta.icon, color=update_meta.color).pixmap(12, 12))
+            self.update_dot.setToolTip(update_meta.tooltip)
+            self.update_text_lbl.setText(update_meta.label)
 
-        if status == SyncStatus.IN_SYNC:
-            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-check-fill", color="#3CD070").pixmap(14, 14))
-            self.cloud_text_lbl.setText("Up to date")
-            self.cloud_text_lbl.setStyleSheet("color: #3CD070; font-size: 12px; font-weight: 600; background: transparent;")
-        elif status == SyncStatus.LOCAL_NEWER:
-            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-arrow-up-fill", color="#FF9F0A").pixmap(14, 14))
-            self.cloud_text_lbl.setText("Ready to upload")
-            self.cloud_text_lbl.setStyleSheet("color: #FF9F0A; font-size: 12px; font-weight: 600; background: transparent;")
-        elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
-            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-arrow-down-fill", color="#FF9F0A").pixmap(14, 14))
-            self.cloud_text_lbl.setText("Newer in cloud")
-            self.cloud_text_lbl.setStyleSheet("color: #FF9F0A; font-size: 12px; font-weight: 600; background: transparent;")
-        elif status == SyncStatus.CONFLICT:
-            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-warning-fill", color="#FF453A").pixmap(14, 14))
-            self.cloud_text_lbl.setText("Cloud conflict")
-            self.cloud_text_lbl.setStyleSheet("color: #FF453A; font-size: 12px; font-weight: 600; background: transparent;")
-        elif status == SyncStatus.CLOUD_OFFLINE:
-            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-slash-bold", color="#71717A").pixmap(14, 14))
-            self.cloud_text_lbl.setText("Cloud offline")
-            self.cloud_text_lbl.setStyleSheet("color: #71717A; font-size: 12px; font-weight: 600; background: transparent;")
-        else:
-            self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-slash-bold", color="#71717A").pixmap(14, 14))
-            self.cloud_text_lbl.setText("Cloud missing")
-            self.cloud_text_lbl.setStyleSheet("color: #71717A; font-size: 12px; font-weight: 600; background: transparent;")
+        cloud_meta = cloud_indicator(status)
+        self.cloud_icon_lbl.setPixmap(get_icon(cloud_meta.icon, color=cloud_meta.color).pixmap(14, 14))
+        self.cloud_text_lbl.setText(cloud_meta.label)
+        self.cloud_text_lbl.setToolTip(cloud_meta.tooltip)
+        self.cloud_text_lbl.setStyleSheet(
+            f"color: {cloud_meta.color}; font-size: 12px; font-weight: 600; background: transparent;"
+        )
 
     def set_update_available(self, is_available: bool) -> None:
         """Update only the game-release column, preserving cloud state."""
@@ -1854,24 +1839,10 @@ class CompactSidebarListItemWidget(QWidget):
         layout.addWidget(self.cloud_lbl)
 
     def _set_cloud_icon(self):
-        if self.cloud_status == SyncStatus.IN_SYNC:
-            self.cloud_lbl.setPixmap(get_icon("ph.cloud-check-fill", color="#3CD070").pixmap(12, 12))
-            self.cloud_lbl.setToolTip("Cloud: Up to date")
-        elif self.cloud_status == SyncStatus.LOCAL_NEWER:
-            self.cloud_lbl.setPixmap(get_icon("ph.cloud-arrow-up-fill", color="#3B9FE8").pixmap(12, 12))
-            self.cloud_lbl.setToolTip("Cloud: Ready to upload")
-        elif self.cloud_status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
-            self.cloud_lbl.setPixmap(get_icon("ph.cloud-arrow-down-fill", color="#FF9F0A").pixmap(12, 12))
-            self.cloud_lbl.setToolTip("Cloud: Newer in cloud")
-        elif self.cloud_status == SyncStatus.CONFLICT:
-            self.cloud_lbl.setPixmap(get_icon("ph.cloud-warning-fill", color="#FF453A").pixmap(12, 12))
-            self.cloud_lbl.setToolTip("Cloud: Conflict")
-        elif self.cloud_status == SyncStatus.CLOUD_OFFLINE:
-            self.cloud_lbl.setPixmap(get_icon("ph.cloud-slash-bold", color="#71717A").pixmap(12, 12))
-            self.cloud_lbl.setToolTip("Cloud: Offline")
-        else:
-            self.cloud_lbl.setPixmap(get_icon("ph.cloud-slash-bold", color="#71717A").pixmap(12, 12))
-            self.cloud_lbl.setToolTip("Cloud: Missing / no saves")
+        from core.game_status import cloud_indicator
+        meta = cloud_indicator(self.cloud_status)
+        self.cloud_lbl.setPixmap(get_icon(meta.icon, color=meta.color).pixmap(12, 12))
+        self.cloud_lbl.setToolTip(meta.tooltip)
 
     def _load_icon(self):
         pix: Optional[QPixmap] = None

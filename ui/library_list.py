@@ -119,13 +119,13 @@ class LibraryListItemWidget(QWidget):
             fav_lbl.setToolTip("Favorite")
             top_line.addWidget(fav_lbl)
 
-        self.update_badge = QLabel("● Update")
+        self.update_badge = QLabel("Game Update: Available")
         self.update_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
         self.update_badge.setStyleSheet("""
                 QLabel {
-                    background: rgba(53, 201, 138, 0.12);
-                    color: #35C98A;
-                    border: 1px solid rgba(53, 201, 138, 0.3);
+                    background: rgba(20, 23, 29, 0.72);
+                    color: #3B9FE8;
+                    border: 1px solid #3B9FE8;
                     border-radius: 4px;
                     padding: 1px 6px;
                 }
@@ -214,50 +214,35 @@ class LibraryListItemWidget(QWidget):
         self.cloud_status = status
         if not hasattr(self, "cloud_badge") or self.cloud_badge is None:
             return
-        from core.cloud_save_sync import SyncStatus
-        if status == SyncStatus.IN_SYNC:
-            self.cloud_badge.setText("● Synced")
-            self.cloud_badge.setToolTip("Cloud save is up to date")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(53, 201, 138, 0.12); color: #35C98A; border: 1px solid rgba(53, 201, 138, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.LOCAL_NEWER:
-            self.cloud_badge.setText("▲ Ready to Upload")
-            self.cloud_badge.setToolTip("Local save is newer than cloud (will auto-upload on exit)")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(59, 159, 232, 0.12); color: #3B9FE8; border: 1px solid rgba(59, 159, 232, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.CLOUD_NEWER:
-            self.cloud_badge.setText("▼ Newer in Cloud")
-            self.cloud_badge.setToolTip("A newer save exists in the cloud")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(229, 169, 61, 0.12); color: #E5A93D; border: 1px solid rgba(229, 169, 61, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.CLOUD_ONLY:
-            self.cloud_badge.setText("▼ Available")
-            self.cloud_badge.setToolTip("Cloud save available to restore")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(59, 159, 232, 0.12); color: #3B9FE8; border: 1px solid rgba(59, 159, 232, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.CONFLICT:
-            self.cloud_badge.setText("▲▼ Conflict")
-            self.cloud_badge.setToolTip("Save conflict detected")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(229, 169, 61, 0.12); color: #E5A93D; border: 1px solid rgba(229, 169, 61, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.NO_SAVES:
-            self.cloud_badge.setText("✕ No Save")
-            self.cloud_badge.setToolTip("Game save not found")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(240, 93, 108, 0.12); color: #F05D6C; border: 1px solid rgba(240, 93, 108, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.CLOUD_OFFLINE:
-            self.cloud_badge.setText("○ Offline")
-            self.cloud_badge.setToolTip("Cloud not connected")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(111, 118, 130, 0.12); color: #6F7682; border: 1px solid rgba(111, 118, 130, 0.3); border-radius: 4px; padding: 1px 6px; font-weight: bold; font-size: 10px; }")
-            self.cloud_badge.show()
-        else:
+        from core.game_status import cloud_indicator
+        meta = cloud_indicator(status)
+        if not meta.visible:
             self.cloud_badge.hide()
+            return
+        self.cloud_badge.setText(meta.label)
+        self.cloud_badge.setToolTip(meta.tooltip)
+        self.cloud_badge.setStyleSheet(
+            f"QLabel {{ background: rgba(20, 23, 29, 0.72); color: {meta.color}; "
+            f"border: 1px solid {meta.color}; border-radius: 4px; padding: 1px 6px; "
+            "font-weight: bold; font-size: 10px; }}"
+        )
+        self.cloud_badge.show()
 
     def set_update_available(self, is_available: bool) -> None:
         """Update the release badge without rebuilding this row."""
         self.is_update_available = bool(is_available)
         if hasattr(self, "update_badge"):
             self.update_badge.setVisible(self.is_update_available)
+            if self.is_update_available:
+                from core.game_status import update_indicator
+                meta = update_indicator(True)
+                self.update_badge.setText(meta.label)
+                self.update_badge.setToolTip(meta.tooltip)
+                self.update_badge.setStyleSheet(
+                    f"QLabel {{ background: rgba(20, 23, 29, 0.72); color: {meta.color}; "
+                    f"border: 1px solid {meta.color}; border-radius: 4px; padding: 1px 6px; "
+                    "font-weight: bold; font-size: 10px; }}"
+                )
 
     def set_missing(self, is_missing: bool) -> None:
         """Refresh installation state without recreating the list row."""

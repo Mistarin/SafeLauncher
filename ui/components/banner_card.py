@@ -15,7 +15,7 @@ class UpdatePulsingDotWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(28, 28)
-        self.setToolTip("Steam update available")
+        self.setToolTip("Game Update: a newer game version is available")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._pulse_phase = 0.0
 
@@ -223,46 +223,18 @@ class GameBannerWidget(QFrame):
 
     def set_cloud_status(self, status):
         """Update cloud save status badge at bottom-right of card."""
-        from core.cloud_save_sync import SyncStatus
+        from core.game_status import cloud_indicator
         self.cloud_status = status
-        if status == SyncStatus.IN_SYNC:
-            self.cloud_badge.setPixmap(get_icon("ph.cloud-check-fill", color="#35C98A").pixmap(QSize(15, 15)))
-            self.cloud_badge.setToolTip("Cloud save is up to date")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(53, 201, 138, 0.40); border-radius: 6px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.LOCAL_NEWER:
-            self.cloud_badge.setPixmap(get_icon("ph.cloud-arrow-up-fill", color="#3B9FE8").pixmap(QSize(15, 15)))
-            self.cloud_badge.setToolTip("Local save is newer (ready to upload)")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(59, 159, 232, 0.40); border-radius: 6px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.CLOUD_NEWER:
-            self.cloud_badge.setPixmap(get_icon("ph.cloud-arrow-down-fill", color="#E5A93D").pixmap(QSize(15, 15)))
-            self.cloud_badge.setToolTip("Cloud save is newer")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(229, 169, 61, 0.40); border-radius: 6px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.CLOUD_ONLY:
-            self.cloud_badge.setPixmap(get_icon("ph.cloud-arrow-down-fill", color="#3B9FE8").pixmap(QSize(15, 15)))
-            self.cloud_badge.setToolTip("Cloud save available")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(59, 159, 232, 0.40); border-radius: 6px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.CONFLICT:
-            self.cloud_badge.setPixmap(get_icon("ph.warning-circle-bold", color="#E5A93D").pixmap(QSize(15, 15)))
-            self.cloud_badge.setToolTip("Save conflict detected")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(229, 169, 61, 0.40); border-radius: 6px; }")
-            self.cloud_badge.show()
-        elif status == SyncStatus.NO_SAVES:
-            self.cloud_badge.setPixmap(get_icon("ph.cloud-slash-bold", color="#F05D6C").pixmap(QSize(15, 15)))
-            self.cloud_badge.setToolTip("Game save not found")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(240, 93, 108, 0.40); border-radius: 6px; }")
-            self.cloud_badge.show()
-
-        elif status == SyncStatus.CLOUD_OFFLINE:
-            self.cloud_badge.setPixmap(get_icon("ph.cloud-slash-bold", color="#6F7682").pixmap(QSize(15, 15)))
-            self.cloud_badge.setToolTip("Cloud not connected (offline or Secret Key problem) — cloud status unknown")
-            self.cloud_badge.setStyleSheet("QLabel { background: rgba(20, 23, 29, 0.90); border: 1px solid rgba(111, 118, 130, 0.40); border-radius: 6px; }")
-            self.cloud_badge.show()
-        else:
+        meta = cloud_indicator(status)
+        if not meta.visible:
             self.cloud_badge.hide()
+            return
+        self.cloud_badge.setPixmap(get_icon(meta.icon, color=meta.color).pixmap(QSize(15, 15)))
+        self.cloud_badge.setToolTip(meta.tooltip)
+        self.cloud_badge.setStyleSheet(
+            f"QLabel {{ background: rgba(20, 23, 29, 0.90); border: 1px solid {meta.color}; border-radius: 6px; }}"
+        )
+        self.cloud_badge.show()
         self._position_cloud_badge()
 
     def _position_cloud_badge(self):

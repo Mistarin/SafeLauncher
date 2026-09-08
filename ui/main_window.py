@@ -3,6 +3,7 @@ import re
 import time
 import shutil
 import subprocess
+from dataclasses import replace
 from datetime import datetime
 from html import escape
 from typing import Optional, List, Dict, Tuple, Any, Set
@@ -39,6 +40,8 @@ from core.logger import get_logger
 from core.launch_diagnostics import persist_diagnostics
 from core.library_state import LibrarySelectionModel
 from core.library_controller import LibraryController, LibraryQuery
+from core.game_status import GameStatusState, cloud_indicator
+from core.game_status import GameStatusState, cloud_indicator
 from ui.library_list import LibraryListView
 from ui.icons import (
     LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap,
@@ -160,6 +163,8 @@ class MainWindow(QMainWindow):
         self.metadata_fetchers = []
         self.metadata_attempted_builds = set()
         self.update_status_by_game_id = {}
+        self.game_status_by_id = {}
+        self.game_status_by_id = {}
         self.steam_check_results = {}
         self.cloud_save_status_cache = {}
         self._cloud_save_checked_ts = {}
@@ -2161,6 +2166,24 @@ class MainWindow(QMainWindow):
                 )
             return
 
+        # Reconcile persisted/legacy maps into the single status model before
+        # any view receives the snapshot.
+        for game in self.games:
+            gid = int(game[0])
+            current = self.game_status_by_id.get(gid, GameStatusState())
+            cached_cloud = self.cloud_save_status_cache.get(gid)
+            build_result = self.steam_check_results.get(gid)
+            self.game_status_by_id[gid] = replace(
+                current,
+                update_available=bool(self.update_status_by_game_id.get(gid, False)),
+                update_error=(str(build_result[3] or "") if build_result and len(build_result) > 3 else current.update_error),
+                update_build_id=(str(build_result[0] or "") if build_result else current.update_build_id),
+                update_build_date=(int(build_result[1] or 0) if build_result else current.update_build_date),
+                cloud_status=(cached_cloud[0] if cached_cloud else current.cloud_status),
+                local_stats=(cached_cloud[1] if cached_cloud else current.local_stats),
+                cloud_stats=(cached_cloud[2] if cached_cloud else current.cloud_stats),
+            )
+
         # One authoritative query/snapshot feeds every renderer. Views no
         # longer independently decide which games are visible.
         self.library_snapshot = self.library_controller.build_snapshot(
@@ -2173,6 +2196,7 @@ class MainWindow(QMainWindow):
             ),
             update_status=self.update_status_by_game_id,
             cloud_status=self.cloud_save_status_cache,
+            status=self.game_status_by_id,
         )
         processed = self.library_snapshot.legacy_items
 
@@ -3214,6 +3238,10 @@ class MainWindow(QMainWindow):
         """
         is_available = bool(is_available)
         self.update_status_by_game_id[game_id] = is_available
+        current = self.game_status_by_id.get(game_id, GameStatusState())
+        self.game_status_by_id[game_id] = replace(
+            current, update_available=is_available, update_error=""
+        )
 
         # Every presentation receives the same derived state immediately.
         # The coalesced refresh below still rebuilds the shared snapshot so
@@ -3301,6 +3329,14 @@ class MainWindow(QMainWindow):
 
     def _on_steam_check_failed(self, game_id: int, reason: str):
         self.steam_check_results[game_id] = ("", 0, False, reason)
+        current = self.game_status_by_id.get(game_id, GameStatusState())
+        self.game_status_by_id[game_id] = replace(
+            current,
+            update_available=False,
+            update_error=str(reason or "Update check failed"),
+        )
+        self.update_status_by_game_id[game_id] = False
+        self._update_library_item("update_update_available", game_id, False)
         if self.selected_game and self.selected_game[0] == game_id:
             self.lbl_detail_update.setText("Steam check failed")
 
@@ -3567,6 +3603,7 @@ class MainWindow(QMainWindow):
 
     def _render_cloud_status(self, game_id: int, status, local_stats=None, cloud_stats=None):
         """Update both library card badge and left detail inspector panel."""
+        indicator = cloud_indicator(status)
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_cloud_status(status)
 
@@ -3574,32 +3611,10 @@ class MainWindow(QMainWindow):
 
 
         if self.selected_game and self.selected_game[0] == game_id:
-            from core.cloud_save_sync import SyncStatus
-            if status == SyncStatus.IN_SYNC:
-                self.detail_cloud_status.setText("<font color='#35C98A'><b>● Cloud Save: Synced</b></font>")
-                self.detail_cloud_status.setToolTip("Save files are fully backed up and synchronized with the cloud.")
-            elif status == SyncStatus.LOCAL_NEWER:
-                self.detail_cloud_status.setText("<font color='#3B9FE8'><b>▲ Cloud Save: Ready to Upload</b></font>")
-                self.detail_cloud_status.setToolTip("Local save is newer than cloud. SafeLauncher will auto-upload on game exit.")
-            elif status == SyncStatus.CLOUD_NEWER:
-                self.detail_cloud_status.setText("<font color='#E5A93D'><b>▼ Cloud Save: Newer in Cloud</b></font>")
-                self.detail_cloud_status.setToolTip("A newer save exists in the cloud. SafeLauncher will prompt to restore on launch.")
-            elif status == SyncStatus.CLOUD_ONLY:
-                self.detail_cloud_status.setText("<font color='#3B9FE8'><b>▼ Cloud Save: Available</b></font>")
-                self.detail_cloud_status.setToolTip("Cloud save exists and will be auto-restored on launch.")
-            elif status == SyncStatus.CLOUD_OFFLINE:
-                self.detail_cloud_status.setText("<font color='#6F7682'><b>○ Cloud Save: Not Connected</b></font>")
-                self.detail_cloud_status.setToolTip("Cloud backend unreachable (offline, or Secret Key not configured). Cloud status unknown.")
-            elif status == SyncStatus.CONFLICT:
-                self.detail_cloud_status.setText("<font color='#E5A93D'><b>▲▼ Cloud Save: Conflict</b></font>")
-                self.detail_cloud_status.setToolTip("Save conflict detected. SafeLauncher will prompt to choose on launch.")
-            elif status == SyncStatus.NO_SAVES or (local_stats is not None and not getattr(local_stats, "exists", False)):
-                self.detail_cloud_status.setText("<font color='#F05D6C'><b>✕ Cloud Save: Save not found</b></font>")
-                self.detail_cloud_status.setToolTip("Game save not found. SafeLauncher will not upload entire game files.")
-
-            else:
-                self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: --</font>")
-                self.detail_cloud_status.setToolTip("")
+            self.detail_cloud_status.setText(
+                f"<font color='{indicator.color}'><b>{indicator.label}</b></font>"
+            )
+            self.detail_cloud_status.setToolTip(indicator.tooltip)
 
             if hasattr(self, "btn_detail_cloud_restore"):
                 c_stats = cloud_stats
@@ -3712,10 +3727,21 @@ class MainWindow(QMainWindow):
     def _on_cloud_save_status_calculated(self, game_id: int, status, local_stats, cloud_stats):
         import time
         self.cloud_save_status_cache[game_id] = (status, local_stats, cloud_stats)
+        checked_at = time.time()
+        current = self.game_status_by_id.get(game_id, GameStatusState())
+        self.game_status_by_id[game_id] = replace(
+            current,
+            cloud_status=status,
+            local_stats=local_stats,
+            cloud_stats=cloud_stats,
+            cloud_checked_at=checked_at,
+        )
         if not hasattr(self, "_cloud_save_checked_ts"):
             self._cloud_save_checked_ts = {}
-        self._cloud_save_checked_ts[game_id] = time.time()
+        self._cloud_save_checked_ts[game_id] = checked_at
         self._render_cloud_status(game_id, status, local_stats, cloud_stats)
+        if hasattr(self, "_update_status_refresh_timer"):
+            self._update_status_refresh_timer.start()
         self._save_persistent_cache()
 
     def _accept_cloud_status_for_context(self, generation: int, game_id: int, status, local_stats, cloud_stats):

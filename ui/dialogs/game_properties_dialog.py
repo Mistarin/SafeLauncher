@@ -754,7 +754,7 @@ class GamePropertiesDialog(QDialog):
 
         from ui.dialogs.save_conflict_dialog import format_bytes
         from datetime import datetime
-        from core.cloud_save_sync import SyncStatus
+        from core.game_status import cloud_indicator
 
         if local_stats.exists:
             date_str = datetime.fromtimestamp(local_stats.last_modified).strftime("%Y-%m-%d %H:%M:%S")
@@ -778,15 +778,11 @@ class GamePropertiesDialog(QDialog):
             self.lbl_save_details.setText("<font color='#6F7682'>No save folder discovered yet. Save directory will be auto-detected after first launch.</font>")
             self.btn_open_save_folder.setEnabled(False)
 
-        status_text_map = {
-            SyncStatus.IN_SYNC: "<font color='#35C98A'><b>Synced with Cloud</b></font> (Local & Cloud versions match)",
-            SyncStatus.LOCAL_NEWER: "<font color='#3B9FE8'><b>Local Save is Newer</b></font> (Ready to upload)",
-            SyncStatus.CLOUD_NEWER: "<font color='#E5A93D'><b>Cloud Save is Newer</b></font> (Cloud contains newer save)",
-            SyncStatus.CLOUD_ONLY: "<font color='#3B9FE8'><b>Cloud Save Available</b></font> (No local save found)",
-            SyncStatus.NO_SAVES: "<font color='#6F7682'>No local or cloud save files found</font>",
-            SyncStatus.CLOUD_OFFLINE: "<font color='#6F7682'><b>Cloud Not Connected</b></font> (Offline, or Secret Key not configured on this device)"
-        }
-        self.lbl_cloud_status.setText(status_text_map.get(status, "Unknown"))
+        meta = cloud_indicator(status)
+        self.lbl_cloud_status.setText(
+            f"<font color='{meta.color}'><b>{html_escape(meta.label)}</b></font>"
+        )
+        self.lbl_cloud_status.setToolTip(meta.tooltip)
 
         if cloud_stats and cloud_stats.exists:
             self.btn_sync_down.show()

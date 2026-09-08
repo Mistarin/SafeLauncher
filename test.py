@@ -60,6 +60,34 @@ except Exception as e:
     print(f"✗ Managed performance environment validation failed: {e}")
     sys.exit(1)
 
+# 1c. Canonical game status model keeps game updates and cloud saves separate.
+try:
+    from core.cloud_save_sync import SyncStatus
+    from core.game_status import GameStatusState, cloud_indicator, update_indicator
+    from core.library_controller import LibraryController, LibraryQuery
+
+    mixed_status = GameStatusState(
+        update_available=True,
+        cloud_status=SyncStatus.IN_SYNC,
+    )
+    assert mixed_status.update_indicator.label == "Game Update: Available"
+    assert mixed_status.cloud_indicator.label == "Cloud Save: Synced"
+    assert cloud_indicator(SyncStatus.LOCAL_NEWER).label == "Cloud Save: Ready to upload"
+    assert update_indicator(False).visible is False
+    snapshot = LibraryController().build_snapshot(
+        [(77, "Mixed Status Game", "/tmp", "game.exe", "wine", "", "", 0, 0, 0, "", "", "", "", 0, "", "", 0, "")],
+        LibraryQuery(),
+        status={77: mixed_status},
+    )
+    item = snapshot.items[0]
+    assert item.status == mixed_status
+    assert item.update_available is True
+    assert item.cloud_status == SyncStatus.IN_SYNC
+    print("✓ Canonical game update/cloud status model verified")
+except Exception as e:
+    print(f"✗ Canonical status model failed: {e}")
+    sys.exit(1)
+
 # 2. Test database operations & schema auto-migration (including playtime)
 try:
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1788,7 +1816,7 @@ try:
 
     assert "PLAY" in compact_page.action_bar.btn_play.text()
     assert compact_page.action_bar.playtime_val.text() == "2.0 h"
-    assert "Up to date" in compact_page.action_bar.cloud_text_lbl.text()
+    assert "Cloud Save: Synced" in compact_page.action_bar.cloud_text_lbl.text()
     assert compact_page.action_bar.ach_ratio_lbl.text() == "12/30"
     assert compact_page.action_bar.ach_mini_progress.value() == 40
     assert compact_page.action_bar.btn_fav.toolTip() == "Remove from favorites"
