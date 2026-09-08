@@ -8,6 +8,7 @@ import tempfile
 from typing import List, Optional
 from core.interfaces import IBackupManager
 from core.logger import get_logger
+from core.save_models import GameSaveSnapshot, SaveOperationCancelled
 
 logger = get_logger("ZipBackup")
 
@@ -43,7 +44,7 @@ def _make_staging_dir(near_path: str) -> str:
     return tempfile.mkdtemp(prefix=".safelauncher-import-", dir=probe)
 
 
-def _write_zip_atomically(export_zip_path: str, writer) -> bool:
+def _write_zip_atomically(export_zip_path: str, writer, error_sink=None) -> bool:
     """Build the archive at a temp path beside the target, then swap it in.
 
     A crash mid-compression leaves any previous good archive untouched.
@@ -62,6 +63,8 @@ def _write_zip_atomically(export_zip_path: str, writer) -> bool:
         os.replace(tmp_path, export_zip_path)
         return True
     except Exception as e:
+        if error_sink is not None:
+            error_sink(e)
         logger.error(f"Save export failed: {e}")
         try:
             os.unlink(tmp_path)
@@ -72,6 +75,9 @@ def _write_zip_atomically(export_zip_path: str, writer) -> bool:
 
 class ZipBackupManager(IBackupManager):
     """Manages game save snapshot compression, export, and secure restoration."""
+
+    def __init__(self):
+        self.last_error = ""
 
     def export_save(self, save_path: str, export_zip_path: str) -> bool:
         """Legacy direct directory export."""
@@ -88,9 +94,21 @@ class ZipBackupManager(IBackupManager):
 
         return _write_zip_atomically(export_zip_path, writer)
 
-    def export_save_locations(self, locations: list, export_zip_path: str, game_name: str = "", game_path: str = "", launcher_metadata: Optional[dict] = None) -> bool:
+    def export_save_locations(
+        self,
+        locations: list,
+        export_zip_path: str,
+        game_name: str = "",
+        game_path: str = "",
+        launcher_metadata: Optional[dict] = None,
+        *,
+        snapshot: Optional[GameSaveSnapshot] = None,
+        cancel_check=None,
+    ) -> bool:
         """Export multiple detected save locations with metadata manifest."""
+        self.last_error = ""
         if not locations:
+            self.last_error = "No save locations were supplied."
             return False
 
         max_source_mtime = 0.0
@@ -153,6 +171,8 @@ class ZipBackupManager(IBackupManager):
                 with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     items_meta = []
                     for idx, loc in enumerate(locations):
+                        if cancel_check and cancel_check():
+                            raise SaveOperationCancelled()
                         src_path = loc.path if hasattr(loc, "path") else str(loc)
                         disp_name = loc.display_name if hasattr(loc, "display_name") else os.path.basename(src_path)
 
@@ -170,9 +190,24 @@ class ZipBackupManager(IBackupManager):
                         }
                         item_meta.update(classify_location(src_path, item_meta["relative_to_prefix"]))
 
+                        if snapshot is not None:
+                            current, reason = snapshot.verify_current(cancel_check)
+                            if not current:
+                                raise RuntimeError(reason)
+
                         file_mtimes = {}
                         for (full_path, mtime), rel in walk_files(src_path):
+                            if cancel_check and cancel_check():
+                                raise SaveOperationCancelled()
+                            if snapshot is not None:
+                                current, reason = snapshot.verify_file(full_path)
+                                if not current:
+                                    raise RuntimeError(reason)
                             zipf.write(full_path, f"data/{idx}/{rel}")
+                            if snapshot is not None:
+                                current, reason = snapshot.verify_file(full_path)
+                                if not current:
+                                    raise RuntimeError(reason)
                             file_mtimes[rel] = int(mtime)
                             written_any = True
                         if file_mtimes:
@@ -210,8 +245,23 @@ class ZipBackupManager(IBackupManager):
                     manifest_info.compress_type = zipfile.ZIP_DEFLATED
                     zipf.writestr(manifest_info, json.dumps(manifest, indent=2))
 
-            return _write_zip_atomically(export_zip_path, writer)
+            def record_error(error):
+                if isinstance(error, SaveOperationCancelled):
+                    self.last_error = "Save packaging was cancelled."
+                else:
+                    self.last_error = str(error) or error.__class__.__name__
+
+            return _write_zip_atomically(
+                export_zip_path,
+                writer,
+                error_sink=record_error,
+            )
+        except SaveOperationCancelled:
+            self.last_error = "Save packaging was cancelled."
+            logger.info("Save packaging cancelled before archive completion.")
+            return False
         except Exception as e:
+            self.last_error = str(e)
             logger.error(f"Multi-location save export failed: {e}")
             return False
 

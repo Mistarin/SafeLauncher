@@ -41,6 +41,7 @@ from core.launch_diagnostics import persist_diagnostics
 from core.library_state import LibrarySelectionModel
 from core.library_controller import LibraryController, LibraryQuery
 from core.game_status import GameStatusState, cloud_indicator
+from core.save_state import SaveStateStore
 from core.game_status import GameStatusState, cloud_indicator
 from ui.library_list import LibraryListView
 from ui.icons import (
@@ -166,7 +167,9 @@ class MainWindow(QMainWindow):
         self.game_status_by_id = {}
         self.game_status_by_id = {}
         self.steam_check_results = {}
-        self.cloud_save_status_cache = {}
+        self.save_state_store = SaveStateStore()
+        # Compatibility mapping view for existing library rendering code.
+        self.cloud_save_status_cache = self.save_state_store
         self._cloud_save_checked_ts = {}
         # Incremented whenever the configured cloud identity changes. Every
         # asynchronous status result is bound to the generation that created it.

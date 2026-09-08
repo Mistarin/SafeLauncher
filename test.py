@@ -502,7 +502,8 @@ try:
     from ui.dialogs.game_dialogs import CustomRemoveDialog, ManageCollectionGamesDialog
     # Test Ludusavi Save Detector & Multi-Location Backup
     from core.ludusavi_detector import LudusaviDetector, SaveLocation
-    from core.save_validation import validate_save_location
+    from core.save_validation import snapshot_from_validation, validate_save_location, validate_save_locations
+    from core.save_models import SaveOperationResult
     from ui.dialogs.save_manager_dialog import SaveManagerDialog
     with tempfile.TemporaryDirectory() as tmp_save_game:
         # Create mock Wine/UMU prefix hierarchy
@@ -527,6 +528,11 @@ try:
         os.unlink(zero_file)
         missing = validate_save_location(stale)
         assert not missing.valid and "no longer exists" in missing.reason
+        snapshot_results = validate_save_locations(detected)
+        game_snapshot = snapshot_from_validation("Portal 2", tmp_save_game, snapshot_results)
+        assert game_snapshot.file_count >= 1
+        assert game_snapshot.fingerprint
+        assert isinstance(SaveOperationResult(True, "test", "Portal 2"), SaveOperationResult)
         print("✓ Save Manager preflight refreshes stale paths and reports removed saves")
 
         # Test multi-location export and manifest-aware import
@@ -558,6 +564,14 @@ try:
         single_out = os.path.join(single_restore, single_loc.relative_to_prefix)
         assert os.path.isfile(single_out), f"Single save file missing or created as dir at {single_out}"
         assert not os.path.isdir(single_out)
+        single_validation = validate_save_locations([single_loc])
+        single_snapshot = snapshot_from_validation("Portal 2", tmp_save_game, single_validation)
+        cancelled_zip = os.path.join(tmp_save_game, "cancelled_backup.zip")
+        assert not backup.export_save_locations(
+            [single_loc], cancelled_zip, game_name="Portal 2", game_path=tmp_save_game,
+            snapshot=single_snapshot, cancel_check=lambda: True,
+        )
+        assert "cancel" in backup.last_error.lower()
         print("✓ Single-file save export and non-nested restoration verified")
 
         save_dlg = SaveManagerDialog(1, "Portal 2", tmp_save_game, steam_id="620")

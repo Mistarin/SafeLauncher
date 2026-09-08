@@ -23,7 +23,17 @@ from typing import List, Tuple, Optional
 from PyQt6.QtCore import QSettings
 
 from core.ludusavi_detector import LudusaviDetector, SaveLocation
-from core.save_validation import describe_validation_failures, validate_save_locations
+from core.save_models import (
+    GameSaveSnapshot,
+    SaveOperationCancelled,
+    SaveOperationResult,
+    SaveSnapshotPhase,
+)
+from core.save_validation import (
+    describe_validation_failures,
+    snapshot_from_validation,
+    validate_save_locations,
+)
 from core.zip_backup import ZipBackupManager, _MANIFEST_NAME
 from database import _APP_DATA_DIR
 from core.logger import get_logger
@@ -51,6 +61,7 @@ class SaveStats:
     size_bytes: int = 0
     file_count: int = 0
     display_path: str = ""
+    snapshot: Optional[GameSaveSnapshot] = None
 
 
 def _stats_for_locations(locations: List[SaveLocation]) -> SaveStats:
@@ -510,8 +521,17 @@ class CloudSaveSyncEngine:
         locations = LudusaviDetector.detect_saves(game_name, game_path, steam_id)
         if not locations:
             return SaveStats(exists=False), []
-
-        return _stats_for_locations(locations), locations
+        # Discovery may come from a persisted cache. Status must never trust
+        # cached counts or retain vanished locations as local saves.
+        validation = validate_save_locations(locations, check_readable=False)
+        valid_locations = [result.location for result in validation if result.valid]
+        if not valid_locations:
+            return SaveStats(exists=False), []
+        stats = _stats_for_locations(valid_locations)
+        stats.snapshot = snapshot_from_validation(
+            game_name, game_path, validation, source="status-check"
+        )
+        return stats, valid_locations
 
     @staticmethod
     def _remote_game_snapshot(name_key: str) -> Optional[dict]:
@@ -693,10 +713,28 @@ class CloudSaveSyncEngine:
 
     @classmethod
     def sync_local_to_cloud(cls, game_name: str, game_path: str, steam_id: str = "",
-                            locations: Optional[List[SaveLocation]] = None) -> bool:
+                            locations: Optional[List[SaveLocation]] = None,
+                            snapshot: Optional[GameSaveSnapshot] = None,
+                            cancel_check=None) -> SaveOperationResult:
         """Archive latest local save state directly into cloud save repository."""
         cls._last_sync_error = ""
-        if locations is None:
+        if snapshot is not None:
+            if snapshot.game_name != game_name or os.path.abspath(snapshot.game_path) != os.path.abspath(game_path):
+                error = "The save snapshot belongs to a different game or install path. Rescan local saves."
+                cls._last_sync_error = error
+                return SaveOperationResult(False, "Cloud upload", game_name, error=error, category="local_save_missing")
+            try:
+                current, reason = snapshot.verify_current(cancel_check)
+            except SaveOperationCancelled:
+                error = "Save upload was cancelled before packaging completed."
+                cls._last_sync_error = error
+                return SaveOperationResult(False, "Cloud upload", game_name, error=error, category="cancelled")
+            if not current:
+                cls._last_sync_error = reason
+                return SaveOperationResult(False, "Cloud upload", game_name, error=reason, category="local_save_changed")
+            locations = list(snapshot.locations)
+            local_stats = _stats_for_locations(locations)
+        elif locations is None:
             local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
         else:
             local_stats = _stats_for_locations(locations)
@@ -704,21 +742,32 @@ class CloudSaveSyncEngine:
         # This is the final trust boundary for every upload caller. Detector
         # metadata and UI snapshots are advisory; the archive must use paths
         # that exist and are readable at the moment packaging begins.
-        validation = validate_save_locations(locations or [])
+        validation = validate_save_locations(locations or [], cancel_check)
+        if any(result.reason == "save validation was cancelled" for result in validation):
+            error = "Save upload was cancelled before packaging completed."
+            cls._last_sync_error = error
+            return SaveOperationResult(False, "Cloud upload", game_name, error=error, category="cancelled")
         invalid_locations = [result for result in validation if not result.valid]
         if invalid_locations:
             cls._last_sync_error = describe_validation_failures(validation)
             logger.info(f"Selected save paths failed final upload validation for '{game_name}'")
-            return False
+            return SaveOperationResult(False, "Cloud upload", game_name, error=cls._last_sync_error, category="local_save_missing")
         locations = [result.location for result in validation]
+        if snapshot is None:
+            snapshot = snapshot_from_validation(
+                game_name, game_path, validation, source="cloud-sync"
+            )
         local_stats = _stats_for_locations(locations)
+        local_stats.snapshot = snapshot
         if not local_stats.exists or not locations:
             cls._last_sync_error = (
                 "No readable files were found in the selected save locations. "
                 "Rescan Save Manager and check that the paths still exist."
             )
             logger.info(f"No local save files to upload for '{game_name}'")
-            return False
+            return SaveOperationResult(False, "Cloud upload", game_name, error=cls._last_sync_error, category="local_save_missing")
+
+        snapshot = snapshot.with_phase(SaveSnapshotPhase.PACKAGING)
 
         if backend_active():
             from core.cloud_backend import normalize_name_key, CloudBackendError
@@ -729,12 +778,18 @@ class CloudSaveSyncEngine:
             try:
                 if not backup_mgr.export_save_locations(
                         locations, tmp_zip, game_name=game_name, game_path=game_path,
-                        launcher_metadata=cls._launcher_metadata(game_name)):
+                        launcher_metadata=cls._launcher_metadata(game_name),
+                        snapshot=snapshot, cancel_check=cancel_check):
                     cls._last_sync_error = (
-                        "The selected save paths could not be packaged. Check file permissions "
-                        "and confirm the files are still present."
+                        backup_mgr.last_error
+                        or "The selected save paths could not be packaged. Check file permissions "
+                           "and confirm the files are still present."
                     )
-                    return False
+                    return SaveOperationResult(
+                        False, "Cloud upload", game_name, error=cls._last_sync_error,
+                        category="local_save_unreadable",
+                        payload={"snapshot": snapshot.with_phase(SaveSnapshotPhase.FAILED)},
+                    )
                 result = _backend().upload_plaintext_zip(
                     normalize_name_key(game_name), game_name,
                     tmp_zip, source_max_mtime=local_stats.last_modified)
@@ -743,11 +798,14 @@ class CloudSaveSyncEngine:
                     skipped_ver = result.get("version")
                     if skipped_ver is not None:
                         norm_key = normalize_name_key(game_name)
-                        snapshot = cls._remote_game_snapshot(norm_key)
-                        top_v = snapshot["versions"][0].get("version") if (snapshot and snapshot.get("versions")) else skipped_ver
+                        remote_snapshot = cls._remote_game_snapshot(norm_key)
+                        top_v = remote_snapshot["versions"][0].get("version") if (remote_snapshot and remote_snapshot.get("versions")) else skipped_ver
                         set_active_save_version(game_name, int(skipped_ver), cloud_top_version=top_v,
                                                 name_key=norm_key)
-                    return True
+                    return SaveOperationResult(
+                        True, "Cloud upload", game_name,
+                        payload={"backend": result, "snapshot": snapshot.with_phase(SaveSnapshotPhase.COMPLETED)},
+                    )
                 evicted = result.get("evictedVersions") or []
                 if evicted:
                     logger.info(f"Pruned old cloud generations {evicted} for '{game_name}'.")
@@ -761,12 +819,19 @@ class CloudSaveSyncEngine:
                     f"Uploaded encrypted save to cloud for '{game_name}' "
                     f"(v{result.get('version')})."
                 )
-                return True
+                return SaveOperationResult(
+                    True, "Cloud upload", game_name,
+                    payload={"backend": result, "snapshot": snapshot.with_phase(SaveSnapshotPhase.COMPLETED)},
+                )
             except CloudBackendError as e:
                 from core.cloud_backend import describe_cloud_error
                 cls._last_sync_error = describe_cloud_error(e)
                 logger.warning(f"Cloud upload failed ({e.code}); save kept locally.")
-                return False
+                return SaveOperationResult(
+                    False, "Cloud upload", game_name, error=cls._last_sync_error,
+                    category="backend_unavailable",
+                    payload={"snapshot": snapshot.with_phase(SaveSnapshotPhase.FAILED)},
+                )
             finally:
                 try:
                     os.unlink(tmp_zip)
@@ -781,21 +846,32 @@ class CloudSaveSyncEngine:
             game_name=game_name,
             game_path=game_path,
             launcher_metadata=cls._launcher_metadata(game_name),
+            snapshot=snapshot,
+            cancel_check=cancel_check,
         )
         if success:
             logger.info(f"Uploaded local save to cloud archive: {cloud_zip} ({local_stats.file_count} files, {local_stats.size_bytes} bytes)")
+            return SaveOperationResult(
+                True, "Cloud upload", game_name,
+                payload={"path": cloud_zip, "snapshot": snapshot.with_phase(SaveSnapshotPhase.COMPLETED)},
+            )
         else:
             cls._last_sync_error = (
-                "The selected save paths could not be packaged into a cloud archive. "
-                "Check file permissions and confirm the files are still present."
+                backup_mgr.last_error
+                or "The selected save paths could not be packaged into a cloud archive. "
+                   "Check file permissions and confirm the files are still present."
             )
             logger.error(f"Failed to upload local save to cloud for '{game_name}'")
-        return success
+            return SaveOperationResult(
+                False, "Cloud upload", game_name, error=cls._last_sync_error,
+                category="local_save_unreadable",
+                payload={"snapshot": snapshot.with_phase(SaveSnapshotPhase.FAILED)},
+            )
 
     @classmethod
     def sync_cloud_to_local(cls, game_name: str, game_path: str,
                             steam_id: str = "", preserve_local_fork: bool = True,
-                            target_version: Optional[int] = None) -> bool:
+                            target_version: Optional[int] = None) -> SaveOperationResult:
         """Extract and restore cloud save archive into local game/prefix.
 
         With preserve_local_fork (the default), the current local save is kept
@@ -809,6 +885,16 @@ class CloudSaveSyncEngine:
             if preserve_local_fork:
                 local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
                 if local_stats.exists and locations:
+                    local_validation = validate_save_locations(locations)
+                    if any(not result.valid for result in local_validation):
+                        return SaveOperationResult(
+                            False, "Cloud restore", game_name,
+                            error=describe_validation_failures(local_validation),
+                            category="local_save_unreadable",
+                        )
+                    local_snapshot = snapshot_from_validation(
+                        game_name, game_path, local_validation, source="restore-fork"
+                    )
                     fork_dir = os.path.join(os.path.dirname(cls.get_cloud_root()), "save_forks")
                     os.makedirs(fork_dir, exist_ok=True)
                     clean_name = "".join(c for c in game_name if c.isalnum() or c in "-_ ").strip() or "game"
@@ -839,20 +925,27 @@ class CloudSaveSyncEngine:
                         backup_mgr = ZipBackupManager()
                         if backup_mgr.export_save_locations(locations, fork_zip,
                                                             game_name=game_name, game_path=game_path,
-                                                            launcher_metadata=cls._launcher_metadata(game_name)):
+                                                            launcher_metadata=cls._launcher_metadata(game_name),
+                                                            snapshot=local_snapshot):
                             logger.info(f"Preserved local save fork for '{game_name}' at {fork_zip}")
                         else:
                             logger.warning(
                                 f"Could not back up the local save for '{game_name}' to {fork_zip}; "
                                 f"refusing to overwrite it with the cloud copy."
                             )
-                            return False
+                            return SaveOperationResult(
+                                False, "Cloud restore", game_name,
+                                error="Could not preserve the current local save before restore.",
+                                category="local_save_unreadable",
+                            )
                     cls._prune_safety_forks(fork_dir, prefix_key, clean_name, keep=10)
             try:
                 plain_zip, meta = _backend().download_to_temp(key, version=target_version)
             except Exception as e:
                 logger.warning(f"Cloud download failed for '{game_name}': {e}")
-                return False
+                return SaveOperationResult(
+                    False, "Cloud restore", game_name, error=str(e), category="backend_unavailable"
+                )
             try:
                 backup_mgr = ZipBackupManager()
                 metadata = backup_mgr.read_launcher_metadata(plain_zip)
@@ -880,28 +973,51 @@ class CloudSaveSyncEngine:
                 )
             else:
                 logger.error(f"Failed to restore cloud save for '{game_name}'")
-            return success
+            return SaveOperationResult(
+                bool(success), "Cloud restore", game_name,
+                error="Cloud save restore failed." if not success else "",
+                category="local_save_unreadable" if not success else "unknown",
+                local_modified=bool(success),
+            )
 
         cloud_stats, cloud_zip = cls.get_cloud_save_stats(game_name)
         if not cloud_stats.exists:
             logger.warning(f"No cloud save available to restore for '{game_name}'")
-            return False
+            return SaveOperationResult(
+                False, "Cloud restore", game_name,
+                error="No cloud save is available to restore.", category="cloud_missing"
+            )
 
         if preserve_local_fork:
             local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
             if local_stats.exists and locations:
+                local_validation = validate_save_locations(locations)
+                if any(not result.valid for result in local_validation):
+                    return SaveOperationResult(
+                        False, "Cloud restore", game_name,
+                        error=describe_validation_failures(local_validation),
+                        category="local_save_unreadable",
+                    )
+                local_snapshot = snapshot_from_validation(
+                    game_name, game_path, local_validation, source="restore-fork"
+                )
                 fork_zip = os.path.join(os.path.dirname(cloud_zip), "save_local_fork.zip")
                 backup_mgr = ZipBackupManager()
                 if backup_mgr.export_save_locations(locations, fork_zip,
                                                     game_name=game_name, game_path=game_path,
-                                                    launcher_metadata=cls._launcher_metadata(game_name)):
+                                                    launcher_metadata=cls._launcher_metadata(game_name),
+                                                    snapshot=local_snapshot):
                     logger.info(f"Kept local save fork for '{game_name}' at {fork_zip}")
                 else:
                     logger.warning(
                         f"Could not back up the local save for '{game_name}' to "
                         f"{fork_zip}; refusing to overwrite it with the cloud copy."
                     )
-                    return False
+                    return SaveOperationResult(
+                        False, "Cloud restore", game_name,
+                        error="Could not preserve the current local save before restore.",
+                        category="local_save_unreadable",
+                    )
 
         backup_mgr = ZipBackupManager()
         metadata = backup_mgr.read_launcher_metadata(cloud_zip)
@@ -914,7 +1030,12 @@ class CloudSaveSyncEngine:
             logger.info(f"Successfully restored cloud save archive for '{game_name}' into {target_dest}")
         else:
             logger.error(f"Failed to restore cloud save for '{game_name}'")
-        return success
+        return SaveOperationResult(
+            bool(success), "Cloud restore", game_name,
+            error="Cloud save restore failed." if not success else "",
+            category="local_save_unreadable" if not success else "unknown",
+            local_modified=bool(success),
+        )
 
     @classmethod
     def _prune_safety_forks(cls, fork_dir: str, prefix_key: str, clean_name: str, keep: int = 10) -> int:

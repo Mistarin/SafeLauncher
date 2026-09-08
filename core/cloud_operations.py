@@ -5,23 +5,17 @@ return values independently. The low-level engine remains responsible for
 packaging, transport, encryption, and restore validation.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from core.cloud_backend import describe_cloud_error
 from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
+from core.save_models import SaveOperationResult
 
 
-@dataclass
-class CloudOperationResult:
-    success: bool
-    operation: str
-    game_name: str = ""
-    error: str = ""
-    guidance: str = ""
-    category: str = "unknown"
-    local_modified: bool = False
-    log_path: str = ""
+# Compatibility name retained for callers that use the cloud-specific type.
+# Save workflows now share one result model across cloud, local, and UI layers.
+CloudOperationResult = SaveOperationResult
 
 
 @dataclass
@@ -53,36 +47,57 @@ def classify_cloud_error(error: str, status: int = 0) -> tuple[str, str]:
 def _failure(operation: str, game_name: str, error: str = "") -> CloudOperationResult:
     error = error or "Cloud operation failed."
     category, guidance = classify_cloud_error(error)
-    return CloudOperationResult(False, operation, game_name, error, guidance, category)
+    return CloudOperationResult(
+        False, operation, game_name, error=error,
+        category=category, guidance=guidance,
+    )
+
+
+def _normalize_engine_result(result: CloudOperationResult) -> CloudOperationResult:
+    """Add user-facing classification without consulting a global engine error."""
+    if result.success:
+        return result
+    category, guidance = classify_cloud_error(result.error)
+    return replace(
+        result,
+        category=category if result.category in {"unknown", ""} else result.category,
+        guidance=result.guidance or guidance,
+        retry_safe=result.retry_safe and category not in {"local_save_missing", "local_save_unreadable"},
+    )
 
 
 class CloudOperationCoordinator:
     """Stable, UI-neutral facade for cloud save workflows."""
 
     @staticmethod
-    def upload_local_save(game_name: str, game_path: str, steam_id: str = "", locations=None) -> CloudOperationResult:
+    def upload_local_save(
+        game_name: str,
+        game_path: str,
+        steam_id: str = "",
+        locations=None,
+        snapshot=None,
+        cancel_check=None,
+    ) -> CloudOperationResult:
         try:
-            ok = CloudSaveSyncEngine.sync_local_to_cloud(
-                game_name, game_path, steam_id=steam_id, locations=locations
+            result = CloudSaveSyncEngine.sync_local_to_cloud(
+                game_name, game_path, steam_id=steam_id, locations=locations,
+                snapshot=snapshot,
+                cancel_check=cancel_check,
             )
         except Exception as exc:
             return _failure("Cloud upload", game_name, describe_cloud_error(exc))
-        if ok:
-            return CloudOperationResult(True, "Cloud upload", game_name)
-        return _failure("Cloud upload", game_name, CloudSaveSyncEngine.last_sync_error())
+        return _normalize_engine_result(result)
 
     @staticmethod
     def restore_cloud_save(game_name: str, game_path: str, steam_id: str = "", target_version: Optional[int] = None) -> CloudOperationResult:
         try:
-            ok = CloudSaveSyncEngine.sync_cloud_to_local(
+            result = CloudSaveSyncEngine.sync_cloud_to_local(
                 game_name, game_path, steam_id=steam_id,
                 preserve_local_fork=True, target_version=target_version,
             )
         except Exception as exc:
             return _failure("Cloud restore", game_name, describe_cloud_error(exc))
-        if ok:
-            return CloudOperationResult(True, "Cloud restore", game_name, local_modified=True)
-        return _failure("Cloud restore", game_name, CloudSaveSyncEngine.last_sync_error())
+        return _normalize_engine_result(result)
 
     @staticmethod
     def restore_generation(game_name: str, game_path: str, steam_id: str = "", version: Optional[int] = None) -> CloudOperationResult:
