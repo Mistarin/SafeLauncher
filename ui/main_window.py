@@ -1038,6 +1038,9 @@ class MainWindow(QMainWindow):
         self.compact_container.screenshots_requested.connect(self._open_screenshot_gallery)
         self.compact_container.videos_requested.connect(self._open_video_gallery)
         self.compact_container.settings_requested.connect(self._open_settings)
+        self.compact_container.add_game_requested.connect(
+            lambda: self._on_add(self.collection_filter)
+        )
         self.compact_container.sort_changed.connect(self._on_sort_changed)
         self.compact_container.search_changed.connect(self._on_search_query_changed)
 
@@ -2134,7 +2137,11 @@ class MainWindow(QMainWindow):
             else:
                 msg = "No games matching selected filter."
             if self.collection_filter:
-                msg = f"No games in collection '{self.collection_filter}' for this filter."
+                msg = (
+                    f"Collection '{self.collection_filter}' is empty."
+                    if not self.current_filter
+                    else f"No games in collection '{self.collection_filter}' for this filter."
+                )
             self.selected_game = None
             self.library_selection.clear()
             label = QLabel(msg)
@@ -2144,7 +2151,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "compact_container"):
                 self.compact_container.set_games([], self.library_selection.ids, self.update_status_by_game_id, self.cache_dir, self.cloud_save_status_cache)
                 if hasattr(self.compact_container, "game_page") and hasattr(self.compact_container.game_page, "set_empty_state"):
-                    self.compact_container.game_page.set_empty_state(msg)
+                    self.compact_container.game_page.set_empty_state(msg, show_add=bool(self.collection_filter))
             return
 
         # A selected game can disappear when a collection/status filter changes.
@@ -5143,7 +5150,7 @@ class MainWindow(QMainWindow):
         if app:
             app.quit()
 
-    def _on_add(self):
+    def _on_add(self, collection_name: str = ""):
         dialog = AddGameDialog(self, self.sgdb_client)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name, path, exe, mode, banner_path = dialog.get_values()
@@ -5161,6 +5168,8 @@ class MainWindow(QMainWindow):
             game_id = self.db.add_game(name, path, exe, mode, banner_path, steam_id or None)
             if game_id:
                 self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
+                if collection_name.strip():
+                    self.db.update_game_collection(game_id, collection_name.strip())
             self._refresh_library()
             if game_id and steam_id:
                 self._capture_initial_steam_build(game_id, steam_id)

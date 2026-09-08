@@ -33,6 +33,7 @@ class LaunchDiagnostics:
     started_at: float = field(default_factory=time.time)
     log_path: str = ""
     unsafe: bool = False
+    performance: dict = field(default_factory=dict)
 
     @property
     def signal_name(self) -> str:
@@ -102,11 +103,13 @@ class LaunchDiagnostics:
         if self.signal_name:
             status += f" signal={self.signal_name}"
         deps = ", ".join(f"{key}={value}" for key, value in sorted(self.dependencies.items())) or "unknown"
+        performance = ", ".join(f"{key}={value}" for key, value in sorted(self.performance.items())) or "none"
         return (
             f"SafeLauncher launch diagnostics\n"
             f"Game: {self.game_name}\nPath: {self.game_path}\nExecutable: {self.executable}\n"
             f"Mode: {self.mode}\nArchitecture: {self.architecture}\nProton/runtime: {self.proton_path}\n"
             f"Prefix: {self.prefix_path}\nDependencies: {deps}\nStatus: {status}\n"
+            f"Performance: {performance}\n"
             f"Command: {self.command}\nLog: {self.log_path}\n\n"
             f"Action: {self.actionable_explanation()}\n\n"
             f"Process output:\n{self.output_text or '(no output)'}\n"

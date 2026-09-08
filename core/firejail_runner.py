@@ -8,6 +8,7 @@ from core.interfaces import ISandboxRunner
 from core.host_process import host_process_env
 from core.prefix_sanitizer import sanitize_wine_prefix, cleanup_prefix_health
 from core.logger import get_logger
+from core.performance_env import build_launch_env
 
 logger = get_logger("FirejailRunner")
 
@@ -251,11 +252,19 @@ class FirejailSandboxRunner(ISandboxRunner):
         security_flags = f"{common_security_flags} --nodbus"
         game_compat_flags = "--ignore=noinput --ignore=novideo"
 
-        # Per-game custom environment variables and presets (FSR, DXVK, etc.)
+        # Per-game custom environment variables and managed performance
+        # presets. The normalization step prevents SafeLauncher control keys
+        # from leaking into the game and makes optional GameMode graceful.
+        launch_env, performance_status = build_launch_env(env_vars)
+        logger.info(
+            "Performance environment: GameMode=%s, VRAM=%s",
+            performance_status["gamemode"],
+            performance_status["vram_override"],
+        )
         custom_env_flags = ""
         custom_env_exports = ""
-        if env_vars and isinstance(env_vars, dict):
-            for k, v in env_vars.items():
+        if launch_env:
+            for k, v in launch_env.items():
                 clean_k = "".join(c for c in str(k) if c.isalnum() or c == "_")
                 if clean_k and v is not None and str(v).strip() != "":
                     q_v = shlex.quote(str(v))
@@ -338,6 +347,7 @@ class FirejailSandboxRunner(ISandboxRunner):
                 prefix_path=os.path.join(game_path, "prefix"),
                 dependencies=deps,
                 unsafe=not sandbox,
+                performance=performance_status,
             )
             logger.info(f"Process spawned successfully with PID: {process.pid}")
             return process

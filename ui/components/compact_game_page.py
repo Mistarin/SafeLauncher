@@ -1363,6 +1363,7 @@ class CompactGamePageWidget(QWidget):
     screenshots_requested = pyqtSignal(int)
     videos_requested = pyqtSignal(int)
     settings_requested = pyqtSignal()
+    add_game_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1561,14 +1562,35 @@ class CompactGamePageWidget(QWidget):
         self.empty_page_lbl.setStyleSheet("color: #71717A; font-size: 15px; font-weight: 500; background: transparent;")
         ep_layout.addStretch()
         ep_layout.addWidget(self.empty_page_lbl)
+        self.empty_page_action = QPushButton("Add game to this collection")
+        self.empty_page_action.setIcon(get_icon("ph.plus-bold", color="#FFFFFF"))
+        self.empty_page_action.setFixedHeight(36)
+        self.empty_page_action.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.empty_page_action.setStyleSheet("""
+            QPushButton {
+                background: #3B9FE8;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 8px;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton:hover { background: #55ACED; }
+            QPushButton:pressed { background: #2789D0; }
+        """)
+        self.empty_page_action.clicked.connect(self.add_game_requested.emit)
+        self.empty_page_action.setVisible(False)
+        ep_layout.addWidget(self.empty_page_action, 0, Qt.AlignmentFlag.AlignCenter)
         ep_layout.addStretch()
         self.empty_page.setVisible(False)
         outer_layout.addWidget(self.empty_page)
         outer_layout.setStretch(0, 0)
         outer_layout.setStretch(1, 1)
 
-    def set_empty_state(self, message: str = "No games in this view"):
+    def set_empty_state(self, message: str = "No games in this view", show_add: bool = False):
         self.empty_page_lbl.setText(message)
+        self.empty_page_action.setVisible(show_add)
         self.scroll_area.setVisible(False)
         self.empty_page.setVisible(True)
 
@@ -2307,6 +2329,7 @@ class CompactLayoutContainer(QWidget):
     screenshots_requested = pyqtSignal(int)
     videos_requested = pyqtSignal(int)
     settings_requested = pyqtSignal()
+    add_game_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2355,6 +2378,7 @@ class CompactLayoutContainer(QWidget):
         self.game_page.screenshots_requested.connect(self.screenshots_requested.emit)
         self.game_page.videos_requested.connect(self.videos_requested.emit)
         self.game_page.settings_requested.connect(self.settings_requested.emit)
+        self.game_page.add_game_requested.connect(self.add_game_requested.emit)
         self.splitter.addWidget(self.game_page)
         self.splitter.setCollapsible(0, False)
         self.splitter.setCollapsible(1, False)

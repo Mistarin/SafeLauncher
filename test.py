@@ -25,9 +25,29 @@ try:
     from core.steamgriddb_client import SteamGridDBClient
     from core.archive_extractor import find_executables, extract_archive_sandboxed
     from core.interfaces import ISandboxRunner, IBackupManager
+    from core.performance_env import build_launch_env, parse_vram_mb
     print("✓ All imports successful")
 except ImportError as e:
     print(f"✗ Import error: {e}")
+    sys.exit(1)
+
+# 1b. Validate managed performance environment settings without requiring a
+# GPU, Firejail, or a running game.
+try:
+    launch_env, performance_status = build_launch_env({
+        "SAFELAUNCHER_ENABLE_GAMEMODE": "0",
+        "SAFELAUNCHER_DXVK_MAX_DEVICE_MEMORY_MB": "8192",
+        "DXVK_CONFIG": "dxvk.hud = full",
+        "CUSTOM_TEST_FLAG": "enabled",
+    })
+    assert launch_env["CUSTOM_TEST_FLAG"] == "enabled"
+    assert "dxgi.maxDeviceMemory = 8192" in launch_env["DXVK_CONFIG"]
+    assert "SAFELAUNCHER_DXVK_MAX_DEVICE_MEMORY_MB" not in launch_env
+    assert parse_vram_mb("0") is None
+    assert parse_vram_mb("8192") == 8192
+    print(f"✓ Managed performance environment validation works ({performance_status['vram_override']})")
+except Exception as e:
+    print(f"✗ Managed performance environment validation failed: {e}")
     sys.exit(1)
 
 # 2. Test database operations & schema auto-migration (including playtime)
@@ -1788,7 +1808,9 @@ try:
 
     # Test MainWindow view mode integration & right detail panel hiding
     from PyQt6.QtCore import QSettings
-    QSettings("SafeLauncher", "SafeLauncher").setValue("library_view_mode", "compact")
+    compact_settings = QSettings("SafeLauncher", "SafeLauncher")
+    compact_settings.setValue("library_view_mode", "compact")
+    compact_settings.setValue("collections_collapsed", True)
     mw_compact = MainWindow(db_mem, runner, backup)
     assert hasattr(mw_compact, "compact_container")
     assert hasattr(mw_compact, "steam_container")

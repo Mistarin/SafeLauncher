@@ -5,7 +5,7 @@ from typing import Optional, Dict
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QGridLayout,
-    QTabWidget, QCheckBox, QSlider, QComboBox, QTableWidget,
+    QTabWidget, QCheckBox, QSlider, QComboBox, QSpinBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QProgressDialog, QApplication
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
@@ -19,6 +19,15 @@ from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from core.host_process import host_process_env
 from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
+from core.performance_env import (
+    ENABLE_GAMEMODE,
+    DXVK_MAX_DEVICE_MEMORY_MB,
+    MANAGED_ENV_KEYS,
+    MAX_VRAM_MB,
+    MIN_VRAM_MB,
+    gamemode_library,
+    parse_vram_mb,
+)
 
 logger = get_logger("GamePropertiesDialog")
 
@@ -318,6 +327,59 @@ class GamePropertiesDialog(QDialog):
         self.cb_discrete_gpu.setStyleSheet("QCheckBox { color: #F5F7FA; font-weight: 600; }")
         tc_layout.addWidget(self.cb_discrete_gpu)
 
+        # Optional Feral GameMode injection. This is resolved by the runner so
+        # the setting remains portable between machines with and without the
+        # GameMode library installed.
+        self.cb_gamemode = QCheckBox("Inject Feral GameMode into this game (LD_PRELOAD)")
+        self.cb_gamemode.setChecked(
+            str(self.env_vars.get(ENABLE_GAMEMODE, "0")).strip().lower() in {"1", "true", "yes", "on"}
+        )
+        self.cb_gamemode.setStyleSheet("QCheckBox { color: #F5F7FA; font-weight: 600; }")
+        tc_layout.addWidget(self.cb_gamemode)
+        gamemode_note = QLabel(
+            "GameMode library detected — it will be injected when this game starts."
+            if gamemode_library()
+            else "GameMode library not detected — the game will start normally if this option is enabled."
+        )
+        gamemode_note.setWordWrap(True)
+        gamemode_note.setStyleSheet(
+            "color: #8F96A3; font-size: 11px; padding-left: 28px;"
+            if gamemode_library()
+            else "color: #D9A441; font-size: 11px; padding-left: 28px;"
+        )
+        tc_layout.addWidget(gamemode_note)
+
+        # DXVK changes the amount of device memory reported to the game. It
+        # does not allocate physical VRAM and deliberately has a prominent
+        # explanation beside the control.
+        vram_row = QHBoxLayout()
+        self.cb_vram_override = QCheckBox("Override reported DXVK VRAM")
+        self.cb_vram_override.setChecked(parse_vram_mb(self.env_vars.get(DXVK_MAX_DEVICE_MEMORY_MB)) is not None)
+        self.cb_vram_override.setStyleSheet("QCheckBox { color: #F5F7FA; font-weight: 600; }")
+        vram_row.addWidget(self.cb_vram_override)
+        self.spin_vram_override = QSpinBox()
+        self.spin_vram_override.setRange(MIN_VRAM_MB, MAX_VRAM_MB)
+        self.spin_vram_override.setSingleStep(256)
+        self.spin_vram_override.setSuffix(" MiB")
+        self.spin_vram_override.setValue(parse_vram_mb(self.env_vars.get(DXVK_MAX_DEVICE_MEMORY_MB)) or 8192)
+        self.spin_vram_override.setEnabled(self.cb_vram_override.isChecked())
+        self.spin_vram_override.setStyleSheet(
+            "QSpinBox { background: #161A22; color: #F5F7FA; border: none; "
+            "border-radius: 6px; padding: 4px 8px; min-width: 110px; }"
+        )
+        self.cb_vram_override.toggled.connect(self.spin_vram_override.setEnabled)
+        vram_row.addWidget(self.spin_vram_override)
+        vram_row.addStretch()
+        tc_layout.addLayout(vram_row)
+
+        vram_note = QLabel(
+            "Reported VRAM only — this does not add physical memory or change BIOS/kernel limits. "
+            "Values that are too high can cause allocation failures."
+        )
+        vram_note.setWordWrap(True)
+        vram_note.setStyleSheet("color: #8F96A3; font-size: 11px; padding-left: 28px;")
+        tc_layout.addWidget(vram_note)
+
         # Frame Limiter Row
         fps_row = QHBoxLayout()
         fps_row.addWidget(QLabel("<font color='#F5F7FA'><b>Frame Rate Cap (DXVK_FRAME_RATE):</b></font>"))
@@ -367,7 +429,11 @@ class GamePropertiesDialog(QDialog):
         """)
 
         # Populate custom vars (excluding the managed preset toggles)
-        managed_keys = {"WINE_FULLSCREEN_FSR", "WINE_FULLSCREEN_FSR_STRENGTH", "DXVK_ASYNC", "RADV_PERFTEST", "DRI_PRIME", "DXVK_FRAME_RATE"}
+        managed_keys = {
+            "WINE_FULLSCREEN_FSR", "WINE_FULLSCREEN_FSR_STRENGTH", "DXVK_ASYNC",
+            "RADV_PERFTEST", "DRI_PRIME", "MESA_VK_DEVICE_SELECT", "DXVK_FRAME_RATE",
+            *MANAGED_ENV_KEYS,
+        }
         custom_items = [(k, v) for k, v in self.env_vars.items() if k not in managed_keys]
         self.table_vars.setRowCount(len(custom_items))
         for row_idx, (k, v) in enumerate(custom_items):
@@ -930,20 +996,27 @@ class GamePropertiesDialog(QDialog):
             updated_env["DRI_PRIME"] = "1"
             updated_env["MESA_VK_DEVICE_SELECT"] = "1"
 
+        if self.cb_gamemode.isChecked():
+            updated_env[ENABLE_GAMEMODE] = "1"
+
+        if self.cb_vram_override.isChecked():
+            updated_env[DXVK_MAX_DEVICE_MEMORY_MB] = str(self.spin_vram_override.value())
+
         # Frame Rate
         fps_options = ["0", "30", "60", "90", "120", "144"]
         selected_fps = fps_options[self.combo_fps.currentIndex()]
         if selected_fps != "0":
             updated_env["DXVK_FRAME_RATE"] = selected_fps
 
-        # 2. Custom Variables Table
+        # 2. Custom Variables Table. Managed performance variables are owned
+        # by the named controls above and cannot be overridden accidentally.
         for row in range(self.table_vars.rowCount()):
             item_k = self.table_vars.item(row, 0)
             item_v = self.table_vars.item(row, 1)
             if item_k and item_v:
                 k_txt = item_k.text().strip()
                 v_txt = item_v.text().strip()
-                if k_txt:
+                if k_txt and k_txt not in MANAGED_ENV_KEYS:
                     updated_env[k_txt] = v_txt
 
         # Save to database
