@@ -503,7 +503,7 @@ class SaveManagerDialog(QDialog):
 
         def _complete(result):
             if operation is not None:
-                registry.finish(operation.operation_id)
+                registry.finish_result(operation.operation_id, result)
             on_complete(result)
 
         worker = self._task_supervisor.start(name, work, _complete)

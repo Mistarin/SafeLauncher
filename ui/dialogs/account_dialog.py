@@ -254,7 +254,27 @@ class AccountDialog(QDialog):
     # ------------------------------------------------------------------ #
 
     def _start_task(self, name, work, on_complete):
-        return self._task_supervisor.start(name, work, on_complete)
+        registry = getattr(self.parent(), "operation_registry", None)
+        operation = None
+        if registry is not None:
+            operation = registry.start(
+                name.replace("SafeLauncher-", "").replace("-", " ").strip(),
+                category="Cloud Account",
+            )
+
+        def _complete(result):
+            if operation is not None:
+                registry.finish_result(operation.operation_id, result)
+            on_complete(result)
+
+        worker = self._task_supervisor.start(name, work, _complete)
+        if operation is not None:
+            operation.cancel = worker.requestInterruption
+            operation.retry = lambda: self._start_task(name, work, on_complete)
+            worker.error_occurred.connect(
+                lambda error, op_id=operation.operation_id: registry.fail(op_id, error)
+            )
+        return worker
 
     def closeEvent(self, event):
         self._task_supervisor.cancel_all(100)

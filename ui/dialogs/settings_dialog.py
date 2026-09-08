@@ -1306,8 +1306,29 @@ class UserSettingsDialog(QDialog):
         self._refresh_backend_health()
 
     def _start_managed_task(self, name: str, work, on_complete):
-        """Run a settings operation without leaving an unowned daemon behind."""
-        return self._task_supervisor.start(name, work, on_complete)
+        """Run a settings operation and expose it in the global Activity drawer."""
+        parent = self.parent()
+        registry = getattr(parent, "operation_registry", None)
+        operation = None
+        if registry is not None:
+            operation = registry.start(
+                name.replace("SafeLauncher-", "").replace("-", " ").strip(),
+                category="Settings",
+            )
+
+        def _complete(result):
+            if operation is not None:
+                registry.finish_result(operation.operation_id, result)
+            on_complete(result)
+
+        worker = self._task_supervisor.start(name, work, _complete)
+        if operation is not None:
+            operation.cancel = worker.requestInterruption
+            operation.retry = lambda: self._start_managed_task(name, work, on_complete)
+            worker.error_occurred.connect(
+                lambda error, op_id=operation.operation_id: registry.fail(op_id, error)
+            )
+        return worker
 
     def closeEvent(self, event):
         """Keep Qt workers alive until their cooperative cancellation completes."""

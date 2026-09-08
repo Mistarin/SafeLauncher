@@ -1206,6 +1206,9 @@ class MainWindow(QMainWindow):
         root_vbox.addWidget(self.footer_bar)
         self.activity_drawer = ActivityDrawer(self.operation_registry, self)
         self.btn_activity.clicked.connect(self._toggle_activity_drawer)
+        self.operation_registry.operation_failed.connect(self._on_operation_failed)
+        self.operation_registry.unread_changed.connect(self._update_activity_button)
+        self._update_activity_button(self.operation_registry.unread_count())
         self._setup_library_shortcuts()
         
         self.setStyleSheet(get_application_stylesheet())
@@ -2505,12 +2508,12 @@ class MainWindow(QMainWindow):
         operation.retry = lambda: self._start_managed_task(name, work, on_complete)
         if on_complete is not None:
             def _complete(result, callback=on_complete, op_id=operation.operation_id):
-                self.operation_registry.finish(op_id)
+                self.operation_registry.finish_result(op_id, result)
                 callback(result)
             worker.completed.connect(_complete)
         else:
             worker.completed.connect(
-                lambda _result, op_id=operation.operation_id: self.operation_registry.finish(op_id)
+                lambda result, op_id=operation.operation_id: self.operation_registry.finish_result(op_id, result)
             )
         worker.error_occurred.connect(
             lambda error, task=name, op_id=operation.operation_id: self._on_managed_task_error(task, op_id, error)
@@ -2532,6 +2535,27 @@ class MainWindow(QMainWindow):
         logger.warning("Background task %s failed: %s", task, error)
         self.operation_registry.fail(operation_id, error)
 
+    def _on_operation_failed(self, operation) -> None:
+        """Surface background failures without interrupting the current task."""
+        message = operation.error or f"{operation.label} failed."
+        if len(message) > 180:
+            message = message[:177] + "..."
+        self._show_toast(message, is_error=True)
+
+    def _update_activity_button(self, failed_count: int = 0) -> None:
+        """Keep the activity affordance useful without adding a permanent panel."""
+        button = getattr(self, "btn_activity", None)
+        if button is None:
+            return
+        label = "Activity"
+        if failed_count:
+            label += f" · {failed_count} failed"
+        button.setText(label)
+        button.setToolTip(
+            "Show background operations"
+            if not failed_count else f"Show {failed_count} failed background operation(s)"
+        )
+
     def _toggle_activity_drawer(self) -> None:
         drawer = getattr(self, "activity_drawer", None)
         if drawer is None:
@@ -2539,6 +2563,7 @@ class MainWindow(QMainWindow):
         if drawer.isVisible():
             drawer.hide()
             return
+        self.operation_registry.mark_all_read()
         self._position_activity_drawer()
         drawer.show()
         drawer.raise_()
