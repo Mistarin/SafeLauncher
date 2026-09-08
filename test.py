@@ -1120,6 +1120,18 @@ ACH_PACIFIST=0
         assert "ACH_FIRST_BLOOD" in parsed_cdx
         assert "ACH_PACIFIST" not in parsed_cdx
 
+        # Positive gameplay counters in a generic [Stats] section must never
+        # become irreversible achievement unlocks.  Mixed formats may contain
+        # explicit ACH_* entries, which remain supported.
+        stats_file = Path(tmp_dir) / "mixed_stats.ini"
+        stats_file.write_text(
+            "[Stats]\nKILLS=42\nPLAYTIME=3600\nACH_REAL=1\n",
+            encoding="utf-8",
+        )
+        parsed_stats = parse_achievements_state(stats_file)
+        assert "KILLS" not in parsed_stats and "PLAYTIME" not in parsed_stats
+        assert "ACH_REAL" in parsed_stats
+
         print("✓ Achievement state parsing for Goldberg (JSON) and CODEX/RUNE (INI) verified")
 
         # C. Test Ensure & Locate Achievement Target

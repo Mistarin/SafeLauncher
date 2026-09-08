@@ -164,6 +164,11 @@ class MainWindow(QMainWindow):
         self._cloud_context_generation = 0
         self.achievement_status_cache = {}
         self._achievement_checked_ts = {}
+        self._achievement_poll_timer = None
+        # A watcher can observe an unlock before its schema worker finishes.
+        # Keep it in memory until the schema gives the API name a durable row;
+        # otherwise the one-shot live event would be silently lost.
+        self._pending_achievement_unlocks = {}
         self.local_version_by_game_id = {}
         self.metadata_attempted_tags = set()
         self._steam_build_checked_ts = {}
@@ -4204,10 +4209,8 @@ class MainWindow(QMainWindow):
                                 download_icons=True,
                                 parent=self
                             )
-                            def _on_sch_done(gid, aid, sch_list):
-                                self.db.save_achievement_schema(gid, aid, sch_list)
-                            fetcher.schema_fetched.connect(_on_sch_done)
-                            fetcher.start()
+                            fetcher.schema_fetched.connect(self._on_achievement_schema_fetched)
+                            self._track_metadata_fetcher(fetcher)
 
                         if game_id in self.achievement_watchers:
                             try:
@@ -4317,7 +4320,21 @@ class MainWindow(QMainWindow):
         if not api_name:
             return
 
-        self.db.unlock_achievement(game_id, api_name, unlock_time)
+        schema = self.db.get_game_achievements(game_id)
+        schema_has_api = any(a.get("api_name") == api_name for a in schema)
+        if not schema_has_api:
+            self._pending_achievement_unlocks.setdefault(game_id, {})[api_name] = unlock_time
+            logger.info(
+                "Queued achievement %s for game %s until its schema is available.", api_name, game_id
+            )
+            self.request_achievement_recheck([game_id], tag="realtime_schema")
+            return
+
+        # Database transition is the deduplication authority.  A duplicate
+        # inotify/poll event must not emit a second toast or cloud sync.
+        if not self.db.unlock_achievement(game_id, api_name, unlock_time):
+            return
+
         unlocked_count, total_count, pct = self.db.get_achievement_stats(game_id)
         recent = self.db.get_recent_unlocked_achievements(game_id, limit=5)
         self.achievement_status_cache[game_id] = (unlocked_count, total_count, pct, recent)
@@ -4326,8 +4343,7 @@ class MainWindow(QMainWindow):
         self._sync_launcher_metadata_async(game_id)
 
         # Retrieve display metadata
-        achs = self.db.get_game_achievements(game_id)
-        ach_meta = next((a for a in achs if a.get("api_name") == api_name), None)
+        ach_meta = next((a for a in schema if a.get("api_name") == api_name), None)
         display_name = ach_meta.get("display_name", api_name) if ach_meta else api_name
         description = ach_meta.get("description", "") if ach_meta else ""
         icon_path = ach_meta.get("icon_path", "") if ach_meta else ""
@@ -4351,6 +4367,17 @@ class MainWindow(QMainWindow):
             steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
             self._update_achievement_inspector(game_id, steam_id)
             self._update_compact_game_page()
+
+    def _on_achievement_schema_fetched(self, game_id: int, app_id: str, achievements: list):
+        """Persist schema then commit live unlocks that arrived before it."""
+        if not achievements:
+            return
+        self.db.save_achievement_schema(game_id, app_id, achievements)
+        pending = self._pending_achievement_unlocks.pop(game_id, {})
+        for api_name, unlock_time in pending.items():
+            self._on_achievement_unlocked(
+                game_id, app_id, {"api_name": api_name, "unlock_time": unlock_time}
+            )
 
     def _open_prefix_maintenance(self):
         game = self._get_selected_game()
@@ -4871,6 +4898,20 @@ class MainWindow(QMainWindow):
         for game in list(self.games):
             if game and len(game) > 0:
                 self._sync_launcher_metadata_async(int(game[0]))
+        # Native Steam has no universal local unlock file.  When the user has
+        # explicitly supplied Steam Web API credentials, recheck only games
+        # that are actually running to provide bounded near-realtime updates.
+        if self._achievement_poll_timer is None:
+            self._achievement_poll_timer = QTimer(self)
+            self._achievement_poll_timer.setInterval(60_000)
+            self._achievement_poll_timer.timeout.connect(self._poll_running_achievements)
+        self._achievement_poll_timer.start()
+
+    def _poll_running_achievements(self):
+        """Poll opted-in native Steam state without scanning the whole library."""
+        running_ids = list(self.running_game_ids)
+        if running_ids:
+            self.request_achievement_recheck(running_ids, tag="running_poll")
 
     def _on_achievement_status_calculated(self, game_id: int, unlocked_count: int, total_count: int, pct: float, recent: list):
         """GUI-thread slot when an achievement worker finishes computing status for a game."""
@@ -4925,7 +4966,7 @@ class MainWindow(QMainWindow):
         # A cancellation request is intentionally cooperative. It may have
         # stopped an optional refresh, so restore the recurring sources once
         # the user chooses to keep the launcher open.
-        for timer_name in ("drive_check_timer", "_cloud_poll_timer"):
+        for timer_name in ("drive_check_timer", "_cloud_poll_timer", "_achievement_poll_timer"):
             timer = getattr(self, timer_name, None)
             if timer is not None and not timer.isActive():
                 timer.start()
@@ -4953,7 +4994,7 @@ class MainWindow(QMainWindow):
 
             # Halt every source that schedules new background work while we
             # are trying to shut down.
-            for timer_name in ("drive_check_timer", "_size_resort_timer", "_cloud_poll_timer", "_update_check_timer"):
+            for timer_name in ("drive_check_timer", "_size_resort_timer", "_cloud_poll_timer", "_achievement_poll_timer", "_update_check_timer"):
                 timer = getattr(self, timer_name, None)
                 if timer is not None:
                     try:

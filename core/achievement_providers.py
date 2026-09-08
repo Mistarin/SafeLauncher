@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -70,6 +71,39 @@ class SteamSchemaProvider(AchievementProvider):
         )
 
 
+def _authenticated_steam_player_state(app_id: str) -> Dict[str, float]:
+    """Read native Steam unlock state only with explicit user credentials.
+
+    Steam does not expose a local, stable achievement-state file for every
+    native title.  The official player endpoint is the reliable fallback, but
+    it requires both a Web API key and the player's SteamID.  Environment-only
+    configuration keeps this opt-in and avoids storing either credential in
+    SafeLauncher settings.
+    """
+    api_key = os.environ.get("STEAM_WEB_API_KEY", "").strip()
+    steam_user_id = os.environ.get("STEAM_USER_ID", "").strip()
+    if not api_key or not steam_user_id:
+        return {}
+    try:
+        import requests
+        response = requests.get(
+            "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/",
+            params={"key": api_key, "steamid": steam_user_id, "appid": str(app_id)},
+            timeout=8,
+        )
+        if response.status_code != 200:
+            return {}
+        achievements = (response.json() or {}).get("playerstats", {}).get("achievements", [])
+        return {
+            str(item.get("apiname", "")).strip(): float(item.get("unlocktime", 0) or 1)
+            for item in achievements
+            if item.get("achieved") and str(item.get("apiname", "")).strip()
+        }
+    except Exception as exc:
+        logger.debug("Authenticated Steam achievement state unavailable for %s: %s", app_id, exc)
+        return {}
+
+
 class AchievementProviderRegistry:
     """Resolve schema and local state using deterministic provider priority."""
 
@@ -89,6 +123,14 @@ class AchievementProviderRegistry:
         state_path = locate_achievements_file(proton_path, game_path, app_id)
         state = parse_achievements_state(state_path) if state_path else {}
         state_source = "local-state" if state_path else ""
+        remote_state = _authenticated_steam_player_state(app_id)
+        if remote_state:
+            # Emulator files are local truth when both sources exist; native
+            # Steam fills only unknown entries and supports pure native titles.
+            merged_state = dict(remote_state)
+            merged_state.update(state)
+            state = merged_state
+            state_source = f"{state_source}+steam-player" if state_source else "steam-player"
 
         schema: List[dict] = []
         schema_source = ""
@@ -121,4 +163,3 @@ class AchievementProviderRegistry:
 def resolve_achievements(app_id: str, game_path: str = "", proton_path: str = "") -> AchievementResolution:
     """Public provider entry point used by workers and future UI surfaces."""
     return AchievementProviderRegistry.resolve(app_id, game_path, proton_path)
-

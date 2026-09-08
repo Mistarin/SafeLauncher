@@ -187,14 +187,24 @@ def parse_achievements_state(file_path: Path) -> Dict[str, float]:
                 collect(data)
             return results
 
-        # Case 2: INI format (CODEX / RUNE / FLT / SSE)
+        # Case 2: INI format (CODEX / RUNE / FLT / SSE).  A section called
+        # ``Stats`` commonly contains counters such as money, kills, or play
+        # time; treating every positive counter as an achievement creates
+        # permanent false unlocks.  Only achievement sections are authoritative
+        # (or explicitly achievement-named keys in mixed sections).
         cfg = configparser.ConfigParser()
         cfg.optionxform = str
         cfg.read_string(content)
         for section in cfg.sections():
-            if "achieve" in section.lower() or "stats" in section.lower():
+            section_name = section.lower()
+            achievement_section = "achieve" in section_name or "unlock" in section_name
+            mixed_section = "stats" in section_name
+            if achievement_section or mixed_section:
                 for key, val in cfg.items(section):
                     key_str = key.strip()
+                    key_name = key_str.lower()
+                    if mixed_section and not achievement_section and not key_name.startswith(("ach_", "achievement_", "unlock_")):
+                        continue
                     val_str = val.strip()
                     lowered = val_str.lower()
                     try:
@@ -280,12 +290,17 @@ class AchievementWatcher(QObject):
             self.watch_file = found
             self._reattach_file()
             self.check_updates()
+            # Some emulators create then populate a file in separate writes.
+            # Re-read once after the filesystem event instead of permanently
+            # accepting an intermediate empty/partial parse.
+            QTimer.singleShot(250, self.check_updates)
 
     def _on_file_changed(self, path: str):
         """File modification handler (real-time inotify)."""
         # Re-add path because some text editors/emulators replace inodes atomically on write
         self._reattach_file()
         self.check_updates()
+        QTimer.singleShot(250, self.check_updates)
 
     def _reattach_file(self) -> None:
         """Re-add a file watch after an atomic rename/replacement."""
