@@ -4414,7 +4414,14 @@ class MainWindow(QMainWindow):
                         logger.warning(f"Could not initialize achievement watcher for {game_name}: {ach_err}")
 
                 # Show animated Safe Launch Popup with console log stream & greeting (non-blocking)
-                popup = SafeLaunchDialog(game_name, user_name=self.user_name, process=process, parent=self)
+                popup = SafeLaunchDialog(
+                    game_name,
+                    user_name=self.user_name,
+                    process=process,
+                    parent=self,
+                    session_manager=self.game_sessions,
+                    game_id=game_id,
+                )
                 popup.retry_requested.connect(
                     lambda retry_mode: self._launch_mode(game_id, path, exe, retry_mode, sandbox=True)
                 )

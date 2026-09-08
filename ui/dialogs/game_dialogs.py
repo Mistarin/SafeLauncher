@@ -793,16 +793,20 @@ class SafeLaunchDialog(QDialog):
     settings_requested = pyqtSignal()
     runtime_manager_requested = pyqtSignal()
 
-    def __init__(self, game_name: str, user_name: str = None, process=None, parent=None):
+    def __init__(self, game_name: str, user_name: str = None, process=None, parent=None, session_manager=None, game_id: int = None):
         super().__init__(parent)
         self.game_name = game_name
         self.user_name = user_name or getpass.getuser().capitalize()
         self.process = process
+        self.session_manager = session_manager
+        self.game_id = game_id
         self.diagnostics = getattr(process, "safelauncher_diagnostics", None)
         if self.diagnostics:
             self.diagnostics.game_name = game_name
         self.log_lines = []
         self.launch_finished = False
+        self._diagnostics_persisted = False
+        self._diagnostics_path = ""
         self.handoff_shown = False
         self.requires_proton_setup = False
         import time
@@ -1071,6 +1075,8 @@ class SafeLaunchDialog(QDialog):
             self.append_log(f"[{t_str}] [FALLBACK] Running game in direct unsandboxed execution mode.")
         self.append_log(f"[{t_str}] [RUNNER] Loading Proton / Wine runtime container...")
         self.append_log(f"[{t_str}] [EXEC] Launching process for '{game_name}'...")
+        if self.session_manager is not None and self.game_id is not None and self.diagnostics:
+            self.session_manager.attach_diagnostics(self.game_id, self.diagnostics)
 
         self.process_log_path = getattr(self.process, "safelauncher_log_path", None)
         self._process_log_offset = 0
@@ -1271,6 +1277,8 @@ class SafeLaunchDialog(QDialog):
         self.handoff_shown = True
         if self.diagnostics:
             self.diagnostics.session_observed = True
+            if self.session_manager is not None and self.game_id is not None:
+                self.session_manager.mark_observed(self.game_id)
         import time
         t_str = time.strftime("%H:%M:%S")
         self.append_log(f"[{t_str}] [SUCCESS] Sandbox container initialized cleanly.")
@@ -1349,7 +1357,7 @@ class SafeLaunchDialog(QDialog):
             self.diagnostics.return_code = return_code
             self.diagnostics.output = list(self.log_lines)
             self.diagnostics.session_observed = bool(self.handoff_shown or has_game_run_markers)
-            persist_diagnostics(self.diagnostics)
+            self._persist_session_diagnostics()
             reason = self.diagnostics.actionable_explanation()
         self.requires_proton_setup = any(marker in lower_details for marker in (
             "proton not found",
@@ -1382,11 +1390,25 @@ class SafeLaunchDialog(QDialog):
         if self.diagnostics:
             self.diagnostics.return_code = return_code
             self.diagnostics.output = list(self.log_lines)
-            persist_diagnostics(self.diagnostics)
+            self._persist_session_diagnostics()
         self.error_summary.setText(reason)
         self.error_details.setPlainText(self.diagnostics.as_text() if self.diagnostics else (details or "No diagnostic output was produced."))
         self._configure_recovery_actions()
         self.stack.setCurrentWidget(self.page_error)
+
+    def _persist_session_diagnostics(self):
+        """Persist through the owning game session exactly once."""
+        if not self.diagnostics:
+            return ""
+        if self._diagnostics_persisted:
+            return self._diagnostics_path
+        if self.session_manager is not None and self.game_id is not None:
+            path = self.session_manager.finalize_diagnostics(self.game_id, self.diagnostics)
+        else:
+            path = persist_diagnostics(self.diagnostics)
+        self._diagnostics_path = path or ""
+        self._diagnostics_persisted = True
+        return self._diagnostics_path
 
     def _configure_recovery_actions(self):
         actions = set(self.diagnostics.recommended_actions()) if self.diagnostics else {"safe_retry", "copy", "logs"}

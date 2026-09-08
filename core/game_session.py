@@ -22,6 +22,10 @@ class GameSession:
     exit_code: Optional[int] = None
     state: str = "running"
     failure_reason: str = ""
+    diagnostics: object = None
+    diagnostics_path: str = ""
+    observed: bool = False
+    diagnostics_finalized: bool = False
 
     @property
     def is_live(self) -> bool:
@@ -35,6 +39,7 @@ class GameSessionManager(QObject):
     session_state_changed = pyqtSignal(object)
     session_finished = pyqtSignal(object)
     session_failed = pyqtSignal(object)
+    session_diagnostics_ready = pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -70,6 +75,32 @@ class GameSessionManager(QObject):
             return None
         session.tracker = tracker
         return session
+
+    def attach_diagnostics(self, game_id: int, diagnostics) -> Optional[GameSession]:
+        session = self._sessions.get(game_id)
+        if session is not None:
+            session.diagnostics = diagnostics
+        return session
+
+    def mark_observed(self, game_id: int) -> Optional[GameSession]:
+        session = self._sessions.get(game_id)
+        if session is not None:
+            session.observed = True
+        return session
+
+    def finalize_diagnostics(self, game_id: int, diagnostics) -> str:
+        """Persist one final report for a session and make it authoritative."""
+        session = self._sessions.get(game_id)
+        if session is not None and session.diagnostics_finalized:
+            return session.diagnostics_path
+        from core.launch_diagnostics import persist_diagnostics
+        path = persist_diagnostics(diagnostics)
+        if session is not None:
+            session.diagnostics = diagnostics
+            session.diagnostics_path = path or ""
+            session.diagnostics_finalized = True
+        self.session_diagnostics_ready.emit(session or diagnostics)
+        return path
 
     def mark_stopping(self, game_id: int) -> Optional[GameSession]:
         session = self._sessions.get(game_id)
