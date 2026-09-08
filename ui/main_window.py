@@ -97,7 +97,7 @@ from ui.theme import (
 
 import getpass
 from core.playtime_tracker import PlaytimeTrackerThread, _shutdown_firejail_sandbox
-from core.safe_thread import FunctionWorker
+from core.safe_thread import FunctionWorker, WorkerSupervisor
 from core.operation_registry import OperationRegistry
 from ui.components.activity_drawer import ActivityDrawer
 
@@ -183,6 +183,8 @@ class MainWindow(QMainWindow):
         self._stopping_game_ids = set()  # game IDs transitioning from running to stopped
         self._background_workers = []  # authoritative registry for shutdown (see _register_worker)
         self._retiring_workers = []  # retain retiring threads until completely stopped to avoid GC destroying running QThread
+        self.worker_supervisor = WorkerSupervisor(self)
+        self.worker_supervisor.worker_finished.connect(self._on_supervised_worker_finished)
         # running_game_ids is a derived property over playtime_trackers — it
         # can never go stale, unlike the old manually-maintained add/discard set.
         self.topbar_extractor_thread = None
@@ -2493,10 +2495,18 @@ class MainWindow(QMainWindow):
         fetcher.start()
 
     def _register_worker(self, worker):
-        """Authoritative registry of every background worker. closeEvent stops
-        exactly this list, so a worker appended to a semantic list but missed
-        here can no longer survive shutdown."""
-        self._background_workers.append(worker)
+        """Register an application-owned worker with the shutdown supervisor."""
+        if self.worker_supervisor.register(worker):
+            self._background_workers.append(worker)
+
+    def _on_supervised_worker_finished(self, worker):
+        """Retain finished QThreads briefly, then let Qt reclaim them safely."""
+        if worker in self._background_workers:
+            self._background_workers.remove(worker)
+        if worker not in self._retiring_workers:
+            self._retiring_workers.append(worker)
+        if len(self._retiring_workers) > 80:
+            self._retiring_workers = [w for w in self._retiring_workers if w.isRunning()]
 
     def _start_managed_task(self, name: str, work, on_complete=None):
         """Start a one-shot task owned by this window and shut it down safely."""
@@ -2505,7 +2515,7 @@ class MainWindow(QMainWindow):
         operation = self.operation_registry.start(
             name.replace("_", " ").strip().title(),
             category="Background",
-            cancel=worker.requestInterruption,
+            cancel=getattr(worker, "request_cancel", worker.requestInterruption),
         )
         operation.retry = lambda: self._start_managed_task(name, work, on_complete)
         if on_complete is not None:
@@ -4327,6 +4337,7 @@ class MainWindow(QMainWindow):
                 tracker.playtime_session_recorded.connect(self._on_playtime_session_recorded)
                 tracker.finished.connect(lambda t=tracker: self._cleanup_tracker(t))
                 self.playtime_trackers.append(tracker)
+                self._register_worker(tracker)
                 tracker.start()
                 if self.selected_game and self.selected_game[0] == game_id:
                     self._update_detail_launch_button(game_id)
@@ -4762,6 +4773,8 @@ class MainWindow(QMainWindow):
         self._stopping_game_ids.discard(tracker.game_id)
         if tracker in self.playtime_trackers:
             self.playtime_trackers.remove(tracker)
+        if tracker in self._background_workers:
+            self._background_workers.remove(tracker)
         if self.selected_game and self.selected_game[0] == tracker.game_id:
             self._update_detail_launch_button(tracker.game_id)
         if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
@@ -5250,13 +5263,17 @@ class MainWindow(QMainWindow):
         for tracker in list(self.playtime_trackers):
             tracker.stop()
 
-        # _background_workers is the authoritative registry (semantic lists may
-        # overlap); dedupe so a worker is stopped exactly once.
-        workers = list(dict.fromkeys(
-            list(self._background_workers) + list(self.playtime_trackers)))
+        # WorkerSupervisor is the authoritative registry. Semantic lists are
+        # feature indexes only and may overlap.
+        workers = self.worker_supervisor.workers(running_only=True)
         for worker in workers:
             if worker.isRunning():
-                if hasattr(worker, "requestInterruption"):
+                if hasattr(worker, "request_cancel"):
+                    try:
+                        worker.request_cancel()
+                    except Exception:
+                        pass
+                elif hasattr(worker, "requestInterruption"):
                     try:
                         worker.requestInterruption()
                     except Exception:
@@ -5267,11 +5284,14 @@ class MainWindow(QMainWindow):
                 # timer, keeping the progress dialog responsive.
                 worker.wait(25)
 
-        still_running = [w for w in workers if w.isRunning()]
+        still_running = self.worker_supervisor.wait(25)
         if still_running and _time.monotonic() < self._shutdown_deadline:
             progress = self._show_shutdown_progress()
+            names = ", ".join(self.worker_supervisor.describe(worker) for worker in still_running[:4])
+            if len(still_running) > 4:
+                names += f" (+{len(still_running) - 4} more)"
             progress.setLabelText(
-                f"Ending {len(still_running)} running operation(s) safely…"
+                f"Ending {len(still_running)} running operation(s) safely…\n{names}"
             )
             QTimer.singleShot(100, self.close)
             event.ignore()
@@ -5288,7 +5308,7 @@ class MainWindow(QMainWindow):
             if not getattr(self, "_shutdown_overdue_logged", False):
                 self._shutdown_overdue_logged = True
                 names = ", ".join(
-                    worker.objectName() or worker.__class__.__name__
+                    self.worker_supervisor.describe(worker)
                     for worker in still_running
                 )
                 logger.warning(
