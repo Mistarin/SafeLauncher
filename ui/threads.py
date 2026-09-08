@@ -284,21 +284,24 @@ class CloudSaveStatusFetcherThread(SafeQThread):
     """Background QThread for checking local and cloud save status without blocking GUI."""
     save_status_calculated = pyqtSignal(int, object, object, object)  # (game_id, status, local_stats, cloud_stats)
 
-    def __init__(self, game_id: int, game_name: str, path: str, steam_id: str = "", parent=None):
+    def __init__(self, game_id: int, game_name: str, path: str, steam_id: str = "", parent=None, coordinator=None):
         super().__init__(parent)
         self.game_id = game_id
         self.game_name = game_name
         self.path = path
         self.steam_id = steam_id
+        self.coordinator = coordinator
 
     def safe_run(self):
         if self.isInterruptionRequested():
             return
         try:
-            from core.cloud_save_sync import CloudSaveSyncEngine
-            status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
-                self.game_name, self.path, self.steam_id
+            from core.cloud_operations import CloudSyncCoordinator
+            coordinator = self.coordinator or CloudSyncCoordinator()
+            result = coordinator.check_status(
+                self.game_id, self.game_name, self.path, self.steam_id
             )
+            status, local_stats, cloud_stats = result.status, result.local_stats, result.cloud_stats
             if not self.isInterruptionRequested():
                 self.save_status_calculated.emit(self.game_id, status, local_stats, cloud_stats)
         except Exception as e:
@@ -310,20 +313,21 @@ class CloudSaveBatchQueueWorker(SafeQThread):
     game_status_ready = pyqtSignal(int, object, object, object)  # (game_id, status, local_stats, cloud_stats)
     batch_finished = pyqtSignal(list, list)  # (uploaded_names, newer_in_cloud_names)
 
-    def __init__(self, games: list, max_workers: Optional[int] = None, parent=None):
+    def __init__(self, games: list, max_workers: Optional[int] = None, parent=None, coordinator=None):
         super().__init__(parent)
         self.games = list(games)
         if max_workers is None:
             from PyQt6.QtCore import QSettings
             max_workers = QSettings("SafeLauncher", "SafeLauncher").value("cloud_sync_workers", 3, type=int)
         self.max_workers = max(1, min(max_workers, 5))
+        self.coordinator = coordinator
 
     def safe_run(self):
         if self.isInterruptionRequested() or not self.games:
             return
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus, _get_cloud_listing
+        from core.cloud_save_sync import SyncStatus, _get_cloud_listing
 
         try:
             _get_cloud_listing(force_refresh=True)
@@ -342,7 +346,10 @@ class CloudSaveBatchQueueWorker(SafeQThread):
             else:
                 game_id, name, path, steam_id = g[0], g[1], g[2], str(g[3]).strip()
             try:
-                status, l_stat, c_stat = CloudSaveSyncEngine.check_sync_status(name, path, steam_id)
+                from core.cloud_operations import CloudSyncCoordinator
+                coordinator = self.coordinator or CloudSyncCoordinator()
+                result = coordinator.check_status(game_id, name, path, steam_id)
+                status, l_stat, c_stat = result.status, result.local_stats, result.cloud_stats
                 if status == SyncStatus.LOCAL_NEWER:
                     uploaded_names.append(name)
                 elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):

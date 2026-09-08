@@ -27,7 +27,7 @@ from core.save_validation import (
 )
 from core.save_models import SaveOperationResult
 from core.save_state import SaveStateStore
-from core.cloud_operations import CloudOperationCoordinator, classify_cloud_error
+from core.cloud_operations import CloudSyncCoordinator, classify_cloud_error
 from core.zip_backup import ZipBackupManager
 from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
@@ -54,12 +54,13 @@ class SaveManagerDialog(QDialog):
     _upload_done = pyqtSignal(object)
     _history_loaded = pyqtSignal(object)
 
-    def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None):
+    def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None, cloud_coordinator=None):
         super().__init__(parent)
         self.game_id = game_id
         self.game_name = game_name
         self.game_path = game_path
         self.steam_id = steam_id
+        self.cloud_sync_coordinator = cloud_coordinator or getattr(parent, "cloud_sync_coordinator", None) or CloudSyncCoordinator()
         self.backup_mgr = ZipBackupManager()
         self.save_state_store = getattr(parent, "save_state_store", None) or SaveStateStore()
         self.save_locations: list[SaveLocation] = []
@@ -740,7 +741,8 @@ class SaveManagerDialog(QDialog):
             # CloudSaveSyncEngine performs the final validation at its
             # packaging boundary. Keeping that invariant in the engine also
             # protects uploads initiated from Game Properties and auto-sync.
-            result = CloudOperationCoordinator.upload_local_save(
+            result = self.cloud_sync_coordinator.upload_local_save(
+                self.game_id,
                 self.game_name,
                 self.game_path,
                 steam_id=self.steam_id,
@@ -880,8 +882,8 @@ class SaveManagerDialog(QDialog):
         self.btn_restore_history.setEnabled(False)
 
         def _work():
-            versions, error = CloudOperationCoordinator.load_history(
-                self.game_name, self.game_path, self.steam_id
+            versions, error = self.cloud_sync_coordinator.load_history(
+                self.game_id, self.game_name, self.game_path, self.steam_id
             )
             return error if error is not None else versions
 
@@ -959,8 +961,8 @@ class SaveManagerDialog(QDialog):
             try:
                 if entry.get("source") == "cloud":
                     v_num = entry.get("version")
-                    result = CloudOperationCoordinator.restore_generation(
-                        self.game_name, self.game_path, steam_id=self.steam_id,
+                    result = self.cloud_sync_coordinator.restore_generation(
+                        self.game_id, self.game_name, self.game_path, steam_id=self.steam_id,
                         version=int(v_num) if v_num else None,
                     )
                     success = result.success
@@ -993,8 +995,6 @@ class SaveManagerDialog(QDialog):
         network I/O and must not block the main thread.  We dispatch it to a worker
         thread immediately and resume in ``_on_cloud_restore_preflight_done``.
         """
-        from core.cloud_save_sync import CloudSaveSyncEngine
-
         # Disable buttons immediately so the user can't trigger a second restore.
         self.btn_restore_history.setEnabled(False)
         self.btn_export.setEnabled(False)
@@ -1010,15 +1010,20 @@ class SaveManagerDialog(QDialog):
 
         def _preflight():
             try:
-                versions = CloudSaveSyncEngine.get_available_versions(
-                    self.game_name, self.game_path, self.steam_id
+                versions, history_error = self.cloud_sync_coordinator.load_history(
+                    self.game_id, self.game_name, self.game_path, self.steam_id
                 )
+                if history_error is not None:
+                    return False, "__preflight_error__"
                 cloud_versions = [v for v in versions if v.get("source") == "cloud"]
                 if len(cloud_versions) > 1:
                     return False, "__switch_to_history__"
-                status, local_stats, cloud_stats = CloudSaveSyncEngine.check_sync_status(
-                    self.game_name, self.game_path, self.steam_id
+                preflight = self.cloud_sync_coordinator.preflight(
+                    self.game_id, self.game_name, self.game_path, self.steam_id
                 )
+                if preflight.error is not None:
+                    return False, "__preflight_error__"
+                cloud_stats = preflight.cloud_stats
                 display_path = cloud_stats.display_path if cloud_stats else "Unavailable"
                 cloud_exists = bool(cloud_stats and cloud_stats.exists)
                 return False, f"__preflight_ok__{display_path}__exists__{cloud_exists}"
@@ -1096,8 +1101,8 @@ class SaveManagerDialog(QDialog):
                 worker_success = False
                 error_message = ""
                 try:
-                    result = CloudOperationCoordinator.restore_cloud_save(
-                        self.game_name, self.game_path,
+                    result = self.cloud_sync_coordinator.restore_cloud_save(
+                        self.game_id, self.game_name, self.game_path,
                         steam_id=self.steam_id,
                     )
                     worker_success = result.success

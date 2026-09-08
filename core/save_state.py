@@ -16,6 +16,9 @@ class SaveGameState:
     detected_locations: tuple = ()
     history: tuple = ()
     operation: Any = None
+    checked_at: float = 0.0
+    context_generation: int = 0
+    last_result: Any = None
 
 
 class SaveStateStore(MutableMapping):
@@ -57,12 +60,24 @@ class SaveStateStore(MutableMapping):
     def state(self, game_id: int) -> SaveGameState:
         return self._states.setdefault(int(game_id), SaveGameState())
 
-    def set_cloud_status(self, game_id: int, status, local_stats=None, cloud_stats=None) -> None:
+    def set_cloud_status(
+        self,
+        game_id: int,
+        status,
+        local_stats=None,
+        cloud_stats=None,
+        *,
+        checked_at: float = 0.0,
+        context_generation: int = 0,
+    ) -> None:
         state = self.state(game_id)
         state.cloud_status = status
         state.local_stats = local_stats
         state.cloud_stats = cloud_stats
         state.snapshot = getattr(local_stats, "snapshot", None)
+        if checked_at:
+            state.checked_at = float(checked_at)
+        state.context_generation = int(context_generation)
 
     def set_snapshot(self, game_id: int, snapshot) -> None:
         self.state(game_id).snapshot = snapshot
@@ -75,6 +90,12 @@ class SaveStateStore(MutableMapping):
 
     def set_operation(self, game_id: int, operation) -> None:
         self.state(game_id).operation = operation
+
+    def set_result(self, game_id: int, result) -> None:
+        self.state(game_id).last_result = result
+
+    def checked_at(self, game_id: int) -> float:
+        return float(self.state(game_id).checked_at or 0.0)
 
 
 __all__ = ["SaveGameState", "SaveStateStore"]
