@@ -29,6 +29,7 @@ from PyQt6.QtGui import (
 
 from ui.icons import get_icon
 from core.cloud_save_sync import SyncStatus
+from core.library_controller import LibrarySnapshot
 from core.logger import get_logger
 
 logger = get_logger("CompactGamePage")
@@ -2417,6 +2418,16 @@ class CompactLayoutContainer(QWidget):
         )
         if not games:
             self.game_page.set_empty_state("No games in this view")
+
+    def set_snapshot(self, snapshot: LibrarySnapshot, cache_dir: Optional[str] = None, selected_ids: Optional[set[int]] = None) -> None:
+        """Render the shared library snapshot in the compact workspace."""
+        self.set_games(
+            snapshot.legacy_items,
+            selected_ids or set(),
+            snapshot.update_status_map,
+            cache_dir,
+            snapshot.cloud_status_map,
+        )
 
     def select_game(self, game_id: int):
         self.sidebar_list.select_game(game_id)

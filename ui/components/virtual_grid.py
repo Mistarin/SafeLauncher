@@ -21,6 +21,7 @@ from PyQt6.QtGui import (
 
 from ui.icons import get_icon
 from core.cloud_save_sync import SyncStatus
+from core.library_controller import LibrarySnapshot
 
 
 GAME_ID_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -346,6 +347,15 @@ class VirtualizedGameGridView(QListView):
         self.card_width = new_width
         self.delegate.set_card_width(new_width)
         self.setGridSize(QSize(self.delegate.card_width + self.spacing, self.delegate.total_height + self.spacing))
+
+    def set_snapshot(self, snapshot: LibrarySnapshot, selected_ids: Optional[Set[int]] = None) -> None:
+        """Render the shared library snapshot using the virtualized renderer."""
+        self.set_games(
+            snapshot.legacy_items,
+            selected_ids or set(),
+            snapshot.update_status_map,
+            snapshot.cloud_status_map,
+        )
         self.scheduleDelayedItemsLayout()
         self.viewport().update()
 

@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont, QPixmap, QPainter, QColor, QIcon
 
 from core.disk_utils import dir_size_display
+from core.library_controller import LibrarySnapshot
 from ui.icons import get_app_icon, get_icon
 
 
@@ -435,6 +436,16 @@ class LibraryListView(QListWidget):
             self.addItem(item)
             self.setItemWidget(item, row_widget)
             self._row_widgets_by_id[game_id] = row_widget
+
+    def set_snapshot(self, snapshot: LibrarySnapshot, cache_dir: Optional[str] = None, selected_ids: Optional[Set[int]] = None) -> None:
+        """Render the shared library snapshot without rebuilding its query."""
+        self.set_games(
+            snapshot.legacy_items,
+            selected_ids or set(),
+            snapshot.update_status_map,
+            cache_dir,
+            snapshot.cloud_status_map,
+        )
 
     def update_cloud_status(self, game_id: int, status: Any) -> None:
         """Dynamically update a single game's cloud status badge without reloading the list."""

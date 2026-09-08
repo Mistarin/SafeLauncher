@@ -39,6 +39,7 @@ from database import GameDatabase, _APP_DATA_DIR
 from core.logger import get_logger
 from core.launch_diagnostics import persist_diagnostics
 from core.library_state import LibrarySelectionModel
+from core.library_controller import LibraryController, LibraryQuery
 from ui.library_list import LibraryListView
 from ui.icons import (
     LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap,
@@ -195,6 +196,8 @@ class MainWindow(QMainWindow):
         self._update_status_refresh_timer.timeout.connect(self._refresh_library)
         self.games_by_id = {}
         self.library_selection = LibrarySelectionModel()
+        self.library_controller = LibraryController()
+        self.library_snapshot = None
         self.achievement_watchers = {}
         self.active_toasts = []
         self._load_persistent_cache()
@@ -2055,43 +2058,20 @@ class MainWindow(QMainWindow):
                 )
             return
 
-        # Filter & sort games list
-        processed = []
-        for g in self.games:
-            game_id, name, path, executable, mode, banner_url, steam_id = g[:7]
-            playtime = g[7] if len(g) > 7 and g[7] else 0
-            is_fav = bool(g[8]) if len(g) > 8 and g[8] else False
-            is_archived = bool(g[17]) if len(g) > 17 and g[17] else False
-
-            # 1. Search Query Filter
-            searchable = " ".join(str(value or "") for value in (name, g[10] if len(g) > 10 else "", executable, steam_id, mode, g[12] if len(g) > 12 else "" )).lower()
-            if self.search_query and self.search_query not in searchable:
-                continue
-
-            # Disk check for status filter
-            folder_exists = os.path.exists(path) if path else False
-            full_exe = os.path.join(path, executable) if (path and executable) else path
-            exe_exists = os.path.exists(full_exe) if full_exe else False
-            is_missing = not (folder_exists and (exe_exists or not executable))
-
-            # Collection is an independent scope and must also apply to
-            # Archived/Favorites/Installed status filters.
-            if self.collection_filter and (len(g) <= 13 or str(g[13]).strip() != self.collection_filter):
-                continue
-
-            # 2. Status & Archive Filtering
-            if self.current_filter == "archived":
-                if not is_archived:
-                    continue
-            else:
-                if is_archived:
-                    continue
-                if self.current_filter == "installed" and is_missing:
-                    continue
-                elif self.current_filter == "favorites" and not is_fav:
-                    continue
-
-            processed.append((g, is_missing, playtime, is_fav))
+        # One authoritative query/snapshot feeds every renderer. Views no
+        # longer independently decide which games are visible.
+        self.library_snapshot = self.library_controller.build_snapshot(
+            self.games,
+            LibraryQuery(
+                search=self.search_query,
+                filter_mode=self.current_filter,
+                collection=self.collection_filter,
+                sort_index=self.current_sort,
+            ),
+            update_status=self.update_status_by_game_id,
+            cloud_status=self.cloud_save_status_cache,
+        )
+        processed = self.library_snapshot.legacy_items
 
         # 3. Update collection banner stats
         try:
@@ -2106,42 +2086,12 @@ class MainWindow(QMainWindow):
         except (RuntimeError, AttributeError):
             pass
 
-        # 4. Sorting
-        if self.current_sort == 0:  # A-Z Title
-            processed.sort(key=lambda x: x[0][1].lower())
-        elif self.current_sort == 1:  # Most Played
-            processed.sort(key=lambda x: x[2], reverse=True)
-        elif self.current_sort == 2:  # Recently Added (id desc)
-            processed.sort(key=lambda x: x[0][14] if len(x[0]) > 14 and x[0][14] else x[0][0], reverse=True)
-        elif self.current_sort == 3:  # Disk size
-            # Never walk multi-GB directories on the GUI thread here: sort by
-            # whatever sizes are cached; missing ones are computed by workers
-            # (_schedule_size_fetches below) and re-sorted when they arrive.
-            processed.sort(key=lambda x: peek_dir_size(x[0][2]) or 0, reverse=True)
-        elif self.current_sort == 4:  # Runner
-            processed.sort(key=lambda x: x[0][4].lower())
-
         # Background size calculation for any game dir without a fresh cached
         # value (used by Disk Size sorting and list-view metadata rows).
         self._schedule_size_fetches({x[0][2] for x in processed if x[0][2]})
 
         if not processed:
-            if self.search_query:
-                msg = f"No games matching '{self.search_query}'"
-            elif self.current_filter == "favorites":
-                msg = "No favorite games added yet"
-            elif self.current_filter == "archived":
-                msg = "No archived games found."
-            elif self.current_filter == "installed":
-                msg = "No installed games found."
-            else:
-                msg = "No games matching selected filter."
-            if self.collection_filter:
-                msg = (
-                    f"Collection '{self.collection_filter}' is empty."
-                    if not self.current_filter
-                    else f"No games in collection '{self.collection_filter}' for this filter."
-                )
+            msg = self.library_snapshot.empty_message
             self.selected_game = None
             self.library_selection.clear()
             label = QLabel(msg)
@@ -2203,12 +2153,7 @@ class MainWindow(QMainWindow):
             except (RuntimeError, AttributeError):
                 pass
             try:
-                self.virtual_grid.set_games(
-                    processed,
-                    self.library_selection.ids,
-                    self.update_status_by_game_id,
-                    self.cloud_save_status_cache
-                )
+                self.virtual_grid.set_snapshot(self.library_snapshot, self.library_selection.ids)
             except (RuntimeError, AttributeError):
                 pass
         else:
@@ -2268,35 +2213,18 @@ class MainWindow(QMainWindow):
             except (RuntimeError, AttributeError):
                 pass
             try:
-                self.virtual_grid.set_games(
-                    processed,
-                    self.library_selection.ids,
-                    self.update_status_by_game_id,
-                    self.cloud_save_status_cache
-                )
+                self.virtual_grid.set_snapshot(self.library_snapshot, self.library_selection.ids)
             except (RuntimeError, AttributeError):
                 pass
 
         try:
-            self.list_view.set_games(
-                processed,
-                self.library_selection.ids,
-                self.update_status_by_game_id,
-                self.sgdb_client.cache_dir,
-                cloud_status_cache=self.cloud_save_status_cache
-            )
+            self.list_view.set_snapshot(self.library_snapshot, self.sgdb_client.cache_dir, self.library_selection.ids)
         except (RuntimeError, AttributeError):
             pass
 
         if hasattr(self, "compact_container"):
             try:
-                self.compact_container.set_games(
-                    processed,
-                    self.library_selection.ids,
-                    self.update_status_by_game_id,
-                    self.sgdb_client.cache_dir,
-                    cloud_status_cache=self.cloud_save_status_cache
-                )
+                self.compact_container.set_snapshot(self.library_snapshot, self.sgdb_client.cache_dir, self.library_selection.ids)
             except (RuntimeError, AttributeError):
                 pass
 
