@@ -13,13 +13,14 @@ TEXT_PRIMARY = "#F4F4F5"
 TEXT_SECONDARY = "#A1A1AA"
 TEXT_MUTED = "#71717A"
 
-# Popup surfaces follow the flat, row-based desktop treatment used by the
-# reference UI.  Dialogs should use these instead of inventing local cards.
-POPUP_BACKGROUND = "#171D26"
-POPUP_SURFACE = "#1D232C"
-POPUP_SURFACE_ACTIVE = "#27303B"
-POPUP_SURFACE_HOVER = "#242D38"
-POPUP_DIVIDER = "#303844"
+# Popup surfaces deliberately reuse the application neutrals. Keeping a
+# second blue-grey palette made dialogs look like a different application and
+# caused headers, cards, and settings surfaces to drift apart over time.
+POPUP_BACKGROUND = BG_APP
+POPUP_SURFACE = SURFACE
+POPUP_SURFACE_ACTIVE = SURFACE_ELEVATED
+POPUP_SURFACE_HOVER = SURFACE_ELEVATED
+POPUP_DIVIDER = BORDER
 
 # ── Brand Accent ─────────────────────────────────────────────────────────────
 ACCENT_PRIMARY = "#3B9FE8"

@@ -106,14 +106,17 @@ QDialog#safeLauncherPopup QPushButton:pressed {{
 }}
 QDialog#safeLauncherPopup QLabel {{
     color: {TEXT_PRIMARY};
+    background: transparent;
 }}
 QLabel#popupTitle {{
     color: {TEXT_PRIMARY};
+    background: transparent;
     font-size: 15px;
     font-weight: 700;
 }}
 QLabel#popupSubtitle, QLabel#popupHint {{
     color: {TEXT_SECONDARY};
+    background: transparent;
     font-size: 12px;
 }}
 QLineEdit#popupInput {{

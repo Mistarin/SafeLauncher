@@ -689,8 +689,8 @@ class DialogTitleBar(QFrame):
         self.setFixedHeight(40)
         self.setStyleSheet("""
             QFrame {
-                background: #171D26;
-                border-bottom: none;
+                background: transparent;
+                border: none;
             }
         """)
 
@@ -707,7 +707,9 @@ class DialogTitleBar(QFrame):
 
         self.title_label = QLabel(title)
         self.title_label.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
-        self.title_label.setStyleSheet("color: #F4F4F5; background: transparent; font-weight: 700;")
+        self.title_label.setStyleSheet(
+            f"color: {TEXT_PRIMARY}; background: transparent; font-weight: 700;"
+        )
         self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(self.title_label)
 
@@ -724,7 +726,7 @@ class DialogTitleBar(QFrame):
                 text-align: center;
             }
             QPushButton:hover {
-                background: #2B3441;
+                background: #202024;
                 color: #FFFFFF;
             }
             QPushButton#dialogClose:hover {
