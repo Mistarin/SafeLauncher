@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
     QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
     QApplication, QSystemTrayIcon, QCheckBox, QPlainTextEdit, QProgressBar,
-    QStackedWidget, QSlider, QSplitter, QDialogButtonBox, QInputDialog, QSizePolicy,
+    QSlider, QSplitter, QDialogButtonBox, QInputDialog, QSizePolicy,
     QProgressDialog
 )
 from PyQt6.QtCore import (
@@ -38,12 +38,11 @@ from core.proton_manager import GEProtonDownloader
 from database import GameDatabase, _APP_DATA_DIR
 from core.logger import get_logger
 from core.launch_diagnostics import persist_diagnostics
-from core.library_state import LibrarySelectionModel
-from core.library_controller import LibraryController, LibraryQuery
+from core.library_state import LibraryStateStore
+from core.library_controller import LibraryController, LibraryQuery, LibrarySnapshot
 from core.game_status import GameStatusState, cloud_indicator
 from core.save_state import SaveStateStore
 from core.game_status import GameStatusState, cloud_indicator
-from ui.library_list import LibraryListView
 from ui.icons import (
     LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap,
     get_app_icon, get_icon,
@@ -71,8 +70,8 @@ from core.plugins.gpu_screen_recorder import (
 from core.global_hotkeys import GlobalHotkeyListener
 from ui.components.overlay_hud import show_ingame_notification
 from ui.components.banner_card import GameBannerWidget
-from ui.components.responsive_grid import ResponsiveGridContainer
-from ui.components.virtual_grid import VirtualizedGameGridView, BannerProxy
+from ui.components.virtual_grid import BannerProxy
+from ui.components.library_view_host import LibraryViewHost
 from ui.components.hero_background import HeroBackgroundWidget
 from ui.components.sidebar import LeftSidebarWidget, CustomTitleBar, DialogTitleBar, add_soft_shadow
 from ui.dialogs.proton_dialogs import ProtonSetupWizard, ProtonManagerDialog, UmuRuntimeManagerDialog
@@ -87,10 +86,6 @@ from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from ui.dialogs.save_conflict_dialog import SaveConflictDialog
 from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
 from core.performance_env import MANAGED_ENV_KEYS
-from ui.components.compact_game_page import (
-    CompactLayoutContainer, CompactGamePageWidget,
-    SteamLayoutContainer, SteamGamePageWidget
-)
 from ui.theme import (
     get_application_stylesheet, btn_primary_style, btn_secondary_style,
     btn_tertiary_style, btn_destructive_style, BG_APP, SURFACE, SURFACE_ELEVATED,
@@ -211,9 +206,12 @@ class MainWindow(QMainWindow):
         self._update_status_refresh_timer.setInterval(80)
         self._update_status_refresh_timer.timeout.connect(self._refresh_library)
         self.games_by_id = {}
-        self.library_selection = LibrarySelectionModel()
         self.library_controller = LibraryController()
-        self.library_snapshot = None
+        self.library_state = LibraryStateStore(self.library_controller)
+        # Compatibility alias retained for existing selection actions; the
+        # store is now the owner rather than MainWindow.
+        self.library_selection = self.library_state.selection
+        self.library_snapshot = self.library_state.snapshot
         self.operation_registry = OperationRegistry(self)
         self.achievement_watchers = {}
         self.active_toasts = []
@@ -1027,59 +1025,43 @@ class MainWindow(QMainWindow):
             self.scroll_area.viewport().installEventFilter(self)
         self.scroll_area.installEventFilter(self)
         
-        # Dynamic Responsive Grid Container (2:3 portrait cards, default width 200px)
-        self.library_view_stack = QStackedWidget(self.scroll_area)
-        self.library_view_stack.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.library_view_stack.setStyleSheet("QStackedWidget { background: transparent; background-color: transparent; }")
-        self.grid_container = ResponsiveGridContainer(self.library_view_stack, card_width=200, spacing=15)
-        self.grid_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.grid_container.setStyleSheet("background: transparent; background-color: transparent;")
-        self.list_view = LibraryListView(self.library_view_stack)
-        self.list_view.game_clicked.connect(self._select_game_by_id)
-        self.list_view.game_double_clicked.connect(self._on_double_click_game)
-        self.list_view.game_launch_clicked.connect(self._launch_game_by_id)
+        # All library presentations are owned by one host and render the same
+        # LibrarySnapshot.  Keep these aliases for existing detail/update code
+        # while removing stack and signal ownership from MainWindow.
+        self.library_view_host = LibraryViewHost(self.scroll_area)
+        self.library_view_stack = self.library_view_host
+        self.grid_container = self.library_view_host.grid_container
+        self.list_view = self.library_view_host.list_view
+        self.virtual_grid = self.library_view_host.virtual_grid
+        self.compact_container = self.library_view_host.compact_container
+        self.steam_container = self.compact_container
 
-        self.virtual_grid = VirtualizedGameGridView(self.library_view_stack, card_width=200, spacing=15)
-        self.virtual_grid.game_clicked.connect(self._select_game_by_id)
-        self.virtual_grid.game_double_clicked.connect(self._on_double_click_game)
-        self.virtual_grid.game_launch_clicked.connect(self._launch_game_by_id)
-        self.virtual_grid.favorite_clicked.connect(self._on_card_favorite_clicked)
-
-        self.compact_container = CompactLayoutContainer(self.library_view_stack)
-        self.steam_container = self.compact_container  # Backward-compatible alias
-        self.compact_container.game_selected.connect(self._select_game_by_id)
-        self.compact_container.game_double_clicked.connect(self._on_double_click_game)
-        self.compact_container.play_requested.connect(self._launch_game_by_id)
-        self.compact_container.edit_requested.connect(self._on_edit)
-        self.compact_container.properties_requested.connect(self._open_game_properties)
-        self.compact_container.save_manager_requested.connect(self._on_export)
-        self.compact_container.open_folder_requested.connect(self._open_game_dir_by_id)
-        self.compact_container.prefix_maintenance_requested.connect(self._open_prefix_maintenance)
-        self.compact_container.favorite_toggled.connect(self._on_card_favorite_clicked)
-        self.compact_container.achievements_requested.connect(self._open_achievements_dialog)
-        self.compact_container.steam_page_requested.connect(self._open_steam_page_by_id)
-        self.compact_container.filter_changed.connect(self._set_filter)
-        self.compact_container.screenshots_requested.connect(self._open_screenshot_gallery)
-        self.compact_container.videos_requested.connect(self._open_video_gallery)
-        self.compact_container.settings_requested.connect(self._open_settings)
-        self.compact_container.add_game_requested.connect(
-            lambda: self._on_add(self.collection_filter)
-        )
-        self.compact_container.sort_changed.connect(self._on_sort_changed)
-        self.compact_container.search_changed.connect(self._on_search_query_changed)
-
-        self.library_view_stack.addWidget(self.grid_container)      # Index 0: Standard Grid
-        self.library_view_stack.addWidget(self.list_view)           # Index 1: List View
-        self.library_view_stack.addWidget(self.virtual_grid)        # Index 2: Virtualized Grid
-        self.library_view_stack.addWidget(self.compact_container)   # Index 3: Compact Layout
+        self.library_view_host.game_selected.connect(self._select_game_by_id)
+        self.library_view_host.game_double_clicked.connect(self._on_double_click_game)
+        self.library_view_host.game_launch_requested.connect(self._launch_game_by_id)
+        self.library_view_host.favorite_requested.connect(self._on_card_favorite_clicked)
+        self.library_view_host.edit_requested.connect(self._on_edit)
+        self.library_view_host.properties_requested.connect(self._open_game_properties)
+        self.library_view_host.save_manager_requested.connect(self._on_export)
+        self.library_view_host.open_folder_requested.connect(self._open_game_dir_by_id)
+        self.library_view_host.prefix_maintenance_requested.connect(self._open_prefix_maintenance)
+        self.library_view_host.achievements_requested.connect(self._open_achievements_dialog)
+        self.library_view_host.steam_page_requested.connect(self._open_steam_page_by_id)
+        self.library_view_host.filter_changed.connect(self._set_filter)
+        self.library_view_host.screenshots_requested.connect(self._open_screenshot_gallery)
+        self.library_view_host.videos_requested.connect(self._open_video_gallery)
+        self.library_view_host.settings_requested.connect(self._open_settings)
+        self.library_view_host.add_game_requested.connect(lambda: self._on_add(self.collection_filter))
+        self.library_view_host.sort_changed.connect(self._on_sort_changed)
+        self.library_view_host.search_changed.connect(self._on_search_query_changed)
         if self.library_view_mode == "list":
-            self.library_view_stack.setCurrentIndex(1)
+            self.library_view_host.set_mode("list")
             self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self.library_header_bar.setVisible(True)
             self.right_layout.setContentsMargins(18, 14, 18, 14)
             self.right_layout.setSpacing(12)
         elif self.library_view_mode in ("compact", "steam"):
-            self.library_view_stack.setCurrentIndex(3)
+            self.library_view_host.set_mode("compact")
             # Compact view owns scrolling so the list and game page stay
             # independent from the outer library container.
             self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -1089,12 +1071,12 @@ class MainWindow(QMainWindow):
             self.right_layout.setContentsMargins(0, 0, 0, 0)
             self.right_layout.setSpacing(0)
         else:
-            self.library_view_stack.setCurrentIndex(0)
+            self.library_view_host.set_mode("grid")
             self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self.library_header_bar.setVisible(True)
             self.right_layout.setContentsMargins(18, 14, 18, 14)
             self.right_layout.setSpacing(12)
-        self.scroll_area.setWidget(self.library_view_stack)
+        self.scroll_area.setWidget(self.library_view_host)
         right_layout.addWidget(self.scroll_area)
 
         # ── Dedicated Darker Footer Bar (#0E0E10, 36px) with Add Game and View Toggle on bottom-left ──
@@ -1585,6 +1567,9 @@ class MainWindow(QMainWindow):
         self._cloud_save_checked_ts.clear()
         for widget in self.banner_widgets.values():
             widget.set_cloud_status(None)
+        if hasattr(self, "library_view_host"):
+            for game_id in self.games_by_id:
+                self.library_view_host.update_cloud_status(game_id, None)
         if self.selected_game:
             self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: checking…</font>")
             self.detail_cloud_status.setToolTip("Cloud settings changed — re-checking.")
@@ -2013,7 +1998,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("library_view_mode", self.library_view_mode)
         use_virtual = len(self.banner_widgets) >= getattr(self, "virtualization_threshold", 200)
         if self.library_view_mode == "list":
-            self.library_view_stack.setCurrentIndex(1)
+            self.library_view_host.set_mode("list")
             if hasattr(self, "library_header_bar"):
                 self.library_header_bar.setVisible(True)
             if hasattr(self, "right_layout"):
@@ -2025,7 +2010,7 @@ class MainWindow(QMainWindow):
             else:
                 self.btn_reveal_detail.setVisible(True)
         elif self.library_view_mode in ("compact", "steam"):
-            self.library_view_stack.setCurrentIndex(3)
+            self.library_view_host.set_mode("compact")
             self.detail_panel.setVisible(False)
             self.btn_reveal_detail.setVisible(False)
             if hasattr(self, "library_header_bar"):
@@ -2035,7 +2020,7 @@ class MainWindow(QMainWindow):
                 self.right_layout.setSpacing(0)
             self._update_compact_game_page()
         elif use_virtual:
-            self.library_view_stack.setCurrentIndex(2)
+            self.library_view_host.set_mode("grid", use_virtual=True)
             self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             if hasattr(self, "library_header_bar"):
                 self.library_header_bar.setVisible(True)
@@ -2048,7 +2033,7 @@ class MainWindow(QMainWindow):
             else:
                 self.btn_reveal_detail.setVisible(True)
         else:
-            self.library_view_stack.setCurrentIndex(0)
+            self.library_view_host.set_mode("grid")
             self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             if hasattr(self, "library_header_bar"):
                 self.library_header_bar.setVisible(True)
@@ -2064,11 +2049,7 @@ class MainWindow(QMainWindow):
         self.btn_view_toggle.setText(btn_labels.get(self.library_view_mode, "▦ Grid"))
 
     def _visible_library_ids(self) -> set[int]:
-        if self.library_view_mode == "list":
-            return {int(self.list_view.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.list_view.count())}
-        elif self.library_view_mode in ("compact", "steam") and hasattr(self, "compact_container"):
-            return {int(self.compact_container.sidebar_list.list_widget.item(index).data(Qt.ItemDataRole.UserRole)) for index in range(self.compact_container.sidebar_list.list_widget.count())}
-        return set(self.banner_widgets.keys())
+        return self.library_view_host.visible_ids(self.library_view_mode)
 
     def _select_all_visible(self):
         self.library_selection.replace(self._visible_library_ids())
@@ -2151,22 +2132,22 @@ class MainWindow(QMainWindow):
         self.sidebar.update_collections_list(sorted_cols)
 
         if not self.games:
-            label = QLabel("No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started.")
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setStyleSheet("color: #999; font-size: 14px; padding: 40px;")
-            self.grid_container.set_banner_widgets([label])
+            empty_snapshot = LibrarySnapshot(
+                query=LibraryQuery(
+                    search=self.search_query,
+                    filter_mode=self.current_filter,
+                    collection=self.collection_filter,
+                    sort_index=self.current_sort,
+                ),
+                total_games=0,
+                empty_message="No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started.",
+            )
+            self.library_view_host.render_snapshot(empty_snapshot, self.sgdb_client.cache_dir, set())
+            self.library_view_host.set_empty_grid_message(empty_snapshot.empty_message)
             self.collection_banner.setVisible(False)
             if hasattr(self, "compact_container"):
                 self.library_selection.clear()
                 self.selected_game = None
-                self.compact_container.set_games(
-                    [], self.library_selection.ids, self.update_status_by_game_id,
-                    self.cache_dir, self.cloud_save_status_cache
-                )
-                self.compact_container.game_page.set_empty_state(
-                    "No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started.",
-                    show_add=True,
-                )
             return
 
         # Reconcile persisted/legacy maps into the single status model before
@@ -2189,7 +2170,7 @@ class MainWindow(QMainWindow):
 
         # One authoritative query/snapshot feeds every renderer. Views no
         # longer independently decide which games are visible.
-        self.library_snapshot = self.library_controller.build_snapshot(
+        self.library_snapshot = self.library_state.set_inputs(
             self.games,
             LibraryQuery(
                 search=self.search_query,
@@ -2224,14 +2205,12 @@ class MainWindow(QMainWindow):
             msg = self.library_snapshot.empty_message
             self.selected_game = None
             self.library_selection.clear()
-            label = QLabel(msg)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setStyleSheet("color: #777777; font-size: 14px; padding: 40px;")
-            self.grid_container.set_banner_widgets([label])
-            if hasattr(self, "compact_container"):
-                self.compact_container.set_games([], self.library_selection.ids, self.update_status_by_game_id, self.cache_dir, self.cloud_save_status_cache)
-                if hasattr(self.compact_container, "game_page") and hasattr(self.compact_container.game_page, "set_empty_state"):
-                    self.compact_container.game_page.set_empty_state(msg, show_add=True)
+            self.library_view_host.render_snapshot(
+                self.library_snapshot,
+                self.sgdb_client.cache_dir,
+                self.library_selection.ids,
+            )
+            self.library_view_host.set_empty_grid_message(msg, show_add=True)
             return
 
         # A selected game can disappear when a collection/status filter changes.
@@ -2279,11 +2258,7 @@ class MainWindow(QMainWindow):
                         self._pending_auto_fetchers.append(fetcher)
 
             try:
-                self.grid_container.set_banner_widgets([])
-            except (RuntimeError, AttributeError):
-                pass
-            try:
-                self.virtual_grid.set_snapshot(self.library_snapshot, self.library_selection.ids)
+                self.library_view_host.set_grid_widgets([])
             except (RuntimeError, AttributeError):
                 pass
         else:
@@ -2339,40 +2314,30 @@ class MainWindow(QMainWindow):
                         self._pending_auto_fetchers.append(fetcher)
                 
             try:
-                self.grid_container.set_banner_widgets(widgets)
-            except (RuntimeError, AttributeError):
-                pass
-            try:
-                self.virtual_grid.set_snapshot(self.library_snapshot, self.library_selection.ids)
+                self.library_view_host.set_grid_widgets(widgets)
             except (RuntimeError, AttributeError):
                 pass
 
         try:
-            self.list_view.set_snapshot(self.library_snapshot, self.sgdb_client.cache_dir, self.library_selection.ids)
+            self.library_view_host.render_snapshot(self.library_snapshot, self.sgdb_client.cache_dir, self.library_selection.ids)
         except (RuntimeError, AttributeError):
             pass
 
-        if hasattr(self, "compact_container"):
-            try:
-                self.compact_container.set_snapshot(self.library_snapshot, self.sgdb_client.cache_dir, self.library_selection.ids)
-            except (RuntimeError, AttributeError):
-                pass
-
         if self.library_view_mode == "list":
-            self.library_view_stack.setCurrentIndex(1)
+            self.library_view_host.set_mode("list")
             if self.selected_game:
                 self._update_detail_panel()
         elif self.library_view_mode in ("compact", "steam"):
-            self.library_view_stack.setCurrentIndex(3)
+            self.library_view_host.set_mode("compact")
             self.detail_panel.setVisible(False)
             self.btn_reveal_detail.setVisible(False)
             self._update_compact_game_page()
         elif use_virtual:
-            self.library_view_stack.setCurrentIndex(2)
+            self.library_view_host.set_mode("grid", use_virtual=True)
             if self.selected_game:
                 self._update_detail_panel()
         else:
-            self.library_view_stack.setCurrentIndex(0)
+            self.library_view_host.set_mode("grid")
             if self.selected_game:
                 self._update_detail_panel()
         self._check_games_on_drive()
@@ -2685,15 +2650,9 @@ class MainWindow(QMainWindow):
         self._update_compact_game_page()
 
     def _library_presentations(self) -> tuple:
-        """Return active library renderers behind one update boundary."""
-        return tuple(
-            presentation for presentation in (
-                getattr(self, "list_view", None),
-                getattr(self, "virtual_grid", None),
-                getattr(self, "compact_container", None),
-            )
-            if presentation is not None
-        )
+        """Return the single renderer boundary for library updates."""
+        host = getattr(self, "library_view_host", None)
+        return (host,) if host is not None else ()
 
     def _update_library_item(self, method: str, game_id: int, *args) -> None:
         """Fan out one derived-state change to every compatible renderer."""
