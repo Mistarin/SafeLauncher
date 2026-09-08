@@ -511,19 +511,22 @@ class AccountDialog(QDialog):
 
         def _work():
             try:
-                from core.cloud_save_sync import CloudSaveSyncEngine
-                ok = CloudSaveSyncEngine.sync_cloud_to_local(
+                from core.cloud_operations import CloudOperationCoordinator
+                result = CloudOperationCoordinator.restore_cloud_save(
                     matched_game.name, matched_game.path,
                     steam_id=matched_game.steam_id or "",
-                    preserve_local_fork=True,
                     target_version=int(version)
                 )
-                if ok:
+                if result.success:
                     return {
                         "restored": f"Successfully restored generation v{version} for '{matched_game.name}'.",
                         "name": matched_game.name
                     }
-                return {"error": f"Failed to restore generation v{version} for '{matched_game.name}'. Check logs for details."}
+                return {
+                    "error": result.error or f"Failed to restore generation v{version} for '{matched_game.name}'.",
+                    "guidance": result.guidance,
+                    "category": result.category,
+                }
             except Exception as e:
                 return {"error": f"Restore failed: {str(e)}"}
 
@@ -564,7 +567,8 @@ class AccountDialog(QDialog):
     def _apply_op(self, payload: dict):
         self._busy = False
         if "error" in payload:
-            QMessageBox.warning(self, "Operation Failed", payload["error"])
+            guidance = payload.get("guidance", "")
+            QMessageBox.warning(self, "Operation Failed", f"{payload['error']}\n\n{guidance}".strip())
             self.lbl_quota_text.setText("Operation failed.")
             return
         if "restored_err" in payload:
