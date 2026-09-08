@@ -9,7 +9,11 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+      SAFELAUNCHER_OFFLINE_TEST_MODE: "1"
+      XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
     steps:
       - uses: actions/checkout@v4
 
@@ -30,15 +34,42 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run smoke suite
-        env:
-          QT_QPA_PLATFORM: offscreen
-          SAFELAUNCHER_OFFLINE_TEST_MODE: "1"
-          XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
-        timeout-minutes: 8
+      - name: Prepare smoke environment
         run: |
           mkdir -p "$XDG_DATA_HOME"
-          python test.py
+          mkdir -p "$RUNNER_TEMP/safelauncher-smoke"
+
+      - name: Run core smoke phase
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          python ci/smoke_phase.py core 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/core.log"
+
+      - name: Run cloud smoke phase
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          python ci/smoke_phase.py cloud 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/cloud.log"
+
+      - name: Run achievement smoke phase
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          python ci/smoke_phase.py achievements 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/achievements.log"
+
+      - name: Run UI smoke phase
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          python ci/smoke_phase.py ui 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/ui.log"
+
+      - name: Upload smoke phase logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safelauncher-smoke-logs-${{ github.run_id }}
+          path: ${{ runner.temp }}/safelauncher-smoke
+          if-no-files-found: warn
 
   # Warm the Docker layer cache (the expensive pip install layer) on master so
   # tag release builds start from it. Uses type=local + actions/cache because

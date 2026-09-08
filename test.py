@@ -8,6 +8,7 @@ import os
 import sqlite3
 import tempfile
 import zipfile
+import time
 from unittest.mock import patch
 
 os.environ["SAFELAUNCHER_DISABLE_UPDATE_CHECK"] = "1"
@@ -1728,6 +1729,7 @@ except Exception as e:
 # 37. Test Compact Game Page & Split Layout Presentation
 # -------------------------------------------------------------
 try:
+    from PyQt6.QtGui import QPixmap
     from ui.components.compact_game_page import (
         CompactGamePageWidget, CompactLayoutContainer, CompactSidebarListWidget,
         SteamGamePageWidget, SteamLayoutContainer, SteamSidebarListWidget
