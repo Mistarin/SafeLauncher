@@ -303,7 +303,12 @@ class CompactActionBar(QFrame):
         self.cloud_container.addLayout(cloud_row)
         layout.addLayout(self.cloud_container)
 
-        layout.addWidget(self._create_divider(), 0, Qt.AlignmentFlag.AlignVCenter)
+        # This divider is only needed when the optional game-version column
+        # is visible.  Keep a reference so hiding that column cannot leave a
+        # doubled pair of separators beside Cloud Status.
+        self.cloud_update_divider = self._create_divider()
+        self.cloud_update_divider.setVisible(False)
+        layout.addWidget(self.cloud_update_divider, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Game-release availability is independent from cloud-save state.
         # It needs its own labelled column; placing its arrow inside CLOUD
@@ -549,7 +554,9 @@ class CompactActionBar(QFrame):
 
     def update_cloud_status(self, status: Any, has_update: bool = False):
         """Render independent cloud-save and game-release status columns."""
-        self.game_update_widget.setVisible(bool(has_update))
+        show_update = bool(has_update)
+        self.game_update_widget.setVisible(show_update)
+        self.cloud_update_divider.setVisible(show_update)
         if has_update:
             self.update_dot.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(12, 12))
             self.update_dot.setToolTip("A newer game version is available")
