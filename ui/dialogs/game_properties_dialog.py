@@ -154,8 +154,13 @@ class GamePropertiesDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        scroll.viewport().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        scroll.viewport().setStyleSheet("background: transparent; border: none;")
 
         body = QWidget()
+        body.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        body.setStyleSheet("background: transparent;")
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(18, 16, 18, 16)
         body_layout.setSpacing(14)
@@ -167,7 +172,9 @@ class GamePropertiesDialog(QDialog):
         body_layout.addWidget(sec_summary)
 
         summary_card = QFrame()
-        summary_card.setStyleSheet("QFrame { background: #14171D; border: 1px solid #252A33; border-radius: 6px; padding: 8px; }")
+        # Keep the overview card on the same dark surface as the dialog.  The
+        # former lighter fill read as a grey overlay over every value cell.
+        summary_card.setStyleSheet("QFrame { background: #101217; border: 1px solid #252A33; border-radius: 6px; padding: 8px; }")
         sum_layout = QGridLayout(summary_card)
         sum_layout.setHorizontalSpacing(12)
         sum_layout.setVerticalSpacing(6)

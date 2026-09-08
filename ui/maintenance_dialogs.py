@@ -77,6 +77,39 @@ class PrefixMaintenanceDialog(QDialog):
         self.manager = PrefixManager()
         self.setWindowTitle("Prefix Maintenance")
         self.resize(620, 440)
+        self.setStyleSheet("""
+            QDialog {
+                background: #0D0F14;
+                color: #F5F7FA;
+                border: 1px solid #252A33;
+                border-radius: 8px;
+            }
+            QLabel {
+                color: #A7ADB8;
+            }
+            QPushButton {
+                background: #161A22;
+                color: #D9DEE8;
+                border: 1px solid #2A303B;
+                border-radius: 5px;
+                padding: 7px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: #202633;
+                color: #FFFFFF;
+                border-color: #3B9FE8;
+            }
+            QPushButton:pressed {
+                background: #10141B;
+            }
+            QPushButton:disabled {
+                background: #111318;
+                color: #636A76;
+                border-color: #20242C;
+            }
+        """)
         layout = QVBoxLayout(self)
         self.summary = QLabel()
         self.summary.setWordWrap(True)
