@@ -186,6 +186,13 @@ class MainWindow(QMainWindow):
         self._size_resort_timer.setSingleShot(True)
         self._size_resort_timer.setInterval(400)
         self._size_resort_timer.timeout.connect(self._refresh_library)
+        # Coalesce asynchronous Steam results: every presentation is rebuilt
+        # from the same update-status map, without one network result causing
+        # three separate full library renders.
+        self._update_status_refresh_timer = QTimer(self)
+        self._update_status_refresh_timer.setSingleShot(True)
+        self._update_status_refresh_timer.setInterval(80)
+        self._update_status_refresh_timer.timeout.connect(self._refresh_library)
         self.games_by_id = {}
         self.library_selection = LibrarySelectionModel()
         self.achievement_watchers = {}
@@ -3088,34 +3095,49 @@ class MainWindow(QMainWindow):
         self._register_worker(fetcher)
         fetcher.start()
 
+    def _set_game_update_status(self, game_id: int, is_available: bool) -> None:
+        """Commit one game-version fact and fan it out to every library view.
+
+        Grid, List, Virtual Grid, and Compact are presentations of the same
+        library state.  A Steam worker must never update only whichever view
+        happened to create a banner widget first.
+        """
+        is_available = bool(is_available)
+        self.update_status_by_game_id[game_id] = is_available
+
+        # Cheap immediate paths keep visible grid cards responsive.  The
+        # coalesced refresh below rebuilds List and Compact rows (whose badge
+        # layout is constructed from state) and also covers view switches.
+        try:
+            if game_id in self.banner_widgets:
+                self.banner_widgets[game_id].set_update_available(is_available)
+            if hasattr(self, "virtual_grid"):
+                self.virtual_grid.update_update_available(game_id, is_available)
+        except (RuntimeError, AttributeError):
+            pass
+
+        if hasattr(self, "_update_status_refresh_timer"):
+            self._update_status_refresh_timer.start()
+
     def _on_initial_steam_build_checked(self, game_id: int, build_id: str, build_date: int, _needs_update: bool):
         if not build_id:
             return
         self.db.update_build_id(game_id, build_id)
         self.local_version_by_game_id[game_id] = (build_id, build_date)
         self.steam_check_results[game_id] = (build_id, build_date, False, "")
-        self.update_status_by_game_id[game_id] = False
+        self._set_game_update_status(game_id, False)
         self.metadata_attempted_builds.discard(game_id)
-        try:
-            if game_id in self.banner_widgets:
-                self.banner_widgets[game_id].set_update_available(False)
-        except (RuntimeError, AttributeError):
-            pass
 
     def _on_steam_build_checked(self, game_id: int, latest_build_id: str, latest_build_date: int, is_update_available: bool):
         """Callback when background SteamBuildFetcher returns build info."""
         import time
         self.steam_check_results[game_id] = (latest_build_id, latest_build_date, is_update_available, "")
-        self.update_status_by_game_id[game_id] = bool(is_update_available and latest_build_id)
+        self._set_game_update_status(game_id, bool(is_update_available and latest_build_id))
+        is_update_available = self.update_status_by_game_id[game_id]
         if not hasattr(self, "_steam_build_checked_ts"):
             self._steam_build_checked_ts = {}
         self._steam_build_checked_ts[game_id] = time.time()
         self._save_persistent_cache()
-        try:
-            if game_id in self.banner_widgets:
-                self.banner_widgets[game_id].set_update_available(is_update_available)
-        except (RuntimeError, AttributeError):
-            pass
         if not self.selected_game or self.selected_game[0] != game_id:
             return
 
@@ -4994,7 +5016,7 @@ class MainWindow(QMainWindow):
 
             # Halt every source that schedules new background work while we
             # are trying to shut down.
-            for timer_name in ("drive_check_timer", "_size_resort_timer", "_cloud_poll_timer", "_achievement_poll_timer", "_update_check_timer"):
+            for timer_name in ("drive_check_timer", "_size_resort_timer", "_update_status_refresh_timer", "_cloud_poll_timer", "_achievement_poll_timer", "_update_check_timer"):
                 timer = getattr(self, timer_name, None)
                 if timer is not None:
                     try:
