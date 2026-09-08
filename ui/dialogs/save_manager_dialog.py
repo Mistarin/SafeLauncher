@@ -5,14 +5,17 @@ Visual save inspector powered by LudusaviDetector and ZipBackupManager.
 
 import os
 import time
+import json
 from datetime import datetime
+from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QProgressBar,
-    QTabWidget, QListWidget, QListWidgetItem, QProgressDialog
+    QTabWidget, QListWidget, QListWidgetItem, QProgressDialog, QApplication
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont, QIcon, QDesktopServices
+from PyQt6.QtCore import QUrl
 
 from ui.icons import get_icon, get_app_icon
 from ui.components.sidebar import DialogTitleBar
@@ -23,6 +26,36 @@ from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
 
 logger = get_logger("SaveManagerDialog")
+
+
+@dataclass
+class SaveOperationResult:
+    """Structured result for a user-visible save operation."""
+    success: bool
+    operation: str
+    title: str
+    error: str = ""
+    category: str = "unknown"
+    guidance: str = ""
+    retry_safe: bool = True
+    log_path: str = ""
+
+
+def _classify_save_error(error: str) -> tuple[str, str]:
+    text = (error or "").lower()
+    if "404" in text or "endpoint not found" in text:
+        return "backend_unavailable", "Check that the configured Convex Site URL is correct and redeploy the SafeLauncher backend if the endpoint is missing."
+    if "401" in text or "403" in text or "authentication" in text or "secret key" in text:
+        return "authentication", "Open Settings → Cloud and verify the Site URL and Secret Access Key."
+    if "no local save" in text or "not found" in text or "selected paths" in text:
+        return "local_save_missing", "Rescan Save Locations and select a readable save directory or file."
+    if "read" in text or "permission" in text or "access" in text:
+        return "local_save_unreadable", "Check file permissions, close the game, then rescan the detected save locations."
+    if "quota" in text or "too large" in text or "413" in text:
+        return "quota", "Check cloud storage usage and deploy the current backend if an older size limit is still active."
+    if "timeout" in text or "connection" in text or "network" in text:
+        return "backend_unavailable", "Check the network connection and cloud configuration, then retry."
+    return "unknown", "Review the logs for the exact cause, then retry after correcting the reported problem."
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -41,7 +74,7 @@ class SaveManagerDialog(QDialog):
     """Interactive save snapshot dialog displaying detected locations and metadata."""
 
     _restore_done = pyqtSignal(bool, str)
-    _upload_done = pyqtSignal(bool, str, str)
+    _upload_done = pyqtSignal(object)
     _history_loaded = pyqtSignal(list)
 
     def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None):
@@ -107,6 +140,57 @@ class SaveManagerDialog(QDialog):
         h_layout.addWidget(self.lbl_status)
 
         body_layout.addWidget(header_frame)
+
+        # Persistent recovery surface: errors remain actionable instead of
+        # disappearing into a one-shot message box.
+        self.recovery_frame = QFrame()
+        self.recovery_frame.setStyleSheet("""
+            QFrame#saveRecoveryFrame {
+                background: rgba(240, 93, 108, 0.10);
+                border: 1px solid rgba(240, 93, 108, 0.32);
+                border-radius: 8px;
+            }
+            QLabel { background: transparent; }
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                color: #F4F4F5;
+                border: none;
+                border-radius: 5px;
+                padding: 5px 8px;
+            }
+            QPushButton:hover { background: rgba(255, 255, 255, 0.12); }
+        """)
+        self.recovery_frame.setObjectName("saveRecoveryFrame")
+        recovery_layout = QVBoxLayout(self.recovery_frame)
+        recovery_layout.setContentsMargins(12, 10, 12, 10)
+        recovery_layout.setSpacing(6)
+        self.recovery_title = QLabel("Save operation needs attention")
+        self.recovery_title.setStyleSheet("color: #F05D6C; font-weight: 700;")
+        recovery_layout.addWidget(self.recovery_title)
+        self.recovery_message = QLabel()
+        self.recovery_message.setWordWrap(True)
+        self.recovery_message.setStyleSheet("color: #E4E4E7; font-size: 11px;")
+        recovery_layout.addWidget(self.recovery_message)
+        recovery_buttons = QHBoxLayout()
+        self.btn_recovery_rescan = QPushButton("Rescan Saves")
+        self.btn_recovery_rescan.clicked.connect(self._rescan_and_revalidate)
+        recovery_buttons.addWidget(self.btn_recovery_rescan)
+        self.btn_recovery_retry = QPushButton("Retry")
+        self.btn_recovery_retry.clicked.connect(self._retry_last_operation)
+        recovery_buttons.addWidget(self.btn_recovery_retry)
+        self.btn_recovery_cloud = QPushButton("Cloud Settings")
+        self.btn_recovery_cloud.clicked.connect(self._open_cloud_settings)
+        recovery_buttons.addWidget(self.btn_recovery_cloud)
+        self.btn_recovery_copy = QPushButton("Copy Details")
+        self.btn_recovery_copy.clicked.connect(self._copy_error_details)
+        recovery_buttons.addWidget(self.btn_recovery_copy)
+        self.btn_recovery_logs = QPushButton("Open Logs")
+        self.btn_recovery_logs.clicked.connect(self._open_operation_logs)
+        recovery_buttons.addWidget(self.btn_recovery_logs)
+        recovery_buttons.addStretch()
+        recovery_layout.addLayout(recovery_buttons)
+        self.recovery_frame.setVisible(False)
+        body_layout.addWidget(self.recovery_frame)
 
         # Tabs container
         self.tabs = QTabWidget()
@@ -403,9 +487,91 @@ class SaveManagerDialog(QDialog):
         # Run initial scan
         self._scan_saves()
 
+        self._last_operation_retry = None
+        self._last_operation_result: SaveOperationResult | None = None
+        self._last_operation_log_path = os.path.expanduser("~/.local/state/safelauncher/safelauncher.log")
+
     def _start_managed_task(self, name: str, work, on_complete):
         """Run a dialog operation with an owned, observable lifetime."""
-        return self._task_supervisor.start(name, work, on_complete)
+        registry = getattr(self.parent(), "operation_registry", None)
+        operation = None
+        if registry is not None:
+            operation = registry.start(
+                name.replace("SafeLauncher-", "").replace("-", " ").strip(),
+                category="Save Manager",
+            )
+
+        def _complete(result):
+            if operation is not None:
+                registry.finish(operation.operation_id)
+            on_complete(result)
+
+        worker = self._task_supervisor.start(name, work, _complete)
+        if operation is not None:
+            operation.cancel = worker.requestInterruption
+            operation.retry = lambda: self._start_managed_task(name, work, on_complete)
+            worker.error_occurred.connect(
+                lambda error, op_id=operation.operation_id: registry.fail(op_id, error)
+            )
+        return worker
+
+    def _show_recovery(self, result: SaveOperationResult, retry=None, *, show_rescan: bool = True) -> None:
+        self._last_operation_result = result
+        self._last_operation_retry = retry
+        self.recovery_title.setText(f"{result.operation}: action required")
+        message = result.error or result.guidance or "The operation could not be completed."
+        if result.guidance and result.guidance not in message:
+            message = f"{message}\n\n{result.guidance}"
+        self.recovery_message.setText(message)
+        self.btn_recovery_retry.setEnabled(retry is not None and result.retry_safe)
+        self.btn_recovery_rescan.setVisible(show_rescan)
+        self.btn_recovery_cloud.setVisible(result.category in {"backend_unavailable", "authentication", "quota"})
+        self.btn_recovery_logs.setVisible(bool(result.log_path or self._last_operation_log_path))
+        self.recovery_frame.setVisible(True)
+
+    def _hide_recovery(self) -> None:
+        self.recovery_frame.setVisible(False)
+        self._last_operation_result = None
+        self._last_operation_retry = None
+
+    def _rescan_and_revalidate(self) -> None:
+        self._scan_saves()
+        self.recovery_message.setText("Save locations rescanned. Select readable locations and try again.")
+        self.btn_recovery_retry.setEnabled(False)
+
+    def _retry_last_operation(self) -> None:
+        retry = self._last_operation_retry
+        if retry is None:
+            return
+        self._hide_recovery()
+        retry()
+
+    def _open_cloud_settings(self) -> None:
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_open_settings"):
+            self.hide()
+            parent._open_settings()
+
+    def _copy_error_details(self) -> None:
+        result = self._last_operation_result
+        if result is None:
+            return
+        details = {
+            "operation": result.operation,
+            "game": self.game_name,
+            "category": result.category,
+            "error": result.error,
+            "guidance": result.guidance,
+            "log_path": result.log_path or self._last_operation_log_path,
+        }
+        QApplication.clipboard().setText(json.dumps(details, indent=2, ensure_ascii=False))
+        self.recovery_message.setText("Technical details copied to the clipboard.")
+
+    def _open_operation_logs(self) -> None:
+        path = (self._last_operation_result.log_path if self._last_operation_result else "") or self._last_operation_log_path
+        target = path if os.path.exists(path) else os.path.dirname(path)
+        if target:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(target))
 
     def closeEvent(self, event):
         """Do not destroy this dialog while an owned worker still runs."""
@@ -419,6 +585,8 @@ class SaveManagerDialog(QDialog):
 
     def _scan_saves(self):
         """Scan for save locations and populate scroll view."""
+        if hasattr(self, "recovery_frame"):
+            self._hide_recovery()
         # Clear existing items
         while self.scroll_layout.count() > 1:
             item = self.scroll_layout.takeAt(0)
@@ -527,6 +695,7 @@ class SaveManagerDialog(QDialog):
         progress.setMinimumDuration(0)
         progress.show()
         self._upload_progress = progress
+        self._last_operation_retry = self._upload_selected
 
         def _worker():
             success = False
@@ -544,15 +713,26 @@ class SaveManagerDialog(QDialog):
             except Exception as e:
                 logger.error(f"Cloud upload failed for '{self.game_name}': {e}")
                 error_message = str(e)
-            return bool(success), self.game_name, error_message
+            if success:
+                return SaveOperationResult(True, "Cloud upload", self.game_name)
+            category, guidance = _classify_save_error(error_message)
+            return SaveOperationResult(
+                False,
+                "Cloud upload",
+                self.game_name,
+                error=error_message or "The save could not be uploaded.",
+                category=category,
+                guidance=guidance,
+                log_path=self._last_operation_log_path,
+            )
 
         self._start_managed_task(
             f"SafeLauncher-SaveUpload-{self.game_id}",
             _worker,
-            lambda result: self._upload_done.emit(*result),
+            lambda result: self._upload_done.emit(result),
         )
 
-    def _on_upload_done(self, success: bool, title: str, error_message: str = ""):
+    def _on_upload_done(self, result: SaveOperationResult):
         if hasattr(self, "_upload_progress") and self._upload_progress:
             try:
                 self._upload_progress.close()
@@ -564,22 +744,13 @@ class SaveManagerDialog(QDialog):
         self.btn_cloud.setEnabled(True)
         self.btn_export.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
         self.btn_upload.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
-        if success:
-            QMessageBox.information(self, "Upload Successful", f"'{title}' was uploaded to cloud storage.")
+        if result.success:
+            self._hide_recovery()
+            QMessageBox.information(self, "Upload Successful", f"'{result.title}' was uploaded to cloud storage.")
             self._load_history()
             self._notify_parent_changed()
         else:
-            detail = error_message or (
-                "The save could not be uploaded. Save Manager rechecks the selected paths before packaging them."
-            )
-            QMessageBox.critical(
-                self,
-                "Upload Failed",
-                f"{detail}\n\n"
-                "Rescan this window and confirm the files still exist and are readable. If they are present, "
-                "open Settings → Cloud and verify that cloud sync is configured, then try again. Review the logs "
-                "for the exact cause.",
-            )
+            self._show_recovery(result, retry=self._upload_selected)
 
     def _export_selected(self):
         selected_locations = [loc for cb, loc in self.checkboxes if cb.isChecked()]
@@ -667,7 +838,7 @@ class SaveManagerDialog(QDialog):
                 versions = CloudSaveSyncEngine.get_available_versions(self.game_name, self.game_path, self.steam_id)
             except Exception as e:
                 logger.error(f"Failed to load history for '{self.game_name}': {e}")
-                versions = []
+                versions = [{"__error__": str(e)}]
             return versions
 
         self._start_managed_task(
@@ -676,6 +847,15 @@ class SaveManagerDialog(QDialog):
 
     def _on_history_loaded(self, versions: list):
         """Populate history list on the main thread after async worker finishes."""
+        if versions and isinstance(versions[0], dict) and versions[0].get("__error__"):
+            error = str(versions[0].get("__error__"))
+            category, guidance = _classify_save_error(error)
+            self._show_recovery(
+                SaveOperationResult(False, "History load", self.game_name, error, category, guidance),
+                retry=self._load_history,
+                show_rescan=False,
+            )
+            return
         self.lst_history.clear()
         if not versions:
             empty_item = QListWidgetItem("No saved generations or backup forks found yet.")
@@ -730,6 +910,7 @@ class SaveManagerDialog(QDialog):
 
         def _worker():
             success = False
+            error_message = ""
             from core.cloud_save_sync import CloudSaveSyncEngine, set_active_save_version
             try:
                 if entry.get("source") == "cloud":
@@ -747,8 +928,11 @@ class SaveManagerDialog(QDialog):
                         set_active_save_version(self.game_name, None)
             except Exception as e:
                 logger.error(f"Worker restore failed for '{self.game_name}': {e}")
+                error_message = str(e)
                 success = False
-            return bool(success), title
+            if success:
+                return bool(success), title
+            return bool(success), f"__restore_error__{error_message or CloudSaveSyncEngine.last_sync_error()}"
 
         self._start_managed_task(
             f"SafeLauncher-HistRestore-{self.game_id}",
@@ -864,6 +1048,7 @@ class SaveManagerDialog(QDialog):
 
             def _worker():
                 worker_success = False
+                error_message = ""
                 try:
                     worker_success = CloudSaveSyncEngine.sync_cloud_to_local(
                         self.game_name, self.game_path,
@@ -871,7 +1056,10 @@ class SaveManagerDialog(QDialog):
                     )
                 except Exception as e:
                     logger.error(f"Cloud restore failed for '{self.game_name}': {e}")
-                return bool(worker_success), display_path
+                    error_message = str(e)
+                if worker_success:
+                    return bool(worker_success), display_path
+                return bool(worker_success), f"__restore_error__{error_message or CloudSaveSyncEngine.last_sync_error()}"
 
             self._start_managed_task(
                 f"SafeLauncher-CloudRestore-{self.game_id}",
@@ -885,8 +1073,28 @@ class SaveManagerDialog(QDialog):
             self.btn_export.setEnabled(True)
             if hasattr(self, "btn_cloud"):
                 self.btn_cloud.setEnabled(True)
-            QMessageBox.warning(self, "Cloud Check Failed",
-                                "Could not reach the cloud to check save status. Please check your connection.")
+            category, guidance = _classify_save_error("Could not reach the cloud to check save status")
+            self._show_recovery(
+                SaveOperationResult(False, "Cloud preflight", self.game_name,
+                                    "Could not reach the cloud to check save status.", category, guidance),
+                retry=self._restore_from_cloud,
+                show_rescan=False,
+            )
+            return
+
+        if title.startswith("__restore_error__"):
+            error = title[len("__restore_error__"):].strip()
+            category, guidance = _classify_save_error(error)
+            self._show_recovery(
+                SaveOperationResult(False, "Cloud restore", self.game_name,
+                                    error or "Cloud restore failed.", category, guidance),
+                retry=self._restore_from_cloud,
+                show_rescan=True,
+            )
+            self.btn_restore_history.setEnabled(True)
+            self.btn_export.setEnabled(True)
+            if hasattr(self, "btn_cloud"):
+                self.btn_cloud.setEnabled(True)
             return
 
         # --- Normal restore completion path (success/failure from _worker above) ---
@@ -903,7 +1111,9 @@ class SaveManagerDialog(QDialog):
             self._load_history()
             self._notify_parent_changed()
         else:
-            QMessageBox.critical(
-                self, "Restore Error",
-                f"Failed to restore '{title}'. Check logs for details."
+            category, guidance = _classify_save_error(f"Failed to restore '{title}'.")
+            self._show_recovery(
+                SaveOperationResult(False, "Save restore", self.game_name,
+                                    f"Failed to restore '{title}'.", category, guidance),
+                retry=self._restore_selected_history_save,
             )
