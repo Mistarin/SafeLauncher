@@ -2,6 +2,9 @@ import os
 import re
 import shutil
 import subprocess
+import html
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
@@ -1433,8 +1436,21 @@ class UserSettingsDialog(QDialog):
             )
             self._refresh_backend_health()
         else:
+            # Diagnostics must be useful without leaking either credential if
+            # a CLI happens to echo an argument in its own error output.
+            for sensitive in (
+                self.edit_cloud_secret_key.text().strip(),
+                self.edit_convex_deploy_key.text().strip(),
+            ):
+                if sensitive:
+                    message = message.replace(sensitive, "[redacted]")
             self.lbl_version_warning.setText(
-                f"<font color='#EF4444'>{message}</font>"
+                f"<font color='#EF4444'>{html.escape(message).replace(chr(10), '<br>')}</font>"
+            )
+            QMessageBox.critical(
+                self,
+                "Backend redeploy failed",
+                message + "\n\nThe deployment command already used --yes; no hidden terminal confirmation is required.",
             )
 
     def _redeploy_backend(self):
@@ -1476,12 +1492,18 @@ class UserSettingsDialog(QDialog):
                     # The confirmation above is the user's consent. The CLI
                     # runs in a background worker with no visible terminal,
                     # so pass its non-interactive confirmation flag here.
-                    deployed_url = deploy_latest_convex_backend(
-                        str(backend_path) if backend_path else None, assume_yes=True
-                    )
+                    output = StringIO()
+                    with redirect_stdout(output), redirect_stderr(output):
+                        deployed_url = deploy_latest_convex_backend(
+                            str(backend_path) if backend_path else None, assume_yes=True
+                        )
                     if deployed_url:
                         return True, "Backend redeployed. Rechecking its version…"
-                    return False, "Backend redeploy did not complete. Check the terminal output and Convex credentials."
+                    diagnostic = output.getvalue().strip()
+                    if diagnostic:
+                        diagnostic = diagnostic[-3500:]
+                        return False, f"Backend redeploy did not complete:\n{diagnostic}"
+                    return False, "Backend redeploy did not complete without diagnostic output. Verify the Convex deploy key or one-time CLI login."
                 except Exception as exc:
                     return False, f"Backend redeploy failed: {exc}"
 

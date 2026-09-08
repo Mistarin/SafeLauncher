@@ -280,20 +280,36 @@ def deploy_convex_backend(
             if value:
                 clean_env[key] = value
 
+    def run_deploy_command(command: List[str], *, timeout: int) -> subprocess.CompletedProcess:
+        """Run a deploy command and preserve its useful diagnostics for the UI."""
+        result = subprocess.run(
+            command,
+            cwd=str(server_dir),
+            check=False,
+            env=clean_env,
+            timeout=timeout,
+            capture_output=True,
+            text=True,
+        )
+        output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+        if output:
+            print(output)
+        if result.returncode != 0:
+            detail = output[-3000:] if output else "no diagnostic output"
+            display_command = " ".join(command)
+            if command[:4] == ["npx", "convex", "env", "set"]:
+                display_command = "npx convex env set SAFELAUNCHER_SECRET_KEY [redacted]"
+            raise RuntimeError(f"{display_command} exited with code {result.returncode}: {detail}")
+        return result
+
     print(f"\n  [Deploy] Installing dependencies in {server_dir}...")
     try:
-        subprocess.run(["npm", "install"], cwd=str(server_dir), check=True, env=clean_env, timeout=180)
+        run_deploy_command(["npm", "install"], timeout=180)
         
         if not _has_convex_project_config(clean_env):
             print("\n  [Convex] First-time setup: linking this folder to your Convex project.")
             print("  Sign in when prompted, choose an existing project or create a new one, and wait for setup to finish.")
-            subprocess.run(
-                ["npx", "convex", "dev", "--once"],
-                cwd=str(server_dir),
-                check=True,
-                env=clean_env,
-                timeout=300,
-            )
+            run_deploy_command(["npx", "convex", "dev", "--once"], timeout=300)
             # ``convex dev --once`` writes .env.local. Reload it before deploy.
             clean_env = _convex_cli_env(server_dir)
             if not _has_convex_project_config(clean_env):
@@ -314,14 +330,12 @@ def deploy_convex_backend(
             secret_key = secrets.token_urlsafe(32)
             print("\n  [Security] Generated a random SafeLauncher secret key.")
         print("  [Security] Applying the secret key to the Convex deployment...")
-        secret_result = subprocess.run(
-            ["npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY", secret_key],
-            cwd=str(server_dir),
-            check=False,
-            env=clean_env,
-            timeout=60,
-        )
-        if secret_result.returncode != 0:
+        try:
+            run_deploy_command(
+                ["npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY", secret_key],
+                timeout=60,
+            )
+        except RuntimeError:
             print("  [✖] Could not apply the SafeLauncher secret key to Convex.")
             print("      The deployment was not connected locally; fix Convex authentication and retry.")
             return None
@@ -332,7 +346,7 @@ def deploy_convex_backend(
         if assume_yes:
             deploy_command.append("--yes")
         print(f"  [Deploy] Deploying backend functions with '{' '.join(deploy_command)}'...")
-        subprocess.run(deploy_command, cwd=str(server_dir), check=True, env=clean_env, timeout=300)
+        run_deploy_command(deploy_command, timeout=300)
     except Exception as e:
         print(f"  [✖] Deployment encountered an error: {e}")
         return None
