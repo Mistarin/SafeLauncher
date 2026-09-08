@@ -689,7 +689,7 @@ class DialogTitleBar(QFrame):
         self.setStyleSheet("""
             QFrame {
                 background: #161618;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+                border-bottom: none;
             }
         """)
 
@@ -723,7 +723,7 @@ class DialogTitleBar(QFrame):
                 text-align: center;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.08);
+                background: #202633;
                 color: #FFFFFF;
             }
             QPushButton#dialogClose:hover {

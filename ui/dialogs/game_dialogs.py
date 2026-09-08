@@ -96,9 +96,11 @@ class AddGameDialog(QDialog):
 
         # Main Body Widget (2-Column Grid Layout)
         body_widget = QWidget()
+        body_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        body_widget.setStyleSheet("background: #0D0F14;")
         body_layout = QHBoxLayout(body_widget)
-        body_layout.setContentsMargins(25, 20, 25, 20)
-        body_layout.setSpacing(25)
+        body_layout.setContentsMargins(20, 18, 20, 18)
+        body_layout.setSpacing(16)
 
         # LEFT COLUMN: Game Configuration Form (~500px width)
         left_box = QVBoxLayout()
@@ -106,7 +108,10 @@ class AddGameDialog(QDialog):
 
         sec_details = QLabel("Game Configuration")
         sec_details.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        sec_details.setStyleSheet("color: #ffffff; padding-bottom: 5px;")
+        sec_details.setStyleSheet(
+            "color: #F4F4F5; background: transparent; border: none; "
+            "padding: 0 0 8px 0; font-size: 14px; font-weight: 800;"
+        )
         left_box.addWidget(sec_details)
 
         form_layout = QFormLayout()
@@ -178,12 +183,25 @@ class AddGameDialog(QDialog):
         self.patch_notes_input.setMinimumHeight(36)
         form_layout.addRow("Patch Notes URL:", self.patch_notes_input)
 
+        # Keep field labels visually subordinate to their controls and align
+        # every row to the same baseline.
+        for row in range(form_layout.rowCount()):
+            label_item = form_layout.itemAt(row, QFormLayout.ItemRole.LabelRole)
+            if label_item and label_item.widget():
+                label_item.widget().setStyleSheet(
+                    "color: #A1A1AA; font-size: 11px; font-weight: 600; "
+                    "background: transparent;"
+                )
+
         left_box.addLayout(form_layout)
 
         # Status Label / Banner
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 11px; padding: 6px 0px;")
+        self.status_label.setStyleSheet(
+            "color: #4ADE80; background: transparent; border: none; "
+            "font-weight: bold; font-size: 11px; padding: 0px;"
+        )
         left_box.addWidget(self.status_label)
 
         self.install_progress = QProgressBar()
@@ -198,7 +216,16 @@ class AddGameDialog(QDialog):
 
         self.left_box = left_box
         left_box.addStretch()
-        body_layout.addLayout(left_box, stretch=3)
+
+        left_panel = QFrame()
+        left_panel.setObjectName("editGameFormPanel")
+        left_panel.setStyleSheet(
+            "QFrame#editGameFormPanel { background: #18181B; border: none; border-radius: 12px; }"
+        )
+        left_panel_layout = QVBoxLayout(left_panel)
+        left_panel_layout.setContentsMargins(20, 18, 20, 18)
+        left_panel_layout.addLayout(left_box)
+        body_layout.addWidget(left_panel, stretch=3)
 
         # RIGHT COLUMN: Cover Art & Steam Grid DB Search (~280px width)
         right_box = QVBoxLayout()
@@ -207,7 +234,10 @@ class AddGameDialog(QDialog):
 
         sec_cover = QLabel("Cover Art")
         sec_cover.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        sec_cover.setStyleSheet("color: #ffffff; padding-bottom: 5px;")
+        sec_cover.setStyleSheet(
+            "color: #F4F4F5; background: transparent; border: none; "
+            "padding: 0 0 8px 0; font-size: 14px; font-weight: 800;"
+        )
         right_box.addWidget(sec_cover)
 
         # Banner preview card (2:3 portrait aspect ratio)
@@ -215,11 +245,11 @@ class AddGameDialog(QDialog):
         self.banner_label = QLabel()
         self.banner_label.setFixedSize(QSize(180, 270))
         self.banner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.banner_label.setStyleSheet("border: 2px solid #333333; border-radius: 6px; background: #080808;")
+        self.banner_label.setStyleSheet("border: 1px solid #2A303B; border-radius: 8px; background: #101217;")
         pixmap = QPixmap(180, 270)
         pixmap.fill(QColor("#1f1f1f"))
         self.banner_label.setPixmap(pixmap)
-        preview_container.addWidget(self.banner_label)
+        preview_container.addWidget(self.banner_label, 0, Qt.AlignmentFlag.AlignCenter)
         right_box.addLayout(preview_container)
 
         # Search cover art button
@@ -235,14 +265,26 @@ class AddGameDialog(QDialog):
         skip_btn.clicked.connect(self._skip_banner)
         right_box.addWidget(skip_btn)
 
-        body_layout.addLayout(right_box, stretch=2)
+        right_panel = QFrame()
+        right_panel.setObjectName("editGameArtPanel")
+        right_panel.setStyleSheet(
+            "QFrame#editGameArtPanel { background: #18181B; border: none; border-radius: 12px; }"
+        )
+        right_panel_layout = QVBoxLayout(right_panel)
+        right_panel_layout.setContentsMargins(20, 18, 20, 18)
+        right_panel_layout.addLayout(right_box)
+        body_layout.addWidget(right_panel, stretch=2)
         root_layout.addWidget(body_widget)
 
         # BOTTOM ACTION TOOLBAR
         bottom_frame = QFrame()
-        bottom_frame.setStyleSheet("QFrame { background: #090909; border-top: 1px solid #222222; }")
+        bottom_frame.setObjectName("editGameActionPanel")
+        bottom_frame.setStyleSheet(
+            "QFrame#editGameActionPanel { background: #18181B; "
+            "border: none; border-radius: 12px; }"
+        )
         bottom_layout = QHBoxLayout(bottom_frame)
-        bottom_layout.setContentsMargins(25, 12, 25, 12)
+        bottom_layout.setContentsMargins(20, 18, 20, 18)
 
         bottom_layout.addStretch()
 
@@ -259,22 +301,29 @@ class AddGameDialog(QDialog):
         self.add_btn.clicked.connect(self.accept)
         bottom_layout.addWidget(self.add_btn)
 
-        root_layout.addWidget(bottom_frame)
+        # Give the action panel the same outer spacing as the two content
+        # panels so all three surfaces read as one coherent composition.
+        bottom_shell = QWidget()
+        bottom_shell.setStyleSheet("background: transparent;")
+        bottom_shell_layout = QHBoxLayout(bottom_shell)
+        bottom_shell_layout.setContentsMargins(20, 0, 20, 18)
+        bottom_shell_layout.addWidget(bottom_frame)
+        root_layout.addWidget(bottom_shell)
         self.setLayout(root_layout)
 
         self.setStyleSheet("""
-            QDialog { background: #121212; border: 1px solid #2a2a2a; border-radius: 8px; }
-            QLabel { color: #e5e5e5; font-size: 12px; }
-            QLineEdit { background: #1c1c1c; color: #fff; border: 1px solid #333333; padding: 6px 10px; border-radius: 5px; }
-            QLineEdit:focus { border: 1px solid #737780; }
-            QPushButton { background: #222222; color: white; border: 1px solid #333333; padding: 6px 14px; border-radius: 5px; font-weight: bold; }
-            QPushButton:hover { background: #333333; }
-            QComboBox { background: #1c1c1c; color: #fff; border: 1px solid #333333; padding: 6px 10px; border-radius: 5px; }
+            QDialog { background: #0D0F14; border: none; border-radius: 8px; }
+            QLabel { color: #F4F4F5; font-size: 12px; }
+            QLineEdit { background: #161A22; color: #F4F4F5; border: none; padding: 6px 10px; border-radius: 6px; }
+            QLineEdit:focus { border: none; background: #1A1F28; }
+            QPushButton { background: #161A22; color: #F4F4F5; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 600; }
+            QPushButton:hover { background: #202633; }
+            QComboBox { background: #161A22; color: #F4F4F5; border: none; padding: 6px 10px; border-radius: 6px; }
             QComboBox::drop-down { border: none; }
-            QListWidget { background: #1c1c1c; color: #fff; border: 1px solid #333333; border-radius: 5px; }
+            QListWidget { background: #18181B; color: #F4F4F5; border: none; border-radius: 8px; }
             QListWidget::item { padding: 6px; }
-            QListWidget::item:selected { background: #1e293b; color: #64b5f6; }
-            QListWidget::item:hover { background: #262626; }
+            QListWidget::item:selected { background: #202633; color: #55ACED; }
+            QListWidget::item:hover { background: #1A1F28; }
         """)
 
     def closeEvent(self, event):
@@ -558,7 +607,7 @@ class EditGameDialog(AddGameDialog):
 
         update_note = QLabel("Steam update tracking only records a build as installed.\nIt does not download or update game files.")
         update_note.setWordWrap(True)
-        update_note.setStyleSheet("color: #a1a1aa; font-size: 10px; padding-top: 8px;")
+        update_note.setStyleSheet("color: #A1A1AA; font-size: 10px; padding-top: 8px; background: transparent;")
         self.left_box.insertWidget(self.left_box.count() - 1, update_note)
 
         self.mark_current_btn = QPushButton("Mark Steam Build as Current")
@@ -570,7 +619,7 @@ class EditGameDialog(AddGameDialog):
         build_id_val = str(game_data[11]) if len(game_data) > 11 and game_data[11] else ""
         
         self.build_id_lbl = QLabel("Current Installed Steam Build ID (Manual Override):")
-        self.build_id_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: bold; margin-top: 6px;")
+        self.build_id_lbl.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 600; margin-top: 6px; background: transparent;")
         self.left_box.insertWidget(self.left_box.count() - 1, self.build_id_lbl)
 
         self.build_id_input = QLineEdit()
@@ -579,16 +628,16 @@ class EditGameDialog(AddGameDialog):
         self.build_id_input.setFixedHeight(34)
         self.build_id_input.setStyleSheet("""
             QLineEdit {
-                background: #181d28;
-                color: #ffffff;
-                border: 1px solid #283248;
+                background: #161A22;
+                color: #F4F4F5;
+                border: none;
                 border-radius: 6px;
                 padding: 0 10px;
                 font-size: 12px;
                 font-family: monospace;
             }
             QLineEdit:focus {
-                border: 1px solid #38bdf8;
+                border: none;
             }
         """)
         self.left_box.insertWidget(self.left_box.count() - 1, self.build_id_input)
@@ -1978,5 +2027,3 @@ class RenameCollectionDialog(CreateCollectionDialog):
         self.name_input.setText(current_name)
         self.name_input.selectAll()
         self.btn_create.setText("Save Name")
-
-

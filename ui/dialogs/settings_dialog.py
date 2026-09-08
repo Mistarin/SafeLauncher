@@ -1954,7 +1954,7 @@ class ScreenshotGalleryDialog(QDialog):
         # Grid scroll area for screenshots
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("QScrollArea { background: #121214; border: 1px solid #27272a; }")
+        scroll_area.setStyleSheet("QScrollArea { background: #0D0F14; border: none; }")
 
         self.grid_widget = QWidget()
         self.grid_layout = QGridLayout(self.grid_widget)
@@ -1969,13 +1969,13 @@ class ScreenshotGalleryDialog(QDialog):
         
         btn_capture = QPushButton("Capture Screen")
         btn_capture.setIcon(get_icon("ph.camera-bold"))
-        btn_capture.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
+        btn_capture.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #202633; }")
         btn_capture.clicked.connect(self._capture_screen)
         action_layout.addWidget(btn_capture)
 
         btn_open_folder = QPushButton("Open Directory")
         btn_open_folder.setIcon(get_icon("ph.folder-open-bold"))
-        btn_open_folder.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
+        btn_open_folder.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #202633; }")
         btn_open_folder.clicked.connect(self._open_folder)
         action_layout.addWidget(btn_open_folder)
 
@@ -1983,12 +1983,9 @@ class ScreenshotGalleryDialog(QDialog):
 
         btn_close = QPushButton("Close")
         btn_close.setMinimumWidth(80)
-        btn_close.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 7px 16px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
+        btn_close.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 16px; font-weight: 600; } QPushButton:hover { background: #202633; }")
         btn_close.clicked.connect(self.accept)
         action_layout.addWidget(btn_close)
-
-        size_grip = QSizeGrip(self)
-        action_layout.addWidget(size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
 
         body_layout.addLayout(action_layout)
         root_layout.addWidget(body)
@@ -2026,11 +2023,11 @@ class ScreenshotGalleryDialog(QDialog):
             card.setStyleSheet("""
                 QFrame {
                     background: #18181b;
-                    border: 1px solid #27272a;
-                    border-radius: 6px;
+                    border: none;
+                    border-radius: 10px;
                 }
                 QFrame:hover {
-                    border: 1px solid #52525b;
+                    border: none;
                 }
             """)
             c_layout = QVBoxLayout(card)
@@ -2058,7 +2055,7 @@ class ScreenshotGalleryDialog(QDialog):
             c_layout.addWidget(fn_label)
 
             btn_del = QPushButton("Delete")
-            btn_del.setStyleSheet("QPushButton { background: #2a1212; color: #ef4444; border: 1px solid #7f1d1d; border-radius: 4px; font-size: 11px; padding: 4px; } QPushButton:hover { background: #7f1d1d; color: white; }")
+            btn_del.setStyleSheet("QPushButton { background: #2A1212; color: #EF4444; border: none; border-radius: 6px; font-size: 11px; padding: 4px; } QPushButton:hover { background: #7F1D1D; color: white; }")
             btn_del.clicked.connect(lambda _, p=filepath: self._delete_screenshot(p))
             c_layout.addWidget(btn_del)
 

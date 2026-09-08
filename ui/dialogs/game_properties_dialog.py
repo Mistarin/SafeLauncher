@@ -77,15 +77,15 @@ class GamePropertiesDialog(QDialog):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane {
-                border: 1px solid #252A33;
+                border: none;
                 background: #0D0F14;
                 border-radius: 0 0 8px 8px;
                 top: -1px;
             }
             QTabBar::tab {
-                background: #14171D;
+                background: #18181B;
                 color: #A7ADB8;
-                border: 1px solid #252A33;
+                border: none;
                 border-bottom: none;
                 padding: 8px 18px;
                 margin-right: 2px;
@@ -95,34 +95,35 @@ class GamePropertiesDialog(QDialog):
                 font-size: 12px;
             }
             QTabBar::tab:selected {
-                background: #0D0F14;
+                background: #18181B;
                 color: #3B9FE8;
-                border-color: #252A33;
+                border-color: transparent;
                 border-bottom: 1px solid #0D0F14;
             }
             QTabBar::tab:hover:!selected {
-                background: #1A1E26;
+                background: #202024;
                 color: #F5F7FA;
             }
         """)
 
         # Tab 1: General & Runtime
         self.tab_general = self._create_general_tab()
-        self.tabs.addTab(self.tab_general, "General & Runtime")
+        # Escape the ampersand so Qt does not treat it as a mnemonic marker.
+        self.tabs.addTab(self.tab_general, "General && Runtime")
 
         # Tab 2: Performance & Presets
         self.tab_presets = self._create_presets_tab()
-        self.tabs.addTab(self.tab_presets, "Performance & Presets")
+        self.tabs.addTab(self.tab_presets, "Performance && Presets")
 
         # Tab 3: Saves & Snapshots
         self.tab_saves = self._create_saves_tab()
-        self.tabs.addTab(self.tab_saves, "Saves & Snapshots")
+        self.tabs.addTab(self.tab_saves, "Saves && Snapshots")
 
         root_layout.addWidget(self.tabs)
 
         # Bottom Bar
         bottom_bar = QWidget()
-        bottom_bar.setStyleSheet("background: #14171D; border-top: 1px solid #252A33;")
+        bottom_bar.setStyleSheet("background: #18181B; border-top: none;")
         bb_layout = QHBoxLayout(bottom_bar)
         bb_layout.setContentsMargins(16, 10, 16, 10)
         bb_layout.addStretch()
@@ -168,13 +169,13 @@ class GamePropertiesDialog(QDialog):
         # Summary
         sec_summary = QLabel("Game Overview")
         sec_summary.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        sec_summary.setStyleSheet("color: #F5F7FA; border-bottom: 1px solid #252A33; padding-bottom: 4px;")
+        sec_summary.setStyleSheet("color: #F5F7FA; background: transparent; border: none; padding-bottom: 4px;")
         body_layout.addWidget(sec_summary)
 
         summary_card = QFrame()
         # Keep the overview card on the same dark surface as the dialog.  The
         # former lighter fill read as a grey overlay over every value cell.
-        summary_card.setStyleSheet("QFrame { background: #101217; border: 1px solid #252A33; border-radius: 6px; padding: 8px; }")
+        summary_card.setStyleSheet("QFrame { background: #18181B; border: none; border-radius: 10px; padding: 8px; }")
         sum_layout = QGridLayout(summary_card)
         sum_layout.setHorizontalSpacing(12)
         sum_layout.setVerticalSpacing(6)
@@ -200,11 +201,11 @@ class GamePropertiesDialog(QDialog):
         # Proton / Wine Runtime
         sec_runtime = QLabel("Proton / Wine Runtime")
         sec_runtime.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        sec_runtime.setStyleSheet("color: #F5F7FA; border-bottom: 1px solid #252A33; padding-bottom: 4px; margin-top: 6px;")
+        sec_runtime.setStyleSheet("color: #F5F7FA; background: transparent; border: none; padding-bottom: 4px; margin-top: 6px;")
         body_layout.addWidget(sec_runtime)
 
         runtime_card = QFrame()
-        runtime_card.setStyleSheet("QFrame { background: #14171D; border: 1px solid #252A33; border-radius: 6px; padding: 10px; }")
+        runtime_card.setStyleSheet("QFrame { background: #18181B; border: none; border-radius: 10px; padding: 10px; }")
         rc_layout = QVBoxLayout(runtime_card)
         rc_layout.setSpacing(8)
 
@@ -215,7 +216,7 @@ class GamePropertiesDialog(QDialog):
         btn_row_rt = QHBoxLayout()
         btn_set_rt = QPushButton("Change Proton Runtime...")
         btn_set_rt.setIcon(get_icon("ph.folder-open-bold"))
-        btn_set_rt.setStyleSheet("QPushButton { background: #1A1E26; color: #F5F7FA; border: 1px solid #252A33; border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 12px; } QPushButton:hover { background: #252A33; border-color: #3B9FE8; }")
+        btn_set_rt.setStyleSheet("QPushButton { background: #161A22; color: #F5F7FA; border: 1px solid #2A303B; border-radius: 5px; padding: 6px 12px; font-weight: 600; font-size: 12px; } QPushButton:hover { background: #202633; border-color: #3B9FE8; }")
         btn_set_rt.clicked.connect(self._select_proton_runtime)
         btn_row_rt.addWidget(btn_set_rt)
 
@@ -232,23 +233,23 @@ class GamePropertiesDialog(QDialog):
         # Wine Prefix & Maintenance
         sec_prefix = QLabel("Wine Prefix & Sandbox Maintenance")
         sec_prefix.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        sec_prefix.setStyleSheet("color: #F5F7FA; border-bottom: 1px solid #252A33; padding-bottom: 4px; margin-top: 6px;")
+        sec_prefix.setStyleSheet("color: #F5F7FA; background: transparent; border: none; padding-bottom: 4px; margin-top: 6px;")
         body_layout.addWidget(sec_prefix)
 
         prefix_card = QFrame()
-        prefix_card.setStyleSheet("QFrame { background: #14171D; border: 1px solid #252A33; border-radius: 6px; padding: 10px; }")
+        prefix_card.setStyleSheet("QFrame { background: #18181B; border: none; border-radius: 10px; padding: 10px; }")
         pc_layout = QHBoxLayout(prefix_card)
         pc_layout.setSpacing(10)
 
         btn_open_maint = QPushButton(" Prefix Maintenance Tools")
         btn_open_maint.setIcon(get_icon("ph.wrench-bold"))
-        btn_open_maint.setStyleSheet("QPushButton { background: #1A1E26; color: #F5F7FA; border: 1px solid #252A33; border-radius: 4px; padding: 8px 14px; font-weight: 600; font-size: 12px; } QPushButton:hover { background: #252A33; border-color: #3B9FE8; }")
+        btn_open_maint.setStyleSheet("QPushButton { background: #161A22; color: #F5F7FA; border: 1px solid #2A303B; border-radius: 5px; padding: 8px 14px; font-weight: 600; font-size: 12px; } QPushButton:hover { background: #202633; border-color: #3B9FE8; }")
         btn_open_maint.clicked.connect(self._open_prefix_maintenance)
         pc_layout.addWidget(btn_open_maint)
 
         btn_open_dir = QPushButton(" Open Game Directory")
         btn_open_dir.setIcon(get_icon("ph.folder-bold"))
-        btn_open_dir.setStyleSheet("QPushButton { background: #1A1E26; color: #F5F7FA; border: 1px solid #252A33; border-radius: 4px; padding: 8px 14px; font-weight: 600; font-size: 12px; } QPushButton:hover { background: #252A33; border-color: #3B9FE8; }")
+        btn_open_dir.setStyleSheet("QPushButton { background: #161A22; color: #F5F7FA; border: 1px solid #2A303B; border-radius: 5px; padding: 8px 14px; font-weight: 600; font-size: 12px; } QPushButton:hover { background: #202633; border-color: #3B9FE8; }")
         btn_open_dir.clicked.connect(self._open_game_directory)
         pc_layout.addWidget(btn_open_dir)
 
@@ -270,9 +271,9 @@ class GamePropertiesDialog(QDialog):
         body_layout.setSpacing(14)
 
         # Quick Performance Toggles Card
-        sec_toggles = QLabel("Performance & Optimization Presets")
+        sec_toggles = QLabel("Performance and Optimization Presets")
         sec_toggles.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        sec_toggles.setStyleSheet("color: #F5F7FA; border-bottom: 1px solid #252A33; padding-bottom: 4px;")
+        sec_toggles.setStyleSheet("color: #F5F7FA; background: transparent; border: none; padding-bottom: 4px;")
         body_layout.addWidget(sec_toggles)
 
         toggles_card = QFrame()
@@ -322,7 +323,7 @@ class GamePropertiesDialog(QDialog):
         fps_row.addWidget(QLabel("<font color='#F5F7FA'><b>Frame Rate Cap (DXVK_FRAME_RATE):</b></font>"))
         self.combo_fps = QComboBox()
         self.combo_fps.addItems(["Unlimited (0)", "30 FPS", "60 FPS", "90 FPS", "120 FPS", "144 FPS"])
-        self.combo_fps.setStyleSheet("QComboBox { background: #1A1E26; color: #F5F7FA; border: 1px solid #252A33; border-radius: 4px; padding: 4px 10px; }")
+        self.combo_fps.setStyleSheet("QComboBox { background: #161A22; color: #F5F7FA; border: none; border-radius: 6px; padding: 4px 10px; }")
         cur_fps = str(self.env_vars.get("DXVK_FRAME_RATE", "0"))
         fps_map = {"0": 0, "30": 1, "60": 2, "90": 3, "120": 4, "144": 5}
         self.combo_fps.setCurrentIndex(fps_map.get(cur_fps, 0))
@@ -333,9 +334,9 @@ class GamePropertiesDialog(QDialog):
         body_layout.addWidget(toggles_card)
 
         # Custom Key-Value Environment Variables Table
-        sec_custom = QLabel("Custom Environment Variables")
-        sec_custom.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        sec_custom.setStyleSheet("color: #F5F7FA; border-bottom: 1px solid #252A33; padding-bottom: 4px; margin-top: 6px;")
+        sec_custom = QLabel("Custom environment variables")
+        sec_custom.setFont(QFont("Arial", 11, QFont.Weight.Medium))
+        sec_custom.setStyleSheet("color: #D4D4D8; background: transparent; border: none; padding-bottom: 4px; margin-top: 6px;")
         body_layout.addWidget(sec_custom)
 
         custom_card = QFrame()
@@ -377,12 +378,12 @@ class GamePropertiesDialog(QDialog):
 
         btn_row_table = QHBoxLayout()
         btn_add_var = QPushButton("+ Add Variable")
-        btn_add_var.setStyleSheet("QPushButton { background: #1A1E26; color: #3B9FE8; border: 1px solid #252A33; border-radius: 4px; padding: 4px 10px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #252A33; }")
+        btn_add_var.setStyleSheet("QPushButton { background: #161A22; color: #3B9FE8; border: none; border-radius: 6px; padding: 4px 10px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #202633; }")
         btn_add_var.clicked.connect(self._add_variable_row)
         btn_row_table.addWidget(btn_add_var)
 
         btn_del_var = QPushButton("- Remove Selected")
-        btn_del_var.setStyleSheet("QPushButton { background: #1A1E26; color: #F05D6C; border: 1px solid #252A33; border-radius: 4px; padding: 4px 10px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #252A33; }")
+        btn_del_var.setStyleSheet("QPushButton { background: #161A22; color: #F05D6C; border: none; border-radius: 6px; padding: 4px 10px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #202633; }")
         btn_del_var.clicked.connect(self._remove_variable_row)
         btn_row_table.addWidget(btn_del_var)
         btn_row_table.addStretch()
@@ -407,7 +408,7 @@ class GamePropertiesDialog(QDialog):
         # ── 1. Detected Save Folder Card ──
         sec_detected = QLabel("Detected Save Location")
         sec_detected.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        sec_detected.setStyleSheet("color: #F5F7FA; border-bottom: 1px solid #252A33; padding-bottom: 4px;")
+        sec_detected.setStyleSheet("color: #F5F7FA; background: transparent; border: none; padding-bottom: 4px;")
         body_layout.addWidget(sec_detected)
 
         save_card = QFrame()
@@ -423,7 +424,7 @@ class GamePropertiesDialog(QDialog):
         self.btn_open_save_folder = QPushButton(" Open Folder")
         self.btn_open_save_folder.setIcon(get_icon("ph.folder-open-bold"))
         self.btn_open_save_folder.setEnabled(False)
-        self.btn_open_save_folder.setStyleSheet("QPushButton { background: #1A1E26; color: #F5F7FA; border: 1px solid #252A33; border-radius: 4px; padding: 4px 10px; font-size: 11px; } QPushButton:hover { background: #252A33; border-color: #3B9FE8; } QPushButton:disabled { color: #6F7682; border-color: #20242C; }")
+        self.btn_open_save_folder.setStyleSheet("QPushButton { background: #161A22; color: #F5F7FA; border: none; border-radius: 6px; padding: 4px 10px; font-size: 11px; } QPushButton:hover { background: #202633; } QPushButton:disabled { color: #6F7682; }")
         row_path.addWidget(self.btn_open_save_folder)
         sc_layout.addLayout(row_path)
 
@@ -436,7 +437,7 @@ class GamePropertiesDialog(QDialog):
         # ── 2. Cloud Save Synchronization Card ──
         sec_sync = QLabel("Cloud Save Synchronization")
         sec_sync.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        sec_sync.setStyleSheet("color: #F5F7FA; border-bottom: 1px solid #252A33; padding-bottom: 4px; margin-top: 6px;")
+        sec_sync.setStyleSheet("color: #F5F7FA; background: transparent; border: none; padding-bottom: 4px; margin-top: 6px;")
         body_layout.addWidget(sec_sync)
 
         sync_card = QFrame()
@@ -459,13 +460,13 @@ class GamePropertiesDialog(QDialog):
         sync_btn_row = QHBoxLayout()
         self.btn_sync_up = QPushButton(" Upload to Cloud Now")
         self.btn_sync_up.setIcon(get_app_icon("export"))
-        self.btn_sync_up.setStyleSheet("QPushButton { background: #1A1E26; color: #3B9FE8; border: 1px solid #252A33; border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #252A33; border-color: #3B9FE8; }")
+        self.btn_sync_up.setStyleSheet("QPushButton { background: #161A22; color: #3B9FE8; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #202633; }")
         self.btn_sync_up.clicked.connect(self._sync_up_now)
         sync_btn_row.addWidget(self.btn_sync_up)
 
         self.btn_sync_down = QPushButton(" Download from Cloud")
         self.btn_sync_down.setIcon(get_app_icon("import"))
-        self.btn_sync_down.setStyleSheet("QPushButton { background: #1A1E26; color: #35C98A; border: 1px solid #252A33; border-radius: 4px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #252A33; border-color: #35C98A; }")
+        self.btn_sync_down.setStyleSheet("QPushButton { background: #161A22; color: #35C98A; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #202633; }")
         self.btn_sync_down.clicked.connect(self._sync_down_now)
         self.btn_sync_down.hide()
         sync_btn_row.addWidget(self.btn_sync_down)
@@ -488,25 +489,25 @@ class GamePropertiesDialog(QDialog):
         self.combo_cloud_versions.setFixedHeight(32)
         self.combo_cloud_versions.setStyleSheet("""
             QComboBox {
-                background: #1A1E26;
+                background: #161A22;
                 color: #F5F7FA;
-                border: 1px solid #252A33;
-                border-radius: 4px;
+                border: none;
+                border-radius: 6px;
                 padding: 4px 10px;
                 font-size: 11px;
             }
             QComboBox:hover {
-                border-color: #3B9FE8;
+                background: #202633;
             }
             QComboBox::drop-down {
                 border: none;
                 width: 20px;
             }
             QComboBox QAbstractItemView {
-                background: #14171D;
+                background: #18181B;
                 color: #F5F7FA;
                 selection-background-color: #3B9FE8;
-                border: 1px solid #252A33;
+                border: none;
             }
         """)
         combo_row.addWidget(self.combo_cloud_versions, 1)
@@ -516,21 +517,20 @@ class GamePropertiesDialog(QDialog):
         self.btn_restore_selected.setFixedHeight(32)
         self.btn_restore_selected.setStyleSheet("""
             QPushButton {
-                background: #1A1E26;
+                background: #161A22;
                 color: #E5A93D;
-                border: 1px solid #252A33;
-                border-radius: 4px;
+                border: none;
+                border-radius: 6px;
                 padding: 6px 14px;
                 font-weight: 600;
                 font-size: 11px;
             }
             QPushButton:hover {
-                background: #252A33;
-                border-color: #E5A93D;
+                background: #202633;
             }
             QPushButton:disabled {
                 color: #6F7682;
-                border-color: #20242C;
+                border: none;
             }
         """)
         self.btn_restore_selected.clicked.connect(self._restore_selected_version_now)
@@ -558,17 +558,16 @@ class GamePropertiesDialog(QDialog):
         btn_open_mgr.setFixedHeight(38)
         btn_open_mgr.setStyleSheet("""
             QPushButton {
-                background: #1A1E26;
+                background: #161A22;
                 color: #F5F7FA;
-                border: 1px solid #252A33;
+                border: none;
                 border-radius: 6px;
                 padding: 0 16px;
                 font-weight: 600;
                 font-size: 12px;
             }
             QPushButton:hover {
-                background: #252A33;
-                border-color: #3B9FE8;
+                background: #202633;
             }
         """)
         btn_open_mgr.clicked.connect(self._open_save_manager)

@@ -81,7 +81,7 @@ class PrefixMaintenanceDialog(QDialog):
             QDialog {
                 background: #0D0F14;
                 color: #F5F7FA;
-                border: 1px solid #252A33;
+                border: none;
                 border-radius: 8px;
             }
             QLabel {
@@ -90,7 +90,7 @@ class PrefixMaintenanceDialog(QDialog):
             QPushButton {
                 background: #161A22;
                 color: #D9DEE8;
-                border: 1px solid #2A303B;
+                border: none;
                 border-radius: 5px;
                 padding: 7px 10px;
                 font-size: 11px;
@@ -99,7 +99,7 @@ class PrefixMaintenanceDialog(QDialog):
             QPushButton:hover {
                 background: #202633;
                 color: #FFFFFF;
-                border-color: #3B9FE8;
+                background: #202633;
             }
             QPushButton:pressed {
                 background: #10141B;
@@ -107,7 +107,7 @@ class PrefixMaintenanceDialog(QDialog):
             QPushButton:disabled {
                 background: #111318;
                 color: #636A76;
-                border-color: #20242C;
+                border: none;
             }
         """)
         layout = QVBoxLayout(self)
