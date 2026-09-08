@@ -23,6 +23,7 @@ from typing import List, Tuple, Optional
 from PyQt6.QtCore import QSettings
 
 from core.ludusavi_detector import LudusaviDetector, SaveLocation
+from core.save_validation import describe_validation_failures, validate_save_locations
 from core.zip_backup import ZipBackupManager, _MANIFEST_NAME
 from database import _APP_DATA_DIR
 from core.logger import get_logger
@@ -83,13 +84,6 @@ def _stats_for_locations(locations: List[SaveLocation]) -> SaveStats:
             total_bytes += stat.st_size
             max_mtime = max(max_mtime, stat.st_mtime)
 
-    # Keep cached metadata as a fallback for a transient permission/race issue,
-    # but never reject a real zero-byte save file.
-    if total_files == 0:
-        total_files = sum(max(0, int(loc.file_count or 0)) for loc in locations)
-        total_bytes = sum(max(0, int(loc.total_size_bytes or 0)) for loc in locations)
-        max_mtime = max((float(loc.last_modified or 0.0) for loc in locations), default=0.0)
-
     non_reg_locs = [loc for loc in locations if not loc.path.lower().endswith((".reg", ".reg.old"))]
     target_locs = non_reg_locs if non_reg_locs else locations
     target_mtimes = []
@@ -106,8 +100,6 @@ def _stats_for_locations(locations: List[SaveLocation]) -> SaveStats:
                 target_mtimes.extend(os.path.getmtime(p) for p in paths if os.path.isfile(p))
             except OSError:
                 pass
-        if not target_mtimes and loc.last_modified:
-            target_mtimes.append(float(loc.last_modified))
     if target_mtimes:
         max_mtime = max(target_mtimes)
 
@@ -708,6 +700,18 @@ class CloudSaveSyncEngine:
             local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
         else:
             local_stats = _stats_for_locations(locations)
+
+        # This is the final trust boundary for every upload caller. Detector
+        # metadata and UI snapshots are advisory; the archive must use paths
+        # that exist and are readable at the moment packaging begins.
+        validation = validate_save_locations(locations or [])
+        invalid_locations = [result for result in validation if not result.valid]
+        if invalid_locations:
+            cls._last_sync_error = describe_validation_failures(validation)
+            logger.info(f"Selected save paths failed final upload validation for '{game_name}'")
+            return False
+        locations = [result.location for result in validation]
+        local_stats = _stats_for_locations(locations)
         if not local_stats.exists or not locations:
             cls._last_sync_error = (
                 "No readable files were found in the selected save locations. "

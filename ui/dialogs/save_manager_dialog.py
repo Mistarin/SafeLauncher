@@ -734,19 +734,14 @@ class SaveManagerDialog(QDialog):
         self._last_operation_retry = self._upload_selected
 
         def _worker():
-            # Recheck in the worker immediately before the cloud engine starts
-            # packaging. The UI preflight prevents needless confirmation; this
-            # second check closes the scan-to-upload race.
-            fresh_locations, validation_error = self._validate_selected_locations(
-                selected_locations, "Cloud upload"
-            )
-            if validation_error is not None:
-                return validation_error
+            # CloudSaveSyncEngine performs the final validation at its
+            # packaging boundary. Keeping that invariant in the engine also
+            # protects uploads initiated from Game Properties and auto-sync.
             result = CloudOperationCoordinator.upload_local_save(
                 self.game_name,
                 self.game_path,
                 steam_id=self.steam_id,
-                locations=fresh_locations,
+                locations=selected_locations,
             )
             return self._save_operation_from_cloud_result(result)
 

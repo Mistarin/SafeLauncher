@@ -41,7 +41,7 @@ def classify_cloud_error(error: str, status: int = 0) -> tuple[str, str]:
         return "authentication", "Open Settings → Cloud and verify the Site URL and Secret Access Key."
     if status in (413, 507) or "quota" in text or "too large" in text:
         return "quota", "Check cloud usage and deploy the current backend if an older size limit is still active."
-    if "not found" in text or "no local save" in text:
+    if "not found" in text or "no local save" in text or "no longer exists" in text or "no readable files" in text:
         return "local_save_missing", "Rescan local saves and verify that the game has a readable save location."
     if "permission" in text or "read" in text:
         return "local_save_unreadable", "Check file permissions, close the game, rescan saves, and retry."
