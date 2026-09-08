@@ -34,6 +34,7 @@ class LaunchDiagnostics:
     log_path: str = ""
     unsafe: bool = False
     performance: dict = field(default_factory=dict)
+    session_observed: bool = False
 
     @property
     def signal_name(self) -> str:
@@ -47,6 +48,62 @@ class LaunchDiagnostics:
     @property
     def output_text(self) -> str:
         return "\n".join(self.output)
+
+    @property
+    def failure_category(self) -> str:
+        """Return a stable cause category for UI recovery actions."""
+        text = self.output_text.lower()
+        if any(token in text for token in (
+            "steam_api64.dll", "steam_api.dll", "steamapi_", "steam api",
+            "steamapps_v", "steamapps", "unimplemented function steam",
+        )):
+            return "steam_api"
+        if "executable a unix path" in text or "launching with /unix option" in text:
+            return "executable_path"
+        if "bad exe format" in text or "exec format error" in text:
+            return "architecture"
+        if "no such file" in text or "cannot open" in text:
+            return "missing_file"
+        if not self.dependencies.get("umu-run", True) and self.mode.startswith("umu"):
+            return "umu_missing"
+        if not self.dependencies.get("firejail", True) and not self.unsafe:
+            return "firejail_missing"
+        if any(token in text for token in (
+            "proton not found", "protonpath is not set", "error: protonpath",
+            "could not find steamrt", "could not find steamrt4", "umu has not been setup",
+        )):
+            return "runtime_missing"
+        if "no permissions to create a new namespace" in text or "unprivileged_userns_clone" in text:
+            return "namespace_denied"
+        if "baddroutput" in text or "badwindow" in text or "x error of failed request" in text:
+            return "display"
+        if any(token in text for token in ("gamemode", "dxvk_config", "maxdevicememory", "ld_preload")):
+            return "performance"
+        if self.return_code == 0 and not self.session_observed:
+            return "early_exit"
+        if self.signal_name:
+            return "signal"
+        if self.return_code not in (None, 0):
+            return "runtime_exit"
+        return "unknown"
+
+    def recommended_actions(self) -> tuple[str, ...]:
+        actions = {
+            "steam_api": ("copy", "logs"),
+            "executable_path": ("edit_game", "copy", "logs"),
+            "architecture": ("edit_game", "runtime", "copy", "logs"),
+            "missing_file": ("edit_game", "runtime", "copy", "logs"),
+            "umu_missing": ("runtime", "copy", "logs"),
+            "firejail_missing": ("settings", "unsafe", "copy", "logs"),
+            "runtime_missing": ("runtime", "settings", "copy", "logs"),
+            "namespace_denied": ("unsafe", "settings", "copy", "logs"),
+            "display": ("safe_retry", "copy", "logs"),
+            "performance": ("performance_retry", "safe_retry", "copy", "logs"),
+            "early_exit": ("safe_retry", "edit_game", "copy", "logs"),
+            "signal": ("safe_retry", "prefix", "copy", "logs"),
+            "runtime_exit": ("safe_retry", "prefix", "copy", "logs"),
+        }
+        return actions.get(self.failure_category, ("safe_retry", "copy", "logs"))
 
     def actionable_explanation(self) -> str:
         text = self.output_text.lower()
@@ -88,6 +145,8 @@ class LaunchDiagnostics:
         if "bad exe format" in text or "exec format error" in text:
             return f"The executable/runtime architecture is incompatible with this host ({self.architecture})."
         if self.return_code == 0:
+            if not self.session_observed:
+                return "The runtime exited before a game session was detected. Verify the executable, prefix, and selected runtime, then retry."
             if any(marker in text for marker in (
                 "presenter:", "actual swap chain", "engaging frame rate limiter",
                 "setting display mode", "fsync: up and running", "dxvk:"
@@ -110,6 +169,8 @@ class LaunchDiagnostics:
             f"Mode: {self.mode}\nArchitecture: {self.architecture}\nProton/runtime: {self.proton_path}\n"
             f"Prefix: {self.prefix_path}\nDependencies: {deps}\nStatus: {status}\n"
             f"Performance: {performance}\n"
+            f"Failure category: {self.failure_category}\n"
+            f"Session observed: {self.session_observed}\n"
             f"Command: {self.command}\nLog: {self.log_path}\n\n"
             f"Action: {self.actionable_explanation()}\n\n"
             f"Process output:\n{self.output_text or '(no output)'}\n"

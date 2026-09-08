@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QMessageBox, QComboBox, QProgressBar, QWidget, QFrame, QMenu,
     QCheckBox, QStackedWidget, QPlainTextEdit, QGraphicsOpacityEffect, QApplication,
+    QGridLayout,
     QScrollArea
 )
 from PyQt6.QtCore import Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QUrl
@@ -785,7 +786,12 @@ class LaunchOptionsDialog(QDialog):
 class SafeLaunchDialog(QDialog):
     """Sleek, non-blocking animated dark card diagnostic popup for game launches."""
     retry_requested = pyqtSignal(str)
+    performance_retry_requested = pyqtSignal()
     unsafe_launch_requested = pyqtSignal()
+    edit_game_requested = pyqtSignal()
+    prefix_maintenance_requested = pyqtSignal()
+    settings_requested = pyqtSignal()
+    runtime_manager_requested = pyqtSignal()
 
     def __init__(self, game_name: str, user_name: str = None, process=None, parent=None):
         super().__init__(parent)
@@ -969,16 +975,46 @@ class SafeLaunchDialog(QDialog):
         diagnostics_buttons.addStretch()
         error_layout.addLayout(diagnostics_buttons)
 
-        recovery_buttons = QHBoxLayout()
-        retry_safe = QPushButton("Retry with safe fallback")
+        recovery_buttons = QGridLayout()
+        recovery_buttons.setHorizontalSpacing(8)
+        recovery_buttons.setVerticalSpacing(8)
+        self.recovery_actions = {}
+        retry_safe = QPushButton("Retry safe")
         retry_safe.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
         retry_safe.setToolTip("Retry using the sandboxed Wine fallback.")
         retry_safe.clicked.connect(lambda: self._request_retry("wine"))
-        recovery_buttons.addWidget(retry_safe)
+        self.recovery_actions["safe_retry"] = retry_safe
+        recovery_buttons.addWidget(retry_safe, 0, 0)
+        retry_performance = QPushButton("Retry without performance overrides")
+        retry_performance.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        retry_performance.clicked.connect(self._request_performance_retry)
+        self.recovery_actions["performance_retry"] = retry_performance
+        recovery_buttons.addWidget(retry_performance, 0, 1)
+        edit_game = QPushButton("Edit executable")
+        edit_game.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        edit_game.clicked.connect(self._request_edit_game)
+        self.recovery_actions["edit_game"] = edit_game
+        recovery_buttons.addWidget(edit_game, 1, 0)
+        prefix = QPushButton("Prefix maintenance")
+        prefix.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        prefix.clicked.connect(self._request_prefix_maintenance)
+        self.recovery_actions["prefix"] = prefix
+        recovery_buttons.addWidget(prefix, 1, 1)
+        runtime = QPushButton("Runtime manager")
+        runtime.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        runtime.clicked.connect(self._request_runtime_manager)
+        self.recovery_actions["runtime"] = runtime
+        recovery_buttons.addWidget(runtime, 2, 0)
+        settings = QPushButton("Open settings")
+        settings.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        settings.clicked.connect(self._request_settings)
+        self.recovery_actions["settings"] = settings
+        recovery_buttons.addWidget(settings, 2, 1)
         unsafe = QPushButton("Launch without sandbox (UNSAFE)")
         unsafe.setStyleSheet("QPushButton { background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444; font-weight: bold; }")
         unsafe.clicked.connect(self._request_unsafe_launch)
-        recovery_buttons.addWidget(unsafe)
+        self.recovery_actions["unsafe"] = unsafe
+        recovery_buttons.addWidget(unsafe, 3, 0, 1, 2)
         error_layout.addLayout(recovery_buttons)
 
         close_error = QPushButton("Close")
@@ -1233,6 +1269,8 @@ class SafeLaunchDialog(QDialog):
             self._check_process_state()
             return
         self.handoff_shown = True
+        if self.diagnostics:
+            self.diagnostics.session_observed = True
         import time
         t_str = time.strftime("%H:%M:%S")
         self.append_log(f"[{t_str}] [SUCCESS] Sandbox container initialized cleanly.")
@@ -1310,6 +1348,7 @@ class SafeLaunchDialog(QDialog):
         if self.diagnostics:
             self.diagnostics.return_code = return_code
             self.diagnostics.output = list(self.log_lines)
+            self.diagnostics.session_observed = bool(self.handoff_shown or has_game_run_markers)
             persist_diagnostics(self.diagnostics)
             reason = self.diagnostics.actionable_explanation()
         self.requires_proton_setup = any(marker in lower_details for marker in (
@@ -1346,7 +1385,16 @@ class SafeLaunchDialog(QDialog):
             persist_diagnostics(self.diagnostics)
         self.error_summary.setText(reason)
         self.error_details.setPlainText(self.diagnostics.as_text() if self.diagnostics else (details or "No diagnostic output was produced."))
+        self._configure_recovery_actions()
         self.stack.setCurrentWidget(self.page_error)
+
+    def _configure_recovery_actions(self):
+        actions = set(self.diagnostics.recommended_actions()) if self.diagnostics else {"safe_retry", "copy", "logs"}
+        for name, button in self.recovery_actions.items():
+            button.setVisible(name in actions)
+        self.error_title.setText(
+            f"Game launch failed · {(self.diagnostics.failure_category if self.diagnostics else 'unknown').replace('_', ' ').title()}"
+        )
 
     def _copy_diagnostics(self):
         text = self.diagnostics.as_text() if self.diagnostics else self.error_details.toPlainText()
@@ -1364,6 +1412,26 @@ class SafeLaunchDialog(QDialog):
 
     def _request_unsafe_launch(self):
         self.unsafe_launch_requested.emit()
+        self.accept()
+
+    def _request_performance_retry(self):
+        self.performance_retry_requested.emit()
+        self.accept()
+
+    def _request_edit_game(self):
+        self.edit_game_requested.emit()
+        self.accept()
+
+    def _request_prefix_maintenance(self):
+        self.prefix_maintenance_requested.emit()
+        self.accept()
+
+    def _request_settings(self):
+        self.settings_requested.emit()
+        self.accept()
+
+    def _request_runtime_manager(self):
+        self.runtime_manager_requested.emit()
         self.accept()
 
     def _fade_out_dialog(self):

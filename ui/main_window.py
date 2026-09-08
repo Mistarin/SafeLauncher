@@ -83,6 +83,7 @@ from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from ui.dialogs.save_conflict_dialog import SaveConflictDialog
 from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
+from core.performance_env import MANAGED_ENV_KEYS
 from ui.components.compact_game_page import (
     CompactLayoutContainer, CompactGamePageWidget,
     SteamLayoutContainer, SteamGamePageWidget
@@ -4018,7 +4019,7 @@ class MainWindow(QMainWindow):
         else:
             self._update_detail_launch_button(game_id)
 
-    def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True):
+    def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True, disable_performance: bool = False):
         """Helper to launch a game directly with the chosen mode"""
         logger.info(f"Initiating launch for Game ID {game_id}: exe='{exe}', mode='{selected_mode}', path='{path}'")
         if not path or not os.path.exists(path):
@@ -4041,6 +4042,11 @@ class MainWindow(QMainWindow):
             steam_id = str(game_data[6]).strip() if len(game_data) > 6 and game_data[6] else ""
             selected_proton = game_data[12] if len(game_data) > 12 and game_data[12] else self.proton_path
             game_env_vars = self.db.get_game_env_vars(game_id)
+            if disable_performance:
+                game_env_vars = {
+                    key: value for key, value in game_env_vars.items()
+                    if key not in MANAGED_ENV_KEYS
+                }
 
             # Pre-launch Cloud Save Synchronization. The heavy zip/dir I/O runs
             # on a worker thread behind a modal progress indicator; the launch
@@ -4055,6 +4061,7 @@ class MainWindow(QMainWindow):
                 "steam_id": steam_id,
                 "sandbox": sandbox,
                 "env_vars": game_env_vars,
+                "disable_performance": disable_performance,
             }
             self._schedule_prelaunch_sync(ctx)
             return
@@ -4379,9 +4386,20 @@ class MainWindow(QMainWindow):
                 popup.retry_requested.connect(
                     lambda retry_mode: self._launch_mode(game_id, path, exe, retry_mode, sandbox=True)
                 )
+                popup.performance_retry_requested.connect(
+                    lambda: self._launch_mode(
+                        game_id, path, exe, selected_mode, sandbox=sandbox, disable_performance=True
+                    )
+                )
                 popup.unsafe_launch_requested.connect(
                     lambda: self._launch_mode(game_id, path, exe, selected_mode, sandbox=False)
                 )
+                popup.edit_game_requested.connect(lambda: self._on_edit(game_id))
+                popup.prefix_maintenance_requested.connect(
+                    lambda: (self._select_game_by_id(game_id), self._open_prefix_maintenance())
+                )
+                popup.settings_requested.connect(self._open_settings)
+                popup.runtime_manager_requested.connect(self._open_runtime_manager)
                 popup.show()
         except Exception as e:
             logger.error(f"Failed to launch game ID {game_id}: {e}", exc_info=True)
