@@ -36,7 +36,7 @@ _BACKUP_CREATED: set = set()
 _SCHEMA_INITIALIZED: set = set()
 
 
-def _create_database_backup(db_path: str) -> None:
+def _create_database_backup(db_path: str, source_connection=None, *, force: bool = False) -> None:
     """Create auto-backup copy (library.db.bak) on startup.
 
     Only called after the database file has passed a consistency check, so a
@@ -45,12 +45,25 @@ def _create_database_backup(db_path: str) -> None:
     """
     if db_path == ":memory:" or not os.path.isfile(db_path):
         return
-    if db_path in _BACKUP_CREATED:
+    if not force and db_path in _BACKUP_CREATED:
         return
     _BACKUP_CREATED.add(db_path)
     bak_path = f"{db_path}.bak"
     try:
-        shutil.copy2(db_path, bak_path)
+        # A file copy of a WAL-mode SQLite database can omit committed pages
+        # which have not been checkpointed into library.db yet. SQLite's backup
+        # API takes a consistent snapshot across the main database and WAL.
+        source = source_connection
+        owns_source = source is None
+        if source is None:
+            source = sqlite3.connect(db_path, timeout=10)
+        destination = sqlite3.connect(bak_path, timeout=10)
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+            if owns_source:
+                source.close()
         logger.debug(f"Created database backup: {bak_path}")
     except Exception as e:
         logger.warning(f"Could not create database backup: {e}")
@@ -134,6 +147,8 @@ class GameDatabase:
         self.conn = None
         self._connect_with_retry()
 
+        self._create_table()
+
         if db_path != ":memory:":
             try:
                 os.chmod(db_path, 0o600)
@@ -141,9 +156,7 @@ class GameDatabase:
                 pass
             # Back up only after the connection was verified consistent, so the
             # recovery copy always holds the newest healthy snapshot.
-            _create_database_backup(db_path)
-
-        self._create_table()
+            _create_database_backup(db_path, self.conn)
 
     def _connect_with_retry(self):
         """Connect to SQLite database with self-healing restore from .bak on corruption."""
@@ -400,7 +413,7 @@ class GameDatabase:
         return sid
 
     def checkpoint_playtime_session(self, session_id: str, duration_seconds: int, finalized: bool = False, ended_at: int = 0) -> None:
-        """Persist progress so interruption does not lose the whole session."""
+        """Persist progress and keep the aggregate derived from the session ledger."""
         try:
             with self.conn:
                 self.conn.execute(
@@ -409,6 +422,22 @@ class GameDatabase:
                        WHERE session_id = ?""",
                     (max(0, int(duration_seconds or 0)), int(bool(finalized)), max(0, int(ended_at or 0)), int(time.time()), session_id),
                 )
+                row = self.conn.execute(
+                    "SELECT game_id FROM playtime_sessions WHERE session_id = ?", (session_id,)
+                ).fetchone()
+                if row:
+                    game_id = int(row[0])
+                    total = self.conn.execute(
+                        "SELECT COALESCE(SUM(duration_seconds), 0) FROM playtime_sessions WHERE game_id = ?",
+                        (game_id,),
+                    ).fetchone()[0]
+                    # Existing installations may have a pre-ledger aggregate.
+                    # Preserve that baseline while making all tracked sessions
+                    # idempotent rather than adding the same elapsed time twice.
+                    self.conn.execute(
+                        "UPDATE games SET playtime_seconds = MAX(COALESCE(playtime_seconds, 0), ?) WHERE id = ?",
+                        (int(total or 0), game_id),
+                    )
         except Exception as e:
             logger.error(f"Failed to checkpoint playtime session {session_id}: {e}")
 

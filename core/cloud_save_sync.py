@@ -14,6 +14,7 @@ to the local folder behaviour rather than losing data.
 import os
 import time
 import json
+import hashlib
 import zipfile
 import tempfile
 from enum import Enum
@@ -156,16 +157,36 @@ def backend_active() -> bool:
 
 
 _backend_singleton = None
-_LISTING_CACHE = {"ts": 0.0, "data": None}
+_backend_context = ""
+_LISTING_CACHE = {"ts": 0.0, "data": None, "context": ""}
 _LISTING_LOCK = threading.Lock()
 
 
+def cloud_context_fingerprint() -> str:
+    """Stable opaque identity for the configuration backing cloud results.
+
+    Results and caches must never cross an endpoint, mode, or credential
+    change. The secret itself is never persisted in a cache or exposed to UI;
+    only its SHA-256 digest participates in this context identity.
+    """
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    mode = cloud_mode()
+    from core.cloud_backend import get_site_url
+    endpoint = get_site_url().strip().rstrip("/")
+    secret = str(settings.value("cloud_secret_key", "") or "").strip()
+    material = "\0".join((mode, endpoint, secret)).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
 def _backend():
-    global _backend_singleton
-    if _backend_singleton is None:
-        from core.cloud_backend import ConvexSaveBackend
-        _backend_singleton = ConvexSaveBackend()
-    return _backend_singleton
+    global _backend_singleton, _backend_context
+    context = cloud_context_fingerprint()
+    with _LISTING_LOCK:
+        if _backend_singleton is None or _backend_context != context:
+            from core.cloud_backend import ConvexSaveBackend
+            _backend_singleton = ConvexSaveBackend()
+            _backend_context = context
+        return _backend_singleton
 
 
 def _get_cloud_listing(force_refresh: bool = False, max_age_seconds: float = 30.0) -> dict:
@@ -179,13 +200,20 @@ def _get_cloud_listing(force_refresh: bool = False, max_age_seconds: float = 30.
     global _LISTING_CACHE
     import time
     now = time.monotonic()
+    context = cloud_context_fingerprint()
     with _LISTING_LOCK:
-        if not force_refresh and _LISTING_CACHE["data"] and (now - _LISTING_CACHE["ts"] < max_age_seconds):
+        if (not force_refresh and _LISTING_CACHE["data"]
+                and _LISTING_CACHE.get("context") == context
+                and (now - _LISTING_CACHE["ts"] < max_age_seconds)):
             return _LISTING_CACHE["data"]
     try:
         data = _backend().list_games()
         with _LISTING_LOCK:
-            _LISTING_CACHE = {"ts": now, "data": data}
+            # Do not repopulate cache with a response that began before a
+            # settings/account change. The caller can finish with its snapshot,
+            # but a later operation must derive fresh state for the new context.
+            if cloud_context_fingerprint() == context:
+                _LISTING_CACHE = {"ts": now, "data": data, "context": context}
         return data
     except Exception as e:
         logger.debug(f"Failed to fetch cloud game listing: {e}")
@@ -194,25 +222,27 @@ def _get_cloud_listing(force_refresh: bool = False, max_age_seconds: float = 30.
         # that could be hours old. Within the freshness window the cache is
         # still the best-known state; beyond it, the cloud is unreachable.
         with _LISTING_LOCK:
-            if _LISTING_CACHE["data"] and (time.monotonic() - _LISTING_CACHE["ts"] < max_age_seconds):
+            if (_LISTING_CACHE["data"] and _LISTING_CACHE.get("context") == context
+                    and (time.monotonic() - _LISTING_CACHE["ts"] < max_age_seconds)):
                 return _LISTING_CACHE["data"]
         raise
 
 
 def _invalidate_cloud_listing():
-    global _LISTING_CACHE, _backend_singleton
+    global _LISTING_CACHE, _backend_singleton, _backend_context
     with _LISTING_LOCK:
-        _LISTING_CACHE = {"ts": 0.0, "data": None}
+        _LISTING_CACHE = {"ts": 0.0, "data": None, "context": ""}
     if _backend_singleton is not None:
         _backend_singleton.invalidate_key_cache()
 
 
 def reset_cloud_backend() -> None:
     """Reset the cloud backend singleton and cache (e.g. after credential updates)."""
-    global _backend_singleton, _LISTING_CACHE
+    global _backend_singleton, _LISTING_CACHE, _backend_context
     with _LISTING_LOCK:
-        _LISTING_CACHE = {"ts": 0.0, "data": None}
+        _LISTING_CACHE = {"ts": 0.0, "data": None, "context": ""}
     _backend_singleton = None
+    _backend_context = ""
 
 
 def _clean_game_slug(name: str) -> str:

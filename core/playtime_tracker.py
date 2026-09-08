@@ -72,7 +72,9 @@ class PlaytimeTrackerThread(SafeQThread):
         # [SECURITY] Hard shutdown any remaining background miner processes inside Firejail container
         _shutdown_firejail_sandbox(sandbox_name=self.sandbox_name, pid=self.process.pid)
 
-        if elapsed > 0:
-            self.playtime_recorded.emit(self.game_id, elapsed)
         if self.session_id:
             self.playtime_session_recorded.emit(self.session_id, elapsed, int(time.time()), True)
+        if elapsed > 0:
+            # Finalize the ledger first. The UI handler then reads the
+            # authoritative aggregate instead of adding elapsed time again.
+            self.playtime_recorded.emit(self.game_id, elapsed)

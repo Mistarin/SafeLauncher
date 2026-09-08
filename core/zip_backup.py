@@ -15,15 +15,18 @@ _MANIFEST_NAME = "safelauncher_manifest.json"
 
 
 def _is_within(parent: str, candidate: str) -> bool:
-    """True if candidate is parent itself or lives under it (separator-safe)."""
-    parent_abs = os.path.abspath(parent)
-    cand_abs = os.path.abspath(candidate)
-    if cand_abs == parent_abs or cand_abs.startswith(parent_abs + os.sep):
-        return True
+    """True if candidate resolves inside parent, including through symlinks.
+
+    Archive destinations can already contain symlinks (Wine prefixes commonly
+    do). A lexical ``startswith`` check accepts ``prefix/link/file`` before
+    noticing that ``link`` points outside the prefix, which turns a restore
+    into an arbitrary local-file write. Resolve both paths first and compare
+    path components rather than string prefixes.
+    """
     try:
-        parent_real = os.path.realpath(parent)
-        cand_real = os.path.realpath(candidate)
-        return cand_real == parent_real or cand_real.startswith(parent_real + os.sep)
+        parent_real = os.path.realpath(os.path.abspath(parent))
+        cand_real = os.path.realpath(os.path.abspath(candidate))
+        return os.path.commonpath((parent_real, cand_real)) == parent_real
     except OSError:
         return False
 

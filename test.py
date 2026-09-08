@@ -85,6 +85,24 @@ try:
         assert len(games) == 0, "Game not removed correctly"
         print("✓ Database remove operation works")
         db.close()
+
+        # WAL commits must be included in the recovery backup. A raw copy of
+        # library.db misses committed pages that remain in library.db-wal.
+        from database import _create_database_backup
+        wal_path = os.path.join(tmp_dir, "wal_library.db")
+        wal_db = GameDatabase(wal_path)
+        wal_game_id = wal_db.add_game("WAL Game", "/tmp/wal", "game.exe", "wine")
+        session_id = wal_db.create_playtime_session(wal_game_id, started_at=100, session_id="wal-session")
+        wal_db.checkpoint_playtime_session(session_id, 60)
+        assert wal_db.get_playtime(wal_game_id) == 60, "Session checkpoint did not update derived playtime"
+        wal_db.checkpoint_playtime_session(session_id, 120, finalized=True, ended_at=220)
+        assert wal_db.get_playtime(wal_game_id) == 120, "Final session was double-counted in playtime aggregate"
+        _create_database_backup(wal_path, wal_db.conn, force=True)
+        backup_conn = sqlite3.connect(wal_path + ".bak")
+        assert backup_conn.execute("SELECT COUNT(*) FROM games WHERE name = 'WAL Game'").fetchone()[0] == 1, "WAL-safe backup omitted committed game data"
+        backup_conn.close()
+        wal_db.close()
+        print("✓ WAL-safe database backup and session-ledger playtime verified")
 except Exception as e:
     print(f"✗ Database error: {e}")
     sys.exit(1)
@@ -148,6 +166,20 @@ try:
         import_res = backup.import_save(malicious_zip, dest_dir)
         assert import_res is False, "Backup manager failed to block Zip Slip attack!"
         print("✓ Zip Slip security protection verified")
+
+        # A destination may already contain Wine/game symlinks. Archive paths
+        # must be checked after resolving them, or a member such as link/file
+        # can escape the selected restore root.
+        outside_dir = os.path.join(tmp_dir, "outside")
+        os.makedirs(outside_dir)
+        symlink_dir = os.path.join(dest_dir, "escape_link")
+        os.symlink(outside_dir, symlink_dir)
+        symlink_escape_zip = os.path.join(tmp_dir, "symlink-escape.zip")
+        with zipfile.ZipFile(symlink_escape_zip, "w") as zf:
+            zf.writestr("escape_link/escaped-save.dat", "must not escape")
+        assert backup.import_save(symlink_escape_zip, dest_dir) is False, "Restore followed an escaping destination symlink"
+        assert not os.path.exists(os.path.join(outside_dir, "escaped-save.dat")), "Restore wrote through a destination symlink"
+        print("✓ Save restore rejects destination symlink escapes")
 except Exception as e:
     print(f"✗ Backup manager error: {e}")
     sys.exit(1)
@@ -502,6 +534,7 @@ try:
             try:
                 css_mod._LISTING_CACHE = {
                     "ts": 9999999999.0,
+                    "context": css_mod.cloud_context_fingerprint(),
                     "data": {"games": [
                         {"nameKey": "Dave the Diver", "displayName": "Dave the Diver"},
                         {"nameKey": "Cassette Beasts", "displayName": "Cassette Beasts"},

@@ -133,6 +133,7 @@ class MainWindow(QMainWindow):
     _cloud_poll_changed = pyqtSignal(list)    # games whose cloud save changed mid-session
     _save_restore_finished = pyqtSignal(int, str, bool)  # (game_id, game_name, success)
     _prelaunch_restore_done = pyqtSignal(object)          # {"ctx", "ok", "toast"} after conflict restore
+    _startup_backend_health_ready = pyqtSignal(object)
 
 
     def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager):
@@ -157,6 +158,9 @@ class MainWindow(QMainWindow):
         self.steam_check_results = {}
         self.cloud_save_status_cache = {}
         self._cloud_save_checked_ts = {}
+        # Incremented whenever the configured cloud identity changes. Every
+        # asynchronous status result is bound to the generation that created it.
+        self._cloud_context_generation = 0
         self.achievement_status_cache = {}
         self._achievement_checked_ts = {}
         self.local_version_by_game_id = {}
@@ -189,6 +193,7 @@ class MainWindow(QMainWindow):
         self._prelaunch_resolved.connect(self._finish_prelaunch_sync)
         self._save_restore_finished.connect(self._on_save_restore_finished)
         self._prelaunch_restore_done.connect(self._on_prelaunch_restore_done)
+        self._startup_backend_health_ready.connect(self._on_startup_backend_health_ready)
 
 
         # Background maintenance: prune orphaned temp files
@@ -1164,6 +1169,16 @@ class MainWindow(QMainWindow):
             self._update_check_timer.start(3000)
         else:
             self._update_check_timer = None
+        self._startup_app_update_info = None
+        self._startup_backend_health = None
+        self._startup_update_notice_shown = False
+        if (
+            not self._offline_test_mode
+            and os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") != "1"
+        ):
+            # Let the main window and welcome wizard finish opening before the
+            # optional network probe can present a notification.
+            QTimer.singleShot(3200, self._check_backend_update_on_startup)
         self._start_cloud_poll_timer()
 
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
@@ -1182,9 +1197,89 @@ class MainWindow(QMainWindow):
             self._update_worker.start()
         except Exception as e:
             logger.debug(f"Failed to start update worker: {e}")
+            self._startup_app_update_info = {}
+            self._maybe_show_startup_update_notice()
+
+    def _check_backend_update_on_startup(self):
+        """Probe the configured cloud backend without delaying window startup."""
+        if self._startup_backend_health is not None:
+            return
+        try:
+            from core.cloud_backend import get_site_url
+
+            site_url = get_site_url()
+            if not site_url:
+                self._startup_backend_health = {}
+                self._maybe_show_startup_update_notice()
+                return
+
+            secret_key = str(self.settings.value("cloud_secret_key", "") or "").strip()
+
+            def _probe():
+                try:
+                    from core.cloud_backend import check_backend_health
+
+                    result = check_backend_health(site_url, secret_key, timeout=5.0)
+                except Exception as exc:
+                    result = {"healthy": False, "is_outdated": False, "error": str(exc)}
+                self._startup_backend_health_ready.emit(result)
+
+            threading.Thread(
+                target=_probe,
+                daemon=True,
+                name="SafeLauncher-StartupBackendProbe",
+            ).start()
+        except Exception as exc:
+            logger.debug(f"Failed to start startup backend probe: {exc}")
+            self._startup_backend_health = {}
+            self._maybe_show_startup_update_notice()
+
+    def _on_startup_backend_health_ready(self, health: dict):
+        self._startup_backend_health = health or {}
+        self._maybe_show_startup_update_notice()
+
+    def _maybe_show_startup_update_notice(self):
+        """Show one non-blocking launch notification once both checks complete."""
+        if self._startup_update_notice_shown:
+            return
+        if self._startup_app_update_info is None or self._startup_backend_health is None:
+            return
+
+        notices = []
+        app_info = self._startup_app_update_info
+        if app_info.get("update_available"):
+            latest = app_info.get("latest_version") or "a newer version"
+            notices.append(f"SafeLauncher {latest} is available.")
+
+        backend = self._startup_backend_health
+        if backend.get("is_outdated"):
+            version = backend.get("version") or "an older version"
+            minimum = backend.get("min_version") or "the latest"
+            notices.append(
+                f"Your cloud backend is {version}; SafeLauncher requires {minimum} or newer."
+            )
+
+        if not notices:
+            return
+
+        self._startup_update_notice_shown = True
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Updates available")
+        dialog.setIcon(QMessageBox.Icon.Information)
+        dialog.setText("\n\n".join(notices))
+        dialog.setInformativeText(
+            "Use the update banner to update SafeLauncher. "
+            "For the cloud backend, open Settings → Cloud and choose Redeploy."
+        )
+        dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+        self._startup_update_notice = dialog
+        dialog.open()
 
     def _on_app_update_check_finished(self, info: dict):
         """Display non-intrusive update banner if a new release is detected."""
+        info = info or {}
+        self._startup_app_update_info = info or {}
+        self._maybe_show_startup_update_notice()
         if not info.get("update_available"):
             return
 
@@ -1322,6 +1417,7 @@ class MainWindow(QMainWindow):
             self.settings.value("cloud_mode", "local", type=str),
             self.settings.value("convex_site_url", "", type=str),
             self.settings.value("cloud_secret_key", "", type=str),
+            self.settings.value("cloud_saves_dir", "", type=str),
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             previous_name = self.user_name
@@ -1381,6 +1477,7 @@ class MainWindow(QMainWindow):
             self.settings.value("cloud_mode", "local", type=str),
             self.settings.value("convex_site_url", "", type=str),
             self.settings.value("cloud_secret_key", "", type=str),
+            self.settings.value("cloud_saves_dir", "", type=str),
         )
         if current != before:
             self._refresh_cloud_after_config_change()
@@ -1394,9 +1491,9 @@ class MainWindow(QMainWindow):
         configuration — the UI must never keep claiming the old
         connected/disconnected state.
         """
-        import core.cloud_save_sync as css
-        css._invalidate_cloud_listing()
-        css._backend_singleton = None
+        from core.cloud_save_sync import reset_cloud_backend
+        reset_cloud_backend()
+        self._cloud_context_generation += 1
         self.cloud_save_status_cache.clear()
         self._cloud_save_checked_ts.clear()
         for widget in self.banner_widgets.values():
@@ -3084,28 +3181,32 @@ class MainWindow(QMainWindow):
             with open(cache_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            cloud_cache = data.get("cloud_save_status", {})
-            for gid_str, entry in cloud_cache.items():
-                try:
-                    gid = int(gid_str)
-                    stat_val = entry.get("status")
-                    if stat_val:
-                        l_stats = SaveStats(
-                            exists=entry.get("local_exists", False),
-                            last_modified=entry.get("local_mtime", 0.0),
-                            size_bytes=entry.get("local_size", 0),
-                            file_count=entry.get("local_count", 0),
-                            display_path=entry.get("display_path", "")
-                        )
-                        c_stats = SaveStats(
-                            exists=entry.get("cloud_exists", False),
-                            last_modified=entry.get("cloud_mtime", 0.0),
-                            size_bytes=entry.get("cloud_size", 0)
-                        )
-                        self.cloud_save_status_cache[gid] = (SyncStatus(stat_val), l_stats, c_stats)
-                        self._cloud_save_checked_ts[gid] = entry.get("checked_at", time.time())
-                except Exception:
-                    continue
+            from core.cloud_save_sync import cloud_context_fingerprint
+            # A status cache belongs to one endpoint/account. Old entries are
+            # not useful hints after a credential or backend switch.
+            if data.get("cloud_context") == cloud_context_fingerprint():
+                cloud_cache = data.get("cloud_save_status", {})
+                for gid_str, entry in cloud_cache.items():
+                    try:
+                        gid = int(gid_str)
+                        stat_val = entry.get("status")
+                        if stat_val:
+                            l_stats = SaveStats(
+                                exists=entry.get("local_exists", False),
+                                last_modified=entry.get("local_mtime", 0.0),
+                                size_bytes=entry.get("local_size", 0),
+                                file_count=entry.get("local_count", 0),
+                                display_path=entry.get("display_path", "")
+                            )
+                            c_stats = SaveStats(
+                                exists=entry.get("cloud_exists", False),
+                                last_modified=entry.get("cloud_mtime", 0.0),
+                                size_bytes=entry.get("cloud_size", 0)
+                            )
+                            self.cloud_save_status_cache[gid] = (SyncStatus(stat_val), l_stats, c_stats)
+                            self._cloud_save_checked_ts[gid] = entry.get("checked_at", time.time())
+                    except Exception:
+                        continue
 
             attempted_tags = data.get("attempted_tags", [])
             self.metadata_attempted_tags = set(int(x) for x in attempted_tags if str(x).isdigit())
@@ -3145,6 +3246,7 @@ class MainWindow(QMainWindow):
         """Atomically persist cloud save status, Steam lookup, and achievement cache to ~/.cache/safelauncher/metadata_cache.json."""
         import json
         import time
+        from core.cloud_save_sync import cloud_context_fingerprint
         cache_dir = os.path.expanduser("~/.cache/safelauncher")
         os.makedirs(cache_dir, exist_ok=True)
         cache_file = os.path.join(cache_dir, "metadata_cache.json")
@@ -3189,6 +3291,7 @@ class MainWindow(QMainWindow):
 
             payload = {
                 "cloud_save_status": cloud_dict,
+                "cloud_context": cloud_context_fingerprint(),
                 "attempted_tags": list(self.metadata_attempted_tags),
                 "steam_builds": builds_dict,
                 "achievements": achievements_dict,
@@ -3386,6 +3489,13 @@ class MainWindow(QMainWindow):
         self._cloud_save_checked_ts[game_id] = time.time()
         self._render_cloud_status(game_id, status, local_stats, cloud_stats)
         self._save_persistent_cache()
+
+    def _accept_cloud_status_for_context(self, generation: int, game_id: int, status, local_stats, cloud_stats):
+        """Discard an asynchronous cloud result from a retired configuration."""
+        if generation != self._cloud_context_generation:
+            logger.debug("Discarded cloud status for game %s from retired context %s", game_id, generation)
+            return
+        self._on_cloud_save_status_calculated(game_id, status, local_stats, cloud_stats)
 
     def _update_detail_panel(self):
         """Update left panel with current selected game details and trigger smooth slide animation."""
@@ -4279,9 +4389,8 @@ class MainWindow(QMainWindow):
         super().keyPressEvent(event)
 
     def _on_playtime_recorded(self, game_id: int, elapsed_seconds: int):
-        """Called (on main thread) when a game exits — persists and displays playtime and last_played timestamp."""
+        """Called after the session ledger is finalized when a game exits."""
         import time
-        self.db.add_playtime(game_id, elapsed_seconds)
         self.db.update_last_played(game_id, int(time.time()))
         total = self.db.get_playtime(game_id)
         if game_id in self.banner_widgets:
@@ -4446,6 +4555,7 @@ class MainWindow(QMainWindow):
         if not backend_active():
             return
         tag = f" ({reason})" if reason else ""
+        generation = self._cloud_context_generation
         games_snapshot = [
             (g[0], g[1], g[2], str(g[6]).strip() if len(g) > 6 and g[6] else "")
             for g in list(self.games)
@@ -4477,7 +4587,10 @@ class MainWindow(QMainWindow):
                 logger.info(f"Cloud recheck{tag} skipped: batch worker already running.")
                 return
             worker = CloudSaveBatchQueueWorker(targets, max_workers=3, parent=self)
-            worker.game_status_ready.connect(self._on_cloud_save_status_calculated)
+            worker.game_status_ready.connect(
+                lambda gid, status, local, cloud, g=generation:
+                self._accept_cloud_status_for_context(g, gid, status, local, cloud)
+            )
             worker.batch_finished.connect(self._on_cloud_batch_finished)
             self._track_metadata_fetcher(worker)
             worker.start()
@@ -4487,7 +4600,7 @@ class MainWindow(QMainWindow):
             by_id = {g[0]: g for g in games_snapshot}
             self._spawn_status_fetchers(
                 [by_id[gid] for gid in game_ids if gid in by_id],
-                self._on_cloud_save_status_calculated, tag)
+                self._on_cloud_save_status_calculated, tag, generation=generation)
             return
 
         # Changed-only: diff a fresh listing against the cached statuses on a
@@ -4527,15 +4640,23 @@ class MainWindow(QMainWindow):
 
         threading.Thread(target=_diff, daemon=True, name="SafeLauncher-CloudRecheckDiff").start()
 
-    def _spawn_status_fetchers(self, targets: list, on_result, tag: str = ""):
+    def _spawn_status_fetchers(self, targets: list, on_result, tag: str = "", generation=None):
         """Spawn per-game status fetchers, skipping games already in flight."""
+        if generation is None:
+            generation = self._cloud_context_generation
         for gid, name, path, steam_id in targets:
             if any(isinstance(f, CloudSaveStatusFetcherThread) and f.game_id == gid and f.isRunning()
                    for f in self.metadata_fetchers):
                 logger.debug(f"Cloud recheck{tag}: fetcher for '{name}' already running.")
                 continue
             fetcher = CloudSaveStatusFetcherThread(gid, name, path or "", steam_id or "", parent=self)
-            fetcher.save_status_calculated.connect(on_result)
+            def _deliver(gid, status, local, cloud, g=generation, callback=on_result):
+                if g != self._cloud_context_generation:
+                    logger.debug("Discarded cloud status for game %s from retired context %s", gid, g)
+                    return
+                callback(gid, status, local, cloud)
+
+            fetcher.save_status_calculated.connect(_deliver)
             self._track_metadata_fetcher(fetcher)
             fetcher.start()
 
@@ -4646,6 +4767,8 @@ class MainWindow(QMainWindow):
                 fetcher = AchievementStatusFetcherThread(gid, g_name, g_path or "", g_steam_id, g_proton_path, db_path=db_path, parent=self)
                 fetcher.achievement_status_calculated.connect(self._on_achievement_status_calculated)
                 self._track_metadata_fetcher(fetcher)
+                # _track_metadata_fetcher owns and starts the targeted worker,
+                # matching the full-library queue path above.
 
     def _start_background_achievement_sync(self):
         """Startup achievement check and sync queue across the library."""
