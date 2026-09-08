@@ -571,14 +571,13 @@ class UserSettingsDialog(QDialog):
         # Asynchronously calculate sandbox directory size without blocking dialog opening.
         # A queued signal marshals the result onto the GUI thread — QTimer must never
         # be started from a foreign thread.
-        import threading
         self._sandbox_size_ready.connect(self._on_sandbox_size_ready)
         def _calc_sandbox():
             try:
-                self._sandbox_size_ready.emit(get_dir_size(sandbox_dir))
+                return get_dir_size(sandbox_dir)
             except Exception:
-                pass
-        threading.Thread(target=_calc_sandbox, daemon=True, name="SafeLauncher-StorageCalc").start()
+                return 0
+        self._task_supervisor.start("SafeLauncher-StorageCalc", _calc_sandbox, self._on_sandbox_size_ready)
 
         self.combo_screenshot_screen = QComboBox()
         screens = get_available_screens()
@@ -1323,7 +1322,7 @@ class UserSettingsDialog(QDialog):
 
         worker = self._task_supervisor.start(name, work, _complete)
         if operation is not None:
-            operation.cancel = worker.requestInterruption
+            operation.cancel = getattr(worker, "request_cancel", worker.requestInterruption)
             operation.retry = lambda: self._start_managed_task(name, work, on_complete)
             worker.error_occurred.connect(
                 lambda error, op_id=operation.operation_id: registry.fail(op_id, error)
@@ -2300,7 +2299,6 @@ class DiskManagerDialog(QDialog):
         # One worker computes the sandbox total and every game size, then hands
         # the ranked results back through a queued signal (thread-safe emit).
         self._sizes_ready.connect(self._on_sizes_ready)
-        import threading
         def _compute_sizes():
             results = []
             for g in games:
@@ -2315,8 +2313,9 @@ class DiskManagerDialog(QDialog):
                 store_dir_size(path, sz)  # feed shared cache for list view/sorting
                 results.append((name, path, sz))
             results.sort(key=lambda x: x[2], reverse=True)
-            self._sizes_ready.emit(results)
-        threading.Thread(target=_compute_sizes, daemon=True, name="SafeLauncher-DiskSizes").start()
+            return results
+        self._task_supervisor = TaskSupervisor(self, logger)
+        self._task_supervisor.start("SafeLauncher-DiskSizes", _compute_sizes, self._on_sizes_ready)
 
         scroll.setWidget(list_widget)
         body_layout.addWidget(scroll)
@@ -2350,6 +2349,14 @@ class DiskManagerDialog(QDialog):
                 self._game_rows_layout.addWidget(self._build_size_row(name, path, sz))
         except RuntimeError:
             pass  # dialog already destroyed
+
+    def closeEvent(self, event):
+        self._task_supervisor.cancel_all(100)
+        if self._task_supervisor.has_running_tasks():
+            QTimer.singleShot(100, self.close)
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def _build_size_row(self, name: str, path: str, sz: int) -> QFrame:
         row_frame = QFrame()

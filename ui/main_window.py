@@ -3,7 +3,6 @@ import re
 import time
 import shutil
 import subprocess
-import threading
 from datetime import datetime
 from html import escape
 from typing import Optional, List, Dict, Tuple, Any, Set
@@ -222,7 +221,11 @@ class MainWindow(QMainWindow):
         # Background maintenance: prune orphaned temp files
         try:
             from core.prefix_sanitizer import cleanup_global_temp_files
-            threading.Thread(target=cleanup_global_temp_files, daemon=True, name="SafeLauncher-TempPrune").start()
+            self._start_managed_task(
+                "SafeLauncher-TempPrune",
+                cleanup_global_temp_files,
+                lambda result: logger.debug("Temporary-file cleanup finished: %s", result),
+            )
         except Exception:
             pass
 

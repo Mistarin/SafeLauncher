@@ -129,16 +129,14 @@ def main():
         window.close()
         sys.exit(0)
 
-    # 4. Ensure the bundled ludusavi save-detection engine is present.
-    #    Runs on a daemon thread: never download on the GUI thread; until it
-    #    finishes (or if it fails) detection falls back to heuristics.
-    import threading
+    # 4. Ensure the bundled ludusavi save-detection engine is present.  The
+    #    main window owns this task so shutdown can cancel and report it.
     from core.ludusavi_installer import ensure_ludusavi
-    threading.Thread(
-        target=ensure_ludusavi,
-        daemon=True,
-        name="SafeLauncher-LudusaviBootstrap",
-    ).start()
+    window._start_managed_task(
+        "SafeLauncher-LudusaviBootstrap",
+        ensure_ludusavi,
+        lambda result: logger.info("Ludusavi bootstrap finished: %s", result),
+    )
 
     window.show()
     logger.info("SafeLauncher UI started successfully.")

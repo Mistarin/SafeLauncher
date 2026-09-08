@@ -134,7 +134,10 @@ class TaskSupervisor(QObject):
     def cancel_all(self, wait_ms: int = 100) -> None:
         for worker in list(self._workers):
             if worker.isRunning():
-                worker.requestInterruption()
+                if hasattr(worker, "request_cancel"):
+                    worker.request_cancel()
+                else:
+                    worker.requestInterruption()
                 worker.wait(wait_ms)
 
     def has_running_tasks(self) -> bool:

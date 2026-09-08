@@ -508,7 +508,7 @@ class SaveManagerDialog(QDialog):
 
         worker = self._task_supervisor.start(name, work, _complete)
         if operation is not None:
-            operation.cancel = worker.requestInterruption
+            operation.cancel = getattr(worker, "request_cancel", worker.requestInterruption)
             operation.retry = lambda: self._start_managed_task(name, work, on_complete)
             worker.error_occurred.connect(
                 lambda error, op_id=operation.operation_id: registry.fail(op_id, error)
