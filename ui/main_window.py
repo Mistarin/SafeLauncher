@@ -1220,16 +1220,15 @@ class MainWindow(QMainWindow):
                 try:
                     from core.cloud_backend import check_backend_health
 
-                    result = check_backend_health(site_url, secret_key, timeout=5.0)
+                    return check_backend_health(site_url, secret_key, timeout=5.0)
                 except Exception as exc:
-                    result = {"healthy": False, "is_outdated": False, "error": str(exc)}
-                self._startup_backend_health_ready.emit(result)
+                    return {"healthy": False, "is_outdated": False, "error": str(exc)}
 
-            threading.Thread(
-                target=_probe,
-                daemon=True,
-                name="SafeLauncher-StartupBackendProbe",
-            ).start()
+            self._start_managed_task(
+                "SafeLauncher-StartupBackendProbe",
+                _probe,
+                self._startup_backend_health_ready.emit,
+            )
         except Exception as exc:
             logger.debug(f"Failed to start startup backend probe: {exc}")
             self._startup_backend_health = {}
@@ -1495,6 +1494,10 @@ class MainWindow(QMainWindow):
         from core.cloud_save_sync import reset_cloud_backend
         reset_cloud_backend()
         self._cloud_context_generation += 1
+        # A diff started for the retired backend must not prevent the new
+        # backend from being checked immediately. Its completion is ignored
+        # below by generation, and this flag belongs to the current context.
+        self._cloud_poll_in_flight = False
         self.cloud_save_status_cache.clear()
         self._cloud_save_checked_ts.clear()
         for widget in self.banner_widgets.values():
@@ -4462,7 +4465,7 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 logger.debug(f"Launcher metadata background sync failed for '{name}': {exc}")
 
-        threading.Thread(target=run, daemon=True, name="SafeLauncher-MetadataSync").start()
+        self._start_managed_task("SafeLauncher-MetadataSync", run)
 
     def _cleanup_tracker(self, tracker: PlaytimeTrackerThread):
         """Remove finished tracker from the list so it can be garbage collected."""
@@ -4530,11 +4533,9 @@ class MainWindow(QMainWindow):
                         payload["reason"] = str(err)
                     return payload
 
-                threading.Thread(
-                    target=lambda: self._save_op_done.emit(_exit_sync()),
-                    daemon=True,
-                    name="SafeLauncher-ExitSync",
-                ).start()
+                self._start_managed_task(
+                    "SafeLauncher-ExitSync", _exit_sync, self._save_op_done.emit
+                )
                 # _save_op_done → _on_exit_save_sync_done is connected once in
                 # __init__; concurrent exits each carry their own payload.
         except Exception as sync_exit_err:
@@ -4626,7 +4627,6 @@ class MainWindow(QMainWindow):
             )
             worker.batch_finished.connect(self._on_cloud_batch_finished)
             self._track_metadata_fetcher(worker)
-            worker.start()
             return
 
         if game_ids:
@@ -4649,8 +4649,7 @@ class MainWindow(QMainWindow):
             try:
                 _get_cloud_listing(force_refresh=True)
             except Exception:
-                self._cloud_poll_in_flight = False
-                return
+                return []
             changed = []
             for gid, name, path, steam_id in games_snapshot:
                 try:
@@ -4667,11 +4666,22 @@ class MainWindow(QMainWindow):
                         changed.append((gid, name, path, steam_id))
                 except Exception:
                     continue
+            return changed
+
+        def _finish_diff(changed, expected_generation=generation):
             self._cloud_poll_in_flight = False
+            if expected_generation != self._cloud_context_generation:
+                logger.debug(
+                    "Discarded cloud listing diff from retired context %s",
+                    expected_generation,
+                )
+                return
             if changed:
                 self._cloud_poll_changed.emit(changed)
 
-        threading.Thread(target=_diff, daemon=True, name="SafeLauncher-CloudRecheckDiff").start()
+        self._start_managed_task(
+            "SafeLauncher-CloudRecheckDiff", _diff, _finish_diff
+        )
 
     def _spawn_status_fetchers(self, targets: list, on_result, tag: str = "", generation=None):
         """Spawn per-game status fetchers, skipping games already in flight."""
@@ -4691,7 +4701,6 @@ class MainWindow(QMainWindow):
 
             fetcher.save_status_calculated.connect(_deliver)
             self._track_metadata_fetcher(fetcher)
-            fetcher.start()
 
     def _start_background_cloud_sync(self):
         """Startup cloud save check & sync queue across the library."""
@@ -4888,13 +4897,26 @@ class MainWindow(QMainWindow):
             return
 
         if still_running:
-            logger.error(
-                f"Forcing quit past shutdown deadline; terminating "
-                f"{len(still_running)} unresponsive worker(s)."
-            )
-            for worker in still_running:
-                worker.terminate()
-                worker.wait(1000)
+            # QThread.terminate() can stop Python or a Qt extension while it
+            # owns allocator/interpreter state. That turns a slow shutdown
+            # into an intermittent native crash (and can corrupt a save
+            # operation). Keep the hidden window alive until cooperative
+            # cancellation finishes instead; every owned network task has a
+            # bounded timeout and workers suppress completion after an
+            # interruption request.
+            if not getattr(self, "_shutdown_overdue_logged", False):
+                self._shutdown_overdue_logged = True
+                names = ", ".join(
+                    worker.objectName() or worker.__class__.__name__
+                    for worker in still_running
+                )
+                logger.warning(
+                    "Waiting for %d worker(s) to stop safely after shutdown deadline: %s",
+                    len(still_running), names,
+                )
+            QTimer.singleShot(250, self.close)
+            event.ignore()
+            return
 
         if hasattr(self, "tray_icon") and self.tray_icon:
             try:
