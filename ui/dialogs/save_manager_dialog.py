@@ -21,6 +21,11 @@ from ui.icons import get_icon, get_app_icon
 from ui.components.sidebar import DialogTitleBar
 from ui.components.check_field import CheckField as QCheckBox
 from core.ludusavi_detector import LudusaviDetector, SaveLocation
+from core.save_validation import (
+    describe_validation_failures,
+    validate_save_locations,
+)
+from core.cloud_operations import CloudOperationCoordinator, classify_cloud_error
 from core.zip_backup import ZipBackupManager
 from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
@@ -39,23 +44,6 @@ class SaveOperationResult:
     guidance: str = ""
     retry_safe: bool = True
     log_path: str = ""
-
-
-def _classify_save_error(error: str) -> tuple[str, str]:
-    text = (error or "").lower()
-    if "404" in text or "endpoint not found" in text:
-        return "backend_unavailable", "Check that the configured Convex Site URL is correct and redeploy the SafeLauncher backend if the endpoint is missing."
-    if "401" in text or "403" in text or "authentication" in text or "secret key" in text:
-        return "authentication", "Open Settings → Cloud and verify the Site URL and Secret Access Key."
-    if "no local save" in text or "not found" in text or "selected paths" in text:
-        return "local_save_missing", "Rescan Save Locations and select a readable save directory or file."
-    if "read" in text or "permission" in text or "access" in text:
-        return "local_save_unreadable", "Check file permissions, close the game, then rescan the detected save locations."
-    if "quota" in text or "too large" in text or "413" in text:
-        return "quota", "Check cloud storage usage and deploy the current backend if an older size limit is still active."
-    if "timeout" in text or "connection" in text or "network" in text:
-        return "backend_unavailable", "Check the network connection and cloud configuration, then retry."
-    return "unknown", "Review the logs for the exact cause, then retry after correcting the reported problem."
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -546,6 +534,45 @@ class SaveManagerDialog(QDialog):
         self._hide_recovery()
         retry()
 
+    def _validate_selected_locations(self, selected_locations, operation: str):
+        """Return fresh locations or a recovery result with exact failures."""
+        results = validate_save_locations(selected_locations)
+        failures = describe_validation_failures(results)
+        if failures:
+            category = (
+                "local_save_missing"
+                if any("no longer exists" in result.reason for result in results if not result.valid)
+                else "local_save_unreadable"
+            )
+            return [], SaveOperationResult(
+                False,
+                operation,
+                self.game_name,
+                error=failures,
+                category=category,
+                guidance=(
+                    "Rescan Save Locations, confirm the files are readable, "
+                    "and select the locations again before retrying."
+                ),
+                retry_safe=False,
+                log_path=self._last_operation_log_path,
+            )
+        return [result.location for result in results], None
+
+    @staticmethod
+    def _save_operation_from_cloud_result(result) -> SaveOperationResult:
+        """Adapt the shared cloud boundary to the dialog's recovery model."""
+        return SaveOperationResult(
+            result.success,
+            result.operation,
+            result.game_name,
+            error=result.error,
+            category=result.category,
+            guidance=result.guidance,
+            retry_safe=result.success or result.category not in {"local_save_missing", "local_save_unreadable"},
+            log_path=result.log_path,
+        )
+
     def _open_cloud_settings(self) -> None:
         parent = self.parent()
         if parent is not None and hasattr(parent, "_open_settings"):
@@ -675,6 +702,15 @@ class SaveManagerDialog(QDialog):
             QMessageBox.warning(self, "No Saves Selected", "Select at least one detected save location to upload.")
             return
 
+        # Do not trust the detector's cached file counts. This catches the
+        # common case where a game cleaned up its save directory after scan.
+        selected_locations, validation_error = self._validate_selected_locations(
+            selected_locations, "Cloud upload"
+        )
+        if validation_error is not None:
+            self._show_recovery(validation_error, retry=self._upload_selected)
+            return
+
         confirm = QMessageBox.question(
             self,
             "Upload Saves to Cloud",
@@ -698,33 +734,21 @@ class SaveManagerDialog(QDialog):
         self._last_operation_retry = self._upload_selected
 
         def _worker():
-            success = False
-            error_message = ""
-            try:
-                from core.cloud_save_sync import CloudSaveSyncEngine
-                success = CloudSaveSyncEngine.sync_local_to_cloud(
-                    self.game_name,
-                    self.game_path,
-                    steam_id=self.steam_id,
-                    locations=selected_locations,
-                )
-                if not success:
-                    error_message = CloudSaveSyncEngine.last_sync_error()
-            except Exception as e:
-                logger.error(f"Cloud upload failed for '{self.game_name}': {e}")
-                error_message = str(e)
-            if success:
-                return SaveOperationResult(True, "Cloud upload", self.game_name)
-            category, guidance = _classify_save_error(error_message)
-            return SaveOperationResult(
-                False,
-                "Cloud upload",
-                self.game_name,
-                error=error_message or "The save could not be uploaded.",
-                category=category,
-                guidance=guidance,
-                log_path=self._last_operation_log_path,
+            # Recheck in the worker immediately before the cloud engine starts
+            # packaging. The UI preflight prevents needless confirmation; this
+            # second check closes the scan-to-upload race.
+            fresh_locations, validation_error = self._validate_selected_locations(
+                selected_locations, "Cloud upload"
             )
+            if validation_error is not None:
+                return validation_error
+            result = CloudOperationCoordinator.upload_local_save(
+                self.game_name,
+                self.game_path,
+                steam_id=self.steam_id,
+                locations=fresh_locations,
+            )
+            return self._save_operation_from_cloud_result(result)
 
         self._start_managed_task(
             f"SafeLauncher-SaveUpload-{self.game_id}",
@@ -770,6 +794,12 @@ class SaveManagerDialog(QDialog):
         )
 
         if export_path:
+            selected_locations, validation_error = self._validate_selected_locations(
+                selected_locations, "Save export"
+            )
+            if validation_error is not None:
+                self._show_recovery(validation_error, retry=self._export_selected)
+                return
             success = self.backup_mgr.export_save_locations(
                 selected_locations,
                 export_path,
@@ -779,7 +809,19 @@ class SaveManagerDialog(QDialog):
             if success:
                 QMessageBox.information(self, "Export Successful", f"Save snapshot saved to:\n{export_path}")
             else:
-                QMessageBox.critical(self, "Export Error", "Failed to package save snapshot.")
+                result = SaveOperationResult(
+                    False,
+                    "Save export",
+                    self.game_name,
+                    error=(
+                        "The save files changed or became unavailable while the snapshot was being packaged."
+                    ),
+                    category="local_save_unreadable",
+                    guidance="Rescan Save Locations, confirm the files are readable, and export again.",
+                    retry_safe=False,
+                    log_path=self._last_operation_log_path,
+                )
+                self._show_recovery(result, retry=self._export_selected)
 
     def _import_snapshot(self):
         import_path, _ = QFileDialog.getOpenFileName(
@@ -849,7 +891,7 @@ class SaveManagerDialog(QDialog):
         """Populate history list on the main thread after async worker finishes."""
         if versions and isinstance(versions[0], dict) and versions[0].get("__error__"):
             error = str(versions[0].get("__error__"))
-            category, guidance = _classify_save_error(error)
+            category, guidance = classify_cloud_error(error)
             self._show_recovery(
                 SaveOperationResult(False, "History load", self.game_name, error, category, guidance),
                 retry=self._load_history,
@@ -1073,7 +1115,7 @@ class SaveManagerDialog(QDialog):
             self.btn_export.setEnabled(True)
             if hasattr(self, "btn_cloud"):
                 self.btn_cloud.setEnabled(True)
-            category, guidance = _classify_save_error("Could not reach the cloud to check save status")
+            category, guidance = classify_cloud_error("Could not reach the cloud to check save status")
             self._show_recovery(
                 SaveOperationResult(False, "Cloud preflight", self.game_name,
                                     "Could not reach the cloud to check save status.", category, guidance),
@@ -1084,7 +1126,7 @@ class SaveManagerDialog(QDialog):
 
         if title.startswith("__restore_error__"):
             error = title[len("__restore_error__"):].strip()
-            category, guidance = _classify_save_error(error)
+            category, guidance = classify_cloud_error(error)
             self._show_recovery(
                 SaveOperationResult(False, "Cloud restore", self.game_name,
                                     error or "Cloud restore failed.", category, guidance),
@@ -1111,7 +1153,7 @@ class SaveManagerDialog(QDialog):
             self._load_history()
             self._notify_parent_changed()
         else:
-            category, guidance = _classify_save_error(f"Failed to restore '{title}'.")
+            category, guidance = classify_cloud_error(f"Failed to restore '{title}'.")
             self._show_recovery(
                 SaveOperationResult(False, "Save restore", self.game_name,
                                     f"Failed to restore '{title}'.", category, guidance),

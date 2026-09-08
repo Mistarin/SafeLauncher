@@ -502,6 +502,7 @@ try:
     from ui.dialogs.game_dialogs import CustomRemoveDialog, ManageCollectionGamesDialog
     # Test Ludusavi Save Detector & Multi-Location Backup
     from core.ludusavi_detector import LudusaviDetector, SaveLocation
+    from core.save_validation import validate_save_location
     from ui.dialogs.save_manager_dialog import SaveManagerDialog
     with tempfile.TemporaryDirectory() as tmp_save_game:
         # Create mock Wine/UMU prefix hierarchy
@@ -514,6 +515,19 @@ try:
         assert len(detected) >= 1, "Failed to detect mock save game in Saved Games"
         assert detected[0].file_count >= 1, "File count detection failed"
         print("✓ Ludusavi save detector heuristics verified across UMU/Wine prefix")
+
+        # Save Manager must refresh cached detector metadata and accept valid
+        # zero-byte files, while rejecting a path removed after the scan.
+        zero_file = os.path.join(user_saved_games, "empty.sav")
+        open(zero_file, "wb").close()
+        stale = SaveLocation("empty.sav", zero_file, False, file_count=99, total_size_bytes=99)
+        fresh = validate_save_location(stale)
+        assert fresh.valid and fresh.location.file_count == 1
+        assert fresh.location.total_size_bytes == 0
+        os.unlink(zero_file)
+        missing = validate_save_location(stale)
+        assert not missing.valid and "no longer exists" in missing.reason
+        print("✓ Save Manager preflight refreshes stale paths and reports removed saves")
 
         # Test multi-location export and manifest-aware import
         multi_zip = os.path.join(tmp_save_game, "multi_backup.zip")
