@@ -77,6 +77,9 @@ class AddGameDialog(PopupDialog):
             
         self.sgdb_client = sgdb_client
         self.banner_path = None
+        self._form_result = None
+        self._version_result = None
+        self._build_id_result = None
         self.fetcher_thread = None
         self.downloader_thread = None
         self.extractor_thread = None
@@ -292,7 +295,7 @@ class AddGameDialog(PopupDialog):
         self.add_btn.setIcon(get_app_icon("add"))
         self.add_btn.setMinimumSize(140, 38)
         self.add_btn.setStyleSheet("QPushButton { background: #2e7d32; color: white; font-weight: bold; border-radius: 6px; } QPushButton:hover { background: #388e3c; }")
-        self.add_btn.clicked.connect(self.accept)
+        self.add_btn.clicked.connect(self._accept_form)
         bottom_layout.addWidget(self.add_btn)
 
         # Give the action panel the same outer spacing as the two content
@@ -511,8 +514,8 @@ class AddGameDialog(PopupDialog):
             self.extractor_thread.requestInterruption()
             self.status_label.setText("Cancelling extraction…")
     
-    def get_values(self):
-        """Extract entered form values cleanly."""
+    def _read_form_values(self):
+        """Read form widgets while they are guaranteed to still exist."""
         mode = self.mode_combo.currentData()
         if mode not in ("umu", "umu_net", "wine", "linux"):
             mode = {
@@ -540,11 +543,30 @@ class AddGameDialog(PopupDialog):
             self.banner_path
         )
 
+    def _accept_form(self):
+        """Snapshot all form values before WA_DeleteOnClose destroys children."""
+        self._form_result = self._read_form_values()
+        self._version_result = (
+            self.version_input.text().strip(),
+            self.patch_notes_input.text().strip(),
+        )
+        if hasattr(self, "build_id_input"):
+            self._build_id_result = self.build_id_input.text().strip()
+        self.accept()
+
+    def get_values(self):
+        """Return the accepted form snapshot, or current values before exec()."""
+        if self._form_result is not None:
+            return self._form_result
+        return self._read_form_values()
+
     def get_steam_id(self) -> str:
         """Return the Steam AppID selected with the cover art, when available."""
         return self.selected_steam_id
 
     def get_version_metadata(self) -> tuple[str, str]:
+        if self._version_result is not None:
+            return self._version_result
         return self.version_input.text().strip(), self.patch_notes_input.text().strip()
 
 
@@ -643,6 +665,8 @@ class EditGameDialog(AddGameDialog):
 
     def get_build_id(self) -> str:
         """Get the manually entered or recorded Steam build ID."""
+        if self._build_id_result is not None:
+            return self._build_id_result
         return self.build_id_input.text().strip() if hasattr(self, 'build_id_input') else ""
 
 
