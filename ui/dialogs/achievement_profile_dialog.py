@@ -1,7 +1,7 @@
 """Account-wide launcher profile and resync controls."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox
 from ui.components.popup_shell import PopupDialog
 from core.safe_thread import TaskSupervisor
@@ -14,6 +14,8 @@ class AchievementProfileDialog(PopupDialog):
         super().__init__("Achievement Profile", parent)
         self.db = db
         self._busy = False
+        self._close_requested = False
+        self._pending_result = None
         self._tasks = TaskSupervisor(self)
         self._sync_done.connect(self._on_sync_done)
         root = self.popup_layout(margins=(22, 18, 22, 18), spacing=12)
@@ -48,6 +50,7 @@ class AchievementProfileDialog(PopupDialog):
 
     def _load(self):
         profile = self.db.get_profile_unlocks()
+        profile_records = self.db.get_profile_unlock_records(include_pending=True)
         profile_games = {item["identity_key"]: item for item in self.db.get_profile_games()}
         games = {}
         for game in self.db.get_all_games():
@@ -56,11 +59,15 @@ class AchievementProfileDialog(PopupDialog):
                 games.setdefault(sid, []).append(game.name)
         self.list.clear()
         total = 0
-        for app_id in sorted(profile, key=lambda value: int(value) if value.isdigit() else value):
-            count = len(profile[app_id])
+        for app_id in sorted(profile_records, key=lambda value: int(value) if value.isdigit() else value):
+            records = profile_records[app_id]
+            count = sum(1 for value in records.values() if value.get("validation_state") == "validated")
+            pending = len(records) - count
+            verified = sum(1 for value in records.values() if value.get("validation_state") == "validated" and value.get("verified"))
             total += count
             names = ", ".join(games.get(app_id, [])) or "No installed game linked"
-            item = QListWidgetItem(f"AppID {app_id} · {count} unlocked\n{names}")
+            suffix = f" · {pending} pending validation" if pending else ""
+            item = QListWidgetItem(f"AppID {app_id} · {count} unlocked · {verified} Steam verified{suffix}\n{names}")
             item.setData(Qt.ItemDataRole.UserRole, app_id)
             self.list.addItem(item)
         for identity, item in sorted(profile_games.items()):
@@ -69,9 +76,9 @@ class AchievementProfileDialog(PopupDialog):
                 self.list.addItem(QListWidgetItem(
                     f"{identity} · {'Favorite' if item.get('favorite') else 'Not favorite'} · {hours:.1f} h"
                 ))
-        if not profile:
+        if not profile_records:
             self.list.addItem(QListWidgetItem("No profile unlocks recorded yet."))
-        self.lbl_apps.setText(f"Apps: {len(profile)}")
+        self.lbl_apps.setText(f"Apps: {len(profile_records)}")
         self.lbl_unlocked.setText(f"Unlocked: {total}")
         self.lbl_favorites.setText(f"Favorites: {sum(1 for x in profile_games.values() if x.get('favorite'))}")
         total_hours = sum(int(x.get("playtime_baseline_seconds", 0) or 0) for x in profile_games.values()) / 3600
@@ -96,6 +103,26 @@ class AchievementProfileDialog(PopupDialog):
 
         self._sync_worker = self._tasks.start("AchievementProfileResync", work, self._sync_done.emit)
 
+    def _defer_close_until_tasks_finish(self, result: int) -> None:
+        self._close_requested = True
+        self._pending_result = result
+        self._tasks.cancel_all(100)
+        self.hide()
+        workers = self._tasks.running_workers()
+        for worker in workers:
+            try:
+                worker.finished.disconnect(self._finish_deferred_close)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                worker.finished.connect(self._finish_deferred_close)
+            except RuntimeError:
+                pass
+        # A cancellation can complete between cancel_all() and the snapshot
+        # above. Ensure that race still reaches the final close path.
+        if not workers:
+            QTimer.singleShot(0, self._finish_deferred_close)
+
     def _on_sync_done(self, ok):
         self._busy = False
         self.btn_resync.setEnabled(True)
@@ -105,5 +132,21 @@ class AchievementProfileDialog(PopupDialog):
             QMessageBox.warning(self, "Profile Resync", "The profile could not be synchronized. Local unlocks were preserved.")
 
     def closeEvent(self, event):
-        self._tasks.cancel_all(250)
+        if self._tasks.has_running_tasks():
+            self._defer_close_until_tasks_finish(0)
+            event.ignore()
+            return
         super().closeEvent(event)
+
+    def done(self, result: int) -> None:
+        if self._tasks.has_running_tasks():
+            self._defer_close_until_tasks_finish(result)
+            return
+        super().done(result)
+
+    def _finish_deferred_close(self):
+        if self._close_requested and not self._tasks.has_running_tasks():
+            self._close_requested = False
+            result = 0 if self._pending_result is None else self._pending_result
+            self._pending_result = None
+            super().done(result)

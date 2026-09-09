@@ -17,7 +17,7 @@ os.environ["SAFELAUNCHER_DISABLE_UPDATE_CHECK"] = "1"
 # The production app still performs all automatic sync/fetch work normally.
 os.environ["SAFELAUNCHER_OFFLINE_TEST_MODE"] = "1"
 
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QTimer, Qt, QSettings
 from ui.dialogs.settings_dialog import UserSettingsDialog
 
 # 1. Test imports
@@ -952,6 +952,21 @@ try:
     assert {x["session_id"] for x in merged_game["playtime_sessions"]} == {"s1", "s2"}
     assert merged_game["last_played"] == 200
     assert set(merged_profile["achievements"]["1321440"]) == {"ACH_ONE", "ACH_TWO"}
+    assert merged_profile["format_version"] == 3
+    # Marker-less legacy favorite records are positive facts. A default false
+    # value from the other side must not erase a favorite before a toggle has
+    # produced a causal change marker.
+    markerless_favorite = _merge_profiles(
+        {"games": {"steam:480": {"identity_key": "steam:480", "favorite": True}}},
+        {"games": {"steam:480": {"identity_key": "steam:480", "favorite": False}}},
+    )
+    assert markerless_favorite["games"]["steam:480"]["favorite"] is True
+    provenance_merge = _merge_profiles(
+        {"achievements": {"1321440": {"ACH_ONE": {"unlock_time": 90, "provenance": "local_emulator", "validation_state": "validated"}}}},
+        {"achievements": {"1321440": {"ACH_ONE": {"unlock_time": 80, "provenance": "steam_verified", "verified": True, "validation_state": "validated"}, "../../bad": {"unlock_time": 1}}}},
+    )
+    assert provenance_merge["achievements"]["1321440"]["ACH_ONE"]["verified"] is True
+    assert "../../bad" not in provenance_merge["achievements"]["1321440"]
     print("✓ Generalized profile merge preserves achievements and synchronizes game metadata")
 
     # Deploy-key storage and diagnostics must not leak credentials.
@@ -1375,7 +1390,8 @@ try:
     from core.achievement_schema import fetch_steam_achievements_schema, SteamAchievementFetcherWorker
     from core.achievement_watcher import (
         locate_achievements_file, ensure_achievement_watch_target,
-        parse_achievements_state, AchievementWatcher, resolve_achievement_prefix
+        parse_achievements_state, parse_achievements_state_detailed,
+        AchievementWatcher, resolve_achievement_prefix
     )
     from ui.components.achievement_toast import AchievementToast, send_desktop_notification
     from ui.dialogs.achievements_dialog import AchievementsDialog, AchievementCard
@@ -1445,6 +1461,17 @@ try:
         ach_db.save_achievement_schema(second_game_id, "480", mock_schema)
         assert next(a for a in ach_db.get_game_achievements(second_game_id) if a["api_name"] == "ACH_WIN_ONE_GAME")["unlocked"]
 
+        # State may arrive before a schema (or contain keys from a different
+        # format). Keep it in the pending ledger, never in visible counts,
+        # then promote it once the authoritative schema is available.
+        pending_game_id = ach_db.add_game("Pending Ach Game", "/tmp/pending-game", "game.exe", "wine", steam_id="481")
+        ach_db.record_achievement_state(pending_game_id, "481", {"ACH_LATER": 1700000020.0})
+        assert ach_db.get_profile_unlocks("481") == {}
+        assert ach_db.get_profile_unlock_records("481")["481"]["ACH_LATER"]["validation_state"] == "pending_schema"
+        ach_db.save_achievement_schema(pending_game_id, "481", [{"api_name": "ACH_LATER", "display_name": "Later"}])
+        assert ach_db.get_profile_unlocks("481")["481"]["ACH_LATER"] == 1700000020.0
+        assert ach_db.get_game_achievements(pending_game_id)[0]["verified"] is False
+
         print("✓ Database achievement schema caching, unlocking, and stats queries verified")
 
         # B. Test Achievement State File Parsing (Goldberg JSON and CODEX INI)
@@ -1457,6 +1484,8 @@ try:
         parsed_gb = parse_achievements_state(goldberg_file)
         assert "ACH_WIN_ONE_GAME" in parsed_gb
         assert parsed_gb["ACH_WIN_ONE_GAME"] == 1712345678.0
+        detailed_gb = parse_achievements_state_detailed(goldberg_file)
+        assert detailed_gb.valid and detailed_gb.format == "json"
         assert "ACH_LOCKED" not in parsed_gb
 
         codex_file = Path(tmp_dir) / "codex_achievements.ini"

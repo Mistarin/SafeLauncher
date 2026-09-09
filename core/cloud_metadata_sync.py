@@ -13,9 +13,12 @@ import os
 import tempfile
 import time
 import threading
+import math
+import re
 from typing import Optional
 
 from core.logger import get_logger
+from core.achievement_models import merge_observations
 
 logger = get_logger("CloudMetadata")
 _PROFILE_SYNC_LOCK = threading.Lock()
@@ -27,29 +30,133 @@ _PROFILE_SYNC_STATE = {
     "synced_at": 0.0,
 }
 
+_PROFILE_APP_RE = re.compile(r"^[0-9]{1,16}$")
+_PROFILE_API_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_MAX_PROFILE_APPS = 10_000
+_MAX_PROFILE_UNLOCKS_PER_APP = 20_000
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        result = int(float(value or 0))
+        return max(0, result)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        result = float(value or 0)
+        return result if math.isfinite(result) and result >= 0 else default
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def _normalise_unlock(value) -> dict:
+    """Accept old numeric/dict records but return a bounded record."""
+    if isinstance(value, dict):
+        raw_time = value.get("unlock_time", 0)
+        record = {
+            "unlock_time": raw_time,
+            "provenance": str(value.get("provenance", "unknown") or "unknown"),
+            "verified": bool(value.get("verified", False)),
+            "validation_state": str(value.get("validation_state", "pending_schema") or "pending_schema"),
+            "source_format": str(value.get("source_format", "") or "")[:32],
+        }
+    else:
+        record = {"unlock_time": value, "provenance": "local_emulator", "verified": False, "validation_state": "validated", "source_format": ""}
+    try:
+        stamp = float(record["unlock_time"] or 0)
+    except (TypeError, ValueError, OverflowError):
+        stamp = 0.0
+    record["unlock_time"] = stamp if math.isfinite(stamp) and stamp >= 0 else 0.0
+    if record["validation_state"] not in {"validated", "pending_schema"}:
+        record["validation_state"] = "pending_schema"
+    if record["provenance"] not in {"steam_verified", "local_emulator", "cloud_profile", "cache", "unknown"}:
+        record["provenance"] = "unknown"
+    record["verified"] = record["provenance"] == "steam_verified"
+    return record
+
+
+def _normalise_profile(profile: dict) -> dict:
+    """Validate untrusted cloud JSON before it enters the merge path."""
+    if not isinstance(profile, dict):
+        return {"format_version": 3, "games": {}, "achievements": {}}
+    achievements = {}
+    raw_achievements = profile.get("achievements") if isinstance(profile.get("achievements"), dict) else {}
+    for raw_app, raw_unlocks in list(raw_achievements.items())[:_MAX_PROFILE_APPS]:
+        app_id = str(raw_app).strip()
+        if not _PROFILE_APP_RE.fullmatch(app_id) or not isinstance(raw_unlocks, dict):
+            continue
+        clean = {}
+        for raw_name, raw_value in list(raw_unlocks.items())[:_MAX_PROFILE_UNLOCKS_PER_APP]:
+            name = str(raw_name).strip()
+            if _PROFILE_API_RE.fullmatch(name):
+                clean[name] = _normalise_unlock(raw_value)
+        if clean:
+            achievements[app_id] = clean
+    games = {}
+    raw_games = profile.get("games") if isinstance(profile.get("games"), dict) else {}
+    for raw_identity, raw_value in list(raw_games.items())[:_MAX_PROFILE_APPS]:
+        identity = str(raw_identity).strip()
+        if identity and len(identity) <= 256 and isinstance(raw_value, dict):
+            sessions = []
+            for raw_session in list(raw_value.get("playtime_sessions", []) or [])[:2_000]:
+                if not isinstance(raw_session, dict):
+                    continue
+                session_id = str(raw_session.get("session_id", "")).strip()
+                if not session_id or len(session_id) > 128:
+                    continue
+                sessions.append({
+                    "session_id": session_id,
+                    "started_at": _safe_int(raw_session.get("started_at")),
+                    "ended_at": _safe_int(raw_session.get("ended_at")),
+                    "duration_seconds": _safe_int(raw_session.get("duration_seconds")),
+                    "finalized": bool(raw_session.get("finalized", False)),
+                })
+            games[identity] = {
+                "identity_key": identity,
+                "app_id": str(raw_value.get("app_id", "") or "")[:32],
+                "favorite": bool(raw_value.get("favorite", False)),
+                "favorite_changed_at": _safe_float(raw_value.get("favorite_changed_at")),
+                "favorite_change_id": str(raw_value.get("favorite_change_id", "") or "")[:128],
+                "playtime_baseline_seconds": _safe_int(raw_value.get("playtime_baseline_seconds")),
+                "playtime_sessions": sessions,
+                "last_played": _safe_int(raw_value.get("last_played")),
+            }
+    return {"format_version": 3, "games": games, "achievements": achievements}
+
 
 def _merge_unlocks(local: dict, remote: dict) -> dict:
     merged = {}
+    local = local if isinstance(local, dict) else {}
+    remote = remote if isinstance(remote, dict) else {}
     for api_name in set(local) | set(remote):
-        left = local.get(api_name) or {}
-        right = remote.get(api_name) or {}
-        times = [int(x.get("unlock_time", 0) or 0) for x in (left, right) if isinstance(x, dict) and int(x.get("unlock_time", 0) or 0) > 0]
-        merged[api_name] = {"unlock_time": min(times) if times else 0}
+        name = str(api_name).strip()
+        if not _PROFILE_API_RE.fullmatch(name):
+            continue
+        left = _normalise_unlock(local.get(api_name)) if api_name in local else None
+        right = _normalise_unlock(remote.get(api_name)) if api_name in remote else None
+        merged[name] = merge_observations(left, right)
     return merged
 
 
 def _merge_sessions(local: list, remote: list) -> list:
     by_id = {}
-    for item in list(local or []) + list(remote or []):
+    local_items = local[:2_000] if isinstance(local, list) else []
+    remote_items = remote[:2_000] if isinstance(remote, list) else []
+    for item in local_items + remote_items:
         if not isinstance(item, dict) or not str(item.get("session_id", "")).strip():
             continue
-        sid = str(item["session_id"])
+        sid = str(item["session_id"]).strip()[:128]
+        if not sid:
+            continue
         old = by_id.get(sid, {})
         by_id[sid] = {
             "session_id": sid,
-            "started_at": min(int(old.get("started_at", 0) or 0), int(item.get("started_at", 0) or 0)) if old else int(item.get("started_at", 0) or 0),
-            "ended_at": max(int(old.get("ended_at", 0) or 0), int(item.get("ended_at", 0) or 0)),
-            "duration_seconds": max(int(old.get("duration_seconds", 0) or 0), int(item.get("duration_seconds", 0) or 0)),
+            "started_at": min(_safe_int(old.get("started_at")), _safe_int(item.get("started_at"))) if old else _safe_int(item.get("started_at")),
+            "ended_at": max(_safe_int(old.get("ended_at")), _safe_int(item.get("ended_at"))),
+            "duration_seconds": max(_safe_int(old.get("duration_seconds")), _safe_int(item.get("duration_seconds"))),
             "finalized": bool(old.get("finalized", False) or item.get("finalized", False)),
         }
     return sorted(by_id.values(), key=lambda x: (x["started_at"], x["session_id"]))
@@ -57,29 +164,38 @@ def _merge_sessions(local: list, remote: list) -> list:
 
 def _merge_profiles(local: dict, remote: dict) -> dict:
     """Merge the account profile without losing achievements or playtime."""
+    local = _normalise_profile(local)
+    remote = _normalise_profile(remote)
     merged_games = {}
     for identity in set((local or {}).get("games", {}) or {}) | set((remote or {}).get("games", {}) or {}):
         left = ((local or {}).get("games", {}) or {}).get(identity, {}) or {}
         right = ((remote or {}).get("games", {}) or {}).get(identity, {}) or {}
-        left_key = (float(left.get("favorite_changed_at", 0) or 0), str(left.get("favorite_change_id", "") or ""))
-        right_key = (float(right.get("favorite_changed_at", 0) or 0), str(right.get("favorite_change_id", "") or ""))
+        left_key = (_safe_float(left.get("favorite_changed_at")), str(left.get("favorite_change_id", "") or ""))
+        right_key = (_safe_float(right.get("favorite_changed_at")), str(right.get("favorite_change_id", "") or ""))
+        markerless_favorite = left_key == right_key == (0, "")
         favorite_source = right if right_key >= left_key else left
         merged_games[str(identity)] = {
             "identity_key": str(identity),
             "app_id": str(left.get("app_id") or right.get("app_id") or ""),
-            "favorite": bool(favorite_source.get("favorite", False)),
+            # Before favorite change markers existed, a remote default false
+            # must not erase a local true favorite. Once either side has a
+            # marker, the later marker remains the authoritative toggle.
+            "favorite": (
+                bool(left.get("favorite", False) or right.get("favorite", False))
+                if markerless_favorite else bool(favorite_source.get("favorite", False))
+            ),
             "favorite_changed_at": max(left_key[0], right_key[0]),
             "favorite_change_id": str(favorite_source.get("favorite_change_id", "") or ""),
-            "playtime_baseline_seconds": max(int(left.get("playtime_baseline_seconds", 0) or 0), int(right.get("playtime_baseline_seconds", 0) or 0)),
+            "playtime_baseline_seconds": max(_safe_int(left.get("playtime_baseline_seconds")), _safe_int(right.get("playtime_baseline_seconds"))),
             "playtime_sessions": _merge_sessions(left.get("playtime_sessions"), right.get("playtime_sessions")),
-            "last_played": max(int(left.get("last_played", 0) or 0), int(right.get("last_played", 0) or 0)),
+            "last_played": max(_safe_int(left.get("last_played")), _safe_int(right.get("last_played"))),
         }
     merged = {}
     for app_id in set((local or {}).get("achievements", {}) or {}) | set((remote or {}).get("achievements", {}) or {}):
         left = ((local or {}).get("achievements", {}) or {}).get(app_id, {}) or {}
         right = ((remote or {}).get("achievements", {}) or {}).get(app_id, {}) or {}
         merged[str(app_id)] = _merge_unlocks(left, right)
-    return {"format_version": 2, "games": merged_games, "achievements": merged}
+    return {"format_version": 3, "games": merged_games, "achievements": merged}
 
 
 class CloudMetadataSync:
@@ -102,20 +218,31 @@ class CloudMetadataSync:
         }
         if include_legacy_achievements:
             payload["achievement_unlocks"] = {
-                str(x["api_name"]): {"unlock_time": int(float(x.get("unlock_time", 0) or 0))}
+                str(x["api_name"]): {
+                    "unlock_time": int(float(x.get("unlock_time", 0) or 0)),
+                    "provenance": x.get("provenance", "local_emulator"),
+                    "verified": bool(x.get("verified", False)),
+                    "validation_state": "validated",
+                    "source_format": x.get("source_format", ""),
+                }
                 for x in db.get_game_achievements(game_id) if x.get("unlocked")
             }
         return payload
 
     @staticmethod
     def _merge(local: dict, remote: dict, include_legacy_achievements: bool = True) -> dict:
+        local = local if isinstance(local, dict) else {}
+        remote = remote if isinstance(remote, dict) else {}
         sessions = _merge_sessions(local.get("playtime_sessions"), remote.get("playtime_sessions"))
         merged = {
             "format_version": 1,
-            "game_key": local.get("game_key") or remote.get("game_key", ""),
-            "app_id": str(local.get("app_id") or remote.get("app_id", "")),
-            "last_played": max(int(local.get("last_played", 0) or 0), int(remote.get("last_played", 0) or 0)),
-            "playtime_baseline_seconds": max(int(local.get("playtime_baseline_seconds", 0) or 0), int(remote.get("playtime_baseline_seconds", 0) or 0)),
+            "game_key": str(local.get("game_key") or remote.get("game_key", ""))[:256],
+            "app_id": str(local.get("app_id") or remote.get("app_id", ""))[:32],
+            "last_played": max(_safe_int(local.get("last_played")), _safe_int(remote.get("last_played"))),
+            "playtime_baseline_seconds": max(
+                _safe_int(local.get("playtime_baseline_seconds")),
+                _safe_int(remote.get("playtime_baseline_seconds")),
+            ),
             "playtime_sessions": sessions,
         }
         if include_legacy_achievements:
@@ -124,12 +251,28 @@ class CloudMetadataSync:
 
     @staticmethod
     def _apply(db, game_id: int, payload: dict) -> None:
-        db.merge_playtime_sessions(game_id, payload.get("playtime_sessions", []))
-        sessions_total = sum(int(x.get("duration_seconds", 0) or 0) for x in payload.get("playtime_sessions", []))
-        db.merge_playtime_metadata(game_id, sessions_total + int(payload.get("playtime_baseline_seconds", 0) or 0), int(payload.get("last_played", 0) or 0))
-        unlocks = {str(k): float((v or {}).get("unlock_time", 0) or 0) for k, v in (payload.get("achievement_unlocks") or {}).items()}
+        payload = payload if isinstance(payload, dict) else {}
+        sessions = payload.get("playtime_sessions", [])
+        sessions = sessions if isinstance(sessions, list) else []
+        db.merge_playtime_sessions(game_id, sessions)
+        sessions_total = sum(
+            _safe_int(x.get("duration_seconds"))
+            for x in sessions
+            if isinstance(x, dict)
+        )
+        db.merge_playtime_metadata(
+            game_id,
+            sessions_total + _safe_int(payload.get("playtime_baseline_seconds")),
+            _safe_int(payload.get("last_played")),
+        )
+        raw_unlocks = payload.get("achievement_unlocks")
+        raw_unlocks = raw_unlocks if isinstance(raw_unlocks, dict) else {}
+        unlocks = {str(k): v for k, v in list(raw_unlocks.items())[:_MAX_PROFILE_UNLOCKS_PER_APP] if isinstance(v, (dict, int, float))}
         if unlocks:
-            db.unlock_achievements_batch(game_id, unlocks)
+            db.record_achievement_state(
+                game_id, str(payload.get("app_id", "") or ""), unlocks,
+                provenance="cloud_profile", verified=False, source_format="cloud-profile",
+            )
 
     @staticmethod
     def _local_profile(db) -> dict:
@@ -172,7 +315,7 @@ class CloudMetadataSync:
                     {"games": {steam_identity: games[local_identity]}},
                 )["games"][steam_identity]
                 games[steam_identity] = migrated
-        return {"format_version": 2, "games": games, "achievements": db.get_profile_unlocks()}
+        return {"format_version": 3, "games": games, "achievements": db.get_profile_unlock_records(include_pending=True)}
 
     @staticmethod
     def _merge_legacy_game_unlocks(profile: dict, game_metadata: dict, app_id: str) -> None:
@@ -180,6 +323,8 @@ class CloudMetadataSync:
         if not legacy or not app_id:
             return
         current = profile.setdefault("achievements", {}).setdefault(str(app_id), {})
+        # Legacy per-game metadata had no provenance. It is retained as a
+        # local/unverified observation and never treated as Steam proof.
         merged = _merge_unlocks(current, legacy)
         profile["achievements"][str(app_id)] = merged
 
@@ -200,10 +345,17 @@ class CloudMetadataSync:
                     db.merge_playtime_sessions(game.id, sessions)
                     db.project_profile_game(game.id, item)
         for app_id, unlocks in (profile.get("achievements", {}) or {}).items():
+            if not isinstance(unlocks, dict):
+                continue
+            known_names = {
+                str(row[0]) for row in db.conn.execute(
+                    "SELECT DISTINCT api_name FROM achievements WHERE app_id = ?", (str(app_id),)
+                ).fetchall()
+            }
             db.merge_profile_unlocks(str(app_id), {
-                str(name): float((value or {}).get("unlock_time", 0) or 0)
-                for name, value in (unlocks or {}).items() if isinstance(value, dict)
-            })
+                str(name): value for name, value in unlocks.items()
+                if isinstance(value, (dict, int, float))
+            }, provenance="cloud_profile", validation_state="pending_schema", allowed_api_names=known_names)
         for game in db.get_all_games():
             app_id = str(game.steam_id or "").strip()
             if app_id:

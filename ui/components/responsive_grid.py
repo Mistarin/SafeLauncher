@@ -35,6 +35,12 @@ class ResponsiveGridContainer(QWidget):
         self._schedule_reflow()
 
     def set_banner_widgets(self, widgets: list):
+        # A reflow animation owns QPropertyAnimation objects whose targets are
+        # the current card widgets.  Stop it before retiring cards; otherwise
+        # Qt can continue ticking an animation after its QWidget has been
+        # deleted and report "Changing state of an animation without target"
+        # (or crash during the next expose).
+        self._cancel_reflow_animation()
         # Hide and destroy previous widgets that are no longer active
         for old_w in list(self.widgets):
             if old_w not in widgets:
@@ -58,12 +64,16 @@ class ResponsiveGridContainer(QWidget):
 
     def _cancel_reflow_animation(self):
         """Snap back to layout ownership when the grid boundary itself changes."""
-        if not self._reflow_animating:
+        animation = getattr(self, "_reflow_slide", None)
+        if not self._reflow_animating and animation is None:
             return
-        for animation_name in ("_reflow_slide",):
-            animation = getattr(self, animation_name, None)
-            if animation is not None:
+        if animation is not None:
+            try:
                 animation.stop()
+                animation.deleteLater()
+            except RuntimeError:
+                pass
+            self._reflow_slide = None
         self.grid_layout.setEnabled(True)
         self._reflow_animating = False
         self._reflow_cards = []
@@ -152,5 +162,15 @@ class ResponsiveGridContainer(QWidget):
             self.grid_layout.activate()
             self._reflow_cards = []
             self._reflow_animating = False
+            animation = getattr(self, "_reflow_slide", None)
+            if animation is not None:
+                animation.deleteLater()
+                self._reflow_slide = None
         except (RuntimeError, AttributeError):
             pass
+
+    def closeEvent(self, event):
+        """Stop timers and animations before Qt tears down card children."""
+        self._reflow_debounce.stop()
+        self._cancel_reflow_animation()
+        super().closeEvent(event)

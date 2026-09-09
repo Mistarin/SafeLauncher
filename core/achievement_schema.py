@@ -12,6 +12,7 @@ import re
 import json
 import threading
 import time
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -91,6 +92,51 @@ except ImportError:
 _CACHE_DIR = Path.home() / ".cache" / "safelauncher" / "achievements"
 _ICONS_DIR = _CACHE_DIR / "icons"
 _HTTP_SESSION: Optional[requests.Session] = None
+_SCHEMA_API_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_SCHEMA_APP_RE = re.compile(r"^[0-9]{1,16}$")
+_MAX_SCHEMA_BYTES = 8 * 1024 * 1024
+_MAX_SCHEMA_RECORDS = 20_000
+
+
+def _validated_schema(records: Any) -> List[Dict[str, Any]]:
+    """Keep only bounded, renderable achievement definitions."""
+    clean: List[Dict[str, Any]] = []
+    seen = set()
+    if not isinstance(records, list):
+        return clean
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("api_name") or item.get("name") or item.get("id") or "").strip()
+        if not _SCHEMA_API_RE.fullmatch(name) or name in seen:
+            continue
+        seen.add(name)
+        value = dict(item)
+        value["api_name"] = name
+        value["display_name"] = str(value.get("display_name") or value.get("displayName") or name).strip()[:512]
+        value["description"] = str(value.get("description") or "").strip()[:4000]
+        value["hidden"] = int(bool(value.get("hidden", 0)))
+        clean.append(value)
+        if len(clean) >= _MAX_SCHEMA_RECORDS:
+            break
+    return clean
+
+
+def _write_schema_cache(path: Path, records: List[Dict[str, Any]]) -> None:
+    """Atomically replace a schema cache so a killed worker cannot corrupt it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".schema-", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(records, stream, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
 
 
 def _get_http_session() -> requests.Session:
@@ -208,40 +254,46 @@ def find_local_achievement_schema(game_path: Optional[str] = None, proton_path: 
             cand = base_dir / rel
             if cand.is_file():
                 try:
+                    if cand.stat().st_size > _MAX_SCHEMA_BYTES:
+                        continue
                     data = json.loads(cand.read_text(encoding="utf-8"))
                     achs: List[Dict[str, Any]] = []
+                    seen = set()
+
+                    def append_item(name, item):
+                        if len(achs) >= _MAX_SCHEMA_RECORDS or not isinstance(item, dict):
+                            return
+                        api_name = str(name or "").strip()
+                        if not _SCHEMA_API_RE.fullmatch(api_name) or api_name in seen:
+                            return
+                        seen.add(api_name)
+                        icon = str(item.get("icon") or item.get("icon_url") or "").strip()
+                        gray = str(item.get("icon_gray") or item.get("icongray") or item.get("icongray_url") or "").strip()
+                        achs.append({
+                            "api_name": api_name,
+                            "display_name": str(item.get("displayName") or item.get("display_name") or item.get("name") or api_name).strip()[:512],
+                            "description": str(item.get("description") or "").strip()[:4000],
+                            "icon_url": icon,
+                            "icongray_url": gray,
+                            "icon_path": str(base_dir / "steam_settings" / icon) if icon and (base_dir / "steam_settings" / icon).is_file() else "",
+                            "icongray_path": str(base_dir / "steam_settings" / gray) if gray and (base_dir / "steam_settings" / gray).is_file() else "",
+                            "hidden": 1 if item.get("hidden") else 0,
+                            "unlocked": 0,
+                            "unlock_time": 0.0,
+                        })
                     if isinstance(data, list):
                         for item in data:
-                            name = str(item.get("name") or item.get("id") or "").strip()
-                            if not name:
-                                continue
-                            achs.append({
-                                "api_name": name,
-                                "display_name": str(item.get("displayName") or item.get("name") or name).strip(),
-                                "description": str(item.get("description") or "").strip(),
-                                "icon_url": str(item.get("icon") or "").strip(),
-                                "icongray_url": str(item.get("icon_gray") or item.get("icongray") or "").strip(),
-                                "icon_path": str(base_dir / "steam_settings" / str(item.get("icon") or "")) if item.get("icon") and (base_dir / "steam_settings" / str(item.get("icon"))).is_file() else "",
-                                "icongray_path": str(base_dir / "steam_settings" / str(item.get("icon_gray") or "")) if item.get("icon_gray") and (base_dir / "steam_settings" / str(item.get("icon_gray"))).is_file() else "",
-                                "hidden": 1 if item.get("hidden") else 0,
-                                "unlocked": 0,
-                                "unlock_time": 0.0,
-                            })
-                    elif isinstance(data, dict):
-                        for api_name, item in data.items():
                             if isinstance(item, dict):
-                                achs.append({
-                                    "api_name": str(api_name).strip(),
-                                    "display_name": str(item.get("displayName") or item.get("name") or api_name).strip(),
-                                    "description": str(item.get("description") or "").strip(),
-                                    "icon_url": str(item.get("icon") or "").strip(),
-                                    "icongray_url": str(item.get("icon_gray") or item.get("icongray") or "").strip(),
-                                    "icon_path": str(base_dir / "steam_settings" / str(item.get("icon") or "")) if item.get("icon") and (base_dir / "steam_settings" / str(item.get("icon"))).is_file() else "",
-                                    "icongray_path": str(base_dir / "steam_settings" / str(item.get("icon_gray") or "")) if item.get("icon_gray") and (base_dir / "steam_settings" / str(item.get("icon_gray"))).is_file() else "",
-                                    "hidden": 1 if item.get("hidden") else 0,
-                                    "unlocked": 0,
-                                    "unlock_time": 0.0,
-                                })
+                                append_item(item.get("api_name") or item.get("apiname") or item.get("name") or item.get("id"), item)
+                    elif isinstance(data, dict):
+                        items = data.get("achievements") if isinstance(data.get("achievements"), (dict, list)) else data
+                        if isinstance(items, list):
+                            for item in items:
+                                if isinstance(item, dict):
+                                    append_item(item.get("api_name") or item.get("apiname") or item.get("name") or item.get("id"), item)
+                        elif isinstance(items, dict):
+                            for api_name, item in items.items():
+                                append_item(api_name, item)
                     if achs:
                         logger.info(f"Found local offline achievement schema with {len(achs)} achievements at {cand}")
                         return achs
@@ -362,7 +414,7 @@ def fetch_steam_achievements_schema(
     4. Public Steam Community HTML Scraper (keyless)
     5. Public Steam Community XML endpoint
     """
-    if not app_id or str(app_id).strip() == "" or str(app_id).strip() == "0":
+    if not _SCHEMA_APP_RE.fullmatch(str(app_id or "").strip()) or str(app_id).strip() == "0":
         return []
 
     app_id = str(app_id).strip()
@@ -371,8 +423,10 @@ def fetch_steam_achievements_schema(
     # 1. Check local cache first (< 0.1ms)
     if schema_cache_file.is_file():
         try:
-            cached_data = json.loads(schema_cache_file.read_text(encoding="utf-8"))
-            if isinstance(cached_data, list) and len(cached_data) > 0:
+            if schema_cache_file.stat().st_size > _MAX_SCHEMA_BYTES:
+                raise ValueError("cached schema exceeds safety limit")
+            cached_data = _validated_schema(json.loads(schema_cache_file.read_text(encoding="utf-8")))
+            if cached_data:
                 logger.debug(f"Loaded {len(cached_data)} achievements from cache for AppID {app_id}")
                 if download_icons:
                     download_achievement_icons_batch(cached_data, app_id, timeout=timeout)
@@ -384,10 +438,10 @@ def fetch_steam_achievements_schema(
     local_achs = find_local_achievement_schema(game_path, proton_path, app_id)
     if local_achs:
         try:
-            schema_cache_file.write_text(json.dumps(local_achs, indent=2), encoding="utf-8")
+            _write_schema_cache(schema_cache_file, _validated_schema(local_achs))
         except Exception:
             pass
-        return local_achs
+        return _validated_schema(local_achs)
 
     achievements: List[Dict[str, Any]] = []
     session = _get_http_session()
@@ -467,18 +521,19 @@ def fetch_steam_achievements_schema(
             logger.debug(f"Steam Community XML achievement fetch failed for AppID {app_id}: {e}")
 
     # If icons were explicitly requested, download in parallel
+    achievements = _validated_schema(achievements)
     if download_icons and achievements:
         download_achievement_icons_batch(achievements, app_id, timeout=timeout)
 
     # Save to disk cache if fetched successfully
     if achievements:
         try:
-            schema_cache_file.write_text(json.dumps(achievements, indent=2), encoding="utf-8")
+            _write_schema_cache(schema_cache_file, achievements)
             logger.info(f"Successfully fetched and cached {len(achievements)} achievements for AppID {app_id}")
         except Exception as e:
             logger.warning(f"Could not write achievement schema cache: {e}")
 
-    return achievements
+    return _validated_schema(achievements)
 
 
 class SteamAchievementFetcherWorker(SafeQThread):
@@ -514,8 +569,8 @@ class SteamAchievementFetcherWorker(SafeQThread):
             # public-schema precedence in the registry.  This worker is only
             # transport/lifecycle glue; callers must not implement their own
             # achievement interpretation beside it.
-            from core.achievement_providers import resolve_achievements
-            resolution = resolve_achievements(
+            from core.achievement_coordinator import coordinated_resolve
+            resolution = coordinated_resolve(
                 self.app_id,
                 self.game_path or "",
                 self.proton_path or "",

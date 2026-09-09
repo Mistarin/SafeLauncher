@@ -15,16 +15,21 @@ keeps SafeLauncher maintainable and avoids shipping another UI or daemon.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 import os
+import re
+import math
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from core.logger import get_logger
+from core.achievement_models import AchievementProvenance
 
 logger = get_logger("AchievementProviders")
+_APP_ID_RE = re.compile(r"^[0-9]{1,16}$")
+_API_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
 class AchievementAvailability(str, Enum):
@@ -43,6 +48,15 @@ class AchievementResolution:
     availability: AchievementAvailability
     reason: str = ""
     checked_at: float = 0.0
+    state_provenance: str = AchievementProvenance.UNKNOWN.value
+    state_verified: bool = False
+    state_format: str = ""
+    state_available: bool = False
+    state_ambiguous: bool = False
+    candidate_paths: List[str] = field(default_factory=list)
+    pending_state: Dict[str, float] = field(default_factory=dict)
+    provenance_by_name: Dict[str, str] = field(default_factory=dict)
+    verified_by_name: Dict[str, bool] = field(default_factory=dict)
 
 
 class AchievementProvider:
@@ -84,7 +98,7 @@ def _authenticated_steam_player_state(app_id: str) -> Dict[str, float]:
     """
     api_key = os.environ.get("STEAM_WEB_API_KEY", "").strip()
     steam_user_id = os.environ.get("STEAM_USER_ID", "").strip()
-    if not api_key or not steam_user_id:
+    if not _APP_ID_RE.fullmatch(str(app_id or "")) or str(app_id) == "0" or not api_key or not steam_user_id:
         return {}
     try:
         import requests
@@ -96,11 +110,17 @@ def _authenticated_steam_player_state(app_id: str) -> Dict[str, float]:
         if response.status_code != 200:
             return {}
         achievements = (response.json() or {}).get("playerstats", {}).get("achievements", [])
-        return {
-            str(item.get("apiname", "")).strip(): float(item.get("unlocktime", 0) or 1)
-            for item in achievements
-            if item.get("achieved") and str(item.get("apiname", "")).strip()
-        }
+        result = {}
+        for item in achievements if isinstance(achievements, list) else []:
+            name = str(item.get("apiname", "")).strip() if isinstance(item, dict) else ""
+            if not _API_NAME_RE.fullmatch(name) or not item.get("achieved"):
+                continue
+            try:
+                unlock_time = float(item.get("unlocktime", 0) or 0)
+            except (TypeError, ValueError, OverflowError):
+                unlock_time = 0.0
+            result[name] = unlock_time if math.isfinite(unlock_time) and unlock_time >= 0 else 0.0
+        return result
     except Exception as exc:
         logger.debug("Authenticated Steam achievement state unavailable for %s: %s", app_id, exc)
         return {}
@@ -109,30 +129,51 @@ def _authenticated_steam_player_state(app_id: str) -> Dict[str, float]:
 class AchievementProviderRegistry:
     """Resolve schema and local state using deterministic provider priority."""
 
-    # Local truth always wins over a network result.  The fallback provider
-    # itself uses cache before network, so an offline launch remains cheap.
+    # Local schema/state is preferred for offline compatibility; an
+    # authenticated Steam player response is stronger for duplicate unlocks.
     schema_providers = (LanzadorSchemaProvider(), SteamSchemaProvider())
 
     @classmethod
     def resolve(cls, app_id: str, game_path: str = "", proton_path: str = "", download_icons: bool = False) -> AchievementResolution:
         app_id = str(app_id or "").strip()
-        if not app_id or app_id == "0":
+        if not _APP_ID_RE.fullmatch(app_id) or app_id == "0":
             return AchievementResolution([], {}, None, "", "", AchievementAvailability.MISSING,
                                          "No Steam AppID is configured", time.time())
 
-        from core.achievement_watcher import locate_achievements_file, parse_achievements_state
+        from core.achievement_watcher import (
+            achievement_state_candidates,
+            locate_achievements_file,
+            parse_achievements_state_detailed,
+            filter_achievement_state,
+        )
 
+        candidates = achievement_state_candidates(proton_path, game_path, app_id)
+        existing_candidates = [p for p in candidates if p.is_file()]
         state_path = locate_achievements_file(proton_path, game_path, app_id)
-        state = parse_achievements_state(state_path) if state_path else {}
-        state_source = "local-state" if state_path else ""
+        parsed = parse_achievements_state_detailed(state_path) if state_path else None
+        state = parsed.state if parsed and parsed.valid else {}
+        state_source = "local-state" if state_path and parsed and parsed.valid else ""
+        state_format = parsed.format if parsed else ""
+        state_available = bool(state_path and parsed and parsed.valid)
+        state_ambiguous = len([p for p in existing_candidates if p.is_file()]) > 1
+        state_provenance = AchievementProvenance.LOCAL_EMULATOR.value if state_source else AchievementProvenance.UNKNOWN.value
+        state_verified = False
+        provenance_by_name = {name: AchievementProvenance.LOCAL_EMULATOR.value for name in state}
+        verified_by_name = {name: False for name in state}
         remote_state = _authenticated_steam_player_state(app_id)
         if remote_state:
-            # Emulator files are local truth when both sources exist; native
-            # Steam fills only unknown entries and supports pure native titles.
-            merged_state = dict(remote_state)
-            merged_state.update(state)
+            # An authenticated Steam response is stronger evidence than a
+            # local emulator file.  It wins on duplicate API names, while
+            # local-only observations remain useful and visibly unverified.
+            merged_state = dict(state)
+            merged_state.update(remote_state)
             state = merged_state
             state_source = f"{state_source}+steam-player" if state_source else "steam-player"
+            state_provenance = AchievementProvenance.STEAM.value if not parsed or not parsed.state else "mixed"
+            state_verified = True
+            for name in remote_state:
+                provenance_by_name[name] = AchievementProvenance.STEAM.value
+                verified_by_name[name] = True
 
         schema: List[dict] = []
         schema_source = ""
@@ -146,21 +187,111 @@ class AchievementProviderRegistry:
                 schema_source = provider.name
                 break
 
+        allowed_names = {
+            str(item.get("api_name", "")).strip()
+            for item in schema
+            if isinstance(item, dict) and str(item.get("api_name", "")).strip()
+        }
+        if schema and existing_candidates:
+            # Once the schema is known, use it to disambiguate a generic
+            # ``stats.json`` from the real achievement file. A newer file
+            # with unrelated counters must not hide an older matching state.
+            scored = []
+            for candidate in existing_candidates:
+                candidate_result = parse_achievements_state_detailed(candidate)
+                if not candidate_result.valid:
+                    continue
+                matches = len(set(candidate_result.state) & allowed_names)
+                try:
+                    stat = candidate.stat()
+                    name_score = int("achieve" in candidate.stem.lower())
+                    scored.append((matches, int(bool(candidate_result.state)), name_score, stat.st_mtime_ns, candidate_result, candidate))
+                except OSError:
+                    continue
+            if scored:
+                selected = max(scored, key=lambda item: item[:4])
+                matching_states = [item for item in scored if item[0] > 0]
+                if matching_states:
+                    # Local emulator files are append-only in practice and
+                    # may be left behind in more than one prefix/root. Union
+                    # schema-matching observations so a stale empty/current
+                    # file cannot make previously seen unlocks disappear.
+                    combined = {}
+                    for item in matching_states:
+                        for name, stamp in item[4].state.items():
+                            if name in allowed_names:
+                                combined[name] = min(combined.get(name, stamp), stamp)
+                    state = combined
+                    state_path = selected[5]
+                    parsed = selected[4]
+                    state_format = parsed.format
+                    state_source = "local-state"
+                    state_provenance = AchievementProvenance.LOCAL_EMULATOR.value
+                    state_verified = False
+                    provenance_by_name = {name: AchievementProvenance.LOCAL_EMULATOR.value for name in state}
+                    verified_by_name = {name: False for name in state}
+                    state_available = True
+                if selected[5] != state_path:
+                    state_path = selected[5]
+                    parsed = selected[4]
+                    state = parsed.state
+                    state_format = parsed.format
+                    state_source = "local-state"
+                    state_provenance = AchievementProvenance.LOCAL_EMULATOR.value
+                    state_verified = False
+                    provenance_by_name = {name: AchievementProvenance.LOCAL_EMULATOR.value for name in state}
+                    verified_by_name = {name: False for name in state}
+                    state_available = True
+
+        if remote_state:
+            state.update(remote_state)
+            state_source = "local-state+steam-player" if state_path else "steam-player"
+            has_local = any(value == AchievementProvenance.LOCAL_EMULATOR.value for value in provenance_by_name.values())
+            state_provenance = "mixed" if has_local else AchievementProvenance.STEAM.value
+            state_verified = True
+            for name in remote_state:
+                provenance_by_name[name] = AchievementProvenance.STEAM.value
+                verified_by_name[name] = True
+        state, pending_state = filter_achievement_state(state, allowed_names)
+        provenance_by_name = {name: provenance_by_name.get(name, state_provenance) for name in state}
+        verified_by_name = {name: verified_by_name.get(name, state_verified) for name in state}
+
         if schema:
             return AchievementResolution(
                 schema, state, state_path, schema_source, state_source,
                 AchievementAvailability.AVAILABLE,
                 checked_at=time.time(),
+                state_provenance=state_provenance,
+                state_verified=state_verified,
+                state_format=state_format,
+                state_available=state_available,
+                state_ambiguous=state_ambiguous,
+                candidate_paths=[str(p) for p in existing_candidates[:32]],
+                pending_state=pending_state,
+                provenance_by_name=provenance_by_name,
+                verified_by_name=verified_by_name,
             )
 
         # An empty result is not proof that the game has no achievements:
         # unsupported emulators, offline providers, and rate limits all look
         # identical at this layer.  Keep the UI honest and say data is missing.
+        missing_reason = "No authoritative achievement schema was available"
+        if parsed and not parsed.valid and parsed.reason:
+            missing_reason += f"; local state unavailable: {parsed.reason}"
         return AchievementResolution(
             [], state, state_path, "", state_source,
             AchievementAvailability.MISSING,
-            "No authoritative achievement schema was available",
+            missing_reason,
             time.time(),
+            state_provenance=state_provenance,
+            state_verified=state_verified,
+            state_format=state_format,
+            state_available=state_available,
+            state_ambiguous=state_ambiguous,
+            candidate_paths=[str(p) for p in existing_candidates[:32]],
+            pending_state=state,
+            provenance_by_name={name: provenance_by_name.get(name, state_provenance) for name in state},
+            verified_by_name={name: verified_by_name.get(name, state_verified) for name in state},
         )
 
 

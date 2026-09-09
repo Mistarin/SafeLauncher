@@ -143,6 +143,10 @@ class TaskSupervisor(QObject):
     def has_running_tasks(self) -> bool:
         return any(worker.isRunning() for worker in self._workers)
 
+    def running_workers(self) -> list[FunctionWorker]:
+        """Return a snapshot for owners that need deferred widget teardown."""
+        return [worker for worker in self._workers if worker.isRunning()]
+
 
 class WorkerSupervisor(QObject):
     """Single owner for application-owned QThread lifecycles.

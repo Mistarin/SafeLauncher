@@ -16,6 +16,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -31,8 +32,8 @@ if str(ROOT) not in sys.path:
 BOOTSTRAP = (0, 1, 2, 3, 4, 5)
 PHASES = {
     "core": BOOTSTRAP[:5],
-    "cloud": BOOTSTRAP + (11, 12, 13, 14, 16, 17, 18),
-    "achievements": BOOTSTRAP + (15,),
+    "cloud": BOOTSTRAP + (11, 12, 13, 14, 15),
+    "achievements": BOOTSTRAP + (6, 16),
     "ui": BOOTSTRAP + (6, 7, 8, 9, 10, 19, 20),
 }
 
@@ -56,6 +57,17 @@ def run_phase(name: str, timeout_seconds: int = 300) -> int:
     os.environ["SAFELAUNCHER_DISABLE_UPDATE_CHECK"] = "1"
     os.environ["SAFELAUNCHER_OFFLINE_TEST_MODE"] = "1"
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # Keep smoke credentials, databases, and QSettings isolated from a
+    # developer's real profile (and from read-only CI home directories).
+    smoke_data_home = tempfile.mkdtemp(prefix="safelauncher-smoke-")
+    os.environ["XDG_DATA_HOME"] = smoke_data_home
+    os.environ["XDG_CONFIG_HOME"] = smoke_data_home
+    # Some selected cloud sections instantiate dialogs without including the
+    # historical UI bootstrap section. Create one deterministic offscreen Qt
+    # application for every phase.
+    from PyQt6.QtWidgets import QApplication
+    from ui.dialogs.settings_dialog import UserSettingsDialog
+    smoke_qapp = QApplication.instance() or QApplication([])
 
     # The first import/argument preamble is required by every selected block.
     preamble = [
@@ -81,7 +93,10 @@ def run_phase(name: str, timeout_seconds: int = 300) -> int:
         signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
     try:
         code = compile(module, str(TEST_FILE), "exec")
-        namespace = {"__name__": "__smoke_phase__", "__file__": str(TEST_FILE)}
+        namespace = {
+            "__name__": "__smoke_phase__", "__file__": str(TEST_FILE),
+            "QApplication": QApplication, "UserSettingsDialog": UserSettingsDialog,
+        }
         exec(code, namespace, namespace)
     except SystemExit as exc:
         code_value = exc.code if isinstance(exc.code, int) else 1

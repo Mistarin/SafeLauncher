@@ -1260,7 +1260,11 @@ class MainWindow(QMainWindow):
         self._start_cloud_poll_timer()
 
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
-        if show_wizard:
+        # The deterministic/offline harness must never open a modal wizard as
+        # a side effect of processing pending events.  Normal launches retain
+        # the first-run experience; tests and headless callers can explicitly
+        # open it through the normal action when needed.
+        if show_wizard and not self._offline_test_mode:
             QTimer.singleShot(150, self._show_welcome_wizard)
 
     def _apply_accessibility_metadata(self) -> None:
@@ -3886,7 +3890,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "btn_detail_cloud_restore"):
                 self.btn_detail_cloud_restore.hide()
 
-        if not cloud_auth_required and (cached_save is None or is_stale):
+        if not self._offline_test_mode and not cloud_auth_required and (cached_save is None or is_stale):
             self._spawn_status_fetchers(
                 [(game_id, name, path or "", str(steam_id or ""))],
                 self._on_cloud_save_status_calculated,
@@ -3915,10 +3919,12 @@ class MainWindow(QMainWindow):
         steam_last_checked = getattr(self, "_steam_build_checked_ts", {}).get(game_id, 0)
         steam_is_stale = (now - steam_last_checked) > 7200  # 2 hours
 
-        if steam_id and steam_id != "0" and (game_id not in self.metadata_attempted_builds or steam_is_stale) and not any(
+        if (not self._offline_test_mode and steam_id and steam_id != "0"
+                and (game_id not in self.metadata_attempted_builds or steam_is_stale)
+                and not any(
             isinstance(fetcher, SteamBuildFetcher) and fetcher.game_id == game_id
             for fetcher in self.metadata_fetchers
-        ):
+        )):
             fetcher = SteamBuildFetcher(game_id, steam_id, local_build_id, local_build_date, parent=self)
             fetcher.update_checked.connect(self._on_steam_build_checked)
             fetcher.check_failed.connect(self._on_steam_check_failed)
@@ -3942,7 +3948,7 @@ class MainWindow(QMainWindow):
             self._update_tags_pills(tags_list)
         # Existing cached tags must not prevent resolving the Steam AppID:
         # UMU needs GAMEID=umu-<appid> for Steamworks/protonfixes games.
-        if not steam_id or str(steam_id) == "0":
+        if not self._offline_test_mode and (not steam_id or str(steam_id) == "0"):
             if game_id not in self.metadata_attempted_tags and not any(
                 isinstance(fetcher, SteamTagsFetcher) and fetcher.game_id == game_id
                 for fetcher in self.metadata_fetchers
@@ -4481,7 +4487,9 @@ class MainWindow(QMainWindow):
 
                         if game_id in self.achievement_watchers:
                             try:
-                                self.achievement_watchers[game_id].stop()
+                                old_watcher = self.achievement_watchers[game_id]
+                                old_watcher.stop()
+                                old_watcher.deleteLater()
                             except Exception:
                                 pass
 
@@ -4566,11 +4574,14 @@ class MainWindow(QMainWindow):
                             r_pix = create_rounded_pixmap(QPixmap(icon_p), QSize(30, 30), radius=6)
                             b_lbl.setPixmap(r_pix)
                         else:
-                            b_lbl.setStyleSheet("background-color: rgba(48, 209, 88, 0.2); border-radius: 6px;")
+                            badge_color = "rgba(48, 209, 88, 0.2)" if ach.get("verified") else "rgba(255, 159, 10, 0.2)"
+                            b_lbl.setStyleSheet(f"background-color: {badge_color}; border-radius: 6px;")
 
                         d_name = html.escape(ach.get("display_name", ""))
                         d_desc = html.escape(ach.get("description", ""))
-                        b_lbl.setToolTip(f"<div style='background: #1C1C1E; color: #FFF; padding: 3px;'><b>{d_name}</b><br/><span style='color: #A1A1A6; font-size: 11px;'>{d_desc}</span></div>")
+                        source = "Steam verified" if ach.get("verified") else "Local source · unverified"
+                        source_color = "#30D158" if ach.get("verified") else "#FF9F0A"
+                        b_lbl.setToolTip(f"<div style='background: #1C1C1E; color: #FFF; padding: 3px;'><b>{d_name}</b><br/><span style='color: #A1A1A6; font-size: 11px;'>{d_desc}</span><br/><span style='color: {source_color}; font-size: 10px;'>{source}</span></div>")
                         self.detail_ach_badges_layout.addWidget(b_lbl)
                     self.detail_ach_badges_layout.addStretch()
                 else:
@@ -4595,6 +4606,21 @@ class MainWindow(QMainWindow):
                     unavailable.setWordWrap(True)
                     unavailable.setStyleSheet("color: #FF9F0A; font-size: 10px; background: transparent;")
                     self.detail_ach_badges_layout.addWidget(unavailable)
+                    self.detail_ach_badges_layout.addStretch()
+                elif resolution is not None and availability == "available":
+                    self.lbl_detail_ach_count.setText("0 / available")
+                    self.detail_ach_progress.setValue(0)
+                    self.btn_detail_achievements.setText("Achievements · no unlock state")
+                    self.btn_detail_achievements.setVisible(True)
+                    self.detail_ach_card.setVisible(True)
+                    while self.detail_ach_badges_layout.count() > 0:
+                        item = self.detail_ach_badges_layout.takeAt(0)
+                        if item.widget():
+                            item.widget().deleteLater()
+                    no_state = QLabel("Achievement definitions are available, but no local or verified unlock state has been found yet.")
+                    no_state.setWordWrap(True)
+                    no_state.setStyleSheet("color: #AEAEB2; font-size: 10px; background: transparent;")
+                    self.detail_ach_badges_layout.addWidget(no_state)
                     self.detail_ach_badges_layout.addStretch()
                 else:
                     self.btn_detail_achievements.setText("Achievements")
@@ -4643,7 +4669,17 @@ class MainWindow(QMainWindow):
 
         # Database transition is the deduplication authority.  A duplicate
         # inotify/poll event must not emit a second toast or cloud sync.
-        if not self.db.unlock_achievement(game_id, api_name, unlock_time):
+        self.db.unlock_achievement(
+            game_id, api_name, unlock_time,
+            provenance=str(data.get("provenance", "local_emulator") or "local_emulator"),
+            verified=bool(data.get("verified", False)),
+            source_format=str(data.get("source_format", "") or ""),
+            source_path=str(data.get("source_path", "") or ""),
+        )
+        # The row-level claim handles both the normal transition and the
+        # race where a background resolver persisted the same state first.
+        # It also prevents a reset/replay from generating duplicate toasts.
+        if not self.db.claim_achievement_notification(game_id, api_name):
             return
 
         unlocked_count, total_count, pct = self.db.get_achievement_stats(game_id)
@@ -4691,7 +4727,11 @@ class MainWindow(QMainWindow):
         if not state or not app_id:
             return
         try:
-            changed = self.db.unlock_achievements_batch(game_id, state)
+            changed = self.db.record_achievement_state(
+                game_id, app_id, state,
+                provenance="local_emulator", verified=False,
+                source_format="json", source_path="",
+            )
             unlocked_count, total_count, pct = self.db.get_achievement_stats(game_id)
             recent = self.db.get_recent_unlocked_achievements(game_id, limit=5)
             self.achievement_status_cache[game_id] = (unlocked_count, total_count, pct, recent)
@@ -4712,6 +4752,7 @@ class MainWindow(QMainWindow):
         self.db.save_achievement_schema(game_id, app_id, achievements)
         pending = self._pending_achievement_unlocks.pop(game_id, {})
         for api_name, unlock_time in pending.items():
+            self.db.arm_achievement_notification(game_id, api_name)
             self._on_achievement_unlocked(
                 game_id, app_id, {"api_name": api_name, "unlock_time": unlock_time}
             )
@@ -4719,10 +4760,8 @@ class MainWindow(QMainWindow):
     def _on_achievement_resolution_ready(self, game_id: int, app_id: str, resolution):
         """Apply one local-first resolution to the durable DB and inspector."""
         self.achievement_resolution_cache[game_id] = resolution
-        if getattr(resolution, "schema", None):
-            self.db.save_achievement_schema(game_id, app_id, resolution.schema)
-        if getattr(resolution, "state", None):
-            self.db.unlock_achievements_batch(game_id, resolution.state)
+        from core.achievement_persistence import persist_resolution
+        persist_resolution(self.db, game_id, app_id, resolution)
 
         # A watcher may report an unlock before the schema request completes.
         # Replaying through the normal DB transition keeps notifications
@@ -4730,6 +4769,7 @@ class MainWindow(QMainWindow):
         if getattr(resolution, "schema", None) and game_id in self._pending_achievement_unlocks:
             pending = self._pending_achievement_unlocks.pop(game_id, {})
             for api_name, unlock_time in pending.items():
+                self.db.arm_achievement_notification(game_id, api_name)
                 self._on_achievement_unlocked(
                     game_id, app_id,
                     {"api_name": api_name, "unlock_time": unlock_time},
@@ -4959,7 +4999,9 @@ class MainWindow(QMainWindow):
         # Stop Achievement Watcher for this game
         if tracker.game_id in getattr(self, "achievement_watchers", {}):
             try:
-                self.achievement_watchers[tracker.game_id].stop()
+                watcher = self.achievement_watchers[tracker.game_id]
+                watcher.stop()
+                watcher.deleteLater()
                 del self.achievement_watchers[tracker.game_id]
             except Exception as ach_clean_err:
                 logger.debug(f"Error stopping achievement watcher: {ach_clean_err}")
@@ -5326,7 +5368,12 @@ class MainWindow(QMainWindow):
             if not targets:
                 logger.debug(f"Achievement recheck{tag}: no games with Steam IDs to scan.")
                 return
-            if any(isinstance(f, AchievementBatchQueueWorker) and f.isRunning() for f in self.metadata_fetchers):
+            if any(
+                f.isRunning() and f.__class__.__name__ in {
+                    "AchievementBatchQueueWorker", "AchievementStatusFetcherThread", "SteamAchievementFetcherWorker"
+                }
+                for f in self.metadata_fetchers
+            ):
                 logger.debug(f"Achievement recheck{tag} skipped: batch worker already running.")
                 return
             db_path = getattr(self.db, "db_path", None)
@@ -5349,8 +5396,15 @@ class MainWindow(QMainWindow):
                 g_proton_path = str(g[12]).strip() if len(g) > 12 and g[12] else ""
                 if not g_steam_id:
                     continue
-                if any(isinstance(f, AchievementStatusFetcherThread) and f.game_id == gid and f.isRunning() for f in self.metadata_fetchers):
+                if any(
+                    f.isRunning()
+                    and f.__class__.__name__ in {"AchievementStatusFetcherThread", "SteamAchievementFetcherWorker"}
+                    and getattr(f, "game_id", None) == gid
+                    for f in self.metadata_fetchers
+                ):
                     continue
+                from core.achievement_coordinator import invalidate
+                invalidate(g_steam_id, g_path or "", g_proton_path)
                 db_path = getattr(self.db, "db_path", None)
                 fetcher = AchievementStatusFetcherThread(gid, g_name, g_path or "", g_steam_id, g_proton_path, db_path=db_path, parent=self)
                 fetcher.resolution_ready.connect(self._on_achievement_resolution_ready)
@@ -5587,6 +5641,7 @@ class MainWindow(QMainWindow):
         for watcher in list(getattr(self, "achievement_watchers", {}).values()):
             try:
                 watcher.stop()
+                watcher.deleteLater()
             except Exception:
                 pass
         getattr(self, "achievement_watchers", {}).clear()

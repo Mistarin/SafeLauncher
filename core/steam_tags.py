@@ -16,6 +16,11 @@ class SteamTagsFetcher(SafeQThread):
         self.game_id = game_id
         self.game_name = game_name
 
+    def _emit_if_active(self, tags: list, app_id: str = "") -> None:
+        """Never deliver a late result after cooperative cancellation."""
+        if not self.isInterruptionRequested():
+            self.tags_found.emit(self.game_id, tags, app_id)
+
     def safe_run(self):
         try:
             if self.isInterruptionRequested():
@@ -24,7 +29,7 @@ class SteamTagsFetcher(SafeQThread):
             search_url = f"https://store.steampowered.com/api/storesearch/?term={query}&l=english&cc=US"
             resp = requests.get(search_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
             if resp.status_code != 200:
-                self.tags_found.emit(self.game_id, [], "")
+                self._emit_if_active([], "")
                 return
             search_data = resp.json()
 
@@ -33,14 +38,14 @@ class SteamTagsFetcher(SafeQThread):
 
             items = search_data.get("items", [])
             if not items:
-                self.tags_found.emit(self.game_id, [], "")
+                self._emit_if_active([], "")
                 return
 
             app_id = items[0]["id"]
             detail_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}"
             resp_detail = requests.get(detail_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
             if resp_detail.status_code != 200:
-                self.tags_found.emit(self.game_id, [], str(app_id))
+                self._emit_if_active([], str(app_id))
                 return
             detail_data = resp_detail.json()
 
@@ -49,7 +54,7 @@ class SteamTagsFetcher(SafeQThread):
 
             app_data = detail_data.get(str(app_id), {}).get("data", {})
             if not app_data:
-                self.tags_found.emit(self.game_id, [], str(app_id))
+                self._emit_if_active([], str(app_id))
                 return
 
             genres = [g["description"] for g in app_data.get("genres", [])]
@@ -61,7 +66,7 @@ class SteamTagsFetcher(SafeQThread):
                     combined.append(t)
 
             logger.info(f"Fetched Steam tags for '{self.game_name}': {combined}")
-            self.tags_found.emit(self.game_id, combined, str(app_id))
+            self._emit_if_active(combined, str(app_id))
         except Exception as e:
             logger.warning(f"Failed to fetch Steam tags for '{self.game_name}': {e}")
-            self.tags_found.emit(self.game_id, [], "")
+            self._emit_if_active([], "")

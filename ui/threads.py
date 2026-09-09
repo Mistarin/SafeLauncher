@@ -406,28 +406,28 @@ class AchievementStatusFetcherThread(SafeQThread):
     def safe_run(self):
         if self.isInterruptionRequested():
             return
+        db = None
         try:
             from database import GameDatabase
-            from core.achievement_providers import resolve_achievements
+            from core.achievement_coordinator import coordinated_resolve
+            from core.achievement_persistence import persist_resolution
 
             db = GameDatabase(self.db_path) if self.db_path else GameDatabase()
             app_id = self.steam_id
 
-            resolution = resolve_achievements(app_id, self.path, self.proton_path) if app_id else None
+            resolution = coordinated_resolve(app_id, self.path, self.proton_path) if app_id else None
             if resolution is not None and not self.isInterruptionRequested():
                 self.resolution_ready.emit(self.game_id, app_id, resolution)
-            if resolution and resolution.schema:
-                db.save_achievement_schema(self.game_id, app_id, resolution.schema)
-            if resolution and resolution.state:
-                db.unlock_achievements_batch(self.game_id, resolution.state)
+            if resolution:
+                persist_resolution(db, self.game_id, app_id, resolution)
 
             unlocked_cnt, total_cnt, pct = db.get_achievement_stats(self.game_id)
             if total_cnt == 0 and app_id:
                 achs = resolution.schema if resolution else []
                 if achs:
                     db.save_achievement_schema(self.game_id, app_id, achs)
-                    if resolution and resolution.state:
-                        db.unlock_achievements_batch(self.game_id, resolution.state)
+                    if resolution:
+                        persist_resolution(db, self.game_id, app_id, resolution)
                     unlocked_cnt, total_cnt, pct = db.get_achievement_stats(self.game_id)
 
             recent = db.get_recent_unlocked_achievements(self.game_id, limit=5)
@@ -435,6 +435,12 @@ class AchievementStatusFetcherThread(SafeQThread):
                 self.achievement_status_calculated.emit(self.game_id, unlocked_cnt, total_cnt, pct, recent)
         except Exception as e:
             logger.debug(f"AchievementStatusFetcherThread error for game {self.game_id} ({self.game_name}): {e}")
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
 
 class AchievementBatchQueueWorker(SafeQThread):
@@ -457,7 +463,8 @@ class AchievementBatchQueueWorker(SafeQThread):
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from database import GameDatabase
-        from core.achievement_providers import resolve_achievements
+        from core.achievement_coordinator import coordinated_resolve
+        from core.achievement_persistence import persist_resolution
 
         total_games_with_achs = 0
         total_unlocked_overall = 0
@@ -477,19 +484,14 @@ class AchievementBatchQueueWorker(SafeQThread):
             try:
                 db = GameDatabase(self.db_path) if self.db_path else GameDatabase()
                 try:
-                    resolution = resolve_achievements(steam_id, path, proton_path)
-                    if resolution.schema:
-                        db.save_achievement_schema(game_id, steam_id, resolution.schema)
-                    if resolution.state:
-                        db.unlock_achievements_batch(game_id, resolution.state)
+                    resolution = coordinated_resolve(steam_id, path, proton_path)
+                    persist_resolution(db, game_id, steam_id, resolution)
 
                     unlocked_cnt, total_cnt, pct = db.get_achievement_stats(game_id)
                     if total_cnt == 0:
                         achs = resolution.schema
                         if achs:
-                            db.save_achievement_schema(game_id, steam_id, achs)
-                            if resolution.state:
-                                db.unlock_achievements_batch(game_id, resolution.state)
+                            persist_resolution(db, game_id, steam_id, resolution)
                             unlocked_cnt, total_cnt, pct = db.get_achievement_stats(game_id)
 
                     recent = db.get_recent_unlocked_achievements(game_id, limit=5)

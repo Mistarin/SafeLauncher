@@ -137,6 +137,7 @@ class AppleAchievementCard(QFrame):
         display_name = self.ach.get("display_name", api_name)
         description = self.ach.get("description", "") or "No description available."
         unlock_time = float(self.ach.get("unlock_time", 0.0) or 0.0)
+        verified = bool(self.ach.get("verified", False))
 
         self.setObjectName("appleAchievementCard")
         
@@ -205,7 +206,10 @@ class AppleAchievementCard(QFrame):
         header_row.addStretch()
 
         # Status Pill
-        if unlocked and unlock_time > 1000:
+        if unlocked and not verified:
+            status_text = "UNVERIFIED"
+            pill_style = "background-color: rgba(255, 159, 10, 0.15); color: #FF9F0A; border: 1px solid rgba(255, 159, 10, 0.3);"
+        elif unlocked and unlock_time > 1000:
             dt_str = datetime.datetime.fromtimestamp(unlock_time).strftime("%b %d, %Y · %H:%M")
             status_text = f"UNLOCKED {dt_str}"
             pill_style = "background-color: rgba(48, 209, 88, 0.15); color: #30D158; border: 1px solid rgba(48, 209, 88, 0.3);"
@@ -273,9 +277,13 @@ class AppleAchievementCard(QFrame):
 
         if unlocked and unlock_time > 1000:
             dt_str = datetime.datetime.fromtimestamp(unlock_time).strftime("%A, %B %d, %Y at %H:%M:%S")
-            time_line = f"<p style='color: #30D158; font-weight: bold; margin-top: 6px;'>Unlocked on {dt_str}</p>"
+            source_text = "Steam verified" if self.ach.get("verified") else "Local source · unverified"
+            source_color = "#30D158" if self.ach.get("verified") else "#FF9F0A"
+            time_line = f"<p style='color: {source_color}; font-weight: bold; margin-top: 6px;'>Unlocked on {dt_str} · {source_text}</p>"
         elif unlocked:
-            time_line = "<p style='color: #30D158; font-weight: bold; margin-top: 6px;'>Unlocked</p>"
+            source_text = "Steam verified" if self.ach.get("verified") else "Local source · unverified"
+            source_color = "#30D158" if self.ach.get("verified") else "#FF9F0A"
+            time_line = f"<p style='color: {source_color}; font-weight: bold; margin-top: 6px;'>Unlocked · {source_text}</p>"
         elif hidden:
             time_line = "<p style='color: #0A84FF; font-weight: bold; margin-top: 6px;'>Secret Achievement</p>"
         else:
@@ -383,6 +391,10 @@ class AchievementsDialog(PopupDialog):
         self.current_filter = "all"
         self.search_query = ""
         self.sort_mode = "unlocked_first"
+        self.fetch_worker = None
+        self._close_requested = False
+        self._pending_result = None
+        self._last_resolution = None
 
         self.resize(780, 680)
         self.setMinimumSize(680, 540)
@@ -449,6 +461,77 @@ class AchievementsDialog(PopupDialog):
 
         self._build_ui()
         self._load_and_sync_achievements()
+
+    def closeEvent(self, event):
+        """Do not destroy a dialog-owned resolver while its QThread runs."""
+        worker = self.fetch_worker
+        if worker is not None and worker.isRunning():
+            self._close_requested = True
+            self._pending_result = 0
+            worker.requestInterruption()
+            self.hide()
+            self._connect_deferred_close(worker)
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def _connect_deferred_close(self, worker) -> None:
+        """Attach exactly one completion callback to the active resolver."""
+        try:
+            worker.finished.disconnect(self._finish_deferred_close)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            worker.finished.connect(self._finish_deferred_close)
+        except RuntimeError:
+            pass
+
+    def _finish_deferred_close(self):
+        worker = self.fetch_worker
+        if worker is not None and worker.isRunning():
+            return
+        if self._close_requested:
+            self._close_requested = False
+            result = 0 if self._pending_result is None else self._pending_result
+            self._pending_result = None
+            super().done(result)
+
+    def done(self, result: int) -> None:
+        """Defer accept/reject until the resolver has stopped emitting."""
+        worker = self.fetch_worker
+        if worker is not None and worker.isRunning():
+            self._close_requested = True
+            self._pending_result = result
+            worker.requestInterruption()
+            self.hide()
+            self._connect_deferred_close(worker)
+            return
+        super().done(result)
+
+    def _set_resolution_status(self, resolution):
+        """Keep schema availability separate from unlock-state availability."""
+        schema_available = resolution.availability == AchievementAvailability.AVAILABLE
+        state_available = bool(getattr(resolution, "state_available", False))
+        state = getattr(resolution, "state", {}) or {}
+        pending = getattr(resolution, "pending_state", {}) or {}
+        verified = getattr(resolution, "state_provenance", "") == "steam_verified"
+        if schema_available and state_available and state:
+            text = " Steam verified " if verified else " Local state · unverified "
+            style = "background: rgba(48, 209, 88, 0.12); color: #30D158; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;" if verified else "background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+        elif schema_available and state_available and pending:
+            text = " State found · records need validation "
+            style = "background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+        elif schema_available:
+            text = " Definitions available · no state " if state_available else " Definitions available · state unavailable "
+            style = "background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+        elif state:
+            text = " Local state · schema unavailable "
+            style = "background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+        else:
+            text = " Achievement data unavailable "
+            style = "background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+        self.status_tag.setText(text)
+        self.status_tag.setStyleSheet(style)
 
     def _build_ui(self):
         main_layout = self.popup_layout(margins=(24, 20, 24, 20), spacing=16)
@@ -528,7 +611,7 @@ class AchievementsDialog(PopupDialog):
                 background-color: #171B23;
             }
         """)
-        self.btn_refresh.clicked.connect(self._load_and_sync_achievements)
+        self.btn_refresh.clicked.connect(lambda: self._load_and_sync_achievements(force=True))
         hero_layout.addWidget(self.btn_refresh)
 
         main_layout.addWidget(hero_frame)
@@ -704,14 +787,20 @@ class AchievementsDialog(PopupDialog):
         """)
         return btn
 
-    def _load_and_sync_achievements(self):
+    def _load_and_sync_achievements(self, force: bool = False):
         """Render cached achievements, then resolve local/Steam state once."""
+        if self.fetch_worker is not None and self.fetch_worker.isRunning():
+            return
         app_id = self.game_steam_id.strip() if self.game_steam_id else ""
         if not app_id:
             self.status_tag.setText(" No Steam AppID ")
             self.status_tag.setStyleSheet("background: rgba(255, 69, 58, 0.15); color: #FF453A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
             self._render_cards()
             return
+
+        if force:
+            from core.achievement_coordinator import invalidate
+            invalidate(app_id, self.game_path, self.game_proton_path)
 
         # Show the last known schema immediately, but always let the shared
         # resolver reconcile it with local state and authenticated Steam.
@@ -734,42 +823,37 @@ class AchievementsDialog(PopupDialog):
         )
         self.fetch_worker.resolution_ready.connect(self._on_resolution_ready)
         self.fetch_worker.failed.connect(self._on_schema_failed)
+        self.fetch_worker.finished.connect(lambda: setattr(self, "fetch_worker", None))
         self.fetch_worker.start()
 
     def _on_resolution_ready(self, game_id: int, app_id: str, resolution):
-        if game_id != self.game_id:
+        if game_id != self.game_id or self._close_requested:
             return
-        if resolution.schema:
-            self.db.save_achievement_schema(game_id, app_id, resolution.schema)
-        if resolution.state:
-            self.db.unlock_achievements_batch(game_id, resolution.state)
+        self._last_resolution = resolution
+        from core.achievement_persistence import persist_resolution
+        persist_resolution(self.db, game_id, app_id, resolution)
         self.achievements = self.db.get_game_achievements(self.game_id)
 
-        if resolution.availability == AchievementAvailability.AVAILABLE:
-            self.status_tag.setText(" Synchronized ")
-            self.status_tag.setStyleSheet("background: rgba(48, 209, 88, 0.12); color: #30D158; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
-        elif resolution.state:
-            self.status_tag.setText(" Local state · schema unavailable ")
-            self.status_tag.setStyleSheet("background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
-        else:
-            self.status_tag.setText(" Achievement data unavailable ")
-            self.status_tag.setStyleSheet("background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+        self._set_resolution_status(resolution)
         self._render_cards()
 
     def _on_schema_fetched(self, game_id: int, app_id: str, achs_list: list):
         if game_id == self.game_id:
             self.db.save_achievement_schema(game_id, app_id, achs_list)
             self.achievements = self.db.get_game_achievements(self.game_id)
-            self.status_tag.setText(" Synchronized ")
-            self.status_tag.setStyleSheet("background: rgba(48, 209, 88, 0.12); color: #30D158; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+            self.status_tag.setText(" Definitions cached ")
+            self.status_tag.setStyleSheet("background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
             self._render_cards()
 
     def _on_schema_failed(self, game_id: int, app_id: str, error: str):
         if game_id == self.game_id:
             # Missing schema is not an empty achievement list.  Keep any
             # already cached cards visible and explain the unavailable source.
-            self.status_tag.setText(" Achievement data unavailable ")
-            self.status_tag.setStyleSheet("background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+            if self._last_resolution is not None:
+                self._set_resolution_status(self._last_resolution)
+            else:
+                self.status_tag.setText(" Achievement data unavailable ")
+                self.status_tag.setStyleSheet("background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
             self._render_cards()
 
     def _on_search_changed(self, text: str):
