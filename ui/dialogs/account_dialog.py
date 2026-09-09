@@ -633,9 +633,11 @@ class AccountDialog(PopupDialog):
                 from core.cloud_save_sync import set_cloud_mode
                 set_cloud_mode("local")
                 from PyQt6.QtCore import QSettings
+                from core.secret_store import delete_secret
                 settings = QSettings("SafeLauncher", "SafeLauncher")
                 settings.remove("convex_site_url")
-                settings.remove("cloud_secret_key")
+                delete_secret("cloud_secret_key")
+                delete_secret("convex_deploy_key")
                 self.reload()
                 self._notify_ancestor_cloud_changed()
         else:

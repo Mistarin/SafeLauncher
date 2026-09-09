@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 import zipfile
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 os.environ["SAFELAUNCHER_DISABLE_UPDATE_CHECK"] = "1"
@@ -443,6 +444,16 @@ try:
     assert hasattr(settings_dlg, "edit_cloud_saves_dir")
     print("✓ UserSettingsDialog 5-tab preferences (incl. dedicated Cloud tab) instantiated cleanly offscreen")
 
+    from ui.dialogs.deploy_key_wizard_dialog import DeployKeyWizardDialog
+    deploy_key_wiz = DeployKeyWizardDialog(settings_dlg)
+    assert deploy_key_wiz.pages.count() == 4
+    assert deploy_key_wiz.radio_auto.isChecked()
+    deploy_key_wiz.radio_manual.setChecked(True)
+    deploy_key_wiz._next()
+    assert deploy_key_wiz.pages.currentIndex() == 2
+    deploy_key_wiz.reject()
+    print("✓ Deploy-key wizard automatic/manual paths instantiated cleanly offscreen")
+
     from core.plugins.gpu_screen_recorder import GpuRecorderService, GpuRecorderConfig
     rec_cfg = GpuRecorderConfig(enabled=False, mode="replay_buffer", history_seconds=90, codec="hevc", bitrate="20M")
     service = GpuRecorderService(rec_cfg)
@@ -855,6 +866,8 @@ try:
     from core.cloud_detector import inspect_system_compatibility
     from core.cloud_backend import check_backend_health, ConvexSaveBackend
     from core.cloud_metadata_sync import CloudMetadataSync, _merge_profiles
+    from core.secret_store import get_secret, set_secret, delete_secret
+    from core.cloud_cli_wizard import _redact_deploy_output, validate_deploy_key, generate_deploy_key
 
     # 1. Versioning assertions
     assert APP_VERSION == "0.7.0", f"Expected APP_VERSION == 0.7.0, got {APP_VERSION}"
@@ -908,6 +921,64 @@ try:
     assert merged_game["last_played"] == 200
     assert set(merged_profile["achievements"]["1321440"]) == {"ACH_ONE", "ACH_TWO"}
     print("✓ Generalized profile merge preserves achievements and synchronizes game metadata")
+
+    # Deploy-key storage and diagnostics must not leak credentials.
+    legacy_settings = QSettings("SafeLauncher", "SafeLauncher")
+    legacy_settings.setValue("test_legacy_secret", "legacy-secret-value")
+    assert get_secret("test_legacy_secret", legacy_name="test_legacy_secret") == "legacy-secret-value"
+    assert legacy_settings.value("test_legacy_secret", "") == ""
+    assert set_secret("test_deploy_secret", "prod:project|super-secret-token") is True
+    assert get_secret("test_deploy_secret") == "prod:project|super-secret-token"
+    safe_diag = _redact_deploy_output("CONVEX_DEPLOY_KEY=prod:project|super-secret-token")
+    assert "super-secret-token" not in safe_diag
+    assert "api-secret" not in _redact_deploy_output("SAFELAUNCHER_SECRET_KEY=api-secret", ("api-secret",))
+    assert validate_deploy_key("not-a-deploy-key")["ok"] is False
+    generated_paths = []
+    def fake_generate_run(command, **kwargs):
+        assert command[:5] == ["npx", "convex", "deployment", "token", "create"]
+        assert command[5] == "safelauncher-test"
+        assert command[6:8] == ["--prod", "--save-env"]
+        generated_paths.append(command[-1])
+        assert "CONVEX_DEPLOY_KEY" not in kwargs["env"]
+        with open(command[-1], "w", encoding="utf-8") as stream:
+            stream.write("CONVEX_DEPLOY_KEY=team:project:prod|generated-secret\n")
+        return MagicMock(returncode=0, stdout="generated", stderr="")
+    with tempfile.TemporaryDirectory() as backend_tmp, \
+            patch("core.cloud_cli_wizard.shutil.which", return_value="/usr/bin/npx"), \
+            patch("core.cloud_cli_wizard._convex_cli_env", return_value={"CONVEX_DEPLOY_KEY": "old-key"}), \
+            patch("core.cloud_cli_wizard.subprocess.run", side_effect=fake_generate_run):
+        generated = generate_deploy_key(Path(backend_tmp), "safelauncher-test")
+    assert generated["ok"] is True and generated["key"].endswith("generated-secret")
+    assert generated_paths and not os.path.exists(generated_paths[0])
+
+    # A least-privilege deployment key must deploy without attempting the
+    # environment-variable mutation that requires broader Convex permissions.
+    from core.cloud_cli_wizard import deploy_convex_backend
+    with tempfile.TemporaryDirectory() as deploy_backend_tmp:
+        deploy_backend = Path(deploy_backend_tmp)
+        (deploy_backend / "convex" / "lib").mkdir(parents=True)
+        (deploy_backend / "convex" / "lib" / "limits.ts").write_text(
+            'export const BACKEND_VERSION = "1.7.0";\n', encoding="utf-8"
+        )
+        mocked_health = MagicMock(status_code=200)
+        mocked_health.json.return_value = {"version": "1.7.0"}
+        with patch("core.cloud_cli_wizard.inspect_system_compatibility", return_value={"has_npm": True}), \
+                patch("core.cloud_cli_wizard._convex_cli_env", return_value={"CONVEX_DEPLOY_KEY": "prod:project|deploy"}), \
+                patch("core.cloud_cli_wizard.get_secret", return_value="api-secret"), \
+                patch("core.cloud_cli_wizard.set_secret") as save_secret, \
+                patch("core.cloud_cli_wizard.subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as run_command, \
+                patch("core.cloud_cli_wizard.requests.get", return_value=mocked_health):
+            deployed_url = deploy_convex_backend(
+                str(deploy_backend), assume_yes=True, expected_site_url="https://project.convex.site"
+            )
+        assert deployed_url == "https://project.convex.site"
+        commands = [call.args[0] for call in run_command.call_args_list]
+        assert commands == [["npm", "install"], ["npx", "convex", "deploy", "--yes"]]
+        save_secret.assert_not_called()
+
+    delete_secret("test_legacy_secret")
+    delete_secret("test_deploy_secret")
+    print("✓ Deploy-key secret storage, migration, and redacted diagnostics verified")
 
     # 2. Updater: AppImage detection & binary header validation
     with tempfile.TemporaryDirectory() as td:

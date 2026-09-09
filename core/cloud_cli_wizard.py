@@ -24,6 +24,7 @@ from core.cloud_detector import (
     inspect_system_compatibility,
 )
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
+from core.secret_store import get_secret, set_secret, delete_secret
 
 
 def _convex_cli_env(server_dir: Path) -> dict[str, str]:
@@ -78,6 +79,117 @@ def _convex_cli_env(server_dir: Path) -> dict[str, str]:
 def _has_convex_project_config(env: dict[str, str]) -> bool:
     """Whether Convex has either a local deployment or production deploy key."""
     return bool(env.get("CONVEX_DEPLOYMENT") or env.get("CONVEX_DEPLOY_KEY"))
+
+
+def deploy_key_prerequisites(server_dir: Optional[Path] = None) -> dict[str, Any]:
+    """Describe whether the local Convex CLI can mint a production deploy key."""
+    path = Path(server_dir).expanduser() if server_dir else None
+    npx_path = shutil.which("npx")
+    convex_config = Path.home() / ".convex" / "config.json"
+    return {
+        "has_npx": bool(npx_path),
+        "npx_path": npx_path or "",
+        "has_backend": bool(path and path.is_dir()),
+        "backend_path": str(path) if path and path.is_dir() else "",
+        "has_convex_project": bool(path and _has_convex_project_config(_convex_cli_env(path))),
+        "has_cli_login": convex_config.is_file() and convex_config.stat().st_size > 0,
+    }
+
+
+def _redact_deploy_output(output: str, secrets_to_redact: tuple[str, ...] = ()) -> str:
+    """Remove credential-shaped values before diagnostics reach the UI/logs."""
+    text = str(output or "")
+    for secret in secrets_to_redact:
+        if secret:
+            text = text.replace(secret, "[secret redacted]")
+    text = re.sub(r"(?i)(CONVEX_DEPLOY_KEY\s*[=:]\s*)[^\s\"']+", r"\1[redacted]", text)
+    # Convex keys may identify a team/project before the deployment prefix;
+    # anything containing the token separator is credential-shaped output.
+    text = re.sub(r"(?<![\w])[^\s\"']+\|[^\s\"']+", "[deploy-key redacted]", text)
+    return text[-3000:]
+
+
+def generate_deploy_key(
+    server_dir: Path,
+    key_name: str,
+    *,
+    timeout: int = 90,
+) -> dict[str, str | bool]:
+    """Mint a production-scoped Convex deploy key without exposing it in output."""
+    server_dir = Path(server_dir).expanduser().resolve()
+    key_name = str(key_name or "").strip()
+    if not server_dir.is_dir():
+        return {"ok": False, "error": "Select a valid SafeLauncherCloud project directory."}
+    if not key_name or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{1,63}", key_name):
+        return {"ok": False, "error": "Key name must be 2–64 letters, numbers, dots, dashes, or underscores."}
+    if not shutil.which("npx"):
+        return {"ok": False, "error": "Node.js/npm (npx) is not installed on this machine."}
+
+    fd, env_path = tempfile.mkstemp(prefix=".safelauncher-deploy-key-", suffix=".env")
+    os.close(fd)
+    try:
+        os.chmod(env_path, 0o600)
+        env = _convex_cli_env(server_dir)
+        # Token creation requires the user's interactive Convex login.  A
+        # deploy key inherited from a project dotenv file or the parent
+        # process would make the CLI reject this command, so never pass one
+        # while minting its replacement.
+        env.pop("CONVEX_DEPLOY_KEY", None)
+        result = subprocess.run(
+            ["npx", "convex", "deployment", "token", "create", key_name, "--prod", "--save-env", env_path],
+            cwd=str(server_dir), env=env, capture_output=True, text=True, timeout=timeout, check=False,
+        )
+        safe_output = _redact_deploy_output("\n".join((result.stdout or "", result.stderr or "")))
+        if result.returncode != 0:
+            return {"ok": False, "error": f"Convex could not generate the deploy key (exit code {result.returncode}).\n{safe_output}"}
+        values = {}
+        for line in Path(env_path).read_text(encoding="utf-8").splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() == "CONVEX_DEPLOY_KEY":
+                values["key"] = value.strip().strip('"').strip("'")
+                break
+        generated = values.get("key", "")
+        if not generated or any(ch.isspace() for ch in generated):
+            return {"ok": False, "error": "Convex completed without returning a usable deploy key."}
+        return {"ok": True, "key": generated, "message": "Production deploy key generated."}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Deploy-key generation timed out. Check Convex CLI login and retry."}
+    except OSError as exc:
+        return {"ok": False, "error": f"Could not run the Convex CLI: {exc}"}
+    finally:
+        try:
+            os.unlink(env_path)
+        except OSError:
+            pass
+
+
+def validate_deploy_key(key: str, server_dir: Optional[Path] = None, *, timeout: int = 90) -> dict[str, str | bool]:
+    """Validate a key syntactically and, when possible, with Convex dry-run."""
+    value = str(key or "").strip()
+    if not value or any(ch.isspace() for ch in value):
+        return {"ok": False, "verified": False, "error": "The deploy key cannot be empty or contain whitespace."}
+    if "|" not in value or ":" not in value.split("|", 1)[0]:
+        return {"ok": False, "verified": False, "error": "This does not look like a Convex deployment key."}
+    if not server_dir or not Path(server_dir).is_dir() or not shutil.which("npx"):
+        return {"ok": True, "verified": False, "message": "Key format accepted; CLI verification is unavailable here."}
+    env = _convex_cli_env(Path(server_dir))
+    env["CONVEX_DEPLOY_KEY"] = value
+    try:
+        result = subprocess.run(
+            ["npx", "convex", "deploy", "--dry-run"],
+            cwd=str(Path(server_dir).resolve()), env=env, capture_output=True, text=True, timeout=timeout, check=False,
+        )
+        if result.returncode == 0:
+            return {"ok": True, "verified": True, "message": "Convex accepted the deploy key for a non-destructive dry run."}
+        diagnostic = (result.stdout or "") + "\n" + (result.stderr or "")
+        diagnostic = diagnostic.replace(value, "[deploy-key redacted]")
+        return {"ok": False, "verified": False, "error": f"Convex rejected the deploy key or project configuration.\n{_redact_deploy_output(diagnostic)}"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "verified": False, "error": "Deploy-key verification timed out."}
+    except OSError as exc:
+        return {"ok": False, "verified": False, "error": f"Could not run the Convex CLI: {exc}"}
 
 
 def _site_url_from_backend_checkout(server_dir: Path) -> str:
@@ -292,6 +404,13 @@ def deploy_convex_backend(
             text=True,
         )
         output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+        output = _redact_deploy_output(
+            output,
+            (
+                clean_env.get("CONVEX_DEPLOY_KEY", ""),
+                clean_env.get("SAFELAUNCHER_SECRET_KEY", ""),
+            ),
+        )
         if output:
             print(output)
         if result.returncode != 0:
@@ -317,30 +436,36 @@ def deploy_convex_backend(
                 print("      Run 'npx convex dev' in the backend folder, then start setup again.")
                 return None
 
-        # New private deployments should be locked down by default. Reuse an
-        # existing configured key when available; otherwise generate one,
-        # push it to Convex, and save the exact same value locally so the
-        # connection step works without asking the user to copy secrets.
-        settings = QSettings("SafeLauncher", "SafeLauncher")
-        secret_key = (
-            clean_env.get("SAFELAUNCHER_SECRET_KEY", "").strip()
-            or settings.value("cloud_secret_key", "", type=str).strip()
-        )
-        if not secret_key:
-            secret_key = secrets.token_urlsafe(32)
-            print("\n  [Security] Generated a random SafeLauncher secret key.")
-        print("  [Security] Applying the secret key to the Convex deployment...")
-        try:
-            run_deploy_command(
-                ["npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY", secret_key],
-                timeout=60,
+        # New private deployments should be locked down by default. A
+        # deployment-scoped key intentionally has only deployment:deploy, so
+        # it cannot (and must not be asked to) mutate Convex environment
+        # variables. The API secret is initialized by the logged-in setup
+        # path and is preserved for later deploy-key-only updates.
+        using_deploy_key = bool(clean_env.get("CONVEX_DEPLOY_KEY", "").strip())
+        if using_deploy_key:
+            print("  [Security] Using the deployment-scoped key; preserving existing Convex environment variables.")
+        else:
+            secret_key = (
+                clean_env.get("SAFELAUNCHER_SECRET_KEY", "").strip()
+                or get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
             )
-        except RuntimeError:
-            print("  [✖] Could not apply the SafeLauncher secret key to Convex.")
-            print("      The deployment was not connected locally; fix Convex authentication and retry.")
-            return None
-        settings.setValue("cloud_secret_key", secret_key)
-        print("  [✔] Secret key pushed to Convex and saved in SafeLauncher.")
+            if not secret_key:
+                secret_key = secrets.token_urlsafe(32)
+                print("\n  [Security] Generated a random SafeLauncher secret key.")
+            print("  [Security] Applying the secret key to the Convex deployment...")
+            try:
+                run_deploy_command(
+                    ["npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY", secret_key],
+                    timeout=60,
+                )
+            except RuntimeError:
+                print("  [✖] Could not apply the SafeLauncher secret key to Convex.")
+                print("      The deployment was not connected locally; fix Convex authentication and retry.")
+                return None
+            if not set_secret("cloud_secret_key", secret_key):
+                print("  [✖] Convex accepted the secret key, but SafeLauncher could not save it locally.")
+                return None
+            print("  [✔] Secret key pushed to Convex and saved in SafeLauncher.")
         
         deploy_command = ["npx", "convex", "deploy"]
         if assume_yes:
@@ -357,9 +482,7 @@ def deploy_convex_backend(
     if not site_url and info and info.get("site_url"):
         site_url = info["site_url"].rstrip("/")
     if site_url:
-        verify_key = QSettings("SafeLauncher", "SafeLauncher").value(
-            "cloud_secret_key", "", type=str
-        ).strip()
+        verify_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
         headers = {"Authorization": f"Bearer {verify_key}", "X-SafeLauncher-Key": verify_key} if verify_key else {}
         deployed_version = ""
         for attempt in range(3):
@@ -409,7 +532,7 @@ def deploy_latest_convex_backend(
                 if value:
                     deployment_env[key] = value
 
-    saved_deploy_key = str(settings.value("convex_deploy_key", "", type=str) or "").strip()
+    saved_deploy_key = get_secret("convex_deploy_key", legacy_name="convex_deploy_key")
     if saved_deploy_key:
         deployment_env["CONVEX_DEPLOY_KEY"] = saved_deploy_key
     saved_deployment = str(settings.value("convex_deployment", "", type=str) or "").strip()
@@ -466,7 +589,7 @@ def run_cloud_setup_wizard() -> int:
     current_url = settings.value("convex_site_url", "", type=str).strip()
     discovered_url = discover_local_cloud_backend()
     active_url = current_url or discovered_url or ""
-    current_key = settings.value("cloud_secret_key", "", type=str).strip()
+    current_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
     active_backend_version = ""
     active_backend_outdated = False
 
@@ -604,7 +727,7 @@ def run_cloud_setup_wizard() -> int:
 
     # The deployment helper may have generated and stored a secret key in
     # another setup step. Refresh it before asking for connection details.
-    current_key = settings.value("cloud_secret_key", "", type=str).strip()
+    current_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
 
     default_url = current_url or (local_info.get("site_url") if local_info else "") or ""
 
@@ -707,9 +830,9 @@ def run_cloud_setup_wizard() -> int:
         settings.setValue("cloud_mode", "convex")
         settings.setValue("convex_site_url", site_url)
         if secret_key:
-            settings.setValue("cloud_secret_key", secret_key)
+            set_secret("cloud_secret_key", secret_key)
         else:
-            settings.remove("cloud_secret_key")
+            delete_secret("cloud_secret_key")
 
         footer(CYAN)
 

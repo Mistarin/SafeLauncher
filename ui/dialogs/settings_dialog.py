@@ -43,6 +43,7 @@ from core.updater import check_for_updates, download_and_apply_appimage_update, 
 from core.cloud_backend import check_backend_health
 from core.cloud_detector import detect_local_cloud_installation
 from core.safe_thread import TaskSupervisor
+from core.secret_store import get_secret, set_secret, delete_secret
 from core.logger import get_logger
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtCore import QUrl
@@ -652,7 +653,7 @@ class UserSettingsDialog(PopupDialog):
 
         # Secret Access Key
         settings = QSettings("SafeLauncher", "SafeLauncher")
-        saved_key = settings.value("cloud_secret_key", "", type=str)
+        saved_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
         key_row = QHBoxLayout()
         self.edit_cloud_secret_key = QLineEdit(saved_key)
         self.edit_cloud_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -679,7 +680,7 @@ class UserSettingsDialog(PopupDialog):
         # A deployment key is deliberately separate from the save API key.
         # It is only used by the optional one-click backend updater and is
         # scoped by Convex to a single deployment.
-        saved_deploy_key = settings.value("convex_deploy_key", "", type=str)
+        saved_deploy_key = get_secret("convex_deploy_key", legacy_name="convex_deploy_key")
         deploy_key_row = QHBoxLayout()
         self.edit_convex_deploy_key = QLineEdit(saved_deploy_key)
         self.edit_convex_deploy_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -701,6 +702,14 @@ class UserSettingsDialog(PopupDialog):
 
         btn_toggle_deploy_key.clicked.connect(_toggle_deploy_key)
         deploy_key_row.addWidget(btn_toggle_deploy_key)
+        btn_setup_deploy_key = QPushButton("Wizard…")
+        btn_setup_deploy_key.setToolTip("Generate or securely configure a Convex deployment key")
+        btn_setup_deploy_key.clicked.connect(self._open_deploy_key_wizard)
+        deploy_key_row.addWidget(btn_setup_deploy_key)
+        btn_forget_deploy_key = QPushButton("Forget")
+        btn_forget_deploy_key.setToolTip("Remove the deploy key from this device; it does not revoke the key in Convex")
+        btn_forget_deploy_key.clicked.connect(self._forget_deploy_key)
+        deploy_key_row.addWidget(btn_forget_deploy_key)
         form_mode.addRow("Convex Deploy Key:", deploy_key_row)
         deploy_key_help = QLabel(
             "Optional. Create a deployment-scoped key in Convex Dashboard for updates on machines not signed into the Convex CLI."
@@ -1178,15 +1187,15 @@ class UserSettingsDialog(PopupDialog):
 
             key = self.edit_cloud_secret_key.text().strip()
             if key:
-                settings.setValue("cloud_secret_key", key)
+                set_secret("cloud_secret_key", key)
             else:
-                settings.remove("cloud_secret_key")
+                delete_secret("cloud_secret_key")
 
             deploy_key = self.edit_convex_deploy_key.text().strip()
             if deploy_key:
-                settings.setValue("convex_deploy_key", deploy_key)
+                set_secret("convex_deploy_key", deploy_key)
             else:
-                settings.remove("convex_deploy_key")
+                delete_secret("convex_deploy_key")
 
             from core.cloud_save_sync import set_cloud_mode, reset_cloud_backend
             reset_cloud_backend()
@@ -1236,12 +1245,38 @@ class UserSettingsDialog(PopupDialog):
                 from core.cloud_backend import get_site_url
                 self.edit_convex_url.setText(get_site_url())
                 settings = QSettings("SafeLauncher", "SafeLauncher")
-                self.edit_cloud_secret_key.setText(settings.value("cloud_secret_key", "", type=str))
+                self.edit_cloud_secret_key.setText(get_secret("cloud_secret_key", legacy_name="cloud_secret_key"))
+                self.edit_convex_deploy_key.setText(get_secret("convex_deploy_key", legacy_name="convex_deploy_key"))
                 self.combo_cloud_mode.setCurrentIndex(1)
                 self._refresh_account_status()
                 self._refresh_backend_health()
         except Exception as e:
             QMessageBox.warning(self, "Setup Wizard", f"Could not open wizard: {e}")
+
+    def _open_deploy_key_wizard(self):
+        """Open the dedicated deploy-key setup and storage flow."""
+        try:
+            from ui.dialogs.deploy_key_wizard_dialog import DeployKeyWizardDialog
+            wizard = DeployKeyWizardDialog(self)
+            if wizard.exec():
+                self.edit_convex_deploy_key.setText(get_secret("convex_deploy_key", legacy_name="convex_deploy_key"))
+                self._refresh_backend_health()
+        except Exception as e:
+            QMessageBox.warning(self, "Deploy Key Setup", f"Could not open wizard: {e}")
+
+    def _forget_deploy_key(self):
+        """Remove the local deploy credential without touching Convex."""
+        answer = QMessageBox.question(
+            self,
+            "Forget Deploy Key",
+            "Remove this device's deploy key? This will not revoke it from Convex; it only disables local automatic backend updates.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            if delete_secret("convex_deploy_key"):
+                self.edit_convex_deploy_key.clear()
+                self._refresh_backend_health()
 
     def _open_account_manager(self):
         """Launch the full profile/quota/version manager dialog."""
@@ -1269,9 +1304,9 @@ class UserSettingsDialog(PopupDialog):
         settings = QSettings("SafeLauncher", "SafeLauncher")
         settings.setValue("convex_site_url", url)
         if key:
-            settings.setValue("cloud_secret_key", key)
+            set_secret("cloud_secret_key", key)
         else:
-            settings.remove("cloud_secret_key")
+            delete_secret("cloud_secret_key")
 
         from core.cloud_save_sync import set_cloud_mode, reset_cloud_backend
         reset_cloud_backend()
@@ -1466,7 +1501,7 @@ class UserSettingsDialog(PopupDialog):
         from pathlib import Path
         backend_path = Path(info["path"]) if info and info.get("path") else None
         settings = QSettings("SafeLauncher", "SafeLauncher")
-        has_saved_deploy_key = bool(settings.value("convex_deploy_key", "", type=str).strip())
+        has_saved_deploy_key = bool(get_secret("convex_deploy_key", legacy_name="convex_deploy_key"))
         has_saved_deployment = bool(settings.value("convex_deployment", "", type=str).strip())
         if not has_saved_deploy_key and not has_saved_deployment and (
             not backend_path or not _has_convex_project_config(_convex_cli_env(backend_path))

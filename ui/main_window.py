@@ -1322,7 +1322,8 @@ class MainWindow(QMainWindow):
                 self._maybe_show_startup_update_notice()
                 return
 
-            secret_key = str(self.settings.value("cloud_secret_key", "") or "").strip()
+            from core.secret_store import get_secret
+            secret_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
 
             def _probe():
                 try:
@@ -1519,12 +1520,16 @@ class MainWindow(QMainWindow):
             cloud_saves_dir=cloud_dir,
             parent=self
         )
+        # PopupDialog uses WA_DeleteOnClose, but this handler reads the form
+        # values after exec() returns. Keep the dialog alive until those reads
+        # and schedule its deletion explicitly below.
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         dialog.runtime_manager_requested.connect(self._open_runtime_manager)
         dialog.proton_manager_requested.connect(self._open_proton_manager)
         cloud_before = (
             self.settings.value("cloud_mode", "local", type=str),
             self.settings.value("convex_site_url", "", type=str),
-            self.settings.value("cloud_secret_key", "", type=str),
+            get_secret("cloud_secret_key", legacy_name="cloud_secret_key"),
             self.settings.value("cloud_saves_dir", "", type=str),
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -1579,12 +1584,13 @@ class MainWindow(QMainWindow):
         # moment they are edited (mode combo) or via the embedded account
         # dialog, so a rejected session may still have changed the config.
         self._maybe_refresh_cloud_config(cloud_before)
+        dialog.deleteLater()
 
     def _maybe_refresh_cloud_config(self, before: tuple):
         current = (
             self.settings.value("cloud_mode", "local", type=str),
             self.settings.value("convex_site_url", "", type=str),
-            self.settings.value("cloud_secret_key", "", type=str),
+            get_secret("cloud_secret_key", legacy_name="cloud_secret_key"),
             self.settings.value("cloud_saves_dir", "", type=str),
         )
         if current != before:

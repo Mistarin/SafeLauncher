@@ -26,6 +26,7 @@ from PyQt6.QtCore import QSettings
 from core import save_crypto
 from core.logger import get_logger
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
+from core.secret_store import get_secret
 
 logger = get_logger("CloudBackend")
 
@@ -175,8 +176,7 @@ class ConvexSaveBackend:
     def secret_key(self) -> str:
         if self._secret_key is not None:
             return self._secret_key.strip()
-        settings = QSettings("SafeLauncher", "SafeLauncher")
-        return str(settings.value("cloud_secret_key", "", type=str) or os.environ.get("SAFELAUNCHER_SECRET_KEY", "")).strip()
+        return get_secret("cloud_secret_key", os.environ.get("SAFELAUNCHER_SECRET_KEY", ""), legacy_name="cloud_secret_key")
 
     # ------------------------------------------------------------------ #
     # Low-level request plumbing                                         #
@@ -544,8 +544,7 @@ def check_backend_health(
 
     key = secret_key
     if key is None:
-        settings = QSettings("SafeLauncher", "SafeLauncher")
-        key = str(settings.value("cloud_secret_key", "") or "").strip()
+        key = get_secret("cloud_secret_key", os.environ.get("SAFELAUNCHER_SECRET_KEY", ""), legacy_name="cloud_secret_key")
 
     headers = {}
     if key:

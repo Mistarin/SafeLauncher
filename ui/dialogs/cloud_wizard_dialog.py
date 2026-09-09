@@ -15,6 +15,7 @@ from core.cloud_detector import discover_local_cloud_backend, inspect_system_com
 from core.cloud_backend import get_site_url
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 from core.safe_thread import TaskSupervisor
+from core.secret_store import get_secret, set_secret, delete_secret
 from ui.components.popup_shell import PopupDialog
 
 
@@ -569,7 +570,7 @@ class CloudWizardDialog(PopupDialog):
         # this dialog was open. Pull it into the connection form so users do
         # not have to copy secrets between windows.
         settings = QSettings("SafeLauncher", "SafeLauncher")
-        generated_key = settings.value("cloud_secret_key", "", type=str).strip()
+        generated_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
         if generated_key and not self.edit_key.text().strip():
             self.edit_key.setText(generated_key)
         discovered_url = discover_local_cloud_backend()
@@ -631,7 +632,7 @@ class CloudWizardDialog(PopupDialog):
         layout.addWidget(secret_box)
 
         key_row = QHBoxLayout()
-        existing_key = settings.value("cloud_secret_key", "", type=str)
+        existing_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
         self.edit_key = QLineEdit(existing_key)
         self.edit_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.edit_key.setPlaceholderText("Enter your secret key (or leave blank if none)")
@@ -807,9 +808,9 @@ class CloudWizardDialog(PopupDialog):
             settings.setValue("cloud_mode", "convex")
             settings.setValue("convex_site_url", url)
             if key:
-                settings.setValue("cloud_secret_key", key)
+                set_secret("cloud_secret_key", key)
             else:
-                settings.remove("cloud_secret_key")
+                delete_secret("cloud_secret_key")
 
             self.status_lbl.setText(f"<font color='#10B981'>{message}</font>")
             QMessageBox.information(self, "Cloud Connected", "SafeLauncher is now connected to your private cloud backend.")

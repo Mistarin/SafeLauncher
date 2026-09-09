@@ -172,11 +172,11 @@ def cloud_context_fingerprint() -> str:
     change. The secret itself is never persisted in a cache or exposed to UI;
     only its SHA-256 digest participates in this context identity.
     """
-    settings = QSettings("SafeLauncher", "SafeLauncher")
     mode = cloud_mode()
     from core.cloud_backend import get_site_url
     endpoint = get_site_url().strip().rstrip("/")
-    secret = str(settings.value("cloud_secret_key", "") or "").strip()
+    from core.secret_store import get_secret
+    secret = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
     material = "\0".join((mode, endpoint, secret)).encode("utf-8")
     return hashlib.sha256(material).hexdigest()
 
