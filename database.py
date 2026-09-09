@@ -281,6 +281,17 @@ class GameDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_achievements_game_unlocked ON achievements(game_id, unlocked)")
 
                 cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS achievement_profile (
+                        app_id TEXT NOT NULL,
+                        api_name TEXT NOT NULL,
+                        unlock_time REAL DEFAULT 0,
+                        first_seen_at REAL NOT NULL,
+                        PRIMARY KEY (app_id, api_name)
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_achievement_profile_app ON achievement_profile(app_id)")
+
+                cursor.execute("""
                     CREATE TABLE IF NOT EXISTS playtime_sessions (
                         session_id TEXT PRIMARY KEY,
                         game_id INTEGER NOT NULL,
@@ -684,6 +695,9 @@ class GameDatabase:
                             hidden = excluded.hidden
                     """, (game_id, str(app_id), api_name, display_name, desc, icon_path, icongray_path, hidden))
                     inserted += 1
+            # Rehydrate a newly added/re-added game from the account-wide
+            # append-only ledger without allowing the schema to delete it.
+            self.project_profile_achievements(game_id, app_id)
             return inserted
         except Exception as e:
             logger.error(f"Error saving achievement schema for game {game_id}: {e}")
@@ -700,7 +714,12 @@ class GameDatabase:
                     SET unlocked = 1, unlock_time = ?
                     WHERE game_id = ? AND api_name = ? AND unlocked = 0
                 """, (unlock_time, game_id, api_name))
-                return cursor.rowcount > 0
+                changed = cursor.rowcount > 0
+            if changed:
+                app_row = self.conn.execute("SELECT app_id FROM achievements WHERE game_id = ? AND api_name = ?", (game_id, api_name)).fetchone()
+                if app_row and app_row[0]:
+                    self.merge_profile_unlocks(str(app_row[0]), {api_name: unlock_time})
+            return changed
         except Exception as e:
             logger.error(f"Error unlocking achievement {api_name} for game {game_id}: {e}")
             return False
@@ -721,10 +740,84 @@ class GameDatabase:
                     SET unlocked = 1, unlock_time = ?
                     WHERE game_id = ? AND api_name = ? AND unlocked = 0
                 """, params)
-                return cursor.rowcount
+                changed = cursor.rowcount
+            app_row = self.conn.execute("SELECT DISTINCT app_id FROM achievements WHERE game_id = ? LIMIT 1", (game_id,)).fetchone()
+            if app_row and app_row[0]:
+                self.merge_profile_unlocks(str(app_row[0]), unlocks)
+            return changed
         except Exception as e:
             logger.error(f"Error in batch achievement unlock for game {game_id}: {e}")
             return 0
+
+    def merge_profile_unlocks(self, app_id: str, unlocks: Dict[str, float]) -> int:
+        """Append unlocks to the account-wide ledger; never clears records."""
+        app_id = str(app_id or "").strip()
+        if not app_id or not unlocks:
+            return 0
+        now = time.time()
+        changed = 0
+        try:
+            with self.conn:
+                for api_name, raw_time in unlocks.items():
+                    name = str(api_name or "").strip()
+                    if not name:
+                        continue
+                    stamp = float(raw_time or 0) if raw_time else 0.0
+                    if stamp <= 0:
+                        stamp = now
+                    cur = self.conn.execute("""
+                        INSERT INTO achievement_profile (app_id, api_name, unlock_time, first_seen_at)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(app_id, api_name) DO UPDATE SET
+                            unlock_time = CASE
+                                WHEN achievement_profile.unlock_time <= 0 THEN excluded.unlock_time
+                                WHEN excluded.unlock_time <= 0 THEN achievement_profile.unlock_time
+                                ELSE MIN(achievement_profile.unlock_time, excluded.unlock_time)
+                            END
+                    """, (app_id, name, stamp, now))
+                    changed += cur.rowcount
+            return changed
+        except Exception as e:
+            logger.error(f"Error merging achievement profile for AppID {app_id}: {e}")
+            return 0
+
+    def get_profile_unlocks(self, app_id: Optional[str] = None) -> Dict[str, Dict[str, float]]:
+        """Return append-only profile unlocks grouped by Steam AppID."""
+        try:
+            if app_id:
+                rows = self.conn.execute("SELECT app_id, api_name, unlock_time FROM achievement_profile WHERE app_id = ?", (str(app_id),)).fetchall()
+            else:
+                rows = self.conn.execute("SELECT app_id, api_name, unlock_time FROM achievement_profile").fetchall()
+            result: Dict[str, Dict[str, float]] = {}
+            for sid, name, stamp in rows:
+                result.setdefault(str(sid), {})[str(name)] = float(stamp or 0)
+            return result
+        except Exception as e:
+            logger.error(f"Error reading achievement profile: {e}")
+            return {}
+
+    def collect_profile_from_games(self) -> int:
+        """Promote all existing per-game unlock projections into the ledger."""
+        rows = self.conn.execute("SELECT app_id, api_name, unlock_time FROM achievements WHERE unlocked = 1 AND app_id != ''").fetchall()
+        grouped: Dict[str, Dict[str, float]] = {}
+        for app_id, api_name, stamp in rows:
+            grouped.setdefault(str(app_id), {})[str(api_name)] = float(stamp or 0)
+        total = 0
+        for app_id, unlocks in grouped.items():
+            total += self.merge_profile_unlocks(app_id, unlocks)
+        return total
+
+    def project_profile_achievements(self, game_id: int, app_id: str = "") -> int:
+        """Apply profile unlocks to matching current game schema rows only."""
+        app_id = str(app_id or "").strip()
+        if not app_id:
+            row = self.conn.execute("SELECT app_id FROM achievements WHERE game_id = ? LIMIT 1", (game_id,)).fetchone()
+            app_id = str(row[0] or "") if row else ""
+        unlocks = self.get_profile_unlocks(app_id)
+        values = unlocks.get(app_id, {})
+        if not values:
+            return 0
+        return self.unlock_achievements_batch(game_id, values)
 
     def get_game_achievements(self, game_id: int) -> List[dict]:
         """Return all achievements for a game, ordered by unlocked status and name."""

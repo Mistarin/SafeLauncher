@@ -8,7 +8,7 @@ from typing import Tuple
 APP_VERSION = "0.7.0"
 __version__ = APP_VERSION
 
-MIN_CONVEX_BACKEND_VERSION = "1.5.0"
+MIN_CONVEX_BACKEND_VERSION = "1.6.0"
 GITHUB_REPO = "Mistarin/SafeLauncher"
 BACKEND_GITHUB_REPO = "Mistarin/SafeLauncherCloud"
 

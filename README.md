@@ -126,7 +126,7 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 * **Local Snapshots**: Export and restore save archives with level-9 DEFLATE compression and Zip-Slip path traversal protection.
 * **Private Cloud Backend ([SafeLauncherCloud](https://github.com/Mistarin/SafeLauncherCloud.git))**:
   * Sync game saves to your own private Convex backend with client-side AES-256-GCM encryption.
-  * Independent launcher metadata sync for achievements, playtime, and last-played state.
+  * Account-wide append-only achievement profile sync keyed by Steam AppID, independent of game saves and game records.
   * Local-folder cloud mode works without Convex; Convex mode requires a deployed backend and shared secret.
   * Up to 1 GiB free quota per account; save archives may use the available quota, and referrals can expand storage subject to backend configuration.
   * Two retained save generations per game (active plus one backup) and conflict resolution.

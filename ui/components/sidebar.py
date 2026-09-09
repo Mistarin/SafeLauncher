@@ -27,6 +27,7 @@ class LeftSidebarWidget(QFrame):
     collection_selected = pyqtSignal(str)      # Collection name (or '' for all collections)
     add_collection_requested = pyqtSignal()
     size_changed = pyqtSignal(int)
+    profile_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -525,6 +526,9 @@ class HeaderBar(QFrame):
         act_lib_fav.triggered.connect(lambda: self.filter_requested.emit("favorites"))
         act_lib_arch = self.lib_menu.addAction(get_icon("ph.archive-bold", color="#FFFFFF"), "Archived")
         act_lib_arch.triggered.connect(lambda: self.filter_requested.emit("archived"))
+
+        act_profile = self.view_menu.addAction(get_icon("ph.trophy-bold", color="#30D158"), "Achievement Profile")
+        act_profile.triggered.connect(self.profile_requested.emit)
 
         self.view_menu.addSeparator()
         act_toggle_col = self.view_menu.addAction(get_icon("ph.folders-bold", color="#FFFFFF"), "Collapse Collections Panel")

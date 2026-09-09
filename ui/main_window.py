@@ -413,6 +413,7 @@ class MainWindow(QMainWindow):
         self.sidebar.collection_selected.connect(self._set_collection_filter)
         self.sidebar.add_collection_requested.connect(self._on_add_collection)
         self.sidebar.size_changed.connect(self._on_card_size_changed)
+        self.sidebar.profile_requested.connect(self._open_achievement_profile)
         self.sidebar.btn_settings.clicked.connect(self._open_settings)
         self.stat_label = QLabel()  # Keep hidden logic variable for tests
 
@@ -4586,6 +4587,13 @@ class MainWindow(QMainWindow):
         self._update_detail_panel()
         self._update_compact_game_page()
 
+    def _open_achievement_profile(self):
+        from ui.dialogs.achievement_profile_dialog import AchievementProfileDialog
+        dialog = AchievementProfileDialog(self.db, parent=self)
+        dialog.exec()
+        self._refresh_library()
+        self._update_detail_panel()
+
     def _on_achievement_unlocked(self, game_id: int, app_id: str, data: dict):
         """Handle real-time achievement unlock event from watcher."""
         api_name = data.get("api_name", "")
@@ -4833,7 +4841,13 @@ class MainWindow(QMainWindow):
                 from core.cloud_metadata_sync import CloudMetadataSync
                 worker_db = GameDatabase(db_path) if db_path else GameDatabase()
                 try:
-                    CloudMetadataSync.sync_game(worker_db, game_id, name, app_id)
+                    # Achievements are account-wide and append-only; sync the
+                    # profile before the legacy per-game metadata record.
+                    profile_synced = CloudMetadataSync.sync_profile(worker_db)
+                    CloudMetadataSync.sync_game(
+                        worker_db, game_id, name, app_id,
+                        drop_legacy_achievements=profile_synced,
+                    )
                 finally:
                     worker_db.close()
             except Exception as exc:
@@ -5191,7 +5205,8 @@ class MainWindow(QMainWindow):
                 g_name = g[1]
                 g_path = g[2]
                 g_steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
-                g_proton_path = str(g[9]).strip() if len(g) > 9 and g[9] else ""
+                # GameRecord layout: index 9 is last_played; index 12 is proton_path.
+                g_proton_path = str(g[12]).strip() if len(g) > 12 and g[12] else ""
                 if not g_steam_id:
                     continue
                 if any(isinstance(f, AchievementStatusFetcherThread) and f.game_id == gid and f.isRunning() for f in self.metadata_fetchers):
@@ -5237,6 +5252,7 @@ class MainWindow(QMainWindow):
         if self.selected_game and self.selected_game[0] == game_id:
             steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
             self._update_achievement_inspector(game_id, steam_id)
+        self._sync_launcher_metadata_async(game_id)
         self._save_persistent_cache()
 
     def _on_achievement_batch_finished(self, total_games: int, total_unlocked: int):

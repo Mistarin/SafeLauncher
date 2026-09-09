@@ -1210,6 +1210,12 @@ try:
         unlocked_cnt, total_cnt, pct = ach_db.get_achievement_stats(g_id)
         assert unlocked_cnt == 0, "Reset achievements failed"
 
+        # Profile unlocks survive game projection resets and re-adding a game.
+        assert ach_db.get_profile_unlocks("480")["480"]["ACH_WIN_ONE_GAME"] == 1700000000.0
+        second_game_id = ach_db.add_game("Readded Ach Game", "/tmp/game2", "game.exe", "wine", steam_id="480")
+        ach_db.save_achievement_schema(second_game_id, "480", mock_schema)
+        assert next(a for a in ach_db.get_game_achievements(second_game_id) if a["api_name"] == "ACH_WIN_ONE_GAME")["unlocked"]
+
         print("✓ Database achievement schema caching, unlocking, and stats queries verified")
 
         # B. Test Achievement State File Parsing (Goldberg JSON and CODEX INI)
