@@ -29,6 +29,7 @@ from database import GameDatabase, GameRecord
 from core.achievement_schema import SteamAchievementFetcherWorker
 from core.achievement_providers import AchievementAvailability
 from core.logger import get_logger
+from core.date_formatting import format_datetime_timestamp
 from ui.icons import get_icon
 from ui.components.popup_shell import PopupDialog
 
@@ -210,7 +211,7 @@ class AppleAchievementCard(QFrame):
             status_text = "UNVERIFIED"
             pill_style = "background-color: rgba(255, 159, 10, 0.15); color: #FF9F0A; border: 1px solid rgba(255, 159, 10, 0.3);"
         elif unlocked and unlock_time > 1000:
-            dt_str = datetime.datetime.fromtimestamp(unlock_time).strftime("%b %d, %Y · %H:%M")
+            dt_str = format_datetime_timestamp(unlock_time, "%H:%M")
             status_text = f"UNLOCKED {dt_str}"
             pill_style = "background-color: rgba(48, 209, 88, 0.15); color: #30D158; border: 1px solid rgba(48, 209, 88, 0.3);"
         elif unlocked:
@@ -276,7 +277,7 @@ class AppleAchievementCard(QFrame):
         hidden = bool(self.ach.get("hidden", False))
 
         if unlocked and unlock_time > 1000:
-            dt_str = datetime.datetime.fromtimestamp(unlock_time).strftime("%A, %B %d, %Y at %H:%M:%S")
+            dt_str = format_datetime_timestamp(unlock_time, "%H:%M:%S")
             source_text = "Steam verified" if self.ach.get("verified") else "Local source · unverified"
             source_color = "#30D158" if self.ach.get("verified") else "#FF9F0A"
             time_line = f"<p style='color: {source_color}; font-weight: bold; margin-top: 6px;'>Unlocked on {dt_str} · {source_text}</p>"

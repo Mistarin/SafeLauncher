@@ -276,6 +276,20 @@ except Exception as e:
 # offline and must not fail merely because DNS or Steam is unavailable.
 client = SteamGridDBClient()
 print("✓ SteamGridDBClient initialized")
+try:
+    from core.steam_build_tracker import backfill_matching_build_date, has_resolved_build_reference
+
+    assert backfill_matching_build_date("123", 0, "123", 1705000000) == 1705000000
+    assert backfill_matching_build_date("123", 1704000000, "123", 1705000000) == 1704000000
+    assert backfill_matching_build_date("123", 0, "456", 1705000000) == 0
+    assert backfill_matching_build_date("123", 0, "123", 0) == 0
+    assert has_resolved_build_reference("123", 1705000000) is True
+    assert has_resolved_build_reference("123", 0) is False
+    assert has_resolved_build_reference("", 1705000000) is False
+    print("✓ Current build date is backfilled only for an exact latest-build match")
+except Exception as e:
+    print(f"✗ Steam build date matching failed: {e}")
+    sys.exit(1)
 if os.environ.get("SAFELAUNCHER_LIVE_TESTS") == "1":
     try:
         result = client.search_game("Portal 2")
@@ -340,6 +354,9 @@ try:
     else:
         _qs.setValue("show_welcome_wizard", _old_wizard)
     dlg = AddGameDialog(mw, mw.sgdb_client)
+    from PyQt6.QtCore import QDate
+    assert dlg.build_date_input.calendarWidget().yearShown() == QDate.currentDate().year()
+    assert dlg.build_date_input.calendarWidget().monthShown() == QDate.currentDate().month()
     print("✓ UI MainWindow and AddGameDialog instantiated cleanly offscreen")
 except Exception as e:
     print(f"✗ UI Instantiation error: {e}")

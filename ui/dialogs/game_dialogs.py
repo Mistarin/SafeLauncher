@@ -1,18 +1,19 @@
 import os
 import getpass
+from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QMessageBox, QComboBox, QProgressBar, QWidget, QFrame, QMenu,
     QCheckBox, QStackedWidget, QPlainTextEdit, QGraphicsOpacityEffect, QApplication,
-    QGridLayout,
-    QScrollArea
+    QGridLayout, QScrollArea, QDateEdit
 )
-from PyQt6.QtCore import Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QUrl
+from PyQt6.QtCore import Qt, QSize, QPoint, QDate, QEvent, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QUrl
 from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QMovie, QDesktopServices
 
 from core.steamgriddb_client import SteamGridDBClient
 from core.archive_extractor import executable_sort_key
 from core.launch_diagnostics import persist_diagnostics
+from core.date_formatting import qt_date_format
 from ui.icons import get_app_icon, get_icon, LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap
 from ui.threads import BannerFetcher, BannerDownloader, ArchiveExtractorThread, SafeLaunchLogReader
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
@@ -20,6 +21,36 @@ from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 
 DEFAULT_SANDBOX_DIR = os.path.expanduser("~/Games/Sandbox")
+UNSET_BUILD_DATE = QDate(1970, 1, 1)
+
+
+class TodayFirstDateEdit(QDateEdit):
+    """Date editor whose unset calendar opens on today's month."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCalendarPopup(True)
+        self.calendarWidget().installEventFilter(self)
+        self._show_calendar_at_today()
+
+    def _show_calendar_at_today(self):
+        if self.calendarWidget() is None:
+            return
+        today = QDate.currentDate()
+        self.calendarWidget().setCurrentPage(today.year(), today.month())
+
+    def setDate(self, date):
+        super().setDate(date)
+        if date == self.minimumDate():
+            self._show_calendar_at_today()
+
+    def eventFilter(self, watched, event):
+        if watched is self.calendarWidget() and event.type() == QEvent.Type.Show:
+            # Keep an actually stored date opening at that date.  Only the
+            # special "Not set" value should jump away from the 1970 sentinel.
+            if self.date() == self.minimumDate():
+                self._show_calendar_at_today()
+        return super().eventFilter(watched, event)
 
 
 def ensure_sandbox_dir() -> str:
@@ -80,6 +111,7 @@ class AddGameDialog(PopupDialog):
         self._form_result = None
         self._version_result = None
         self._build_id_result = None
+        self._build_date_result = None
         self._steam_id_result = None
         self.fetcher_thread = None
         self.downloader_thread = None
@@ -185,6 +217,15 @@ class AddGameDialog(PopupDialog):
         self.build_id_input.setPlaceholderText("Optional Steam build ID, e.g. 14258963")
         self.build_id_input.setMinimumHeight(36)
         form_layout.addRow("Installed Steam Build ID:", self.build_id_input)
+
+        self.build_date_input = TodayFirstDateEdit()
+        self.build_date_input.setCalendarPopup(True)
+        self.build_date_input.setDisplayFormat(qt_date_format(getattr(parent, "date_format", "")))
+        self.build_date_input.setDateRange(UNSET_BUILD_DATE, QDate(9999, 12, 31))
+        self.build_date_input.setSpecialValueText("Not set")
+        self.build_date_input.setDate(UNSET_BUILD_DATE)
+        self.build_date_input.setMinimumHeight(36)
+        form_layout.addRow("Installed Build Date:", self.build_date_input)
 
         self.patch_notes_input = QLineEdit()
         self.patch_notes_input.setPlaceholderText("https://...")
@@ -565,6 +606,8 @@ class AddGameDialog(PopupDialog):
         )
         if hasattr(self, "build_id_input"):
             self._build_id_result = self.build_id_input.text().strip()
+        if hasattr(self, "build_date_input"):
+            self._build_date_result = self.get_build_date()
         self.accept()
 
     def get_values(self):
@@ -587,6 +630,18 @@ class AddGameDialog(PopupDialog):
         if self._build_id_result is not None:
             return self._build_id_result
         return self.build_id_input.text().strip()
+
+    def get_build_date(self) -> int:
+        """Return the manually entered installed-build date as a timestamp."""
+        if self._build_date_result is not None:
+            return self._build_date_result
+        selected = self.build_date_input.date()
+        if selected == UNSET_BUILD_DATE:
+            return 0
+        try:
+            return int(datetime(selected.year(), selected.month(), selected.day()).timestamp())
+        except (OverflowError, OSError, ValueError):
+            return 0
 
 
 class EditGameDialog(AddGameDialog):
@@ -652,12 +707,33 @@ class EditGameDialog(AddGameDialog):
         # Keep the persisted build ID visible when editing an existing game.
         if len(game_data) > 11:
             self.build_id_input.setText(str(game_data[11] or ""))
+        if len(game_data) > 20 and game_data[20]:
+            build_date = int(game_data[20])
+        else:
+            build_date = 0
+        if build_date > 0:
+            try:
+                stored_date = datetime.fromtimestamp(build_date)
+                self.build_date_input.setDate(
+                    QDate(stored_date.year, stored_date.month, stored_date.day)
+                )
+            except (OSError, ValueError, OverflowError):
+                pass
 
     def _on_mark_current_clicked(self):
         parent_win = self.parent()
         latest = getattr(parent_win, 'latest_checked_build_id', "") if parent_win else ""
+        latest_date = getattr(parent_win, 'latest_checked_build_date', 0) if parent_win else 0
         if latest and hasattr(self, 'build_id_input'):
             self.build_id_input.setText(str(latest))
+        if latest_date and hasattr(self, 'build_date_input'):
+            try:
+                stored_date = datetime.fromtimestamp(int(latest_date))
+                self.build_date_input.setDate(
+                    QDate(stored_date.year, stored_date.month, stored_date.day)
+                )
+            except (OSError, ValueError, OverflowError):
+                pass
         self.mark_current_requested.emit(self.game_id)
 
     def get_build_id(self) -> str:

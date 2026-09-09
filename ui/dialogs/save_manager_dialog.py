@@ -32,6 +32,7 @@ from core.cloud_operations import CloudSyncCoordinator, classify_cloud_error
 from core.zip_backup import ZipBackupManager
 from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
+from core.date_formatting import format_datetime_timestamp
 
 logger = get_logger("SaveManagerDialog")
 
@@ -665,7 +666,7 @@ class SaveManagerDialog(PopupDialog):
             info_vbox.addLayout(name_row)
 
             # Path & Date
-            date_str = datetime.fromtimestamp(loc.last_modified).strftime("%Y-%m-%d %H:%M") if loc.last_modified > 0 else "Unknown"
+            date_str = format_datetime_timestamp(loc.last_modified, "%H:%M", fallback="Unknown")
             lbl_path = QLabel(f"<font color='#6F7682'>{loc.path}</font> <font color='#555'>· Modified: {date_str}</font>")
             lbl_path.setStyleSheet("font-size: 10px;")
             lbl_path.setWordWrap(True)
@@ -898,7 +899,7 @@ class SaveManagerDialog(PopupDialog):
         for v in versions:
             v_num = v.get("version")
             is_active = v.get("is_active", False)
-            date_str = datetime.fromtimestamp(v.get("mtime", 0)).strftime("%Y-%m-%d %H:%M:%S") if v.get("mtime") else "Unknown date"
+            date_str = format_datetime_timestamp(v.get("mtime", 0), "%H:%M:%S")
             sz_str = format_bytes(int(v.get("size_bytes", 0)))
             active_badge = " · [Active on this PC]" if is_active else ""
 

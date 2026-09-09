@@ -14,6 +14,7 @@ Implements the modern Compact Library presentation:
 import os
 import re
 import datetime
+from html import escape
 from typing import Optional, List, Dict, Any, Tuple
 
 from PyQt6.QtCore import (
@@ -33,8 +34,10 @@ from PyQt6.QtGui import (
 from ui.icons import get_icon
 from core.cloud_save_sync import SyncStatus
 from core.library_controller import LibrarySnapshot
+from core.date_formatting import format_timestamp, format_datetime_timestamp
 from core.game_status import cloud_indicator, update_indicator
 from core.logger import get_logger
+from core.steam_build_tracker import has_resolved_build_reference
 
 logger = get_logger("CompactGamePage")
 
@@ -75,9 +78,9 @@ def _format_last_played_date(timestamp: Any) -> str:
         days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         return days[dt.weekday()]
     elif dt.year == now.year:
-        return dt.strftime("%b %d")
+        return format_timestamp(ts)
     else:
-        return dt.strftime("%b %d, %Y")
+        return format_timestamp(ts)
 
 
 def _create_rounded_icon(pixmap: QPixmap, size: QSize, radius: int = 6) -> QPixmap:
@@ -837,8 +840,7 @@ class CompactActivityTimelineCard(QFrame):
 
             unlock_ts = ach.get("unlock_time", 0)
             if unlock_ts > 0:
-                dt = datetime.datetime.fromtimestamp(unlock_ts)
-                time_str = dt.strftime("Unlocked %b %d, %Y at %H:%M")
+                time_str = f"Unlocked {format_datetime_timestamp(unlock_ts, '%H:%M')}"
                 time_lbl = QLabel(time_str)
                 time_lbl.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 500; background: transparent;")
                 info_vbox.addWidget(time_lbl)
@@ -1493,7 +1495,7 @@ class CompactGamePageWidget(QWidget):
 
         # System & Build Specs Card
         self.specs_card = QFrame(content_widget)
-        self.specs_card.setMaximumHeight(160)
+        self.specs_card.setMaximumHeight(260)
         self.specs_card.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
@@ -1550,6 +1552,22 @@ class CompactGamePageWidget(QWidget):
         self.lbl_steam_id = QLabel("-")
         self.lbl_steam_id.setStyleSheet("color: #E4E4E7; font-size: 11px; background: transparent;")
         grid.addWidget(self.lbl_steam_id, 3, 1)
+
+        for row, label_text, object_name in (
+            (4, "Current Build", "lbl_current_build"),
+            (5, "Current Date", "lbl_current_build_date"),
+            (6, "Latest Build", "lbl_latest_build"),
+            (7, "Latest Date", "lbl_latest_build_date"),
+        ):
+            key_label = QLabel(label_text)
+            key_label.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 600; background: transparent;")
+            key_label.setFixedWidth(85)
+            grid.addWidget(key_label, row, 0)
+            value_label = QLabel("Not checked" if "latest" in object_name else "Not recorded")
+            value_label.setObjectName(object_name)
+            value_label.setStyleSheet("color: #E4E4E7; font-size: 11px; background: transparent;")
+            setattr(self, object_name, value_label)
+            grid.addWidget(value_label, row, 1)
 
         grid.setColumnStretch(1, 1)
         specs_layout.addLayout(grid)
@@ -1649,6 +1667,11 @@ class CompactGamePageWidget(QWidget):
         is_running: bool = False,
         is_missing: bool = False,
         is_update_available: bool = False,
+        current_build_id: str = "",
+        current_build_date: int = 0,
+        latest_build_id: str = "",
+        latest_build_date: int = 0,
+        current_build_found: bool = False,
     ):
         """Bind all game attributes and stats into the Compact view."""
         if not game_record:
@@ -1728,6 +1751,14 @@ class CompactGamePageWidget(QWidget):
         self.lbl_version.setText(ver_override if ver_override else "Not set")
         self.lbl_steam_id.setText(s_id if s_id else "Not linked")
         self.lbl_steam_id.setToolTip("Steam AppID used for metadata and achievements" if s_id else "No Steam AppID linked")
+
+        current_build_text = escape(str(current_build_id or "Not recorded"))
+        if current_build_found or has_resolved_build_reference(current_build_id, current_build_date):
+            current_build_text += " <font color='#35C98A'>(found)</font>"
+        self.lbl_current_build.setText(current_build_text)
+        self.lbl_current_build_date.setText(format_timestamp(current_build_date, fallback="Not recorded"))
+        self.lbl_latest_build.setText(str(latest_build_id or "Not checked"))
+        self.lbl_latest_build_date.setText(format_timestamp(latest_build_date, fallback="Not checked"))
 
         # 5. Achievements Showcase
         self.ach_widget.set_achievements_data(unlocked, total, pct, recent_achievements, locked_achievements)

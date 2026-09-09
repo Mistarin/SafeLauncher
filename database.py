@@ -127,6 +127,7 @@ class GameRecord:
     is_archived: int = 0
     icon_url: str = ""
     env_vars: str = "{}"
+    build_date: int = 0
 
     def __getitem__(self, idx):
         fields = (
@@ -135,12 +136,12 @@ class GameRecord:
             self.is_favorite, self.last_played, self.tags, self.build_id,
             self.proton_path, self.collection, self.install_date,
             self.version_override, self.patch_notes_url,
-            self.is_archived, self.icon_url, self.env_vars or "{}"
+            self.is_archived, self.icon_url, self.env_vars or "{}", self.build_date
         )
         return fields[idx]
 
     def __len__(self):
-        return 20
+        return 21
 
     def __hash__(self):
         return hash(self.id)
@@ -152,7 +153,7 @@ class GameRecord:
             self.is_favorite, self.last_played, self.tags, self.build_id,
             self.proton_path, self.collection, self.install_date,
             self.version_override, self.patch_notes_url,
-            self.is_archived, self.icon_url, self.env_vars or "{}"
+            self.is_archived, self.icon_url, self.env_vars or "{}", self.build_date
         ))
 
 
@@ -162,7 +163,7 @@ class GameDatabase:
         "playtime_seconds, is_favorite, last_played, tags, build_id"
         ", proton_path, collection, install_date"
         ", version_override, patch_notes_url"
-        ", is_archived, icon_url, env_vars"
+        ", is_archived, icon_url, env_vars, build_date"
     )
 
     def __init__(self, db_path: str = None):
@@ -290,6 +291,8 @@ class GameDatabase:
                     cursor.execute("ALTER TABLE games ADD COLUMN icon_url TEXT DEFAULT ''")
                 if "env_vars" not in columns:
                     cursor.execute("ALTER TABLE games ADD COLUMN env_vars TEXT DEFAULT '{}'")
+                if "build_date" not in columns:
+                    cursor.execute("ALTER TABLE games ADD COLUMN build_date INTEGER DEFAULT 0")
                 
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS collections (
@@ -431,6 +434,16 @@ class GameDatabase:
                 self.conn.execute("UPDATE games SET build_id = ? WHERE id = ?", (build_id, game_id))
         except Exception as e:
             logger.error(f"Error updating build_id for game {game_id}: {e}")
+
+    def update_build_date(self, game_id: int, build_date: int):
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE games SET build_date = ? WHERE id = ?",
+                    (int(build_date or 0), game_id),
+                )
+        except Exception as e:
+            logger.error(f"Error updating build_date for game {game_id}: {e}")
 
     def update_game_version_metadata(self, game_id: int, version_override: str, patch_notes_url: str) -> None:
         try:
@@ -847,7 +860,8 @@ class GameDatabase:
                     install_date=r[14] or 0, version_override=r[15] or "", patch_notes_url=r[16] or "",
                     is_archived=r[17] if len(r) > 17 and r[17] else 0,
                     icon_url=r[18] if len(r) > 18 and r[18] else "",
-                    env_vars=r[19] if len(r) > 19 and r[19] else "{}"
+                    env_vars=r[19] if len(r) > 19 and r[19] else "{}",
+                    build_date=r[20] if len(r) > 20 and r[20] else 0,
                 )
                 for r in rows
             ]

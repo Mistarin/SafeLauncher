@@ -22,6 +22,7 @@ from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
 from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
+from core.date_formatting import format_datetime_timestamp
 
 logger = get_logger("AccountDialog")
 
@@ -370,7 +371,6 @@ class AccountDialog(PopupDialog):
 
     def _populate_devices(self, devices):
         """Fill the device list and expose revocation for remote entries."""
-        from datetime import datetime
         self._devices = devices or []
         self.lst_devices.clear()
         if not self._devices:
@@ -380,7 +380,7 @@ class AccountDialog(PopupDialog):
             self.btn_revoke_device.hide()
             return
         for d in self._devices:
-            seen = datetime.fromtimestamp(d.get("lastSeenAt", 0) / 1000).strftime("%Y-%m-%d %H:%M")
+            seen = format_datetime_timestamp(d.get("lastSeenAt", 0) / 1000, "%H:%M")
             state = "online" if d.get("isOnline") else "offline"
             item = QListWidgetItem(
                 f"{d.get('deviceName', 'Device')} ({d.get('platform', '?')}) · "

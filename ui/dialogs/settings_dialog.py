@@ -5,7 +5,6 @@ import subprocess
 import html
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
@@ -21,6 +20,7 @@ from database import _APP_DATA_DIR
 from core.desktop_integration import install_safelauncher_desktop_entry, is_desktop_entry_installed
 from core.security_diagnostics import inspect_security_health, run_live_sandbox_verification
 from core.launch_diagnostics import diagnostics_directory
+from core.date_formatting import date_format_choices, format_datetime_timestamp, get_date_format_key
 from core.screenshot_capture import capture_desktop_screenshot, get_available_screens
 from core.plugins.gpu_screen_recorder import (
     GpuRecorderService, GpuRecorderConfig,
@@ -64,7 +64,7 @@ class UserSettingsDialog(PopupDialog):
     appDownloadFinished = pyqtSignal(str)      # target path
     appDownloadFailed = pyqtSignal(str)        # error message
 
-    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None):
+    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = ""):
         super().__init__("Settings", parent)
         self.user_name = user_name
         self.proton_path = proton_path
@@ -74,6 +74,7 @@ class UserSettingsDialog(PopupDialog):
         self.screenshot_hotkey = screenshot_hotkey or "F12"
         from core.cloud_save_sync import CloudSaveSyncEngine
         self.cloud_saves_dir = cloud_saves_dir or CloudSaveSyncEngine.get_cloud_root()
+        self.date_format = date_format or get_date_format_key()
         self._task_supervisor = TaskSupervisor(self, logger)
         self._account_probe_generation = 0
         self._health_probe_generation = 0
@@ -306,6 +307,17 @@ class UserSettingsDialog(PopupDialog):
 
         card_form.addRow("Card Size:", card_row)
         layout.addLayout(card_form)
+
+        date_form = QFormLayout()
+        date_form.setSpacing(10)
+        date_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.combo_date_format = QComboBox()
+        for key, _python_format, _qt_format in date_format_choices():
+            self.combo_date_format.addItem(key, key)
+        date_index = self.combo_date_format.findData(self.date_format)
+        self.combo_date_format.setCurrentIndex(max(0, date_index))
+        date_form.addRow("Date Format:", self.combo_date_format)
+        layout.addLayout(date_form)
 
         sec_profile = QLabel("Profile & Paths")
         sec_profile.setFont(QFont("Arial", 12, QFont.Weight.Bold))
@@ -1217,6 +1229,9 @@ class UserSettingsDialog(PopupDialog):
                 settings.setValue("achievement_notifications_enabled", self.chk_achievement_notifications.isChecked())
             if hasattr(self, "chk_achievement_desktop"):
                 settings.setValue("achievement_desktop_notifications", self.chk_achievement_desktop.isChecked())
+            if hasattr(self, "combo_date_format"):
+                self.date_format = self.combo_date_format.currentData() or get_date_format_key()
+                settings.setValue("date_format", self.date_format)
 
             self.accept()
 
@@ -1688,6 +1703,9 @@ class UserSettingsDialog(PopupDialog):
 
     def get_show_welcome_wizard(self) -> bool:
         return self.chk_welcome.isChecked()
+
+    def get_date_format(self) -> str:
+        return self.combo_date_format.currentData() if hasattr(self, "combo_date_format") else self.date_format
 
     def _on_spin_card_size_changed(self, val: int):
         if not hasattr(self, "combo_card_size"):
@@ -2219,7 +2237,7 @@ class VideoGalleryDialog(PopupDialog):
             info.addWidget(name)
             size_mb = os.path.getsize(filepath) / (1024 * 1024)
             modified = os.path.getmtime(filepath)
-            detail = QLabel(f"{size_mb:.1f} MB  •  {datetime.fromtimestamp(modified):%Y-%m-%d %H:%M}")
+            detail = QLabel(f"{size_mb:.1f} MB  •  {format_datetime_timestamp(modified, '%H:%M')}")
             detail.setStyleSheet("color: #a1a1aa; font-size: 11px; background: transparent;")
             info.addWidget(detail)
             layout.addLayout(info, 1)

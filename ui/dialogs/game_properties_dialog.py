@@ -20,6 +20,8 @@ from ui.maintenance_dialogs import PrefixMaintenanceDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from core.host_process import host_process_env
 from core.logger import get_logger
+from core.date_formatting import format_datetime_timestamp, format_timestamp
+from core.steam_build_tracker import has_resolved_build_reference
 from core.safe_thread import TaskSupervisor
 from core.performance_env import (
     ENABLE_GAMEMODE,
@@ -58,6 +60,19 @@ class GamePropertiesDialog(PopupDialog):
         self.game_mode = game[4] if len(game) > 4 else ""
         self.steam_id = game[6] if len(game) > 6 else ""
         self.custom_proton_path = game[12] if len(game) > 12 and game[12] else ""
+        self.current_build_id = game[11] if len(game) > 11 and game[11] else ""
+        self.current_build_date = game[20] if len(game) > 20 and game[20] else 0
+        self.latest_build_id = ""
+        self.latest_build_date = 0
+        if self.parent_window:
+            local_build = getattr(self.parent_window, "local_version_by_game_id", {}).get(self.game_id)
+            if local_build:
+                self.current_build_id = local_build[0] or self.current_build_id
+                self.current_build_date = local_build[1] or self.current_build_date
+            latest_result = getattr(self.parent_window, "steam_check_results", {}).get(self.game_id)
+            if latest_result:
+                self.latest_build_id = str(latest_result[0] or "")
+                self.latest_build_date = int(latest_result[1] or 0)
 
         # Load environment variables from database
         self.env_vars: Dict[str, str] = {}
@@ -201,6 +216,35 @@ class GamePropertiesDialog(PopupDialog):
         sum_layout.addWidget(lbl_e, 2, 1)
 
         body_layout.addWidget(summary_card)
+
+        # Imported-game build references and the latest public Steam match.
+        sec_builds = QLabel("Build Matching")
+        sec_builds.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        sec_builds.setStyleSheet("color: #F5F7FA; background: transparent; border: none; padding-bottom: 4px; margin-top: 6px;")
+        body_layout.addWidget(sec_builds)
+
+        builds_card = QFrame()
+        builds_card.setStyleSheet("QFrame { background: #18181B; border: none; border-radius: 10px; padding: 8px; }")
+        builds_layout = QGridLayout(builds_card)
+        builds_layout.setHorizontalSpacing(12)
+        builds_layout.setVerticalSpacing(6)
+        build_rows = (
+            ("Current Build ID:", self.current_build_id or "Not recorded"),
+            ("Current Build Date:", format_timestamp(self.current_build_date, fallback="Not recorded")),
+            ("Latest Build ID:", self.latest_build_id or "Not checked"),
+            ("Latest Build Date:", format_timestamp(self.latest_build_date, fallback="Not checked")),
+        )
+        for row, (label, value) in enumerate(build_rows):
+            builds_layout.addWidget(QLabel(f"<font color='#6F7682'>{label}</font>"), row, 0)
+            value_label = QLabel(str(value))
+            if row == 0 and has_resolved_build_reference(self.current_build_id, self.current_build_date):
+                value_label.setText(
+                    f"{html_escape(str(value))} <font color='#35C98A'>(found)</font>"
+                )
+            value_label.setStyleSheet("color: #E4E4E7; font-family: monospace; font-size: 11px;")
+            builds_layout.addWidget(value_label, row, 1)
+        builds_layout.setColumnStretch(1, 1)
+        body_layout.addWidget(builds_card)
 
         # Proton / Wine Runtime
         sec_runtime = QLabel("Proton / Wine Runtime")
@@ -745,11 +789,10 @@ class GamePropertiesDialog(PopupDialog):
             return
 
         from ui.dialogs.save_conflict_dialog import format_bytes
-        from datetime import datetime
         from core.game_status import cloud_indicator
 
         if local_stats.exists:
-            date_str = datetime.fromtimestamp(local_stats.last_modified).strftime("%Y-%m-%d %H:%M:%S")
+            date_str = format_datetime_timestamp(local_stats.last_modified, "%H:%M:%S")
             self.lbl_folder_path.setText(f"<b>Path:</b> <font color='#3B9FE8' face='monospace'>{local_stats.display_path}</font>")
             self.lbl_save_details.setText(
                 f"<font color='#6F7682'>Files:</font> {local_stats.file_count} &nbsp;|&nbsp; "
@@ -785,7 +828,6 @@ class GamePropertiesDialog(PopupDialog):
 
     def _render_generations(self, versions, local_exists: bool = True):
         """Show retained cloud generations with multi-version selector & restore action."""
-        from datetime import datetime
         from ui.dialogs.save_conflict_dialog import format_bytes
         from core.cloud_save_sync import get_active_save_version
         self._cloud_versions = list(versions or [])
@@ -806,7 +848,7 @@ class GamePropertiesDialog(PopupDialog):
             # field names. Normalize both here so retained backups never show
             # an empty date or zero size.
             raw_mtime = v.get("mtime", v.get("sourceMaxMtime", 0)) or 0
-            d = datetime.fromtimestamp(float(raw_mtime)).strftime("%Y-%m-%d %H:%M") if raw_mtime else "Unknown date"
+            d = format_datetime_timestamp(float(raw_mtime), "%H:%M")
             raw_size = v.get("size_bytes", v.get("sizeBytes", 0)) or 0
             sz = format_bytes(int(raw_size))
             is_active = local_exists and ((active_ver is not None and v_num == active_ver) or (active_ver is None and idx == 0))

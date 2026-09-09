@@ -3,7 +3,6 @@ Save Conflict Resolution Dialog for SafeLauncher.
 Allows users to compare local vs. cloud save timestamps and choose which save to preserve.
 """
 
-from datetime import datetime
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFrame, QCheckBox
@@ -16,6 +15,7 @@ from ui.components.sidebar import DialogTitleBar
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from core.cloud_save_sync import SaveStats
+from core.date_formatting import format_datetime_timestamp
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -105,7 +105,7 @@ class SaveConflictDialog(PopupDialog):
         tag_cloud.setStyleSheet(f"color: {cloud_tag_color};")
         cc_layout.addWidget(tag_cloud)
 
-        cloud_date = datetime.fromtimestamp(cloud_stats.last_modified).strftime("%Y-%m-%d %H:%M:%S") if cloud_stats.last_modified > 0 else "Unknown"
+        cloud_date = format_datetime_timestamp(cloud_stats.last_modified, "%H:%M:%S", fallback="Unknown")
         cloud_date_color = "#A7ADB8" if self.local_is_newer else "#35C98A"
         lbl_cd = QLabel(f"<b>Edited:</b><br><font color='{cloud_date_color}'>{cloud_date}</font>")
         lbl_cd.setStyleSheet("font-size: 11px; color: #F5F7FA;")
@@ -131,7 +131,7 @@ class SaveConflictDialog(PopupDialog):
         tag_local.setStyleSheet(f"color: {local_tag_color};")
         lc_layout.addWidget(tag_local)
 
-        local_date = datetime.fromtimestamp(local_stats.last_modified).strftime("%Y-%m-%d %H:%M:%S") if local_stats.last_modified > 0 else "Unknown"
+        local_date = format_datetime_timestamp(local_stats.last_modified, "%H:%M:%S", fallback="Unknown")
         local_date_color = "#35C98A" if self.local_is_newer else "#A7ADB8"
         lbl_ld = QLabel(f"<b>Edited:</b><br><font color='{local_date_color}'>{local_date}</font>")
         lbl_ld.setStyleSheet("font-size: 11px; color: #F5F7FA;")
