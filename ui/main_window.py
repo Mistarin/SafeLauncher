@@ -325,6 +325,7 @@ class MainWindow(QMainWindow):
         root_vbox.addWidget(self.title_bar)
         self.title_bar.search_changed.connect(self._on_search_query_changed)
         self.title_bar.filter_requested.connect(self._set_filter)
+        self.title_bar.profile_requested.connect(self._open_achievement_profile)
         self.title_bar.settings_requested.connect(self._open_settings)
         self.title_bar.toggle_collections_requested.connect(self._toggle_collections_panel)
         self.title_bar.sync_requested.connect(self._on_sync_sandbox)

@@ -423,6 +423,7 @@ class HeaderBar(QFrame):
 
     search_changed = pyqtSignal(str)
     filter_requested = pyqtSignal(str)
+    profile_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     toggle_collections_requested = pyqtSignal()
     sync_requested = pyqtSignal()
