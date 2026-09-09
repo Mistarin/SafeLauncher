@@ -1986,6 +1986,19 @@ try:
     mw_compact._set_filter("archived")
     mw_compact._set_filter("all")
 
+    # Regression: an empty-state label is deleted when normal grid widgets
+    # replace it, so the next empty refresh must create a fresh QLabel.
+    from PyQt6.QtWidgets import QLabel
+    library_host = mw_compact.library_view_host
+    library_host.set_empty_grid_message("Initial empty state")
+    first_empty_label = library_host._empty_label
+    library_host.set_grid_widgets([QLabel()])
+    library_host.set_grid_widgets([])
+    app.processEvents()
+    library_host.set_empty_grid_message("Refreshed empty state")
+    assert library_host._empty_label is not first_empty_label
+    assert library_host._empty_label.text() == "Refreshed empty state"
+
     # Test new darker footer bar (#0E0E10) and bottom-left Add Game button
     assert hasattr(mw_compact, "footer_bar")
     assert hasattr(mw_compact, "btn_add")

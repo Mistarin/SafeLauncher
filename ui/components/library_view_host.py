@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Optional, Set
 
+from PyQt6 import sip
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QStackedWidget
 
@@ -122,11 +123,13 @@ class LibraryViewHost(QStackedWidget):
 
     def set_grid_widgets(self, widgets: list) -> None:
         """Set standard-grid widgets without exposing the stack to callers."""
+        if self._empty_label is not None and self._empty_label not in widgets:
+            self._empty_label = None
         self.grid_container.set_banner_widgets(widgets)
 
     def set_empty_grid_message(self, message: str, show_add: bool = False) -> None:
         """Render an empty state in the standard grid renderer."""
-        if self._empty_label is None:
+        if self._empty_label is None or sip.isdeleted(self._empty_label):
             self._empty_label = QLabel(self.grid_container)
             self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._empty_label.setStyleSheet("color: #777777; font-size: 14px; padding: 40px;")
