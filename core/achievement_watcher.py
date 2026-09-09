@@ -19,6 +19,31 @@ from core.logger import get_logger
 logger = get_logger("AchievementWatcher")
 
 
+def resolve_achievement_prefix(prefix_path: str = "", game_path: str = "") -> Optional[Path]:
+    """Resolve the Wine prefix used by a game.
+
+    ``proton_path`` in the game record is normally a Proton/UMU runtime path,
+    not a WINEPREFIX.  Only accept an explicitly supplied path when it has a
+    Wine prefix shape; otherwise derive the prefix owned by the game.
+    """
+    candidates: List[Path] = []
+    supplied = Path(str(prefix_path)).expanduser() if prefix_path else None
+    if supplied and supplied.is_dir() and (supplied / "drive_c").is_dir():
+        candidates.append(supplied)
+
+    if game_path:
+        game_dir = Path(game_path).expanduser()
+        candidates.extend((game_dir / "prefix", game_dir / "prefix" / "pfx"))
+
+    for candidate in candidates:
+        try:
+            if candidate.is_dir() and (candidate / "drive_c").is_dir():
+                return candidate.resolve()
+        except OSError:
+            continue
+    return None
+
+
 def achievement_state_candidates(prefix_path: str, game_path: str, app_id: str) -> List[Path]:
     """Return known achievement-state locations in discovery order.
 
@@ -31,13 +56,20 @@ def achievement_state_candidates(prefix_path: str, game_path: str, app_id: str) 
         return []
 
     app_id = str(app_id).strip()
-    prefix = Path(prefix_path).resolve() if prefix_path else None
+    prefix = resolve_achievement_prefix(prefix_path, game_path)
     game_dir = Path(game_path).resolve() if game_path else None
     candidates: List[Path] = []
 
     def add(path: Path) -> None:
         if path not in candidates:
             candidates.append(path)
+
+    state_names = ("achievements.json", "stats.json", "achievements.ini", "stats.ini",
+                   "achievement.json", "achievement.ini")
+
+    def add_state_dir(directory: Path) -> None:
+        for filename in state_names:
+            add(directory / filename)
 
     if prefix and prefix.is_dir():
         users = prefix / "drive_c/users"
@@ -47,44 +79,58 @@ def achievement_state_candidates(prefix_path: str, game_path: str, app_id: str) 
             # Generic Windows save roots.  These are intentionally limited to
             # the game's folder name elsewhere by the save detector; here the
             # app-id variants are the unambiguous achievement forms.
-            add(user_root / "AppData/Roaming/Goldberg SteamEmu Saves" / app_id / "achievements.json")
-            add(user_root / "AppData/Roaming/FLT" / app_id / "achievements.ini")
-            add(user_root / "AppData/Roaming/FLT" / app_id / "stats.ini")
-            add(user_root / "AppData/Roaming/Steam/CODEX" / app_id / "achievements.ini")
+            for save_root in ("Goldberg SteamEmu Saves", "GSE Saves", "FLT", "Steam/CODEX", "Steam/RUNE"):
+                add_state_dir(user_root / "AppData/Roaming" / save_root / app_id)
             for root in (
                 user_root / "Documents",
                 user_root / "Documents/My Games",
                 user_root / "AppData/Roaming",
                 user_root / "AppData/Local",
             ):
-                for filename in ("achievements.json", "achievements.ini", "achievement.json", "achievement.ini"):
-                    add(root / filename)
+                add_state_dir(root)
                 # Common layout: <Windows root>/<game name>/<state file>.
                 # Probe only one level; never recursively crawl user data.
                 if root.is_dir():
                     try:
                         for game_folder in root.iterdir():
                             if game_folder.is_dir():
-                                for filename in ("achievements.json", "achievements.ini", "achievement.json", "achievement.ini"):
-                                    add(game_folder / filename)
+                                add_state_dir(game_folder)
                     except OSError:
                         pass
 
-        add(prefix / "drive_c/users/Public/Documents/Steam/CODEX" / app_id / "achievements.ini")
-        add(prefix / "drive_c/users/Public/Documents/Steam/RUNE" / app_id / "achievements.ini")
+        for save_root in ("Steam/CODEX", "Steam/RUNE", "Goldberg SteamEmu Saves", "GSE Saves"):
+            add_state_dir(prefix / "drive_c/users/Public/Documents" / save_root / app_id)
 
     if game_dir and game_dir.is_dir():
-        for path in (
-            game_dir / "steam_settings/achievements.json",
-            game_dir / f"steam_settings/{app_id}/achievements.json",
-            game_dir / f"Goldberg SteamEmu Saves/{app_id}/achievements.json",
-            game_dir / "SmartSteamEmu/achievements.ini",
-            game_dir / "achievements.json",
-            game_dir / "achievements.ini",
+        for directory in (
+            game_dir / "steam_settings",
+            game_dir / f"steam_settings/{app_id}",
+            game_dir / f"Goldberg SteamEmu Saves/{app_id}",
+            game_dir / f"GSE Saves/{app_id}",
+            game_dir / "SmartSteamEmu",
+            game_dir,
         ):
-            add(path)
+            add_state_dir(directory)
 
-    add(Path.home() / ".local/share/Goldberg SteamEmu Saves" / app_id / "achievements.json")
+        # Goldberg-compatible builds can redirect the emulator save folder
+        # through configs.user.ini.  Read only this small settings file.
+        settings_file = game_dir / "steam_settings/configs.user.ini"
+        if settings_file.is_file():
+            try:
+                settings = configparser.ConfigParser()
+                settings.optionxform = str
+                settings.read(settings_file, encoding="utf-8")
+                save_folder = settings.get("user::saves", "saves_folder_name", fallback="").strip()
+                if save_folder:
+                    add_state_dir(game_dir / save_folder / app_id)
+                    if prefix:
+                        for user_root in (prefix / "drive_c/users/steamuser", prefix / "drive_c/users/Public"):
+                            add_state_dir(user_root / "AppData/Roaming" / save_folder / app_id)
+            except (configparser.Error, OSError):
+                pass
+
+    for save_root in ("Goldberg SteamEmu Saves", "GSE Saves"):
+        add_state_dir(Path.home() / ".local/share" / save_root / app_id)
     return candidates
 
 
@@ -99,53 +145,34 @@ def locate_achievements_file(prefix_path: str, game_path: str, app_id: str) -> O
     existing = [p for p in achievement_state_candidates(prefix_path, game_path, app_id) if p.is_file()]
     if not existing:
         return None
-    # Emulators commonly replace files atomically.  Prefer a non-empty state
-    # over the empty pre-seeded Goldberg file, then use mtime for the active
-    # file when several real candidates exist.
+    # Emulators commonly replace files atomically. Prefer non-empty state and
+    # then the newest file when several real candidates exist.
     def priority(path: Path) -> tuple[int, int, int]:
         try:
             size = path.stat().st_size
             return (int(size > 2), path.stat().st_mtime_ns, size)
         except OSError:
             return (0, 0, 0)
+    non_empty = [p for p in existing if priority(p)[0]]
+    if non_empty:
+        return max(non_empty, key=priority)
+    # Ignore an empty host-global file left by older SafeLauncher versions
+    # when the game has its own prefix. It is not evidence of game state.
+    if resolve_achievement_prefix(prefix_path, game_path):
+        return None
     return max(existing, key=priority)
 
 
-def ensure_achievement_watch_target(prefix_path: str, game_path: str, app_id: str) -> Path:
+def ensure_achievement_watch_target(prefix_path: str, game_path: str, app_id: str) -> Optional[Path]:
     """
-    Ensures a target achievements file exists or returns the predicted location so
-    QFileSystemWatcher can attach immediately before game launch.
+    Return an existing or predicted target without creating synthetic state.
     """
     found = locate_achievements_file(prefix_path, game_path, app_id)
     if found:
         return found
 
-    app_id = str(app_id).strip()
-    prefix = Path(prefix_path).resolve() if prefix_path else None
-
-    # Default to standard Goldberg Wine prefix path
-    if prefix and prefix.is_dir():
-        # Check if steamuser exists, otherwise use first user directory
-        users_dir = prefix / "drive_c" / "users"
-        user_name = "steamuser"
-        if users_dir.is_dir():
-            for u in users_dir.iterdir():
-                if u.is_dir() and u.name.lower() not in ("public", "all users", "default", "default user"):
-                    user_name = u.name
-                    break
-        target_dir = prefix / "drive_c" / "users" / user_name / "AppData" / "Roaming" / "Goldberg SteamEmu Saves" / app_id
-    else:
-        target_dir = Path.home() / ".local/share" / "Goldberg SteamEmu Saves" / app_id
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_file = target_dir / "achievements.json"
-    if not target_file.exists():
-        try:
-            target_file.write_text("{}", encoding="utf-8")
-        except Exception as e:
-            logger.debug(f"Could not pre-seed empty achievements.json: {e}")
-
-    return target_file
+    candidates = achievement_state_candidates(prefix_path, game_path, app_id)
+    return candidates[0] if candidates else None
 
 
 def parse_achievements_state(file_path: Path) -> Dict[str, float]:
@@ -163,11 +190,22 @@ def parse_achievements_state(file_path: Path) -> Dict[str, float]:
         if not content:
             return {}
 
-        # Case 1: JSON format (Goldberg)
-        if content.startswith("{"):
-            data = json.loads(content)
-            if isinstance(data, dict):
-                def collect(items: dict, nested: bool = False) -> None:
+        # Case 1: JSON format (Goldberg). INI files also start with ``[``;
+        # only claim that branch when the complete document parses as JSON.
+        data = None
+        if content.startswith(("{", "[")):
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError:
+                data = None
+        if data is not None:
+            def collect(items: Any, nested: bool = False, achievement_context: bool = False) -> None:
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, dict):
+                            collect(item, nested=True, achievement_context=achievement_context)
+                    return
+                if isinstance(items, dict):
                     for key, val in items.items():
                         api_name = str(key).strip()
                         if isinstance(val, dict):
@@ -177,14 +215,15 @@ def parse_achievements_state(file_path: Path) -> Dict[str, float]:
                                     results[api_name] = float(raw_ts or 1.0)
                                 except (TypeError, ValueError):
                                     results[api_name] = 1.0
-                            elif nested or api_name.lower() in ("achievements", "stats", "unlocks", "data"):
-                                collect(val, nested=True)
+                            elif nested or api_name.lower() in ("achievements", "unlocks", "user_achievements"):
+                                collect(val, nested=True, achievement_context=achievement_context or api_name.lower() in ("achievements", "unlocks", "user_achievements"))
                         elif isinstance(val, bool) and val:
-                            results[api_name] = 1.0
-                        elif isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+                            if achievement_context or api_name.lower().startswith(("ach_", "achievement_", "unlock_")):
+                                results[api_name] = 1.0
+                        elif (achievement_context or api_name.lower().startswith(("ach_", "achievement_", "unlock_"))) and isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
                             results[api_name] = float(val)
 
-                collect(data)
+            collect(data)
             return results
 
         # Case 2: INI format (CODEX / RUNE / FLT / SSE).  A section called
@@ -267,10 +306,15 @@ class AchievementWatcher(QObject):
             self.known_unlocked = parse_achievements_state(target_file)
             self.watcher.addPath(str(target_file))
             logger.info(f"Achievement watcher hooked to {target_file} ({len(self.known_unlocked)} initially unlocked)")
-        elif target_file:
+        elif target_file and target_file.parent.is_dir():
             # Watch parent directory for file creation
             self.watcher.addPath(str(target_file.parent))
             logger.info(f"Achievement watcher monitoring folder {target_file.parent} for achievement file creation")
+        else:
+            logger.info(
+                "Achievement watcher waiting for a state file (AppID %s); no placeholder was created.",
+                self.app_id,
+            )
 
         self.poll_timer.start(10000)
 

@@ -183,6 +183,11 @@ def find_local_achievement_schema(game_path: Optional[str] = None, proton_path: 
     candidate_dirs: List[Path] = []
     if game_path and os.path.isdir(game_path):
         candidate_dirs.append(Path(game_path))
+        game_prefix = Path(game_path) / "prefix"
+        if game_prefix.is_dir():
+            candidate_dirs.append(game_prefix)
+            if (game_prefix / "pfx").is_dir():
+                candidate_dirs.append(game_prefix / "pfx")
         try:
             for entry in Path(game_path).iterdir():
                 if entry.is_dir():

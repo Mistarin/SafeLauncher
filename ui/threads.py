@@ -416,6 +416,8 @@ class AchievementStatusFetcherThread(SafeQThread):
             resolution = resolve_achievements(app_id, self.path, self.proton_path) if app_id else None
             if resolution is not None and not self.isInterruptionRequested():
                 self.resolution_ready.emit(self.game_id, app_id, resolution)
+            if resolution and resolution.schema:
+                db.save_achievement_schema(self.game_id, app_id, resolution.schema)
             if resolution and resolution.state:
                 db.unlock_achievements_batch(self.game_id, resolution.state)
 
@@ -467,7 +469,8 @@ class AchievementBatchQueueWorker(SafeQThread):
             name = g[1]
             path = g[2]
             steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
-            proton_path = str(g[9]).strip() if len(g) > 9 and g[9] else ""
+            # GameRecord layout: index 9 is last_played; index 12 is proton_path.
+            proton_path = str(g[12]).strip() if len(g) > 12 and g[12] else ""
             if not steam_id:
                 return None
 
@@ -475,6 +478,8 @@ class AchievementBatchQueueWorker(SafeQThread):
                 db = GameDatabase(self.db_path) if self.db_path else GameDatabase()
                 try:
                     resolution = resolve_achievements(steam_id, path, proton_path)
+                    if resolution.schema:
+                        db.save_achievement_schema(game_id, steam_id, resolution.schema)
                     if resolution.state:
                         db.unlock_achievements_batch(game_id, resolution.state)
 

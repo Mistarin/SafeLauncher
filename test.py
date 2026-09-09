@@ -1146,7 +1146,7 @@ try:
     from core.achievement_schema import fetch_steam_achievements_schema, SteamAchievementFetcherWorker
     from core.achievement_watcher import (
         locate_achievements_file, ensure_achievement_watch_target,
-        parse_achievements_state, AchievementWatcher
+        parse_achievements_state, AchievementWatcher, resolve_achievement_prefix
     )
     from ui.components.achievement_toast import AchievementToast, send_desktop_notification
     from ui.dialogs.achievements_dialog import AchievementsDialog, AchievementCard
@@ -1246,7 +1246,18 @@ ACH_PACIFIST=0
         assert "KILLS" not in parsed_stats and "PLAYTIME" not in parsed_stats
         assert "ACH_REAL" in parsed_stats
 
-        print("✓ Achievement state parsing for Goldberg (JSON) and CODEX/RUNE (INI) verified")
+        stats_json = Path(tmp_dir) / "stats.json"
+        stats_json.write_text(json.dumps({
+            "achievements": {
+                "ACH_NESTED": {"earned": True, "earned_time": 1720000010},
+                "ACH_LOCKED": {"earned": False},
+            },
+            "stats": {"KILLS": 99},
+        }), encoding="utf-8")
+        parsed_stats_json = parse_achievements_state(stats_json)
+        assert parsed_stats_json == {"ACH_NESTED": 1720000010.0}
+
+        print("✓ Achievement state parsing for Goldberg/GSE JSON and CODEX/RUNE (INI) verified")
 
         # C. Test Ensure & Locate Achievement Target
         prefix_dir = Path(tmp_dir) / "wineprefix"
@@ -1255,10 +1266,26 @@ ACH_PACIFIST=0
         game_dir.mkdir(parents=True, exist_ok=True)
 
         target_file = ensure_achievement_watch_target(str(prefix_dir), str(game_dir), "480")
-        assert target_file.exists(), "Target file should have been created"
+        assert target_file is not None and not target_file.exists(), "Target lookup must not create a placeholder"
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text("{}", encoding="utf-8")
         assert locate_achievements_file(str(prefix_dir), str(game_dir), "480") == target_file
 
-        print("✓ Achievement target file locator and pre-seed watch target verified")
+        print("✓ Achievement target prediction without placeholder creation verified")
+
+        # A runtime/Proton path must not be mistaken for the game prefix.
+        game_with_prefix = Path(tmp_dir) / "game-with-prefix"
+        actual_prefix = game_with_prefix / "prefix"
+        (actual_prefix / "drive_c/users/steamuser/AppData/Roaming/GSE Saves/480").mkdir(parents=True)
+        (game_with_prefix / "steam_settings").mkdir(parents=True)
+        (game_with_prefix / "steam_settings/configs.user.ini").write_text(
+            "[user::saves]\nsaves_folder_name=GSE Saves\n", encoding="utf-8"
+        )
+        assert resolve_achievement_prefix("/opt/proton", str(game_with_prefix)) == actual_prefix.resolve()
+        gse_state = actual_prefix / "drive_c/users/steamuser/AppData/Roaming/GSE Saves/480/stats.json"
+        gse_state.write_text(json.dumps({"achievements": {"ACH_NESTED": {"earned": True}}}), encoding="utf-8")
+        assert locate_achievements_file("/opt/proton", str(game_with_prefix), "480") == gse_state
+        print("✓ Game-owned prefix and GSE state discovery verified")
 
         # D. Test AchievementWatcher Signal Dispatch
         watcher = AchievementWatcher(g_id, "480", str(prefix_dir), str(game_dir))
@@ -1309,7 +1336,7 @@ ACH_PACIFIST=0
 
         batch_ready_events = []
         batch_finished_events = []
-        mock_game_entry = (g_id, "Test Ach Game", str(game_dir), "game.exe", "wine", "", "480", 0, 0, str(prefix_dir))
+        mock_game_entry = (g_id, "Test Ach Game", str(game_dir), "game.exe", "wine", "", "480", 0, 0, 0, "", "", str(prefix_dir), "", 0, "", "", 0, "", "{}")
         batch_worker = AchievementBatchQueueWorker([mock_game_entry], max_workers=2, db_path=db_path)
         batch_worker.game_status_ready.connect(lambda gid, u, t, p, r: batch_ready_events.append((gid, u, t, p, r)))
         batch_worker.batch_finished.connect(lambda g_cnt, u_cnt: batch_finished_events.append((g_cnt, u_cnt)))
