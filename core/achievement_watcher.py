@@ -19,6 +19,27 @@ from core.logger import get_logger
 logger = get_logger("AchievementWatcher")
 
 
+def _achievement_data_roots() -> List[Path]:
+    """Return user data roots used by Linux Steam emulators.
+
+    Goldberg/GSE normally follows ``XDG_DATA_HOME`` and falls back to
+    ``~/.local/share``.  Keeping both roots is important when the launcher
+    was started from a desktop entry with a different environment than the
+    game, or when an emulator was configured before XDG was changed.
+    """
+    roots: List[Path] = []
+    configured = os.environ.get("XDG_DATA_HOME", "").strip()
+    if configured:
+        roots.append(Path(configured).expanduser())
+    roots.append(Path.home() / ".local/share")
+
+    unique: List[Path] = []
+    for root in roots:
+        if root not in unique:
+            unique.append(root)
+    return unique
+
+
 def resolve_achievement_prefix(prefix_path: str = "", game_path: str = "") -> Optional[Path]:
     """Resolve the Wine prefix used by a game.
 
@@ -59,6 +80,7 @@ def achievement_state_candidates(prefix_path: str, game_path: str, app_id: str) 
     prefix = resolve_achievement_prefix(prefix_path, game_path)
     game_dir = Path(game_path).resolve() if game_path else None
     candidates: List[Path] = []
+    configured_save_folders: List[str] = []
 
     def add(path: Path) -> None:
         if path not in candidates:
@@ -122,6 +144,7 @@ def achievement_state_candidates(prefix_path: str, game_path: str, app_id: str) 
                 settings.read(settings_file, encoding="utf-8")
                 save_folder = settings.get("user::saves", "saves_folder_name", fallback="").strip()
                 if save_folder:
+                    configured_save_folders.append(save_folder)
                     add_state_dir(game_dir / save_folder / app_id)
                     if prefix:
                         for user_root in (prefix / "drive_c/users/steamuser", prefix / "drive_c/users/Public"):
@@ -129,8 +152,17 @@ def achievement_state_candidates(prefix_path: str, game_path: str, app_id: str) 
             except (configparser.Error, OSError):
                 pass
 
-    for save_root in ("Goldberg SteamEmu Saves", "GSE Saves"):
-        add_state_dir(Path.home() / ".local/share" / save_root / app_id)
+    # The configured folder is checked in the user data roots as well as in
+    # the game/prefix locations above.  A GSE config commonly changes the
+    # default Goldberg folder name, so only checking the two defaults loses
+    # the real state file and leaves the UI at 0 forever.
+    save_roots: List[str] = []
+    for save_root in configured_save_folders + ["Goldberg SteamEmu Saves", "GSE Saves"]:
+        if save_root and save_root not in save_roots:
+            save_roots.append(save_root)
+    for data_root in _achievement_data_roots():
+        for save_root in save_roots:
+            add_state_dir(data_root / save_root / app_id)
     return candidates
 
 
@@ -145,21 +177,32 @@ def locate_achievements_file(prefix_path: str, game_path: str, app_id: str) -> O
     existing = [p for p in achievement_state_candidates(prefix_path, game_path, app_id) if p.is_file()]
     if not existing:
         return None
-    # Emulators commonly replace files atomically. Prefer non-empty state and
-    # then the newest file when several real candidates exist.
+    # Emulators commonly replace files atomically. Prefer a file that actually
+    # contains an unlocked state over a newer non-achievement stats/schema
+    # file, then prefer the newest candidate.  ``parse_achievements_state`` is
+    # defined below but is available by the time this function is called.
     def priority(path: Path) -> tuple[int, int, int]:
         try:
             size = path.stat().st_size
             return (int(size > 2), path.stat().st_mtime_ns, size)
         except OSError:
             return (0, 0, 0)
+
+    parsed = []
+    for path in existing:
+        if parse_achievements_state(path):
+            try:
+                parsed.append((path, path.stat().st_mtime_ns))
+            except OSError:
+                continue
+    if parsed:
+        return max(parsed, key=lambda item: item[1])[0]
+
     non_empty = [p for p in existing if priority(p)[0]]
     if non_empty:
         return max(non_empty, key=priority)
-    # Ignore an empty host-global file left by older SafeLauncher versions
-    # when the game has its own prefix. It is not evidence of game state.
-    if resolve_achievement_prefix(prefix_path, game_path):
-        return None
+    # Do not create placeholders, but do monitor a real empty file.  Returning
+    # it lets the watcher observe the first subsequent atomic write.
     return max(existing, key=priority)
 
 
@@ -302,10 +345,32 @@ class AchievementWatcher(QObject):
                 self.watcher.addPath(str(parent))
                 self._watched_dirs.add(str(parent))
 
+        # Also watch the stable roots.  The configured emulator directory may
+        # not exist until the first achievement is written, so watching only a
+        # candidate's parent would miss the nested directory creation event.
+        # The polling fallback remains in place for files created outside
+        # inotify's filesystem boundary.
+        stable_roots: List[Path] = []
+        if self.game_path:
+            stable_roots.append(Path(self.game_path).expanduser())
+        prefix = resolve_achievement_prefix(self.prefix_path, self.game_path)
+        if prefix:
+            stable_roots.append(prefix)
+        stable_roots.extend(_achievement_data_roots())
+        for root in stable_roots:
+            if root.is_dir() and str(root) not in self._watched_dirs:
+                self.watcher.addPath(str(root))
+                self._watched_dirs.add(str(root))
+
         if target_file and target_file.is_file():
             self.known_unlocked = parse_achievements_state(target_file)
             self.watcher.addPath(str(target_file))
             logger.info(f"Achievement watcher hooked to {target_file} ({len(self.known_unlocked)} initially unlocked)")
+            if self.known_unlocked:
+                # Reconcile an already-populated emulator file immediately;
+                # the background schema worker may still be starting and must
+                # not be the only path that can persist local unlocks.
+                self.state_refreshed.emit(self.game_id, self.app_id, self.known_unlocked)
         elif target_file and target_file.parent.is_dir():
             # Watch parent directory for file creation
             self.watcher.addPath(str(target_file.parent))
@@ -358,14 +423,17 @@ class AchievementWatcher(QObject):
 
     def check_updates(self):
         """Compare current state file against known unlocked items."""
+        # Re-resolve on every poll, not only when the old path disappears.
+        # Games may switch from a bootstrap/empty file to a prefix or GSE file
+        # and may replace files atomically without producing a useful Qt
+        # directory event.  The resolver prefers the newest non-empty state.
+        found = locate_achievements_file(self.prefix_path, self.game_path, self.app_id)
+        if found and found != self.watch_file:
+            self.watch_file = found
+            self._reattach_file()
+
         if not self.watch_file or not self.watch_file.is_file():
-            # Try relocating in case it was created in an alternate path
-            found = locate_achievements_file(self.prefix_path, self.game_path, self.app_id)
-            if found and found.is_file():
-                self.watch_file = found
-                self._reattach_file()
-            else:
-                return
+            return
 
         current_state = parse_achievements_state(self.watch_file)
         newly_unlocked: Dict[str, float] = {}

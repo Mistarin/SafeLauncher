@@ -1518,8 +1518,32 @@ ACH_PACIFIST=0
         )
         assert resolve_achievement_prefix("/opt/proton", str(game_with_prefix)) == actual_prefix.resolve()
         gse_state = actual_prefix / "drive_c/users/steamuser/AppData/Roaming/GSE Saves/480/stats.json"
-        gse_state.write_text(json.dumps({"achievements": {"ACH_NESTED": {"earned": True}}}), encoding="utf-8")
-        assert locate_achievements_file("/opt/proton", str(game_with_prefix), "480") == gse_state
+        gse_state.write_text(json.dumps({"stats": {"KILLS": 42}}), encoding="utf-8")
+        gse_achievement_state = actual_prefix / "drive_c/users/steamuser/AppData/Roaming/GSE Saves/480/achievements.json"
+        gse_achievement_state.write_text(json.dumps({"achievements": {"ACH_NESTED": {"earned": True}}}), encoding="utf-8")
+        # A newer generic stats file must not mask a real achievement state.
+        gse_state.touch()
+        assert locate_achievements_file("/opt/proton", str(game_with_prefix), "480") == gse_achievement_state
+
+        # An emulator may create an empty state file before the first unlock.
+        # It must remain a valid watch target instead of being mistaken for a
+        # SafeLauncher placeholder.  Also verify that a configured GSE folder
+        # is resolved below XDG_DATA_HOME when the game/prefix copy is empty.
+        gse_achievement_state.write_text("{}", encoding="utf-8")
+        gse_state.write_text("{}", encoding="utf-8")
+        old_xdg_data_home = os.environ.get("XDG_DATA_HOME")
+        try:
+            xdg_data_home = Path(tmp_dir) / "xdg-data"
+            global_gse_state = xdg_data_home / "GSE Saves/480/achievements.json"
+            global_gse_state.parent.mkdir(parents=True, exist_ok=True)
+            global_gse_state.write_text("{}", encoding="utf-8")
+            os.environ["XDG_DATA_HOME"] = str(xdg_data_home)
+            assert locate_achievements_file("/opt/proton", str(game_with_prefix), "480") == global_gse_state
+        finally:
+            if old_xdg_data_home is None:
+                os.environ.pop("XDG_DATA_HOME", None)
+            else:
+                os.environ["XDG_DATA_HOME"] = old_xdg_data_home
         print("✓ Game-owned prefix and GSE state discovery verified")
 
         # D. Test AchievementWatcher Signal Dispatch
@@ -1565,9 +1589,11 @@ ACH_PACIFIST=0
         fetcher.safe_run()
         assert len(status_results) == 1
         assert status_results[0][0] == g_id
-        assert status_results[0][1] == 1  # 1 unlocked
+        # The account-wide profile ledger retains both earlier unlocks and
+        # projects them back after the per-game reset/re-add flow.
+        assert status_results[0][1] == 2  # 2 profile unlocks projected
         assert status_results[0][2] == 2  # 2 total
-        assert status_results[0][3] == 50.0
+        assert status_results[0][3] == 100.0
 
         batch_ready_events = []
         batch_finished_events = []
@@ -1579,10 +1605,10 @@ ACH_PACIFIST=0
 
         assert len(batch_ready_events) == 1
         assert batch_ready_events[0][0] == g_id
-        assert batch_ready_events[0][1] == 1
+        assert batch_ready_events[0][1] == 2
         assert len(batch_finished_events) == 1
         assert batch_finished_events[0][0] == 1  # 1 game with achs
-        assert batch_finished_events[0][1] == 1  # 1 unlocked total
+        assert batch_finished_events[0][1] == 2  # 2 profile unlocks total
 
         print("✓ AchievementStatusFetcherThread and AchievementBatchQueueWorker verified cleanly")
 

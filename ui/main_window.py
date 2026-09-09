@@ -4487,6 +4487,7 @@ class MainWindow(QMainWindow):
 
                         watcher = AchievementWatcher(game_id, str(steam_id).strip(), selected_proton or "", path or "", parent=self)
                         watcher.achievement_unlocked.connect(self._on_achievement_unlocked)
+                        watcher.state_refreshed.connect(self._on_achievement_state_refreshed)
                         watcher.start()
                         self.achievement_watchers[game_id] = watcher
                     except Exception as ach_err:
@@ -4677,6 +4678,32 @@ class MainWindow(QMainWindow):
             steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
             self._update_achievement_inspector(game_id, steam_id)
             self._update_compact_game_page()
+
+    def _on_achievement_state_refreshed(self, game_id: int, app_id: str, state: dict):
+        """Persist a watcher snapshot as a silent, append-only reconciliation.
+
+        The per-achievement signal drives notifications. This snapshot signal
+        is a safety net for emulators that write several achievements in one
+        atomic replacement or for an unlock that arrived before its schema was
+        cached. The database/profile ledger remains the deduplication and
+        append-only authority, so it cannot remove an earlier unlock.
+        """
+        if not state or not app_id:
+            return
+        try:
+            changed = self.db.unlock_achievements_batch(game_id, state)
+            unlocked_count, total_count, pct = self.db.get_achievement_stats(game_id)
+            recent = self.db.get_recent_unlocked_achievements(game_id, limit=5)
+            self.achievement_status_cache[game_id] = (unlocked_count, total_count, pct, recent)
+            self._achievement_checked_ts[game_id] = time.time()
+            if changed:
+                self._sync_launcher_metadata_async(game_id)
+            self._save_persistent_cache()
+            if self.selected_game and self.selected_game[0] == game_id:
+                steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
+                self._update_achievement_inspector(game_id, steam_id)
+        except Exception as exc:
+            logger.debug("Could not persist achievement state snapshot for game %s: %s", game_id, exc)
 
     def _on_achievement_schema_fetched(self, game_id: int, app_id: str, achievements: list):
         """Persist schema then commit live unlocks that arrived before it."""
@@ -4939,6 +4966,15 @@ class MainWindow(QMainWindow):
 
         # Recheck achievements upon game exit to persist any new unlocks
         self.request_achievement_recheck([tracker.game_id], tag="game_exit")
+        # Some Wine/Goldberg builds flush achievement state during their final
+        # shutdown sequence, after the tracked process has exited. Give that
+        # write a short grace period and perform one bounded second read.
+        QTimer.singleShot(
+            1500,
+            lambda game_id=tracker.game_id: self.request_achievement_recheck(
+                [game_id], tag="game_exit_flush"
+            ),
+        )
 
         # Standby: if no games are running, stop automatic recorder so launcher stays idle
         if not self.running_game_ids:
