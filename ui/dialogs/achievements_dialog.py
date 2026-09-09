@@ -232,7 +232,7 @@ class AppleAchievementCard(QFrame):
             desc_text = description
 
         self.desc_lbl = QLabel(desc_text)
-        self.desc_lbl.setStyleSheet("color: #8E8E93; font-size: 11px; line-height: 1.3; background: transparent;")
+        self.desc_lbl.setStyleSheet("color: #8E8E93; font-size: 11px; background: transparent;")
         self.desc_lbl.setWordWrap(True)
         text_layout.addWidget(self.desc_lbl)
 

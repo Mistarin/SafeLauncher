@@ -65,7 +65,9 @@ class SaveConflictDialog(PopupDialog):
                 "generation and can be restored from Game Properties → Cloud Save Synchronization."
             )
         lbl_info = QLabel(info_msg)
-        lbl_info.setStyleSheet("color: #F5F7FA; font-size: 12px; line-height: 1.4;")
+        # Qt stylesheets do not support CSS line-height; QLabel word wrapping
+        # already provides the required layout behavior here.
+        lbl_info.setStyleSheet("color: #F5F7FA; font-size: 12px;")
         lbl_info.setWordWrap(True)
         body_layout.addWidget(lbl_info)
 
