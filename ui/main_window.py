@@ -406,7 +406,10 @@ class MainWindow(QMainWindow):
         self.sidebar.setVisible(True)
         default_compact = self.settings.value("collections_collapsed", True, type=bool)
         self.sidebar.set_compact(default_compact)
-        body_layout.addWidget(self.sidebar)
+        # Keep the navigation/collections panel anchored to its content.  In
+        # particular, an empty library should not make its empty scroll area
+        # consume the full height of the window.
+        body_layout.addWidget(self.sidebar, alignment=Qt.AlignmentFlag.AlignTop)
         self.sidebar.compact_changed.connect(
             lambda compact: self.settings.setValue("collections_collapsed", compact)
         )
