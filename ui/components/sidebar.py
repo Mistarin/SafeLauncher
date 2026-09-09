@@ -305,38 +305,24 @@ class LeftSidebarWidget(QFrame):
                 }
             """)
             btn_layout = QHBoxLayout(btn)
-            btn_layout.setContentsMargins(6, 2, 6, 2)
             btn_layout.setSpacing(6)
 
             icon_lbl = QLabel()
             icon_lbl.setPixmap(get_icon("ph.folder-simple-bold", color="#FFFFFF").pixmap(15, 15))
             icon_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            btn_layout.addWidget(icon_lbl)
 
             name_lbl = QLabel(name)
             name_lbl.setStyleSheet("color: #D4D4D8; font-size: 12px; font-weight: 500; background: transparent;")
             name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            btn_layout.addWidget(name_lbl)
-
-            btn_layout.addStretch()
 
             count_lbl = QLabel(str(count))
             count_lbl.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 500; background: transparent;")
             count_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            btn_layout.addWidget(count_lbl)
 
             btn.name_lbl = name_lbl
             btn.count_lbl = count_lbl
             btn.icon_lbl = icon_lbl
-
-            if self.compact:
-                name_lbl.setVisible(False)
-                count_lbl.setVisible(False)
-                btn.setFixedSize(36, 28)
-            else:
-                name_lbl.setVisible(True)
-                count_lbl.setVisible(True)
-                btn.setFixedHeight(28)
+            self._configure_collection_button(btn)
 
             btn.clicked.connect(lambda _, n=name, b=btn: self._on_collection_click(n, b))
             self.col_layout.addWidget(btn)
@@ -372,6 +358,39 @@ class LeftSidebarWidget(QFrame):
             self.btn_add_col_row.setFixedHeight(26)
         self.col_layout.addWidget(self.btn_add_col_row, alignment=Qt.AlignmentFlag.AlignCenter if self.compact else Qt.AlignmentFlag.AlignHCenter)
 
+    def _configure_collection_button(self, btn: QPushButton):
+        """Switch a collection row between centered compact and expanded layouts."""
+        btn_layout = btn.layout()
+        if btn_layout is None:
+            return
+
+        # Rebuild the row's item order so toggling compact mode does not leave
+        # a one-sided stretch spacer beside the hidden labels.
+        while btn_layout.count():
+            btn_layout.takeAt(0)
+
+        if self.compact:
+            btn_layout.setContentsMargins(0, 2, 0, 2)
+            btn_layout.setSpacing(0)
+            btn_layout.addStretch(1)
+            btn_layout.addWidget(btn.icon_lbl, 0, Qt.AlignmentFlag.AlignCenter)
+            btn_layout.addStretch(1)
+            btn.name_lbl.setVisible(False)
+            btn.count_lbl.setVisible(False)
+            btn.setFixedSize(36, 28)
+        else:
+            btn_layout.setContentsMargins(6, 2, 6, 2)
+            btn_layout.setSpacing(6)
+            btn_layout.addWidget(btn.icon_lbl)
+            btn_layout.addWidget(btn.name_lbl)
+            btn_layout.addStretch()
+            btn_layout.addWidget(btn.count_lbl)
+            btn.name_lbl.setVisible(True)
+            btn.count_lbl.setVisible(True)
+            btn.setFixedHeight(28)
+            btn.setMinimumWidth(0)
+            btn.setMaximumWidth(16777215)
+
     def toggle_compact(self):
         self.set_compact(not self.compact)
 
@@ -388,11 +407,7 @@ class LeftSidebarWidget(QFrame):
             self.btn_collapse.setIcon(get_icon("ph.caret-double-right-bold", color="#FFFFFF"))
             self.btn_collapse.setToolTip("Expand collections panel")
             for btn in self._collection_buttons:
-                if hasattr(btn, "name_lbl"):
-                    btn.name_lbl.setVisible(False)
-                if hasattr(btn, "count_lbl"):
-                    btn.count_lbl.setVisible(False)
-                btn.setFixedSize(36, 28)
+                self._configure_collection_button(btn)
             if hasattr(self, "btn_add_col_row") and self.btn_add_col_row:
                 self.btn_add_col_row.setText("")
                 self.btn_add_col_row.setFixedSize(36, 26)
@@ -402,13 +417,7 @@ class LeftSidebarWidget(QFrame):
             self.btn_collapse.setIcon(get_icon("ph.caret-double-left-bold", color="#FFFFFF"))
             self.btn_collapse.setToolTip("Collapse collections panel")
             for btn in self._collection_buttons:
-                if hasattr(btn, "name_lbl"):
-                    btn.name_lbl.setVisible(True)
-                if hasattr(btn, "count_lbl"):
-                    btn.count_lbl.setVisible(True)
-                btn.setFixedHeight(28)
-                btn.setMinimumWidth(0)
-                btn.setMaximumWidth(16777215)
+                self._configure_collection_button(btn)
             if hasattr(self, "btn_add_col_row") and self.btn_add_col_row:
                 self.btn_add_col_row.setText("New Collection")
                 self.btn_add_col_row.setFixedHeight(26)
