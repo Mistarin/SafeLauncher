@@ -2412,6 +2412,8 @@ try:
     assert compact_page.action_bar.btn_fav.toolTip() == "Remove from favorites"
     assert compact_page.lbl_version.text() == "Not set"
     assert compact_page.lbl_steam_id.text() == "12345"
+    assert "QComboBox::down-arrow" in mw_compact.sort_combo.styleSheet()
+    assert "QComboBox::down-arrow" in mw_compact.compact_container.sidebar_list.sort_combo.styleSheet()
 
     # Test compact layout zero margins & hidden top bar
     assert mw_compact.library_header_bar.isHidden() is True

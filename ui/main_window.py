@@ -920,7 +920,20 @@ class MainWindow(QMainWindow):
             QComboBox:hover {{
                 border-color: {TEXT_MUTED};
             }}
-            QComboBox::drop-down {{ border: none; }}
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 18px;
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                width: 0px;
+                height: 0px;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid {TEXT_MUTED};
+            }}
             QComboBox QAbstractItemView {{
                 background-color: {SURFACE_ELEVATED};
                 color: {TEXT_PRIMARY};

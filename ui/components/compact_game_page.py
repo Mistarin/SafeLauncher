@@ -2099,7 +2099,20 @@ class CompactSidebarListWidget(QFrame):
                 color: #FFFFFF;
                 background: rgba(255, 255, 255, 0.06);
             }
-            QComboBox::drop-down { border: none; width: 14px; }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 16px;
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                width: 0px;
+                height: 0px;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #71717A;
+            }
             QComboBox QAbstractItemView {
                 background-color: #1C1C20;
                 color: #FFFFFF;
