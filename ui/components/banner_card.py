@@ -1,7 +1,10 @@
 import os
 from typing import Optional, List, Tuple, Dict, Any
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QWidget
-from PyQt6.QtCore import Qt, QSize, QPoint, QPointF, pyqtSignal, QVariantAnimation, QEasingCurve
+from PyQt6.QtCore import (
+    Qt, QSize, QPoint, QPointF, pyqtSignal, QVariantAnimation, QEasingCurve,
+    QPropertyAnimation, QSequentialAnimationGroup,
+)
 from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QPixmapCache
 
 # Allocate 64MB LRU cache budget for decoded pixmaps
@@ -367,6 +370,7 @@ class GameBannerWidget(QFrame):
         self.render_frame(self._hover_progress)
 
     def set_favorite(self, is_favorite: bool):
+        was_favorite = self.is_favorite
         self.is_favorite = is_favorite
         try:
             self.favorite_button.setChecked(is_favorite)
@@ -374,9 +378,30 @@ class GameBannerWidget(QFrame):
             self.favorite_button.setIcon(icon)
             self.favorite_button.setText("" if not icon.isNull() else "*")
             self.favorite_button.setToolTip("Remove from Favorites" if is_favorite else "Add to Favorites")
+            if is_favorite and not was_favorite:
+                self._animate_favorite()
             self.render_frame(self._hover_progress)
         except (RuntimeError, AttributeError):
             pass
+
+    def _animate_favorite(self):
+        """Give a newly selected favorite heart a short, non-blocking pop."""
+        self.favorite_button.setIconSize(QSize(16, 16))
+        animation = QSequentialAnimationGroup(self)
+        grow = QPropertyAnimation(self.favorite_button, b"iconSize", animation)
+        grow.setDuration(120)
+        grow.setStartValue(QSize(16, 16))
+        grow.setEndValue(QSize(21, 21))
+        grow.setEasingCurve(QEasingCurve.Type.OutBack)
+        settle = QPropertyAnimation(self.favorite_button, b"iconSize", animation)
+        settle.setDuration(180)
+        settle.setStartValue(QSize(21, 21))
+        settle.setEndValue(QSize(16, 16))
+        settle.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        animation.addAnimation(grow)
+        animation.addAnimation(settle)
+        self._favorite_animation = animation
+        animation.start()
 
     def _position_favorite_button(self):
         try:

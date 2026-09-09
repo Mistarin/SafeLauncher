@@ -930,8 +930,7 @@ class MainWindow(QMainWindow):
         self.collection_banner.setStyleSheet(f"""
             QFrame {{
                 background: {SURFACE};
-                border: 1px solid {BORDER};
-                border-radius: 8px;
+                border: none;
             }}
         """)
         cb_layout = QHBoxLayout(self.collection_banner)

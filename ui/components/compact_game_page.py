@@ -16,7 +16,10 @@ import re
 import datetime
 from typing import Optional, List, Dict, Any, Tuple
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QSettings, QEvent
+from PyQt6.QtCore import (
+    Qt, QSize, pyqtSignal, QSettings, QEvent, QPropertyAnimation,
+    QSequentialAnimationGroup, QEasingCurve,
+)
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QTextEdit, QFrame, QScrollArea, QSizePolicy,
@@ -248,6 +251,7 @@ class CompactActionBar(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._favorite_state = False
         self.setObjectName("compactActionBar")
         self.setFixedHeight(72)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -586,12 +590,36 @@ class CompactActionBar(QFrame):
         self.update_cloud_status(getattr(self, "_cloud_status", None), has_update=is_available)
 
     def set_favorite_active(self, is_fav: bool):
+        was_fav = self._favorite_state
+        self._favorite_state = is_fav
+        self.btn_fav.setChecked(is_fav)
         if is_fav:
             self.btn_fav.setIcon(get_icon("ph.heart-fill", color="#FF453A"))
             self.btn_fav.setToolTip("Remove from favorites")
+            if not was_fav:
+                self._animate_favorite()
         else:
             self.btn_fav.setIcon(get_icon("ph.heart-bold", color="#A1A1AA"))
             self.btn_fav.setToolTip("Add to favorites")
+
+    def _animate_favorite(self):
+        """Give a newly selected favorite heart a short, non-blocking pop."""
+        self.btn_fav.setIconSize(QSize(16, 16))
+        animation = QSequentialAnimationGroup(self)
+        grow = QPropertyAnimation(self.btn_fav, b"iconSize", animation)
+        grow.setDuration(120)
+        grow.setStartValue(QSize(16, 16))
+        grow.setEndValue(QSize(21, 21))
+        grow.setEasingCurve(QEasingCurve.Type.OutBack)
+        settle = QPropertyAnimation(self.btn_fav, b"iconSize", animation)
+        settle.setDuration(180)
+        settle.setStartValue(QSize(21, 21))
+        settle.setEndValue(QSize(16, 16))
+        settle.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        animation.addAnimation(grow)
+        animation.addAnimation(settle)
+        self._favorite_animation = animation
+        animation.start()
 
 
 class CompactSubNavBar(QFrame):

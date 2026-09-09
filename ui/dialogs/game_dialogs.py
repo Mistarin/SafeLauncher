@@ -1876,8 +1876,7 @@ class ManageCollectionGamesDialog(PopupDialog):
             QLineEdit {
                 background: #181a20;
                 color: #ffffff;
-                border: 1px solid #2b303c;
-                border-radius: 6px;
+                border: none;
                 padding: 6px 10px;
                 font-size: 12px;
             }
@@ -1896,7 +1895,7 @@ class ManageCollectionGamesDialog(PopupDialog):
                 width: 18px;
                 height: 18px;
                 border-radius: 4px;
-                border: 1px solid #3b4252;
+                border: none;
                 background: #181a20;
             }
             QCheckBox::indicator:checked {
@@ -1906,8 +1905,7 @@ class ManageCollectionGamesDialog(PopupDialog):
             QPushButton {
                 background: #27272a;
                 color: #ffffff;
-                border: 1px solid #3f3f46;
-                border-radius: 6px;
+                border: none;
                 padding: 8px 16px;
                 font-weight: bold;
                 font-size: 12px;
@@ -1938,7 +1936,7 @@ class ManageCollectionGamesDialog(PopupDialog):
         # Scrollable checkboxes
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.scroll.setStyleSheet("QScrollArea { background: #15171d; border: 1px solid #232732; border-radius: 6px; }")
+        self.scroll.setStyleSheet("QScrollArea { background: #15171d; border: none; }")
 
         self.list_container = QWidget()
         self.list_container.setStyleSheet("background: transparent;")
@@ -2013,6 +2011,7 @@ class CreateCollectionDialog(PopupDialog):
         desc.setWordWrap(True)
         body_layout.addWidget(desc)
 
+        self.collection_name_result = ""
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("e.g. RPGs, Backlog, Favorites, Co-op...")
         self.name_input.setFixedHeight(38)
@@ -2020,14 +2019,13 @@ class CreateCollectionDialog(PopupDialog):
             QLineEdit {
                 background: #181d28;
                 color: #ffffff;
-                border: 1px solid #283248;
-                border-radius: 6px;
+                border: none;
                 padding: 0 12px;
                 font-size: 13px;
                 font-weight: bold;
             }
             QLineEdit:focus {
-                border: 1px solid #38bdf8;
+                border: none;
             }
         """)
         self.name_input.returnPressed.connect(self._on_confirm)
@@ -2081,10 +2079,16 @@ class CreateCollectionDialog(PopupDialog):
         self.name_input.setFocus()
 
     def _on_confirm(self):
-        if self.get_collection_name():
+        name = self.name_input.text().strip()
+        if name:
+            # PopupDialog deletes its children as it closes. Snapshot the
+            # result before accept() so callers never read a deleted QLineEdit.
+            self.collection_name_result = name
             self.accept()
 
     def get_collection_name(self) -> str:
+        if self.collection_name_result:
+            return self.collection_name_result
         return self.name_input.text().strip()
 
 
