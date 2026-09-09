@@ -1538,9 +1538,18 @@ class CompactGamePageWidget(QWidget):
         lbl_k_ver.setFixedWidth(85)
         grid.addWidget(lbl_k_ver, 2, 0)
 
-        self.lbl_version = QLabel("Version: -")
+        self.lbl_version = QLabel("-")
         self.lbl_version.setStyleSheet("color: #E4E4E7; font-size: 11px; background: transparent;")
         grid.addWidget(self.lbl_version, 2, 1)
+
+        lbl_k_steam_id = QLabel("Steam ID")
+        lbl_k_steam_id.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 600; background: transparent;")
+        lbl_k_steam_id.setFixedWidth(85)
+        grid.addWidget(lbl_k_steam_id, 3, 0)
+
+        self.lbl_steam_id = QLabel("-")
+        self.lbl_steam_id.setStyleSheet("color: #E4E4E7; font-size: 11px; background: transparent;")
+        grid.addWidget(self.lbl_steam_id, 3, 1)
 
         grid.setColumnStretch(1, 1)
         specs_layout.addLayout(grid)
@@ -1716,8 +1725,9 @@ class CompactGamePageWidget(QWidget):
 
         mode_name = g_mode.upper() if g_mode else "UMU"
         self.lbl_mode.setText(f"{mode_name} (Firejail sandbox active)")
-        ver_str = ver_override if ver_override else (f"Steam AppID: {s_id}" if s_id else "Local game")
-        self.lbl_version.setText(ver_str)
+        self.lbl_version.setText(ver_override if ver_override else "Not set")
+        self.lbl_steam_id.setText(s_id if s_id else "Not linked")
+        self.lbl_steam_id.setToolTip("Steam AppID used for metadata and achievements" if s_id else "No Steam AppID linked")
 
         # 5. Achievements Showcase
         self.ach_widget.set_achievements_data(unlocked, total, pct, recent_achievements, locked_achievements)
