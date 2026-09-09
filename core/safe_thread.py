@@ -105,10 +105,14 @@ class TaskSupervisor(QObject):
     cooperative shutdown without unsafe ``QThread.terminate()`` calls.
     """
 
-    def __init__(self, owner, task_logger=None):
+    def __init__(self, owner, task_logger=None, worker_registry=None):
         super().__init__(owner)
         self._workers: list[FunctionWorker] = []
         self._task_logger = task_logger or logger
+        # Optional application-wide registry. Feature widgets can retain the
+        # convenience API while the owning window still sees every worker
+        # during its cooperative shutdown sequence.
+        self._worker_registry = worker_registry
 
     def start(self, name: str, work: Callable[[], Any], on_complete=None) -> FunctionWorker:
         worker = FunctionWorker(work, parent=self)
@@ -128,6 +132,8 @@ class TaskSupervisor(QObject):
 
         worker.finished.connect(_retire)
         self._workers.append(worker)
+        if self._worker_registry is not None:
+            self._worker_registry.register(worker, name)
         worker.start()
         return worker
 

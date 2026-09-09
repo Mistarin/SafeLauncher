@@ -31,6 +31,12 @@ Saves sync to a local folder by default. To store them encrypted on your own pri
 
 Each save upload is AES-256-GCM encrypted on your PC (up to the 1 GB free storage tier, with referral-based expansion available, and two generations retained per game: the active save plus one backup).
 
+## Public profiles (optional)
+
+The profile page is available from `View → Profile` or the user icon in the title bar. Configure the central profile-service URL under `Edit profile`, choose an avatar/background, and publish. SafeLauncher generates a public handle and stores the owner token in the OS credential store. Other users can open the handle from `Open Public Profile…`; they receive a read-only view.
+
+The public profile is derived from the local account profile and never includes game paths, executable names, devices, cloud credentials, or private save state. Deploy the independent Convex service in `services/profile_cloud` as its own Convex project; do not deploy it into a personal save backend.
+
 
 ## What's Included
 

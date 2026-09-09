@@ -136,6 +136,12 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 * **Hardware-Accelerated UI**: In-memory `QPixmapCache` guarantees 60/120 FPS scrolling on large libraries.
 * **Archive Installer**: Installs games directly from `.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz`, and `.tgz` archives and identifies executables automatically.
 
+### 5. Public Profile (optional)
+* **Owner profile**: Open `View → Profile` or the user icon in the title bar to edit your display name, avatar, and profile background.
+* **Public view**: Publish a privacy-filtered profile through the separately deployable `services/profile_cloud` Convex service, then share its generated handle. Other SafeLauncher users can open that handle read-only.
+* **Privacy boundary**: Public profiles contain curated stats, favorite game names, recent achievements, and aggregate playtime. Installation paths, executable names, device details, private cloud state, and owner credentials never enter the public projection.
+* **Media**: Avatars are normalized and compressed locally into bounded JPEG data. Backgrounds are colors, gradients, or presets; no background image files are uploaded.
+
 ### Library state semantics
 
 * **Favorite** marks a game for filtering; it does not affect launching or files.

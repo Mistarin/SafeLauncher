@@ -1,7 +1,7 @@
 import os
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QLineEdit,
-    QMainWindow, QDialog, QGraphicsDropShadowEffect, QScrollArea, QWidget, QSlider
+    QMainWindow, QDialog, QGraphicsDropShadowEffect, QScrollArea, QWidget, QSlider, QToolButton
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPixmap
@@ -433,6 +433,7 @@ class HeaderBar(QFrame):
     search_changed = pyqtSignal(str)
     filter_requested = pyqtSignal(str)
     profile_requested = pyqtSignal()
+    public_profile_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     toggle_collections_requested = pyqtSignal()
     sync_requested = pyqtSignal()
@@ -537,7 +538,7 @@ class HeaderBar(QFrame):
         act_lib_arch = self.lib_menu.addAction(get_icon("ph.archive-bold", color="#FFFFFF"), "Archived")
         act_lib_arch.triggered.connect(lambda: self.filter_requested.emit("archived"))
 
-        act_profile = self.view_menu.addAction(get_icon("ph.trophy-bold", color="#30D158"), "Achievement Profile")
+        act_profile = self.view_menu.addAction(get_icon("ph.user-circle-bold", color="#30D158"), "Profile")
         act_profile.triggered.connect(self.profile_requested.emit)
 
         self.view_menu.addSeparator()
@@ -588,6 +589,43 @@ class HeaderBar(QFrame):
 
         self.btn_tools.setMenu(self.tools_menu)
         layout.addWidget(self.btn_tools)
+
+        # Identity menu stays adjacent to the window controls.  It is a
+        # navigation surface only; the page owns profile editing and state.
+        self.profile_menu = QMenu(self)
+        self.profile_menu.setStyleSheet(menu_style)
+        act_my_profile = self.profile_menu.addAction(get_icon("ph.user-circle-bold", color="#FFFFFF"), "My Profile")
+        act_my_profile.triggered.connect(self.profile_requested.emit)
+        act_open_public = self.profile_menu.addAction(get_icon("ph.users-three-bold", color="#FFFFFF"), "Open Public Profile…")
+        act_open_public.triggered.connect(self.public_profile_requested.emit)
+        self.profile_menu.addSeparator()
+        act_profile_settings = self.profile_menu.addAction(get_icon("ph.gear-bold", color="#FFFFFF"), "Settings…")
+        act_profile_settings.triggered.connect(self.settings_requested.emit)
+
+        profile_control_style = """
+            QToolButton {
+                background: transparent;
+                color: #8E8E93;
+                border: none;
+                border-radius: 6px;
+                padding: 0;
+                margin: 0;
+            }
+            QToolButton:hover {
+                background: #202633;
+                color: #FFFFFF;
+            }
+        """
+        self.btn_profile = QToolButton()
+        self.btn_profile.setIcon(get_icon("ph.user-circle-bold", color="#8E8E93"))
+        self.btn_profile.setIconSize(QSize(17, 17))
+        self.btn_profile.setFixedSize(30, 30)
+        self.btn_profile.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_profile.setToolTip("Profile and account menu")
+        self.btn_profile.setStyleSheet(profile_control_style)
+        self.btn_profile.setMenu(self.profile_menu)
+        self.btn_profile.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        layout.addWidget(self.btn_profile)
 
         # Retained for backwards-compatibility; hidden as search now resides in each view toolbar
         self.search_input = QLineEdit()

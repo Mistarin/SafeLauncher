@@ -103,10 +103,13 @@ from ui.theme import (
 import getpass
 from core.playtime_tracker import PlaytimeTrackerThread, _shutdown_firejail_sandbox
 from core.game_session import GameSessionManager
-from core.safe_thread import FunctionWorker, WorkerSupervisor
+from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
 from core.operation_registry import OperationRegistry
 from core.secret_store import get_secret
 from ui.components.activity_drawer import ActivityDrawer
+from ui.components.profile_page import ProfilePageWidget
+from core.profile_service import ProfileServiceClient, get_profile_service_url
+from core.profile_models import HANDLE_RE
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -338,6 +341,7 @@ class MainWindow(QMainWindow):
         self.title_bar.search_changed.connect(self._on_search_query_changed)
         self.title_bar.filter_requested.connect(self._set_filter)
         self.title_bar.profile_requested.connect(self._open_achievement_profile)
+        self.title_bar.public_profile_requested.connect(self._open_public_profile_prompt)
         self.title_bar.settings_requested.connect(self._open_settings)
         self.title_bar.toggle_collections_requested.connect(self._toggle_collections_panel)
         self.title_bar.sync_requested.connect(self._on_sync_sandbox)
@@ -1125,6 +1129,23 @@ class MainWindow(QMainWindow):
             self.right_layout.setSpacing(12)
         self.scroll_area.setWidget(self.library_view_host)
         right_layout.addWidget(self.scroll_area)
+
+        # Profile is a first-class page in the same central surface. Keeping
+        # it persistent avoids modal lifetime races and makes public profiles
+        # navigable without disturbing the selected game.
+        self.profile_page = ProfilePageWidget(
+            self.db, self.settings, self.right_panel,
+            worker_registry=self.worker_supervisor,
+        )
+        self.profile_page.hide()
+        self.profile_page.back_requested.connect(self._close_profile_page)
+        self.profile_page.open_public_requested.connect(self._open_public_profile_prompt)
+        self.profile_page.settings_requested.connect(self._open_settings)
+        self.profile_page.profile_changed.connect(self._on_profile_changed)
+        self.profile_page.private_profile_changed.connect(self._on_private_profile_changed)
+        right_layout.addWidget(self.profile_page, 1)
+        self._profile_view_active = False
+        self._profile_remote_tasks = TaskSupervisor(self, worker_registry=self.worker_supervisor)
 
         # ── Dedicated Darker Footer Bar (#0E0E10, 36px) with Add Game and View Toggle on bottom-left ──
         self.footer_bar = QFrame(self)
@@ -1919,6 +1940,8 @@ class MainWindow(QMainWindow):
                     self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
                     self._record_initial_steam_build(game_id, path, steam_id, build_id, build_date)
                 self._refresh_library()
+                if hasattr(self, "profile_page"):
+                    self.profile_page.mark_local_data_changed()
                 self._show_toast(f"Game '{name}' added to library.")
 
     def _toggle_collections_panel(self):
@@ -2188,6 +2211,8 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         for game_id in selected:
             self._sync_launcher_metadata_async(game_id)
+        if hasattr(self, "profile_page"):
+            self.profile_page.mark_local_data_changed()
 
     def _on_toggle_favorite(self):
         """Toggle favorite status for currently selected game"""
@@ -2200,6 +2225,8 @@ class MainWindow(QMainWindow):
         self._refresh_library()
         self._select_game_by_id(game_id)
         self._sync_launcher_metadata_async(game_id)
+        if hasattr(self, "profile_page"):
+            self.profile_page.mark_local_data_changed()
 
     def _on_card_favorite_clicked(self, game_id: int):
         """Toggle a game's favorite directly from its library card."""
@@ -2207,6 +2234,8 @@ class MainWindow(QMainWindow):
         self._show_toast("Added to Favorites" if new_fav else "Removed from Favorites")
         self._refresh_library()
         self._sync_launcher_metadata_async(game_id)
+        if hasattr(self, "profile_page"):
+            self.profile_page.mark_local_data_changed()
 
     def _refresh_library(self):
         """Clear and reload game banners into dynamic responsive grid based on search, status filter, and sorting."""
@@ -2568,6 +2597,8 @@ class MainWindow(QMainWindow):
 
         if icon_path:
             self._update_library_item("update_game_icon", game_id, icon_path)
+        if steam_id and hasattr(self, "profile_page"):
+            self.profile_page.mark_local_data_changed()
 
     def _cleanup_auto_fetcher(self, fetcher):
         if fetcher in self.auto_fetchers:
@@ -3796,6 +3827,8 @@ class MainWindow(QMainWindow):
         # Reload the row so the newly discovered AppID is used by future launches.
         self._refresh_library()
         self._select_game_by_id(game_id)
+        if steam_app_id and hasattr(self, "profile_page"):
+            self.profile_page.mark_local_data_changed()
 
     def _update_tags_pills(self, tags_list: list):
         while self.tags_layout.count() > 0:
@@ -4827,11 +4860,130 @@ class MainWindow(QMainWindow):
         self._update_compact_game_page()
 
     def _open_achievement_profile(self):
-        from ui.dialogs.achievement_profile_dialog import AchievementProfileDialog
-        dialog = AchievementProfileDialog(self.db, parent=self)
-        dialog.exec()
-        self._refresh_library()
+        self._show_profile_page()
+
+    def _show_profile_page(self):
+        """Switch the central surface to the persistent owner profile page."""
+        if getattr(self, "_profile_view_active", False):
+            self.profile_page.show_owner()
+            return
+        self._profile_view_active = True
+        self._profile_sidebar_visible = self.sidebar.isVisible()
+        self._profile_footer_visible = self.footer_bar.isVisible()
+        self.library_header_bar.hide()
+        self.collection_banner.hide()
+        self.scroll_area.hide()
+        self.detail_panel.hide()
+        self.btn_reveal_detail.hide()
+        self.sidebar.hide()
+        self.footer_bar.hide()
+        self.right_layout.setContentsMargins(0, 0, 0, 0)
+        self.right_layout.setSpacing(0)
+        self.profile_page.show_owner()
+        self.profile_page.show()
+
+    def _close_profile_page(self):
+        """Return from a profile page without changing the library mode."""
+        if not getattr(self, "_profile_view_active", False):
+            return
+        self._profile_view_active = False
+        self.profile_page.hide()
+        self.scroll_area.show()
+        self.footer_bar.setVisible(getattr(self, "_profile_footer_visible", True))
+        self.sidebar.setVisible(getattr(self, "_profile_sidebar_visible", True))
+        compact = self.library_view_mode in ("compact", "steam")
+        self.library_header_bar.setVisible(not compact)
+        self.collection_banner.setVisible(bool(self.collection_filter) and not compact)
+        if compact:
+            self.detail_panel.hide()
+            self.btn_reveal_detail.hide()
+            self.right_layout.setContentsMargins(0, 0, 0, 0)
+            self.right_layout.setSpacing(0)
+        else:
+            self.right_layout.setContentsMargins(18, 14, 18, 14)
+            self.right_layout.setSpacing(12)
+            if self.selected_game:
+                self._animate_left_panel(True)
+            else:
+                self.detail_panel.hide()
+                self.btn_reveal_detail.show()
         self._update_detail_panel()
+
+    def _open_public_profile_prompt(self):
+        """Fetch another profile by handle and display it read-only."""
+        from urllib.parse import urlparse
+
+        handle, accepted = QInputDialog.getText(self, "Open Public Profile", "Enter a profile handle or URL:")
+        if not accepted:
+            return
+        value = handle.strip()
+        if not value:
+            return
+        if "://" in value:
+            parsed = urlparse(value)
+            parts = [part for part in parsed.path.split("/") if part]
+            value = parts[-1] if parts else ""
+        if "/" in value:
+            value = value.rstrip("/").rsplit("/", 1)[-1]
+        value = value.lstrip("@").strip().lower()
+        if not value:
+            QMessageBox.warning(self, "Public Profile", "That profile handle is empty.")
+            return
+        if not HANDLE_RE.fullmatch(value):
+            QMessageBox.warning(self, "Public Profile", "That is not a valid SafeLauncher profile handle.")
+            return
+        service_url = get_profile_service_url()
+        client = ProfileServiceClient(service_url)
+        if not client.configured:
+            QMessageBox.information(
+                self,
+                "Public Profile Service",
+                "Configure the central profile service URL in My Profile → Edit profile before opening public profiles.",
+            )
+            return
+        self.profile_page.footer_status.setText("Loading public profile…")
+        worker = self._profile_remote_tasks.start(
+            "SafeLauncher-OpenPublicProfile",
+            # Create the requests session in the worker that uses it.
+            lambda: ProfileServiceClient(service_url).fetch(value),
+            lambda document: self._on_public_profile_loaded(document),
+        )
+        worker.error_occurred.connect(lambda error: self._on_public_profile_error(error))
+
+    def _on_public_profile_loaded(self, document: dict):
+        self._show_profile_page()
+        self.profile_page.show_public(document)
+
+    def _on_public_profile_error(self, error: str):
+        QMessageBox.warning(self, "Public Profile", str(error))
+
+    def _on_profile_changed(self):
+        """Persist profile presentation metadata through the private ledger."""
+        if hasattr(self, "profile_page"):
+            self.profile_page.mark_local_data_changed()
+        self._sync_profile_metadata_async()
+
+    def _on_private_profile_changed(self):
+        """Persist a publish-state or handle change without republishing."""
+        self._sync_profile_metadata_async()
+
+    def _sync_profile_metadata_async(self):
+        db_path = getattr(self.db, "db_path", None)
+
+        def work():
+            from database import GameDatabase
+            from core.cloud_metadata_sync import CloudMetadataSync
+            worker_db = GameDatabase(db_path) if db_path else GameDatabase()
+            try:
+                return CloudMetadataSync.sync_profile(worker_db, force=True)
+            finally:
+                worker_db.close()
+
+        self._start_managed_task(
+            "SafeLauncher-ProfileMetadataSync",
+            work,
+            lambda result: logger.debug("Profile metadata sync finished: %s", result),
+        )
 
     def _on_achievement_unlocked(self, game_id: int, app_id: str, data: dict):
         """Handle real-time achievement unlock event from watcher."""
@@ -4864,6 +5016,9 @@ class MainWindow(QMainWindow):
         # It also prevents a reset/replay from generating duplicate toasts.
         if not self.db.claim_achievement_notification(game_id, api_name):
             return
+
+        if hasattr(self, "profile_page"):
+            self.profile_page.mark_local_data_changed()
 
         unlocked_count, total_count, pct = self.db.get_achievement_stats(game_id)
         recent = self.db.get_recent_unlocked_achievements(game_id, limit=5)
@@ -4921,6 +5076,8 @@ class MainWindow(QMainWindow):
             self._achievement_checked_ts[game_id] = time.time()
             if changed:
                 self._sync_launcher_metadata_async(game_id)
+                if hasattr(self, "profile_page"):
+                    self.profile_page.mark_local_data_changed()
             self._save_persistent_cache()
             if self.selected_game and self.selected_game[0] == game_id:
                 steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
@@ -5093,6 +5250,8 @@ class MainWindow(QMainWindow):
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_playtime(total)
         self._update_detail_panel()
+        if hasattr(self, "profile_page"):
+            self.profile_page.mark_local_data_changed()
 
     def _on_playtime_checkpoint(self, session_id: str, elapsed_seconds: int):
         """Persist an in-progress session without changing the visible total."""
@@ -5872,6 +6031,8 @@ class MainWindow(QMainWindow):
                     self.db.update_game_collection(game_id, collection_name.strip())
                 self._record_initial_steam_build(game_id, path, steam_id, build_id, build_date)
             self._refresh_library()
+            if hasattr(self, "profile_page"):
+                self.profile_page.mark_local_data_changed()
             self._show_toast(f"Game '{name}' added to library.")
 
     def _on_card_size_changed(self, value: int):
@@ -5940,6 +6101,8 @@ class MainWindow(QMainWindow):
                 )
             self._refresh_library()
             self._sync_launcher_metadata_async(game_id)
+            if hasattr(self, "profile_page"):
+                self.profile_page.mark_local_data_changed()
             self._show_toast(f"Updated settings for '{name}'.")
     
 
@@ -5969,6 +6132,8 @@ class MainWindow(QMainWindow):
                 
         if added_count > 0:
             self._refresh_library()
+            if hasattr(self, "profile_page"):
+                self.profile_page.mark_local_data_changed()
             if not quiet:
                 self._show_toast(f"Found and added {added_count} new game(s) from sandbox.")
         else:
@@ -6025,6 +6190,8 @@ class MainWindow(QMainWindow):
                 self._show_toast(f"Permanently removed '{game[1]}'.")
                 self.selected_game = None
                 self._refresh_library()
+                if hasattr(self, "profile_page"):
+                    self.profile_page.mark_local_data_changed()
             return
 
         dialog = CustomRemoveDialog(game[1], self)
@@ -6060,6 +6227,8 @@ class MainWindow(QMainWindow):
             self.selected_game = None
             self.library_selection.replace(self.library_selection.ids - {game_id})
             self._refresh_library()
+            if hasattr(self, "profile_page"):
+                self.profile_page.mark_local_data_changed()
             if self.library_view_mode in ("compact", "steam"):
                 self._update_compact_game_page()
 

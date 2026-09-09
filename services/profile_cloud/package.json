@@ -1,0 +1,17 @@
+{
+  "name": "safelauncher-profile-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Central public-profile service for SafeLauncher",
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy"
+  },
+  "dependencies": {
+    "convex": "^1.25.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.3"
+  }
+}

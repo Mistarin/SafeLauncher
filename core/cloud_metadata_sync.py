@@ -16,9 +16,17 @@ import threading
 import math
 import re
 from typing import Optional
+from PyQt6.QtCore import QSettings
 
 from core.logger import get_logger
 from core.achievement_models import merge_observations
+from core.profile_models import (
+    PRIVATE_PROFILE_VERSION,
+    load_profile_settings,
+    merge_profile_settings,
+    normalize_profile_settings,
+    save_profile_settings,
+)
 
 logger = get_logger("CloudMetadata")
 _PROFILE_SYNC_LOCK = threading.Lock()
@@ -81,7 +89,8 @@ def _normalise_unlock(value) -> dict:
 def _normalise_profile(profile: dict) -> dict:
     """Validate untrusted cloud JSON before it enters the merge path."""
     if not isinstance(profile, dict):
-        return {"format_version": 3, "games": {}, "achievements": {}}
+        return {"format_version": PRIVATE_PROFILE_VERSION, "profile": normalize_profile_settings({}), "games": {}, "achievements": {}}
+    profile_settings = normalize_profile_settings(profile.get("profile"))
     achievements = {}
     raw_achievements = profile.get("achievements") if isinstance(profile.get("achievements"), dict) else {}
     for raw_app, raw_unlocks in list(raw_achievements.items())[:_MAX_PROFILE_APPS]:
@@ -124,7 +133,7 @@ def _normalise_profile(profile: dict) -> dict:
                 "playtime_sessions": sessions,
                 "last_played": _safe_int(raw_value.get("last_played")),
             }
-    return {"format_version": 3, "games": games, "achievements": achievements}
+    return {"format_version": PRIVATE_PROFILE_VERSION, "profile": profile_settings, "games": games, "achievements": achievements}
 
 
 def _merge_unlocks(local: dict, remote: dict) -> dict:
@@ -195,7 +204,12 @@ def _merge_profiles(local: dict, remote: dict) -> dict:
         left = ((local or {}).get("achievements", {}) or {}).get(app_id, {}) or {}
         right = ((remote or {}).get("achievements", {}) or {}).get(app_id, {}) or {}
         merged[str(app_id)] = _merge_unlocks(left, right)
-    return {"format_version": 3, "games": merged_games, "achievements": merged}
+    return {
+        "format_version": PRIVATE_PROFILE_VERSION,
+        "profile": merge_profile_settings(local.get("profile"), remote.get("profile")),
+        "games": merged_games,
+        "achievements": merged,
+    }
 
 
 class CloudMetadataSync:
@@ -315,7 +329,14 @@ class CloudMetadataSync:
                     {"games": {steam_identity: games[local_identity]}},
                 )["games"][steam_identity]
                 games[steam_identity] = migrated
-        return {"format_version": 3, "games": games, "achievements": db.get_profile_unlock_records(include_pending=True)}
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        fallback_name = str(settings.value("user_name", "Player", type=str) or "Player")
+        return {
+            "format_version": PRIVATE_PROFILE_VERSION,
+            "profile": load_profile_settings(settings, fallback_name=fallback_name),
+            "games": games,
+            "achievements": db.get_profile_unlock_records(include_pending=True),
+        }
 
     @staticmethod
     def _merge_legacy_game_unlocks(profile: dict, game_metadata: dict, app_id: str) -> None:
@@ -330,6 +351,13 @@ class CloudMetadataSync:
 
     @staticmethod
     def _apply_profile(db, profile: dict) -> None:
+        profile_settings = profile.get("profile")
+        if isinstance(profile_settings, dict):
+            save_profile_settings(
+                QSettings("SafeLauncher", "SafeLauncher"),
+                profile_settings,
+                mark_changed=False,
+            )
         for identity, value in (profile.get("games", {}) or {}).items():
             if not isinstance(value, dict):
                 continue

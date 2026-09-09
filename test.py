@@ -909,6 +909,7 @@ try:
     from core.cloud_detector import inspect_system_compatibility
     from core.cloud_backend import check_backend_health, ConvexSaveBackend
     from core.cloud_metadata_sync import CloudMetadataSync, _merge_profiles
+    from core.profile_models import PRIVATE_PROFILE_VERSION
     from core.secret_store import get_secret, set_secret, delete_secret
     from core.cloud_cli_wizard import (
         _redact_deploy_output,
@@ -969,7 +970,7 @@ try:
     assert {x["session_id"] for x in merged_game["playtime_sessions"]} == {"s1", "s2"}
     assert merged_game["last_played"] == 200
     assert set(merged_profile["achievements"]["1321440"]) == {"ACH_ONE", "ACH_TWO"}
-    assert merged_profile["format_version"] == 3
+    assert merged_profile["format_version"] == PRIVATE_PROFILE_VERSION
     # Marker-less legacy favorite records are positive facts. A default false
     # value from the other side must not erase a favorite before a toggle has
     # produced a causal change marker.
