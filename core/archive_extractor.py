@@ -62,6 +62,9 @@ def load_sandbox_config(game_dir: str) -> Optional[str]:
 
 def extract_archive_sandboxed(archive_path: str, dest_dir: str, cancel_callback=None, progress_callback=None) -> bool:
     """Extract game archive securely in a Firejail sandbox.
+
+    ZIP, 7z, and RAR archives are handled by their command-line extractors;
+    tar archives are handled by ``tar``.
     
     Uses shell=False (argument lists) to eliminate all shell injection surface.
     Firejail whitelist strictly scopes the extractor process to only the archive
@@ -91,6 +94,8 @@ def extract_archive_sandboxed(archive_path: str, dest_dir: str, cancel_callback=
         archive_type = "zip"
     elif lower_arc.endswith(".7z"):
         archive_type = "7z"
+    elif lower_arc.endswith(".rar"):
+        archive_type = "rar"
     elif lower_arc.endswith((".tar.gz", ".tgz")):
         archive_type = "tar.gz"
     elif lower_arc.endswith(".tar"):
@@ -127,7 +132,7 @@ def extract_archive_sandboxed(archive_path: str, dest_dir: str, cancel_callback=
 
     if archive_type == "zip":
         cmd = firejail_base + ["unzip", "-q", "-o", archive_abs, "-d", staging_dir]
-    elif archive_type == "7z":
+    elif archive_type in ("7z", "rar"):
         cmd = firejail_base + ["7z", "x", "-y", archive_abs, f"-o{staging_dir}"]
     elif archive_type == "tar.gz":
         cmd = firejail_base + ["tar", "-xzf", archive_abs, "-C", staging_dir]

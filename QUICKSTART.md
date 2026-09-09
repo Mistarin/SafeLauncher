@@ -43,7 +43,7 @@ Each save upload is AES-256-GCM encrypted on your PC (up to the 1 GB free storag
 
 ### Game Management
 - **Add Games**: Browse for a game directory, set the executable, and choose a runner mode
-- **Install from Archive**: Install a game from a ZIP, 7z, TAR, TAR.GZ, or TGZ archive
+- **Install from Archive**: Install a game from a ZIP, RAR, 7z, TAR, TAR.GZ, or TGZ archive
 - **Launch Games**: Select a game and click **Launch Game**, or double-click it
 - **Archive Games**: Remove games from the active library while preserving files and history
 - **Permanently Delete**: Delete game files and launcher records after confirmation

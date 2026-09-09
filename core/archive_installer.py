@@ -52,7 +52,7 @@ class ArchiveInstaller:
                 required = sum(member.size for member in members)
         top = tuple(sorted({name.split("/", 1)[0] for name in names if name}))
         stem = Path(archive_path).name
-        for suffix in (".tar.gz", ".tgz", ".zip", ".7z", ".tar"):
+        for suffix in (".tar.gz", ".tgz", ".zip", ".7z", ".rar", ".tar"):
             if stem.lower().endswith(suffix):
                 stem = stem[:-len(suffix)]
                 break

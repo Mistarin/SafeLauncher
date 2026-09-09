@@ -550,7 +550,7 @@ class HeaderBar(QFrame):
         act_sync = self.tools_menu.addAction(get_icon("ph.arrows-clockwise-bold", color="#FFFFFF"), "Sync Sandbox Library")
         act_sync.triggered.connect(self.sync_requested.emit)
 
-        act_inst = self.tools_menu.addAction(get_icon("ph.archive-bold", color="#FFFFFF"), "Install Game Archive (.zip/.tar)")
+        act_inst = self.tools_menu.addAction(get_icon("ph.archive-bold", color="#FFFFFF"), "Install Game Archive (.zip/.7z/.rar/.tar)")
         act_inst.triggered.connect(self.install_archive_requested.emit)
 
         act_upd = self.tools_menu.addAction(get_icon("ph.arrows-clockwise-bold", color="#FFFFFF"), "Check for Steam Updates")

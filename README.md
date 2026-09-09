@@ -11,7 +11,7 @@
 
 SafeLauncher isolates Windows and Linux games inside dedicated Firejail sandboxes. Every game runs in its own prefix with custom launch policies, network isolation, and runtime controls.
 
-It combines Proton/UMU/Wine runtime management, SteamGridDB artwork sync, direct archive installation (`.zip`, `.7z`, `.tar.gz`), local save backups, and client-side AES-256-GCM encrypted cloud saves on Convex.
+It combines Proton/UMU/Wine runtime management, SteamGridDB artwork sync, direct archive installation (`.zip`, `.7z`, `.rar`, `.tar.gz`), local save backups, and client-side AES-256-GCM encrypted cloud saves on Convex.
 
 ---
 
@@ -134,7 +134,7 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 ### 4. Library Management & Archive Installer
 * **SteamGridDB Sync**: Fetches high-resolution posters, hero banners, logos, and icons.
 * **Hardware-Accelerated UI**: In-memory `QPixmapCache` guarantees 60/120 FPS scrolling on large libraries.
-* **Archive Installer**: Installs games directly from `.zip`, `.7z`, `.tar`, `.tar.gz`, and `.tgz` archives and identifies executables automatically.
+* **Archive Installer**: Installs games directly from `.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz`, and `.tgz` archives and identifies executables automatically.
 
 ### Library state semantics
 

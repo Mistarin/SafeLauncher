@@ -181,6 +181,11 @@ class AddGameDialog(PopupDialog):
         self.version_input.setMinimumHeight(36)
         form_layout.addRow("Current Version:", self.version_input)
 
+        self.build_id_input = QLineEdit()
+        self.build_id_input.setPlaceholderText("Optional Steam build ID, e.g. 14258963")
+        self.build_id_input.setMinimumHeight(36)
+        form_layout.addRow("Installed Steam Build ID:", self.build_id_input)
+
         self.patch_notes_input = QLineEdit()
         self.patch_notes_input.setPlaceholderText("https://...")
         self.patch_notes_input.setMinimumHeight(36)
@@ -577,6 +582,12 @@ class AddGameDialog(PopupDialog):
             return self._version_result
         return self.version_input.text().strip(), self.patch_notes_input.text().strip()
 
+    def get_build_id(self) -> str:
+        """Return the optional installed Steam build reference."""
+        if self._build_id_result is not None:
+            return self._build_id_result
+        return self.build_id_input.text().strip()
+
 
 class EditGameDialog(AddGameDialog):
     """Dialog pre-populated with existing game details allowing editing name, path, exe, mode, and cover art."""
@@ -638,32 +649,9 @@ class EditGameDialog(AddGameDialog):
         self.mark_current_btn.clicked.connect(self._on_mark_current_clicked)
         self.left_box.insertWidget(self.left_box.count() - 1, self.mark_current_btn)
 
-        # Manual Steam Build ID input option right under Mark Steam Build as Current
-        build_id_val = str(game_data[11]) if len(game_data) > 11 and game_data[11] else ""
-        
-        self.build_id_lbl = QLabel("Current Installed Steam Build ID (Manual Override):")
-        self.build_id_lbl.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 600; margin-top: 6px; background: transparent;")
-        self.left_box.insertWidget(self.left_box.count() - 1, self.build_id_lbl)
-
-        self.build_id_input = QLineEdit()
-        self.build_id_input.setPlaceholderText("e.g. 14258963 (write build ID manually)")
-        self.build_id_input.setText(build_id_val)
-        self.build_id_input.setFixedHeight(34)
-        self.build_id_input.setStyleSheet("""
-            QLineEdit {
-                background: #161A22;
-                color: #F4F4F5;
-                border: none;
-                border-radius: 6px;
-                padding: 0 10px;
-                font-size: 12px;
-                font-family: monospace;
-            }
-            QLineEdit:focus {
-                border: none;
-            }
-        """)
-        self.left_box.insertWidget(self.left_box.count() - 1, self.build_id_input)
+        # Keep the persisted build ID visible when editing an existing game.
+        if len(game_data) > 11:
+            self.build_id_input.setText(str(game_data[11] or ""))
 
     def _on_mark_current_clicked(self):
         parent_win = self.parent()

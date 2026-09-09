@@ -74,6 +74,7 @@ from ui.components.banner_card import GameBannerWidget
 from ui.components.virtual_grid import BannerProxy
 from ui.components.library_view_host import LibraryViewHost
 from ui.components.hero_background import HeroBackgroundWidget
+from ui.components.extraction_spinner import ExtractionSpinner
 from ui.components.sidebar import LeftSidebarWidget, CustomTitleBar, DialogTitleBar, add_soft_shadow
 from ui.dialogs.proton_dialogs import ProtonSetupWizard, ProtonManagerDialog, UmuRuntimeManagerDialog
 from ui.dialogs.game_dialogs import (
@@ -314,6 +315,7 @@ class MainWindow(QMainWindow):
         # Root Layout: Hero Background Canvas + Top Title Bar + Body (Left Sidebar + Center Grid & Right Inspector Splitter)
         self.hero_bg = HeroBackgroundWidget(self)
         self.setCentralWidget(self.hero_bg)
+        self.extraction_spinner = ExtractionSpinner(self)
         
         self.setMouseTracking(True)
         self.hero_bg.setMouseTracking(True)
@@ -1818,12 +1820,12 @@ class MainWindow(QMainWindow):
         )
 
     def _on_install_zip_archive(self):
-        """Install game by picking a zip/7z archive directly from the top bar."""
+        """Install a supported game archive directly from the top bar."""
         zip_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Game Archive",
             "",
-            "Archive Files (*.zip *.7z *.tar.gz *.tgz)"
+            "Archive Files (*.zip *.7z *.rar *.tar.gz *.tgz)"
         )
         if not zip_path or not os.path.exists(zip_path):
             return
@@ -1848,6 +1850,8 @@ class MainWindow(QMainWindow):
         # install button.
         thread = ArchiveExtractorThread(zip_path, dest_dir, parent=self)
         thread.extraction_complete.connect(self._on_topbar_extraction_complete)
+        thread.finished.connect(self._hide_extraction_spinner)
+        self._show_extraction_spinner()
         self._show_toast(f"Extracting '{archive_name}' in background...")
         self._register_worker(thread)
         thread.start()
@@ -1855,6 +1859,7 @@ class MainWindow(QMainWindow):
 
     def _on_topbar_extraction_complete(self, game_name: str, dest_dir: str, success: bool):
         """Callback when topbar archive extraction completes"""
+        self._hide_extraction_spinner()
         if not success:
             self._show_toast(f"Failed to extract '{game_name}'.", is_error=True)
             return
@@ -1878,8 +1883,14 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name, path, exe, mode, banner_path = dialog.get_values()
             if name and path and exe:
+                steam_id = dialog.get_steam_id()
+                version_override, patch_notes_url = dialog.get_version_metadata()
+                build_id = dialog.get_build_id()
                 save_sandbox_config(path, exe)
-                self.db.add_game(name, path, exe, mode, banner_path)
+                game_id = self.db.add_game(name, path, exe, mode, banner_path, steam_id or None)
+                if game_id:
+                    self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
+                    self._record_initial_steam_build(game_id, path, steam_id, build_id)
                 self._refresh_library()
                 self._show_toast(f"Game '{name}' added to library.")
 
@@ -2915,6 +2926,20 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         self._reposition_reveal_button()
         self._position_activity_drawer()
+        self._position_extraction_spinner()
+
+    def _position_extraction_spinner(self):
+        spinner = getattr(self, "extraction_spinner", None)
+        if spinner is not None:
+            spinner.move(20, max(0, self.height() - spinner.height() - 20))
+
+    def _show_extraction_spinner(self):
+        self._position_extraction_spinner()
+        self.extraction_spinner.start()
+
+    def _hide_extraction_spinner(self):
+        if hasattr(self, "extraction_spinner"):
+            self.extraction_spinner.stop()
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -3263,6 +3288,27 @@ class MainWindow(QMainWindow):
         self.metadata_fetchers.append(fetcher)
         self._register_worker(fetcher)
         fetcher.start()
+
+    def _record_initial_steam_build(self, game_id: int, game_path: str, steam_id: str, build_id: str = ""):
+        """Persist the installed build reference for a newly added game.
+
+        Prefer an explicitly entered build ID, then a copied Steam manifest.
+        If neither exists, retain the existing online lookup fallback.
+        """
+        steam_id = str(steam_id or "").strip()
+        build_id = str(build_id or "").strip()
+        build_date = 0
+
+        if not build_id and steam_id:
+            build_id, build_date = read_local_steam_build(game_path, steam_id)
+
+        if build_id:
+            self.db.update_build_id(game_id, build_id)
+            self.local_version_by_game_id[game_id] = (build_id, build_date)
+            self.steam_check_results[game_id] = (build_id, build_date, False, "")
+            self._set_game_update_status(game_id, False)
+        elif steam_id:
+            self._capture_initial_steam_build(game_id, steam_id)
 
     def _set_game_update_status(self, game_id: int, is_available: bool) -> None:
         """Commit one game-version fact and fan it out to every library view.
@@ -5684,6 +5730,7 @@ class MainWindow(QMainWindow):
             name, path, exe, mode, banner_path = dialog.get_values()
             steam_id = dialog.get_steam_id()
             version_override, patch_notes_url = dialog.get_version_metadata()
+            build_id = dialog.get_build_id()
             if not name or not path or not exe:
                 QMessageBox.warning(self, "Error", "All fields are required.")
                 return
@@ -5698,9 +5745,8 @@ class MainWindow(QMainWindow):
                 self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
                 if collection_name.strip():
                     self.db.update_game_collection(game_id, collection_name.strip())
+                self._record_initial_steam_build(game_id, path, steam_id, build_id)
             self._refresh_library()
-            if game_id and steam_id:
-                self._capture_initial_steam_build(game_id, steam_id)
             self._show_toast(f"Game '{name}' added to library.")
 
     def _on_card_size_changed(self, value: int):
