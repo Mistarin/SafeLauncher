@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import platform
+import html
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -16,12 +17,13 @@ from PyQt6.QtCore import QUrl
 
 from core.cloud_cli_wizard import (
     deploy_key_prerequisites,
+    ensure_cloud_secret,
     generate_deploy_key,
     validate_deploy_key,
 )
 from core.cloud_detector import detect_local_cloud_installation
 from core.safe_thread import TaskSupervisor
-from core.secret_store import set_secret, delete_secret
+from core.secret_store import get_secret, set_secret, delete_secret
 from ui.components.popup_shell import PopupDialog
 
 
@@ -91,6 +93,10 @@ class DeployKeyWizardDialog(PopupDialog):
             "For this feature, create a production-scoped key with only the <b>deployment:deploy</b> permission. "
             "You can revoke it later from Convex Dashboard → Deployment Settings → Deploy keys."
         ))
+        layout.addWidget(self._body_label(
+            "The final wizard step also checks the separate <b>SAFELAUNCHER_SECRET_KEY</b> used by Cloud Save. "
+            "If it already exists on the production deployment, SafeLauncher reuses it; otherwise it creates and configures one."
+        ))
         self.radio_auto = QRadioButton("Generate automatically with the authenticated Convex CLI")
         self.radio_auto.setChecked(True)
         self.radio_manual = QRadioButton("Enter an existing deploy key manually")
@@ -110,7 +116,8 @@ class DeployKeyWizardDialog(PopupDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.addWidget(self._body_label(
-            "SafeLauncher will run <code>npx convex deployment token create … --prod</code> in the selected backend project. "
+            "SafeLauncher will run the Convex deployment-token command for the production deployment "
+            "belonging to your configured Site URL. A linked checkout or standard *.convex.site URL is required. "
             "Convex CLI authentication must already be available on this machine."
         ))
         path_row = QHBoxLayout()
@@ -166,9 +173,26 @@ class DeployKeyWizardDialog(PopupDialog):
         self.finish_status.setWordWrap(True)
         layout.addWidget(self.finish_status)
         layout.addWidget(self._body_label(
-            "SafeLauncher will first perform a non-destructive Convex CLI dry-run when the project directory is available. "
-            "If the CLI is unavailable, the key can still be saved and verified during the next backend update."
+            "SafeLauncher will first perform a non-destructive Convex CLI dry-run, then inspect the production deployment "
+            "for <b>SAFELAUNCHER_SECRET_KEY</b>. An existing secret is reused and saved locally; if none exists, the "
+            "wizard configures a random secret so Cloud Save works after the backend update."
         ))
+        layout.addWidget(self._body_label(
+            "If Convex cannot be inspected from this machine, optionally enter the existing Secret Access Key below. "
+            "It will be configured on Convex only after the authenticated CLI confirms the target deployment."
+        ))
+        layout.addWidget(QLabel("Optional SafeLauncher Cloud Save Secret Access Key:"))
+        secret_row = QHBoxLayout()
+        self.cloud_secret_edit = QLineEdit(
+            get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
+        )
+        self.cloud_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cloud_secret_edit.setPlaceholderText("Leave blank to detect or generate automatically")
+        secret_row.addWidget(self.cloud_secret_edit, 1)
+        self.cloud_secret_toggle = QPushButton("Show")
+        self.cloud_secret_toggle.clicked.connect(self._toggle_cloud_secret)
+        secret_row.addWidget(self.cloud_secret_toggle)
+        layout.addLayout(secret_row)
         layout.addStretch()
         return page
 
@@ -176,6 +200,11 @@ class DeployKeyWizardDialog(PopupDialog):
         hidden = self.manual_key_edit.echoMode() == QLineEdit.EchoMode.Password
         self.manual_key_edit.setEchoMode(QLineEdit.EchoMode.Normal if hidden else QLineEdit.EchoMode.Password)
         button.setText("Hide" if hidden else "Show")
+
+    def _toggle_cloud_secret(self) -> None:
+        hidden = self.cloud_secret_edit.echoMode() == QLineEdit.EchoMode.Password
+        self.cloud_secret_edit.setEchoMode(QLineEdit.EchoMode.Normal if hidden else QLineEdit.EchoMode.Password)
+        self.cloud_secret_toggle.setText("Hide" if hidden else "Show")
 
     def _browse_backend(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select SafeLauncherCloud project", self.backend_path_edit.text() or os.path.expanduser("~"))
@@ -209,6 +238,19 @@ class DeployKeyWizardDialog(PopupDialog):
     def _generate(self) -> None:
         backend_path = Path(self.backend_path_edit.text().strip()).expanduser()
         name = self.key_name_edit.text().strip()
+        existing_key = get_secret("convex_deploy_key", legacy_name="convex_deploy_key")
+        if existing_key:
+            # A previous generation can succeed while its first verification
+            # fails on missing local Convex codegen files. Reuse that key after
+            # restart instead of minting a duplicate key with the same name.
+            self._pending_key = existing_key
+            self._backend_path = str(backend_path)
+            self.pages.setCurrentIndex(3)
+            self.btn_next.setText("Verify & Finish")
+            self.finish_status.setText(
+                "An existing deploy key is already stored. Continue to verify it and complete Cloud Save setup."
+            )
+            return
         prereq = deploy_key_prerequisites(backend_path)
         if not prereq["has_npx"]:
             self.auto_status.setText("<font color='#F87171'>npx was not found. Use the manual dashboard path or install Node.js first.</font>")
@@ -247,7 +289,7 @@ class DeployKeyWizardDialog(PopupDialog):
         self._backend_path = self.backend_path_edit.text().strip()
         self.pages.setCurrentIndex(3)
         self.btn_next.setText("Verify & Finish")
-        self.finish_status.setText("<font color='#34D399'>Deploy key generated and stored securely. Continue to verify it with a non-destructive dry run.</font>")
+        self.finish_status.setText("<font color='#34D399'>Deploy key generated and stored securely. Continue to verify it and complete Cloud Save setup.</font>")
 
     def _prepare_manual_key(self) -> None:
         key = self.manual_key_edit.text().strip()
@@ -267,22 +309,38 @@ class DeployKeyWizardDialog(PopupDialog):
         self._backend_path = str(discovered.get("path") or "") if discovered else ""
         self.pages.setCurrentIndex(3)
         self.btn_next.setText("Verify & Save")
-        self.finish_status.setText("Ready to verify and save the manually entered deploy key.")
+        self.finish_status.setText("Ready to verify the deploy key and complete Cloud Save setup.")
 
     def _verify_and_save(self) -> None:
         if self._busy or not self._pending_key:
             return
         backend = Path(self._backend_path).expanduser() if self._backend_path else None
+        provided_secret = self.cloud_secret_edit.text().strip()
         if not backend or not backend.is_dir():
-            self._store_key("Saved; CLI verification was unavailable on this machine.")
+            if provided_secret and not set_secret("cloud_secret_key", provided_secret):
+                QMessageBox.critical(self, "Cloud Save", "SafeLauncher could not securely persist the entered Secret Access Key.")
+                return
+            self._store_key(
+                "Deploy key saved; CLI verification was unavailable on this machine. "
+                "Cloud Save will use the locally saved Secret Access Key when the backend is reachable."
+                if provided_secret else
+                "Deploy key saved; Convex could not be inspected. Complete Secret Access Key setup from a machine with Convex owner login."
+            )
             return
         self._busy = True
         self.btn_next.setEnabled(False)
         self.btn_back.setEnabled(False)
-        self.finish_status.setText("Verifying with a non-destructive Convex dry-run…")
+        self.finish_status.setText("Verifying the deploy key and configuring Cloud Save…")
 
         def work():
-            return validate_deploy_key(self._pending_key, backend)
+            key_result = validate_deploy_key(self._pending_key, backend)
+            if not key_result.get("ok"):
+                return {"key_result": key_result, "secret_result": {"ok": False}}
+            secret_result = ensure_cloud_secret(
+                backend,
+                provided_secret=provided_secret,
+            )
+            return {"key_result": key_result, "secret_result": secret_result}
 
         self._tasks.start("SafeLauncher-VerifyDeployKey", work, self._on_verified)
 
@@ -290,10 +348,24 @@ class DeployKeyWizardDialog(PopupDialog):
         self._busy = False
         self.btn_next.setEnabled(True)
         self.btn_back.setEnabled(True)
-        if not result.get("ok"):
-            self.finish_status.setText(f"<font color='#F87171'>{result.get('error', 'Deploy-key verification failed.')}</font>")
+        key_result = result.get("key_result") or {}
+        if not key_result.get("ok"):
+            error = html.escape(str(key_result.get("error", "Deploy-key verification failed."))).replace("\n", "<br>")
+            self.finish_status.setText(
+                f"<font color='#F87171'>{error}</font>"
+            )
             return
-        self._store_key(str(result.get("message", "Deploy key verified and saved.")))
+        secret_result = result.get("secret_result") or {}
+        if not secret_result.get("ok"):
+            error = html.escape(str(secret_result.get("error", "Enter the existing secret above and try again, or configure it in Convex Dashboard."))).replace("\n", "<br>")
+            self.finish_status.setText(
+                "<font color='#FBBF24'>Deploy key verified, but Cloud Save Secret Access Key setup did not finish.</font><br>"
+                f"{error}"
+            )
+            return
+        key_message = str(key_result.get("message", "Deploy key verified."))
+        secret_message = str(secret_result.get("message", "Cloud Save secret configured."))
+        self._store_key(f"{key_message} {secret_message}")
 
     def _store_key(self, message: str) -> None:
         if not set_secret("convex_deploy_key", self._pending_key):

@@ -1260,6 +1260,7 @@ class UserSettingsDialog(PopupDialog):
             wizard = DeployKeyWizardDialog(self)
             if wizard.exec():
                 self.edit_convex_deploy_key.setText(get_secret("convex_deploy_key", legacy_name="convex_deploy_key"))
+                self.edit_cloud_secret_key.setText(get_secret("cloud_secret_key", legacy_name="cloud_secret_key"))
                 self._refresh_backend_health()
         except Exception as e:
             QMessageBox.warning(self, "Deploy Key Setup", f"Could not open wizard: {e}")
@@ -1457,8 +1458,18 @@ class UserSettingsDialog(PopupDialog):
                 )
                 self.btn_open_dashboard.setVisible(True)
             else:
+                cloud_key_configured = bool(
+                    self.edit_cloud_secret_key.text().strip()
+                    or get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
+                )
                 self.lbl_version_warning.setText(
-                    f"<font color='#10B981'>Backend functions are up to date (v{ver} >= v{min_ver}).</font>"
+                    (
+                        f"<font color='#10B981'>Backend functions are up to date (v{ver} >= v{min_ver}). "
+                        "Cloud Save is ready.</font>"
+                    ) if cloud_key_configured else (
+                        f"<font color='#10B981'>Backend functions are up to date (v{ver} >= v{min_ver}).</font> "
+                        "<font color='#FBBF24'>Cloud Save still needs its Secret Access Key in this app.</font>"
+                    )
                 )
                 self.btn_redeploy.setVisible(True)
                 self.btn_open_dashboard.setVisible(True)
@@ -1472,9 +1483,16 @@ class UserSettingsDialog(PopupDialog):
         """Handle redeploy completion on the Qt GUI thread."""
         self.btn_redeploy.setEnabled(True)
         if success:
-            self.lbl_version_warning.setText(
-                f"<font color='#10B981'>{message}</font>"
-            )
+            saved_cloud_secret = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
+            if saved_cloud_secret and not self.edit_cloud_secret_key.text().strip():
+                self.edit_cloud_secret_key.setText(saved_cloud_secret)
+            if self.edit_cloud_secret_key.text().strip() or saved_cloud_secret:
+                self.lbl_version_warning.setText(f"<font color='#10B981'>{message}</font>")
+            else:
+                self.lbl_version_warning.setText(
+                    f"<font color='#10B981'>{message}</font> "
+                    "<font color='#FBBF24'>Cloud Save still needs the Secret Access Key in Settings → Cloud.</font>"
+                )
             self._refresh_backend_health()
         else:
             # Diagnostics must be useful without leaking either credential if

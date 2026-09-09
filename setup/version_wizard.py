@@ -250,7 +250,7 @@ def _deploy_convex_backend(backend_path: Path) -> bool:
         return False
     try:
         result = subprocess.run(
-            ["npx", "convex", "deploy"],
+            ["npx", "convex", "deploy", "--yes"],
             cwd=str(backend_path),
             env=env,
             check=False,
@@ -390,7 +390,7 @@ def run_version_wizard() -> int:
 
         print(f"\n  {BOLD}Deployment & Actions:{RESET}")
         if backend_info and shutil.which("npx"):
-            print(f"   {CYAN}{BOLD}[7]{RESET} [Convex]  Deploy Backend to Production ({DIM}npx convex deploy{RESET})")
+            print(f"   {CYAN}{BOLD}[7]{RESET} [Convex]  Deploy Backend to Production ({DIM}npx convex deploy --yes{RESET})")
             print(f"   {CYAN}{BOLD}[8]{RESET} Exit")
             max_choice = 8
         else:
@@ -474,7 +474,7 @@ def run_version_wizard() -> int:
                         print(f"  {GREEN}{BOLD}[ok] Updated backend repo BACKEND_VERSION in {backend_info['limits_file'].name} to: {new_b}{RESET}")
 
                 if backend_info and shutil.which("npx"):
-                    do_deploy = input(f"\n  {CYAN}{BOLD}>{RESET} Deploy updated backend now with 'npx convex deploy'? [y/N]: ").strip().lower()
+                    do_deploy = input(f"\n  {CYAN}{BOLD}>{RESET} Deploy updated backend now with 'npx convex deploy --yes'? [y/N]: ").strip().lower()
                     if do_deploy in ("y", "yes"):
                         print(f"  {DIM}Deploying in {backend_info['path']}...{RESET}")
                         _deploy_convex_backend(backend_info["path"])
@@ -609,7 +609,7 @@ def run_version_wizard() -> int:
         elif choice == "7" and max_choice == 8:
             if backend_info:
                 _banner("Deploying Convex Backend to Production", CYAN)
-                print(f"  Running 'npx convex deploy' in {backend_info['path']}...\n")
+                print(f"  Running 'npx convex deploy --yes' in {backend_info['path']}...\n")
                 _deploy_convex_backend(backend_info["path"])
                 _footer(CYAN)
 

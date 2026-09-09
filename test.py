@@ -449,6 +449,7 @@ try:
     deploy_key_wiz = DeployKeyWizardDialog(settings_dlg)
     assert deploy_key_wiz.pages.count() == 4
     assert deploy_key_wiz.radio_auto.isChecked()
+    assert hasattr(deploy_key_wiz, "cloud_secret_edit")
     deploy_key_wiz.radio_manual.setChecked(True)
     deploy_key_wiz._next()
     assert deploy_key_wiz.pages.currentIndex() == 2
@@ -892,7 +893,13 @@ try:
     from core.cloud_backend import check_backend_health, ConvexSaveBackend
     from core.cloud_metadata_sync import CloudMetadataSync, _merge_profiles
     from core.secret_store import get_secret, set_secret, delete_secret
-    from core.cloud_cli_wizard import _redact_deploy_output, validate_deploy_key, generate_deploy_key
+    from core.cloud_cli_wizard import (
+        _redact_deploy_output,
+        validate_deploy_key,
+        generate_deploy_key,
+        inspect_cloud_secret,
+        ensure_cloud_secret,
+    )
 
     # 1. Versioning assertions
     assert APP_VERSION == "0.7.0", f"Expected APP_VERSION == 0.7.0, got {APP_VERSION}"
@@ -957,12 +964,17 @@ try:
     safe_diag = _redact_deploy_output("CONVEX_DEPLOY_KEY=prod:project|super-secret-token")
     assert "super-secret-token" not in safe_diag
     assert "api-secret" not in _redact_deploy_output("SAFELAUNCHER_SECRET_KEY=api-secret", ("api-secret",))
+    assert "localStorage is not available" not in _redact_deploy_output(
+        "(node:57530) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided. "
+        "(Use `node --trace-warnings ...` to show where the warning was created)"
+    )
     assert validate_deploy_key("not-a-deploy-key")["ok"] is False
     generated_paths = []
     def fake_generate_run(command, **kwargs):
         assert command[:5] == ["npx", "convex", "deployment", "token", "create"]
         assert command[5] == "safelauncher-test"
-        assert command[6:8] == ["--prod", "--save-env"]
+        assert command[6:8] == ["--deployment", "redacted-legacy-deployment"]
+        assert command[8] == "--save-env"
         generated_paths.append(command[-1])
         assert "CONVEX_DEPLOY_KEY" not in kwargs["env"]
         with open(command[-1], "w", encoding="utf-8") as stream:
@@ -971,10 +983,89 @@ try:
     with tempfile.TemporaryDirectory() as backend_tmp, \
             patch("core.cloud_cli_wizard.shutil.which", return_value="/usr/bin/npx"), \
             patch("core.cloud_cli_wizard._convex_cli_env", return_value={"CONVEX_DEPLOY_KEY": "old-key"}), \
+            patch("core.cloud_cli_wizard._configured_site_url", return_value="https://redacted.invalid"), \
             patch("core.cloud_cli_wizard.subprocess.run", side_effect=fake_generate_run):
         generated = generate_deploy_key(Path(backend_tmp), "safelauncher-test")
     assert generated["ok"] is True and generated["key"].endswith("generated-secret")
     assert generated_paths and not os.path.exists(generated_paths[0])
+
+    validation_commands = []
+    def fake_validate_run(command, **kwargs):
+        validation_commands.append(command)
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with tempfile.TemporaryDirectory() as backend_tmp, \
+            patch("core.cloud_cli_wizard.shutil.which", return_value="/usr/bin/npx"), \
+            patch("core.cloud_cli_wizard._convex_cli_env", return_value={}), \
+            patch("core.cloud_cli_wizard.subprocess.run", side_effect=fake_validate_run):
+        validated = validate_deploy_key(
+            "team:project:prod|generated-secret", Path(backend_tmp)
+        )
+    assert validated["ok"] is True and validated["verified"] is True
+    assert validation_commands == [
+        ["npx", "convex", "codegen", "--typecheck", "disable"],
+        [
+            "npx", "convex", "deploy", "--dry-run", "--yes",
+            "--codegen", "disable", "--typecheck", "disable",
+        ],
+    ]
+
+    # Cloud Save setup is separate from the deploy key. The owner-authenticated
+    # env flow must remove deploy credentials, reuse a remote secret when one
+    # exists, and create one only when the production variable is absent.
+    with tempfile.TemporaryDirectory() as secret_backend_tmp:
+        secret_backend = Path(secret_backend_tmp)
+        env_get_result = MagicMock(returncode=0, stdout="remote-api-secret\n", stderr="")
+        env_get_run = MagicMock(return_value=env_get_result)
+        with patch("core.cloud_cli_wizard.shutil.which", return_value="/usr/bin/npx"), \
+                patch("core.cloud_cli_wizard._convex_cli_env", return_value={"CONVEX_DEPLOY_KEY": "deploy-only"}), \
+                patch("core.cloud_cli_wizard.subprocess.run", env_get_run), \
+                patch("core.cloud_cli_wizard.get_secret", return_value="old-local-secret"), \
+                patch("core.cloud_cli_wizard.set_secret", return_value=True) as save_cloud_secret:
+            detected = inspect_cloud_secret(
+                secret_backend,
+                site_url="https://redacted.invalid",
+            )
+            assert detected["ok"] is True and detected["exists"] is True
+            assert detected["secret"] == "remote-api-secret"
+            env_used = env_get_run.call_args.kwargs["env"]
+            assert "CONVEX_DEPLOY_KEY" not in env_used
+
+            reconciled = ensure_cloud_secret(
+                secret_backend,
+                site_url="https://redacted.invalid",
+            )
+            assert reconciled["ok"] is True and reconciled["source"] == "existing"
+            save_cloud_secret.assert_called_with("cloud_secret_key", "remote-api-secret")
+
+    secret_commands = []
+    def fake_secret_setup_run(command, **kwargs):
+        secret_commands.append((command, kwargs))
+        if command[2:4] == ["env", "get"]:
+            return MagicMock(returncode=0, stdout="undefined\n", stderr="")
+        return MagicMock(returncode=0, stdout="set\n", stderr="")
+
+    with tempfile.TemporaryDirectory() as secret_backend_tmp, \
+            patch("core.cloud_cli_wizard.shutil.which", return_value="/usr/bin/npx"), \
+            patch("core.cloud_cli_wizard._convex_cli_env", return_value={}), \
+            patch("core.cloud_cli_wizard.subprocess.run", side_effect=fake_secret_setup_run), \
+            patch("core.cloud_cli_wizard.get_secret", return_value=""), \
+            patch("core.cloud_cli_wizard.set_secret", return_value=True):
+        configured = ensure_cloud_secret(
+            Path(secret_backend_tmp),
+            site_url="https://redacted.invalid",
+        )
+    assert configured["ok"] is True and configured["source"] == "generated"
+    assert secret_commands[0][0] == [
+        "npx", "convex", "env", "get", "SAFELAUNCHER_SECRET_KEY",
+        "--deployment", "redacted-legacy-deployment",
+    ]
+    assert secret_commands[1][0] == [
+        "npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY",
+        "--deployment", "redacted-legacy-deployment",
+    ]
+    assert secret_commands[1][1]["input"]
+    assert "CONVEX_DEPLOY_KEY" not in secret_commands[1][1]["env"]
 
     # A least-privilege deployment key must deploy without attempting the
     # environment-variable mutation that requires broader Convex permissions.
@@ -994,12 +1085,19 @@ try:
                 patch("core.cloud_cli_wizard.subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as run_command, \
                 patch("core.cloud_cli_wizard.requests.get", return_value=mocked_health):
             deployed_url = deploy_convex_backend(
-                str(deploy_backend), assume_yes=True, expected_site_url="https://project.convex.site"
+                str(deploy_backend), expected_site_url="https://project.convex.site"
             )
         assert deployed_url == "https://project.convex.site"
         commands = [call.args[0] for call in run_command.call_args_list]
-        assert commands == [["npm", "install"], ["npx", "convex", "deploy", "--yes"]]
-        save_secret.assert_not_called()
+        assert commands == [
+            ["npm", "install"],
+            ["npx", "convex", "deploy", "--yes"],
+            ["npx", "convex", "env", "get", "SAFELAUNCHER_SECRET_KEY", "--deployment", "project"],
+            ["npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY", "--deployment", "project"],
+        ]
+        assert run_command.call_args_list[-1].kwargs["input"] == "api-secret"
+        # The existing local secret is used to repair a missing remote value.
+        save_secret.assert_called_with("cloud_secret_key", "api-secret")
 
     delete_secret("test_legacy_secret")
     delete_secret("test_deploy_secret")

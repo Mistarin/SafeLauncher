@@ -63,7 +63,7 @@ def describe_cloud_error(error: Exception) -> str:
             "but this deployment is missing the SafeLauncher API endpoint. "
             "Check that the URL is the deployed *.convex.site URL (not a "
             "dashboard or *.convex.cloud URL), then redeploy the latest "
-            "SafeLauncherCloud backend with `npm install` and `npx convex deploy`. "
+            "SafeLauncherCloud backend with `npm install` and `npx convex deploy --yes`. "
             "After deployment, run the backend probe again."
         )
     if status in (401, 403):

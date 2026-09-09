@@ -2,6 +2,7 @@
 
 import os
 import requests
+from pathlib import Path
 from urllib.parse import urlparse
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -404,7 +405,7 @@ class CloudWizardDialog(PopupDialog):
         cmd_box = QLabel(
             "# 1. Deploy Convex backend (Node.js required):\n"
             "git clone https://github.com/Mistarin/SafeLauncherCloud.git\n"
-            "cd SafeLauncherCloud && npm install && npx convex deploy\n\n"
+            "cd SafeLauncherCloud && npm install && npx convex deploy --yes\n\n"
             "# 2. (Recommended) Set a secret key to lock your storage:\n"
             "npx convex env set SAFELAUNCHER_SECRET_KEY \"your-secret-passphrase\""
         )
@@ -500,7 +501,7 @@ class CloudWizardDialog(PopupDialog):
             self.deploy_guide_steps.setText(
                 "<b>1.</b> Use the automated terminal or manual commands below in the existing "
                 "SafeLauncherCloud project.<br>"
-                "<b>2.</b> Run <b>npm install</b>, then <b>npx convex deploy</b> for the same Convex project.<br>"
+                "<b>2.</b> Run <b>npm install</b>, then <b>npx convex deploy --yes</b> for the same Convex project.<br>"
                 "<b>3.</b> Wait until deployment finishes, then return here.<br>"
                 "<b>4.</b> Click <b>Done — continue</b>; SafeLauncher will verify the new version."
             )
@@ -624,6 +625,7 @@ class CloudWizardDialog(PopupDialog):
             "Acts as a private password for your server endpoint. It stops anyone else on the internet "
             "who discovers your public <code>.convex.site</code> URL from uploading files and filling up your 1 GB storage quota.<br>"
             "<span style='color: #9CA3AF; font-size: 11px;'>• Set <code>SAFELAUNCHER_SECRET_KEY</code> on your backend and enter the same value below.<br>"
+            "• On a machine with the backend checkout and Convex login, SafeLauncher detects an existing value or creates one automatically.<br>"
             "• The current SafeLauncherCloud backend rejects requests without this key.</span>"
         )
         sb_desc.setWordWrap(True)
@@ -752,46 +754,71 @@ class CloudWizardDialog(PopupDialog):
         self.status_lbl.setText("<font color='#3B82F6'>Connecting to backend...</font>")
         self._test_generation += 1
         generation = self._test_generation
+        test_key = key
 
         def _worker():
+            nonlocal test_key
             try:
+                # When this is a full local setup, finish the credential
+                # handshake in the same wizard. The deploy key is not allowed
+                # to read Convex environment variables, so this helper uses
+                # the authenticated owner CLI and keeps the secret out of
+                # diagnostics. Secondary devices without a checkout continue
+                # through the manual Secret Access Key field below.
+                if not test_key:
+                    discovered = discover_local_cloud_backend()
+                    backend_path = Path(discovered.get("path")) if discovered and discovered.get("path") else None
+                    if backend_path and backend_path.is_dir():
+                        from core.cloud_cli_wizard import ensure_cloud_secret
+                        secret_result = ensure_cloud_secret(backend_path, site_url=url)
+                        if not secret_result.get("ok"):
+                            return False, (
+                                "Cloud Save Secret Access Key setup could not complete: "
+                                f"{secret_result.get('error', 'unknown error')}"
+                            ), None, ""
+                        test_key = str(secret_result.get("secret") or "").strip()
+                        if not test_key:
+                            return False, "Cloud Save secret setup returned no usable local key.", None, ""
+
                 headers = {}
-                if key:
-                    headers["Authorization"] = f"Bearer {key}"
-                    headers["X-SafeLauncher-Key"] = key
+                if test_key:
+                    headers["Authorization"] = f"Bearer {test_key}"
+                    headers["X-SafeLauncher-Key"] = test_key
 
                 resp = requests.get(f"{url}/api/health", headers=headers, timeout=6)
                 if resp.status_code == 404:
                     return False, (
                         "This is a legacy backend: /api/health is missing. "
-                        "Redeploy the backend with npm install and npx convex deploy first."
-                    ), None
+                        "Redeploy the backend with npm install and npx convex deploy --yes first."
+                    ), None, test_key
                 if resp.status_code != 200:
-                    return False, f"Health check failed with HTTP {resp.status_code}", None
+                    return False, f"Health check failed with HTTP {resp.status_code}", None, test_key
 
                 health_data = resp.json() if resp.content else {}
                 backend_version = str(health_data.get("version") or "1.0.0").strip()
                 if is_version_outdated(backend_version, MIN_CONVEX_BACKEND_VERSION):
                     return False, (
                         f"Backend v{backend_version} is outdated; SafeLauncher requires "
-                        f"v{MIN_CONVEX_BACKEND_VERSION}. Redeploy it with npm install and npx convex deploy."
-                    ), backend_version
+                        f"v{MIN_CONVEX_BACKEND_VERSION}. Redeploy it with npm install and npx convex deploy --yes."
+                    ), backend_version, test_key
 
                 resp_me = requests.get(f"{url}/api/me", headers=headers, timeout=6)
                 if resp_me.status_code in (401, 403):
-                    return False, "The backend requires a valid Secret Access Key. Enter the key configured in Convex.", None
+                    return False, "The backend requires a valid Secret Access Key. Enter the key configured in Convex.", None, test_key
                 if resp_me.status_code == 200:
                     data = resp_me.json()
                     quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
-                    return True, f"Connected! Available quota: {quota_mb:.0f} MB", None
-                return False, f"Backend is reachable, but account verification failed with HTTP {resp_me.status_code}.", None
+                    return True, f"Connected! Available quota: {quota_mb:.0f} MB", None, test_key
+                return False, f"Backend is reachable, but account verification failed with HTTP {resp_me.status_code}.", None, test_key
             except Exception as e:
-                return False, str(e), None
+                return False, str(e), None, test_key
 
         def _deliver(result, expected_generation=generation):
             if expected_generation != self._test_generation:
                 return
-            success, message, outdated_version = result
+            success, message, outdated_version, detected_key = result
+            if detected_key and not self.edit_key.text().strip():
+                self.edit_key.setText(detected_key)
             if outdated_version:
                 self.backend_upgrade_found.emit(outdated_version)
             self.test_completed.emit(success, message)
