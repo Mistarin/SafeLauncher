@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import importlib.util
 import re
 import subprocess
@@ -17,6 +16,8 @@ _REQUIREMENT = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)(?:\s*==\s*([^\s#]+)
 _IMPORT_NAMES = {
     "PyQt6-Qt6": "PyQt6",
     "PyQt6-sip": "PyQt6",
+    "Pillow": "PIL",
+    "QtAwesome": "qtawesome",
     "python-xlib": "Xlib",
 }
 
@@ -50,11 +51,14 @@ def missing_requirements(path: Path | None = None) -> list[str]:
             continue
         name, _required_version = match.groups()
         import_name = _IMPORT_NAMES.get(name, name.replace("-", "_"))
+        # Distribution metadata can exist without the corresponding module
+        # being importable (for example, a partially removed system package).
+        # Check the module that the application actually imports so startup
+        # does not fail later with ModuleNotFoundError.
         try:
-            importlib.metadata.version(name)
-            installed = True
-        except importlib.metadata.PackageNotFoundError:
             installed = importlib.util.find_spec(import_name) is not None
+        except (ImportError, ModuleNotFoundError, ValueError):
+            installed = False
         if not installed:
             missing.append(line)
     return missing

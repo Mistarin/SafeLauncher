@@ -114,7 +114,7 @@ class LibraryListItemWidget(QWidget):
 
         if self.is_favorite:
             fav_lbl = QLabel()
-            fav_lbl.setPixmap(get_icon("ph.heart-fill", color="#FFD60A").pixmap(13, 13))
+            fav_lbl.setPixmap(get_icon("ph.heart-fill", color="#FF453A").pixmap(13, 13))
             fav_lbl.setStyleSheet("background: transparent;")
             fav_lbl.setToolTip("Favorite")
             top_line.addWidget(fav_lbl)

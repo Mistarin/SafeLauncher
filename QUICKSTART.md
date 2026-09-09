@@ -29,7 +29,7 @@ Saves sync to a local folder by default. To store them encrypted on your own pri
 2. Deploy or connect your private Convex instance (1 GB free storage on Convex without monthly fees).
 3. Optionally set a secret key (`SAFELAUNCHER_SECRET_KEY`) for secure single-tenant access.
 
-Each save upload is AES-256-GCM encrypted on your PC (up to the 1 GB free storage tier, with referral-based expansion available, and the last 3 versions retained per game).
+Each save upload is AES-256-GCM encrypted on your PC (up to the 1 GB free storage tier, with referral-based expansion available, and two generations retained per game: the active save plus one backup).
 
 
 ## What's Included
@@ -45,13 +45,16 @@ Each save upload is AES-256-GCM encrypted on your PC (up to the 1 GB free storag
 - **Add Games**: Browse for a game directory, set the executable, and choose a runner mode
 - **Install from Archive**: Install a game from a ZIP, 7z, TAR, TAR.GZ, or TGZ archive
 - **Launch Games**: Select a game and click **Launch Game**, or double-click it
-- **Remove Games**: Delete games from library (game files preserved)
+- **Archive Games**: Remove games from the active library while preserving files and history
+- **Permanently Delete**: Delete game files and launcher records after confirmation
 
 ### Security
 - Firejail sandboxing for Windows games
 - Native Linux and legacy Wine modes run without network access (`--net=none`)
 - UMU/Proton launches currently have full host network access — treat them as online
 - Separate Wine prefixes per game
+
+“Sandboxed” describes process and filesystem isolation. It does not mean network isolation for UMU/Proton launches.
 
 ### Save Backup
 - Export game saves to ZIP files

@@ -1213,6 +1213,7 @@ class MainWindow(QMainWindow):
         self.operation_registry.unread_changed.connect(self._update_activity_button)
         self._update_activity_button(self.operation_registry.unread_count())
         self._setup_library_shortcuts()
+        self._apply_accessibility_metadata()
         
         self.setStyleSheet(get_application_stylesheet())
         
@@ -1253,6 +1254,41 @@ class MainWindow(QMainWindow):
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
         if show_wizard:
             QTimer.singleShot(150, self._show_welcome_wizard)
+
+    def _apply_accessibility_metadata(self) -> None:
+        """Give the primary shell controls stable names for assistive tech.
+
+        Most of the visual UI uses icons and compact labels, so tooltips alone
+        are not sufficient for screen readers or automated accessibility
+        tooling.  Keep this metadata alongside the shell wiring so it remains
+        synchronized when the presentation changes.
+        """
+        named_controls = {
+            self.btn_add: "Add game",
+            self.btn_view_toggle: "Change library view",
+            self.btn_activity: "Show background activity",
+            self.btn_hide_detail: "Close game details",
+            self.btn_reveal_detail: "Open game details",
+            self.btn_detail_launch: "Launch or stop selected game",
+            self.btn_detail_edit: "Edit selected game",
+            self.btn_detail_properties: "Open selected game properties",
+            self.btn_detail_screenshots: "Open selected game screenshots",
+            self.btn_detail_videos: "Open selected game videos",
+            self.btn_detail_achievements: "Open selected game achievements",
+            self.btn_detail_remove: "Archive or remove selected game",
+            self.btn_detail_cloud_restore: "Restore selected game cloud save",
+            self.btn_update_banner_action: "Download and apply SafeLauncher update",
+            self.btn_update_banner_dismiss: "Dismiss update notification",
+        }
+        for widget, name in named_controls.items():
+            widget.setAccessibleName(name)
+            if not widget.toolTip():
+                widget.setAccessibleDescription(name)
+
+        self.grid_search_input.setAccessibleName("Search library")
+        self.sort_combo.setAccessibleName("Sort library games")
+        self.detail_cloud_status.setAccessibleName("Cloud save status")
+        self.lbl_detail_update.setAccessibleName("Game update status")
 
     def _check_app_updates(self):
         """Check GitHub Releases for new SafeLauncher versions in background."""
@@ -4205,7 +4241,7 @@ class MainWindow(QMainWindow):
         if payload.get("needs_conflict"):
             conflict_dlg = SaveConflictDialog(game_name, payload["local_stats"], payload["cloud_stats"], parent=self)
             if conflict_dlg.exec() == QDialog.DialogCode.Accepted:
-                if conflict_dlg.cb_always_newer.isChecked():
+                if conflict_dlg.always_newer:
                     if conflict_dlg.choice == "cloud":
                         self.settings.setValue("auto_prefer_newer_saves", True)
                     else:

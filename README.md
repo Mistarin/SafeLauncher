@@ -112,7 +112,7 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 
 ### 1. Sandbox Isolation & Prefix Sanitization
 * **Process Sandboxing**: Wraps game processes, Wine helpers, and runtime tools inside Firejail namespaces.
-* **Network Isolation**: Runs offline games with `--net=none` to prevent unauthorized outbound connections.
+* **Network Isolation**: Native Linux and Wine launches use `--net=none`; UMU/Proton launches remain networked for compatibility and are not network-isolated.
 * **Prefix Isolation**: Allocates a separate Wine/Proton prefix per game and sanitizes host root directory symlinks (e.g. `dosdevices/z:` mapping).
 * **Launch Diagnostics**: Records structured sandbox audit logs per session in `~/.local/share/safelauncher/logs/`.
 
@@ -129,12 +129,21 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
   * Independent launcher metadata sync for achievements, playtime, and last-played state.
   * Local-folder cloud mode works without Convex; Convex mode requires a deployed backend and shared secret.
   * Up to 1 GiB free quota per account; save archives may use the available quota, and referrals can expand storage subject to backend configuration.
-  * Two retained save generations (active plus one backup) and conflict resolution.
+  * Two retained save generations per game (active plus one backup) and conflict resolution.
 
 ### 4. Library Management & Archive Installer
 * **SteamGridDB Sync**: Fetches high-resolution posters, hero banners, logos, and icons.
 * **Hardware-Accelerated UI**: In-memory `QPixmapCache` guarantees 60/120 FPS scrolling on large libraries.
 * **Archive Installer**: Installs games directly from `.zip`, `.7z`, `.tar`, `.tar.gz`, and `.tgz` archives and identifies executables automatically.
+
+### Library state semantics
+
+* **Favorite** marks a game for filtering; it does not affect launching or files.
+* **Archived** removes a game from the active library while preserving its launcher history and, by default, its files. The archived view can restore it.
+* **Permanently deleted** removes the selected game files and launcher records and cannot be undone by SafeLauncher.
+* **Cloud Save** status is separate from game-update status. A cloud conflict always requires choosing whether to keep the local or cloud version; the displaced version is retained as a backup generation.
+
+The UI exposes unavailable, offline, empty, and failed states for optional services such as achievements, screenshots, recording, runtimes, and cloud sync instead of treating them as successful operations.
 
 ---
 

@@ -219,17 +219,19 @@ Confirmation Dialogs:
 
 ---
 
-## Database Schema
+## Database Model
 
-```sql
-CREATE TABLE games (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,          -- Game display name
-    path TEXT NOT NULL,           -- Game directory path
-    executable TEXT NOT NULL,     -- Executable filename
-    mode TEXT NOT NULL            -- Launch mode: "umu" or "wine"
-)
-```
+The `games` record contains the core launch identity plus optional metadata:
+
+| Group | Fields |
+| :--- | :--- |
+| Launch identity | name, path, executable, mode |
+| Artwork/store | banner URL, icon URL, Steam ID |
+| Library state | favorite, archived, collection, tags |
+| Activity | playtime, last played, install date |
+| Runtime | Proton path, build ID, version override, patch-notes URL, environment variables |
+
+Archived is a reversible library state. Permanent removal is a separate destructive action that deletes files and launcher records.
 
 **Example Record:**
 ```
@@ -255,7 +257,7 @@ cd '<game_path>' && firejail --ignore=noroot --ignore=seccomp \
 ```
 - Better compatibility with newer games
 - Requires UMU installed
-- **Has full host network access** (no `--net=none`; pressure-vessel compatibility)
+- **Has full host network access** (no `--net=none`; pressure-vessel compatibility). Filesystem/process isolation still applies.
 - Modern approach
 
 ### Wine
@@ -306,16 +308,6 @@ sudo chmod u+s /usr/bin/firejail
 
 ---
 
-## Next Steps for Enhancement
+## Current optional feature states
 
-Potential future improvements:
-- Game cover images
-- Play time tracking
-- Installation wizard
-- Cloud sync for saves
-- Custom launch parameters per game
-- Game rating/notes
-- Recent games list
-- Search/filter functionality
-- Pro controller support
-- Achievement tracking
+Screenshots, video recording, achievements, cloud sync, Steam metadata, and performance overlays are optional integrations. Their controls may be unavailable when the required runtime, Steam identity, recorder, backend, or host capability is missing; this does not mean the game library itself is unavailable.

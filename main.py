@@ -8,6 +8,7 @@ from database import GameDatabase
 from core.firejail_runner import FirejailSandboxRunner
 from core.zip_backup import ZipBackupManager
 from core.dependency_checker import install_requirements, missing_requirements
+from core.desktop_integration import is_desktop_entry_installed
 
 from core.version import APP_VERSION, __version__
 from ui.icons import LOGO_PATH
@@ -52,7 +53,11 @@ def main():
                 app.setWindowIcon(app_icon)
         except Exception as exc:
             logger.warning(f"Could not load application icon; continuing without it: {exc}")
-    app.setDesktopFileName("safelauncher")
+    # Registering an application ID with the desktop portal before the XDG
+    # desktop entry exists produces a noisy, harmless QDBus warning.  The
+    # desktop ID is still set for installed launchers and AppImages.
+    if is_desktop_entry_installed():
+        app.setDesktopFileName("safelauncher")
 
     # 1. Fast probe: if already running, focus existing window and exit immediately
     if check_already_running():
@@ -73,7 +78,9 @@ def main():
                 ".venv/bin/python -m pip install -r requirements.txt\n"
                 ".venv/bin/python main.py",
             )
-            missing = []
+            # Do not continue into imports that require unavailable modules;
+            # the warning already explains how to launch with the venv.
+            return
 
     if missing:
         answer = QMessageBox.question(

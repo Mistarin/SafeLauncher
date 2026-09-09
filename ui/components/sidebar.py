@@ -70,6 +70,7 @@ class LeftSidebarWidget(QFrame):
             }
         """)
         self.btn_collapse.clicked.connect(self.toggle_compact)
+        self.btn_collapse.setAccessibleName("Expand or collapse collections sidebar")
         layout.addWidget(self.btn_collapse)
         layout.addSpacing(2)
 
@@ -120,7 +121,7 @@ class LeftSidebarWidget(QFrame):
         layout.addWidget(self.nav_installed)
 
         self.nav_favorites = QPushButton("Favorites")
-        self.nav_favorites.setIcon(get_icon("ph.star-bold", color="#FFFFFF"))
+        self.nav_favorites.setIcon(get_icon("ph.heart-bold", color="#FFFFFF"))
         self.nav_favorites.setCheckable(True)
         self.nav_favorites.setStyleSheet(nav_style)
         self.nav_favorites.setVisible(False)
@@ -147,6 +148,7 @@ class LeftSidebarWidget(QFrame):
 
         self.btn_add_col = QPushButton("+")
         self.btn_add_col.setVisible(False)
+        self.btn_add_col.setAccessibleName("Create collection")
         self.btn_add_col.clicked.connect(self.add_collection_requested.emit)
         layout.addLayout(col_hdr_layout)
 
@@ -192,6 +194,7 @@ class LeftSidebarWidget(QFrame):
         self.btn_settings.setIcon(get_icon("ph.gear-bold", color="#FFFFFF"))
         self.btn_settings.setStyleSheet(nav_style)
         self.btn_settings.setVisible(False)
+        self.btn_settings.setAccessibleName("Open settings")
         layout.addWidget(self.btn_settings)
 
         # Card size zoom slider (moved to Settings)
@@ -518,7 +521,7 @@ class HeaderBar(QFrame):
         act_lib_all.triggered.connect(lambda: self.filter_requested.emit("all"))
         act_lib_inst = self.lib_menu.addAction(get_icon("ph.check-circle-bold", color="#FFFFFF"), "Installed")
         act_lib_inst.triggered.connect(lambda: self.filter_requested.emit("installed"))
-        act_lib_fav = self.lib_menu.addAction(get_icon("ph.star-bold", color="#FFFFFF"), "Favorites")
+        act_lib_fav = self.lib_menu.addAction(get_icon("ph.heart-bold", color="#FFFFFF"), "Favorites")
         act_lib_fav.triggered.connect(lambda: self.filter_requested.emit("favorites"))
         act_lib_arch = self.lib_menu.addAction(get_icon("ph.archive-bold", color="#FFFFFF"), "Archived")
         act_lib_arch.triggered.connect(lambda: self.filter_requested.emit("archived"))

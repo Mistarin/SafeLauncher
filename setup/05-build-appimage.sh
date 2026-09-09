@@ -16,6 +16,8 @@ else
     PYTHON_BIN="python3"
     if [ -d "$ROOT_DIR/.venv" ]; then
         PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+    elif [ -d "$ROOT_DIR/venv" ]; then
+        PYTHON_BIN="$ROOT_DIR/venv/bin/python"
     fi
     PYTHON_BIN="$PYTHON_BIN" bash "$ROOT_DIR/packaging/build-appimage.sh"
 fi

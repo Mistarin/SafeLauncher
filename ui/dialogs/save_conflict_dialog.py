@@ -39,6 +39,10 @@ class SaveConflictDialog(PopupDialog):
         self.cloud_stats = cloud_stats
         self.local_is_newer = local_stats.last_modified >= cloud_stats.last_modified
         self.choice: str = "local" if self.local_is_newer else "cloud"
+        # PopupDialog uses WA_DeleteOnClose.  Keep the user preference as a
+        # plain Python value before accept() schedules the dialog for
+        # destruction; callers must not dereference child widgets after exec().
+        self.always_newer = False
 
         self.setWindowTitle(f"Save Conflict - {game_name}")
         self.setFixedSize(540, 420)
@@ -220,8 +224,10 @@ class SaveConflictDialog(PopupDialog):
 
     def _select_cloud(self):
         self.choice = "cloud"
+        self.always_newer = self.cb_always_newer.isChecked()
         self.accept()
 
     def _select_local(self):
         self.choice = "local"
+        self.always_newer = self.cb_always_newer.isChecked()
         self.accept()

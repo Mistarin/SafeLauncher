@@ -418,6 +418,7 @@ class CompactActionBar(QFrame):
         """
 
         self.btn_edit = QPushButton()
+        self.btn_edit.setAccessibleName("Edit game")
         self.btn_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#A1A1AA"))
         self.btn_edit.setIconSize(QSize(16, 16))
         self.btn_edit.setFixedSize(36, 36)
@@ -427,6 +428,7 @@ class CompactActionBar(QFrame):
         self.btn_edit.clicked.connect(self.edit_clicked.emit)
 
         self.btn_settings = QPushButton()
+        self.btn_settings.setAccessibleName("Open game settings")
         self.btn_settings.setIcon(get_icon("ph.gear-six-bold", color="#A1A1AA"))
         self.btn_settings.setIconSize(QSize(16, 16))
         self.btn_settings.setFixedSize(36, 36)
@@ -436,6 +438,7 @@ class CompactActionBar(QFrame):
         self.btn_settings.clicked.connect(self.settings_clicked.emit)
 
         self.btn_folder = QPushButton()
+        self.btn_folder.setAccessibleName("Open game folder")
         self.btn_folder.setIcon(get_icon("ph.folder-open-bold", color="#A1A1AA"))
         self.btn_folder.setIconSize(QSize(16, 16))
         self.btn_folder.setFixedSize(36, 36)
@@ -445,6 +448,7 @@ class CompactActionBar(QFrame):
         self.btn_folder.clicked.connect(self.folder_clicked.emit)
 
         self.btn_save = QPushButton()
+        self.btn_save.setAccessibleName("Open save manager")
         self.btn_save.setIcon(get_icon("ph.cloud-bold", color="#A1A1AA"))
         self.btn_save.setIconSize(QSize(16, 16))
         self.btn_save.setFixedSize(36, 36)
@@ -454,6 +458,7 @@ class CompactActionBar(QFrame):
         self.btn_save.clicked.connect(self.save_manager_clicked.emit)
 
         self.btn_fav = QPushButton()
+        self.btn_fav.setAccessibleName("Toggle favorite game")
         self.btn_fav.setIcon(get_icon("ph.heart-bold", color="#A1A1AA"))
         self.btn_fav.setIconSize(QSize(16, 16))
         self.btn_fav.setFixedSize(36, 36)
@@ -1811,7 +1816,7 @@ class CompactSidebarListItemWidget(QWidget):
         # 3. Favorite Star
         if self.is_favorite:
             fav_lbl = QLabel()
-            fav_lbl.setPixmap(get_icon("ph.heart-fill", color="#FFD60A").pixmap(12, 12))
+            fav_lbl.setPixmap(get_icon("ph.heart-fill", color="#FF453A").pixmap(12, 12))
             fav_lbl.setStyleSheet("background: transparent;")
             layout.addWidget(fav_lbl)
 
@@ -1963,6 +1968,7 @@ class CompactSidebarListWidget(QFrame):
         """
 
         self.btn_f_all = QPushButton()
+        self.btn_f_all.setAccessibleName("Show all games")
         self.btn_f_all.setIcon(get_icon("ph.squares-four-bold", color="#FFFFFF"))
         self.btn_f_all.setIconSize(QSize(15, 15))
         self.btn_f_all.setCheckable(True)
@@ -1973,6 +1979,7 @@ class CompactSidebarListWidget(QFrame):
         fb_layout.addWidget(self.btn_f_all)
 
         self.btn_f_inst = QPushButton()
+        self.btn_f_inst.setAccessibleName("Show installed games")
         self.btn_f_inst.setIcon(get_icon("ph.check-circle-bold", color="#FFFFFF"))
         self.btn_f_inst.setIconSize(QSize(15, 15))
         self.btn_f_inst.setCheckable(True)
@@ -1982,6 +1989,7 @@ class CompactSidebarListWidget(QFrame):
         fb_layout.addWidget(self.btn_f_inst)
 
         self.btn_f_fav = QPushButton()
+        self.btn_f_fav.setAccessibleName("Show favorite games")
         self.btn_f_fav.setIcon(get_icon("ph.heart-bold", color="#FFFFFF"))
         self.btn_f_fav.setIconSize(QSize(15, 15))
         self.btn_f_fav.setCheckable(True)
@@ -1991,6 +1999,7 @@ class CompactSidebarListWidget(QFrame):
         fb_layout.addWidget(self.btn_f_fav)
 
         self.btn_f_arch = QPushButton()
+        self.btn_f_arch.setAccessibleName("Show archived games")
         self.btn_f_arch.setIcon(get_icon("ph.archive-bold", color="#FFFFFF"))
         self.btn_f_arch.setIconSize(QSize(15, 15))
         self.btn_f_arch.setCheckable(True)
@@ -2007,6 +2016,7 @@ class CompactSidebarListWidget(QFrame):
         search_box.setSpacing(6)
         
         self.search_edit = QLineEdit()
+        self.search_edit.setAccessibleName("Search games")
         self.search_edit.setPlaceholderText("Search games...")
         self.search_edit.setFixedHeight(30)
         self.search_edit.setStyleSheet("""
@@ -2033,6 +2043,7 @@ class CompactSidebarListWidget(QFrame):
         sort_row.setSpacing(6)
 
         self.sort_combo = QComboBox()
+        self.sort_combo.setAccessibleName("Sort games")
         self.sort_combo.addItems(["Sort: A–Z Title", "Sort: Most Played", "Sort: Recently Added", "Sort: Disk Size", "Sort: Runner"])
         self.sort_combo.setFixedHeight(24)
         self.sort_combo.setCursor(Qt.CursorShape.PointingHandCursor)

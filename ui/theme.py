@@ -32,7 +32,7 @@ ACCENT_SUBTLE_BG = "#0D2A40"
 SEMANTIC_SUCCESS = "#35C98A"
 SEMANTIC_WARNING = "#E5A93D"
 SEMANTIC_ERROR = "#F05D6C"
-SEMANTIC_FAVORITE = "#F5C451"
+SEMANTIC_FAVORITE = "#FF453A"
 SEMANTIC_UTILITY = "#E5E7EB"
 
 # ── Typography ───────────────────────────────────────────────────────────────

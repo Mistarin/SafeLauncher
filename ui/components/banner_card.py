@@ -116,6 +116,7 @@ class GameBannerWidget(QFrame):
         # Favorite button
         self.favorite_button = QPushButton(self)
         self.favorite_button.setFixedSize(28, 28)
+        self.favorite_button.setAccessibleName("Toggle favorite game")
         self.favorite_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.favorite_button.setCheckable(True)
         self.favorite_button.setIconSize(QSize(16, 16))
@@ -369,7 +370,7 @@ class GameBannerWidget(QFrame):
         self.is_favorite = is_favorite
         try:
             self.favorite_button.setChecked(is_favorite)
-            icon = get_icon("ph.star-fill" if is_favorite else "ph.star-bold", color="#F5C451" if is_favorite else "#6F7682")
+            icon = get_icon("ph.heart-fill" if is_favorite else "ph.heart-bold", color="#FF453A" if is_favorite else "#6F7682")
             self.favorite_button.setIcon(icon)
             self.favorite_button.setText("" if not icon.isNull() else "*")
             self.favorite_button.setToolTip("Remove from Favorites" if is_favorite else "Add to Favorites")

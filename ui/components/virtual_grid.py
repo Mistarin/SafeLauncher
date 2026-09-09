@@ -150,14 +150,14 @@ class GameCardItemDelegate(QStyledItemDelegate):
             painter.setBrush(QColor(update_indicator(True).color))
             painter.drawEllipse(cover_rect.x() + 8, cover_rect.y() + 8, 9, 9)
 
-        # Favorite star (top-right)
+        # Favorite heart (top-right)
         fav_icon_rect = QRect(cover_rect.right() - 26, cover_rect.y() + 6, 20, 20)
         if is_favorite:
-            star_icon = get_icon("ph.star-fill", color="#F5C451")
-            star_icon.paint(painter, fav_icon_rect)
+            heart_icon = get_icon("ph.heart-fill", color="#FF453A")
+            heart_icon.paint(painter, fav_icon_rect)
         elif is_hovered:
-            star_icon = get_icon("ph.star-bold", color="#6F7682")
-            star_icon.paint(painter, fav_icon_rect)
+            heart_icon = get_icon("ph.heart-bold", color="#6F7682")
+            heart_icon.paint(painter, fav_icon_rect)
 
         # Quick-launch play button (center, on hover)
         if is_hovered and not is_missing:
@@ -490,7 +490,7 @@ class VirtualizedGameGridView(QListView):
             self.game_right_clicked.emit(int(game_id), event.globalPosition().toPoint())
             return
 
-        # Check favorite star hit (top right area)
+        # Check favorite heart hit (top right area)
         card_w = self.delegate.card_width
         card_h = self.delegate.card_height
         if (card_w - 36) <= rel_x <= card_w and 0 <= rel_y <= 36:

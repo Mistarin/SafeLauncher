@@ -5,10 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PYTHON_BIN="python3"
-if [ -d "$ROOT_DIR/venv" ]; then
-    PYTHON_BIN="$ROOT_DIR/venv/bin/python"
-elif [ -d "$ROOT_DIR/.venv" ]; then
+if [ -d "$ROOT_DIR/.venv" ]; then
     PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+elif [ -d "$ROOT_DIR/venv" ]; then
+    PYTHON_BIN="$ROOT_DIR/venv/bin/python"
 fi
 
 echo "[Test] Running SafeLauncher test suite..."
