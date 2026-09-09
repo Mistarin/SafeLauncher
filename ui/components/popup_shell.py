@@ -244,6 +244,10 @@ class PopupDialog(QDialog):
 
     def __init__(self, title: str = "", parent: Optional[QWidget] = None):
         super().__init__(parent)
+        # Keep the native dialog title in sync with the custom title bar.
+        # Frameless dialogs still expose windowTitle() to accessibility tools,
+        # tests, and window managers even when the title bar is drawn by us.
+        self.setWindowTitle(title)
         self.setObjectName("safeLauncherPopup")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)

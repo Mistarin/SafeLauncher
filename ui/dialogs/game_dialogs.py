@@ -80,6 +80,7 @@ class AddGameDialog(PopupDialog):
         self._form_result = None
         self._version_result = None
         self._build_id_result = None
+        self._steam_id_result = None
         self.fetcher_thread = None
         self.downloader_thread = None
         self.extractor_thread = None
@@ -120,6 +121,11 @@ class AddGameDialog(PopupDialog):
         self.name_input.setPlaceholderText("e.g., Portal 2, Cyberpunk 2077")
         self.name_input.setMinimumHeight(36)
         form_layout.addRow("Game Name:", self.name_input)
+
+        self.steam_id_input = QLineEdit()
+        self.steam_id_input.setPlaceholderText("Optional Steam AppID, e.g. 1321440")
+        self.steam_id_input.setMinimumHeight(36)
+        form_layout.addRow("Steam AppID:", self.steam_id_input)
 
         # Game Path
         self.path_input = QLineEdit()
@@ -462,6 +468,7 @@ class AddGameDialog(PopupDialog):
         if 0 <= idx < len(self.search_results):
             result = self.search_results[idx]
             self.selected_steam_id = str(result.get('appid') or "").strip()
+            self.steam_id_input.setText(self.selected_steam_id)
             banner_url = result.get('banner_url')
             if banner_url and self.sgdb_client:
                 if self.downloader_thread and self.downloader_thread.isRunning():
@@ -546,6 +553,7 @@ class AddGameDialog(PopupDialog):
     def _accept_form(self):
         """Snapshot all form values before WA_DeleteOnClose destroys children."""
         self._form_result = self._read_form_values()
+        self._steam_id_result = self.steam_id_input.text().strip()
         self._version_result = (
             self.version_input.text().strip(),
             self.patch_notes_input.text().strip(),
@@ -561,8 +569,8 @@ class AddGameDialog(PopupDialog):
         return self._read_form_values()
 
     def get_steam_id(self) -> str:
-        """Return the Steam AppID selected with the cover art, when available."""
-        return self.selected_steam_id
+        """Return the manually entered or automatically selected Steam AppID."""
+        return self._steam_id_result if self._steam_id_result is not None else self.steam_id_input.text().strip()
 
     def get_version_metadata(self) -> tuple[str, str]:
         if self._version_result is not None:
@@ -583,6 +591,7 @@ class EditGameDialog(AddGameDialog):
         self.banner_path = banner_url
         
         self.name_input.setText(name or "")
+        self.steam_id_input.setText(str(steam_id or ""))
         if len(game_data) > 15:
             self.version_input.setText(game_data[15] or "")
         if len(game_data) > 16:

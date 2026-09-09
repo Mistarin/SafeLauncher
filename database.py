@@ -4,6 +4,7 @@ import json
 import shutil
 import time
 import uuid
+import re
 from core.logger import get_logger
 
 logger = get_logger("Database")
@@ -292,6 +293,20 @@ class GameDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_achievement_profile_app ON achievement_profile(app_id)")
 
                 cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS profile_games (
+                        identity_key TEXT PRIMARY KEY,
+                        app_id TEXT DEFAULT '',
+                        favorite INTEGER DEFAULT 0,
+                        favorite_changed_at REAL DEFAULT 0,
+                        favorite_change_id TEXT DEFAULT '',
+                        playtime_baseline_seconds INTEGER DEFAULT 0,
+                        last_played INTEGER DEFAULT 0,
+                        first_seen_at REAL NOT NULL
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_profile_games_app ON profile_games(app_id)")
+
+                cursor.execute("""
                     CREATE TABLE IF NOT EXISTS playtime_sessions (
                         session_id TEXT PRIMARY KEY,
                         game_id INTEGER NOT NULL,
@@ -354,6 +369,22 @@ class GameDatabase:
             new_val = 0 if current else 1
             with self.conn:
                 self.conn.execute("UPDATE games SET is_favorite = ? WHERE id = ?", (new_val, game_id))
+                row = self.conn.execute(
+                    "SELECT name, steam_id FROM games WHERE id = ?", (game_id,)
+                ).fetchone()
+                if row:
+                    identity = self.profile_identity(row[0], row[1])
+                    self.conn.execute(
+                        """INSERT INTO profile_games
+                           (identity_key, app_id, favorite, favorite_changed_at, favorite_change_id, first_seen_at)
+                           VALUES (?, ?, ?, ?, ?, ?)
+                           ON CONFLICT(identity_key) DO UPDATE SET
+                             app_id = excluded.app_id,
+                             favorite = excluded.favorite,
+                             favorite_changed_at = excluded.favorite_changed_at,
+                             favorite_change_id = excluded.favorite_change_id""",
+                        (identity, str(row[1] or "").strip(), new_val, time.time(), str(uuid.uuid4()), time.time()),
+                    )
             return bool(new_val)
         except Exception as e:
             logger.error(f"Failed to toggle favorite for game {game_id}: {e}")
@@ -408,6 +439,74 @@ class GameDatabase:
                 )
         except Exception as e:
             logger.error(f"Failed to merge playtime metadata for game {game_id}: {e}")
+
+    @staticmethod
+    def profile_identity(name: str, app_id: str = "") -> str:
+        """Return the portable account-profile identity for a game."""
+        sid = str(app_id or "").strip()
+        if sid and sid not in ("0", "None"):
+            return f"steam:{sid}"
+        normalized = re.sub(r"[^a-z0-9]+", "-", str(name or "").casefold()).strip("-")
+        return f"local:{normalized or 'unnamed-game'}"
+
+    def get_profile_games(self) -> List[dict]:
+        rows = self.conn.execute(
+            """SELECT identity_key, app_id, favorite, favorite_changed_at,
+                      favorite_change_id, playtime_baseline_seconds, last_played
+               FROM profile_games ORDER BY identity_key"""
+        ).fetchall()
+        return [{"identity_key": r[0], "app_id": r[1] or "", "favorite": bool(r[2]),
+                 "favorite_changed_at": float(r[3] or 0), "favorite_change_id": r[4] or "",
+                 "playtime_baseline_seconds": int(r[5] or 0), "last_played": int(r[6] or 0)} for r in rows]
+
+    def merge_profile_game(self, value: dict) -> None:
+        """Merge one generalized profile record and project it to matching games."""
+        identity = str(value.get("identity_key", "")).strip()
+        if not identity:
+            return
+        incoming_ts = float(value.get("favorite_changed_at", 0) or 0)
+        incoming_id = str(value.get("favorite_change_id", "") or "")
+        with self.conn:
+            current = self.conn.execute(
+                "SELECT favorite, favorite_changed_at, favorite_change_id FROM profile_games WHERE identity_key = ?",
+                (identity,),
+            ).fetchone()
+            use_favorite = True
+            if current:
+                current_key = (float(current[1] or 0), str(current[2] or ""))
+                use_favorite = (incoming_ts, incoming_id) >= current_key
+                if not use_favorite:
+                    favorite = int(bool(current[0]))
+                    incoming_ts, incoming_id = current_key[0], current_key[1]
+                else:
+                    favorite = int(bool(value.get("favorite")))
+            else:
+                favorite = int(bool(value.get("favorite")))
+            self.conn.execute(
+                """INSERT INTO profile_games
+                   (identity_key, app_id, favorite, favorite_changed_at, favorite_change_id,
+                    playtime_baseline_seconds, last_played, first_seen_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(identity_key) DO UPDATE SET
+                     app_id = excluded.app_id,
+                     favorite = excluded.favorite,
+                     favorite_changed_at = excluded.favorite_changed_at,
+                     favorite_change_id = excluded.favorite_change_id,
+                     playtime_baseline_seconds = MAX(profile_games.playtime_baseline_seconds, excluded.playtime_baseline_seconds),
+                     last_played = MAX(profile_games.last_played, excluded.last_played)""",
+                (identity, str(value.get("app_id", "") or ""), favorite, incoming_ts, incoming_id,
+                 max(0, int(value.get("playtime_baseline_seconds", 0) or 0)),
+                 max(0, int(value.get("last_played", 0) or 0)), time.time()),
+            )
+
+    def project_profile_game(self, game_id: int, value: dict) -> None:
+        identity = str(value.get("identity_key", "")).strip()
+        with self.conn:
+            self.conn.execute(
+                "UPDATE games SET is_favorite = ?, playtime_seconds = MAX(COALESCE(playtime_seconds, 0), ?), last_played = MAX(COALESCE(last_played, 0), ?) WHERE id = ?",
+                (int(bool(value.get("favorite"))), max(0, int(value.get("playtime_seconds", 0) or 0)),
+                 max(0, int(value.get("last_played", 0) or 0)), game_id),
+            )
 
     def create_playtime_session(self, game_id: int, started_at: Optional[int] = None, session_id: str = "") -> str:
         """Create an idempotent playtime event for metadata synchronization."""

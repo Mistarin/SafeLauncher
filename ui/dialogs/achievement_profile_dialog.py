@@ -1,4 +1,4 @@
-"""Account-wide achievement profile and append-only resync controls."""
+"""Account-wide launcher profile and resync controls."""
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -17,13 +17,13 @@ class AchievementProfileDialog(PopupDialog):
         self._tasks = TaskSupervisor(self)
         self._sync_done.connect(self._on_sync_done)
         root = self.popup_layout(margins=(22, 18, 22, 18), spacing=12)
-        intro = QLabel("Achievements are linked by Steam AppID. Unlocks are permanent: removing a game or restoring an older save cannot remove them.")
+        intro = QLabel("Favorites, playtime, and last-played state sync across devices. Achievements are append-only and remain unlocked even when a game or older save is removed.")
         intro.setWordWrap(True)
         intro.setStyleSheet("color:#A1A1AA; font-size:12px;")
         root.addWidget(intro)
         stats = QHBoxLayout()
-        self.lbl_apps, self.lbl_unlocked = QLabel(), QLabel()
-        for label in (self.lbl_apps, self.lbl_unlocked):
+        self.lbl_apps, self.lbl_unlocked, self.lbl_favorites, self.lbl_playtime = QLabel(), QLabel(), QLabel(), QLabel()
+        for label in (self.lbl_apps, self.lbl_unlocked, self.lbl_favorites, self.lbl_playtime):
             label.setStyleSheet("color:#F4F4F5; font-size:14px; font-weight:700; padding:8px;")
             stats.addWidget(label)
         root.addLayout(stats)
@@ -48,6 +48,7 @@ class AchievementProfileDialog(PopupDialog):
 
     def _load(self):
         profile = self.db.get_profile_unlocks()
+        profile_games = {item["identity_key"]: item for item in self.db.get_profile_games()}
         games = {}
         for game in self.db.get_all_games():
             sid = str(game.steam_id or "").strip()
@@ -62,10 +63,19 @@ class AchievementProfileDialog(PopupDialog):
             item = QListWidgetItem(f"AppID {app_id} · {count} unlocked\n{names}")
             item.setData(Qt.ItemDataRole.UserRole, app_id)
             self.list.addItem(item)
+        for identity, item in sorted(profile_games.items()):
+            if item.get("favorite") or item.get("playtime_baseline_seconds") or item.get("last_played"):
+                hours = item.get("playtime_baseline_seconds", 0) / 3600
+                self.list.addItem(QListWidgetItem(
+                    f"{identity} · {'Favorite' if item.get('favorite') else 'Not favorite'} · {hours:.1f} h"
+                ))
         if not profile:
             self.list.addItem(QListWidgetItem("No profile unlocks recorded yet."))
         self.lbl_apps.setText(f"Apps: {len(profile)}")
         self.lbl_unlocked.setText(f"Unlocked: {total}")
+        self.lbl_favorites.setText(f"Favorites: {sum(1 for x in profile_games.values() if x.get('favorite'))}")
+        total_hours = sum(int(x.get("playtime_baseline_seconds", 0) or 0) for x in profile_games.values()) / 3600
+        self.lbl_playtime.setText(f"Playtime: {total_hours:.1f} h")
 
     def _resync(self):
         if self._busy:

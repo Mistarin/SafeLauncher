@@ -854,11 +854,12 @@ try:
     )
     from core.cloud_detector import inspect_system_compatibility
     from core.cloud_backend import check_backend_health, ConvexSaveBackend
+    from core.cloud_metadata_sync import CloudMetadataSync, _merge_profiles
 
     # 1. Versioning assertions
     assert APP_VERSION == "0.7.0", f"Expected APP_VERSION == 0.7.0, got {APP_VERSION}"
 
-    assert MIN_CONVEX_BACKEND_VERSION == "1.5.0"
+    assert MIN_CONVEX_BACKEND_VERSION == "1.7.0"
     assert parse_version("0.5.5") == (0, 5, 5)
     assert parse_version("v1.2.0") == (1, 2, 0)
     assert parse_version("1.2.0-rc1") == (1, 2, 0, 1)
@@ -873,6 +874,40 @@ try:
     assert is_version_outdated("1.2.0", MIN_CONVEX_BACKEND_VERSION) is True
     assert is_version_outdated("2.0.0", MIN_CONVEX_BACKEND_VERSION) is False
     print("✓ Single-source version definitions and semver comparison verified")
+
+    # Generalized account profile merges preferences monotonically where
+    # appropriate and never loses append-only achievements.
+    local_profile = {
+        "format_version": 2,
+        "games": {"steam:1321440": {
+            "identity_key": "steam:1321440", "app_id": "1321440",
+            "favorite": True, "favorite_changed_at": 10, "favorite_change_id": "a",
+            "playtime_baseline_seconds": 120, "playtime_sessions": [{
+                "session_id": "s1", "started_at": 1, "duration_seconds": 30,
+            }], "last_played": 100,
+        }},
+        "achievements": {"1321440": {"ACH_ONE": {"unlock_time": 50}}},
+    }
+    remote_profile = {
+        "format_version": 2,
+        "games": {"steam:1321440": {
+            "identity_key": "steam:1321440", "app_id": "1321440",
+            "favorite": False, "favorite_changed_at": 20, "favorite_change_id": "b",
+            "playtime_baseline_seconds": 300, "playtime_sessions": [{
+                "session_id": "s1", "started_at": 1, "duration_seconds": 40,
+            }, {"session_id": "s2", "started_at": 2, "duration_seconds": 60}],
+            "last_played": 200,
+        }},
+        "achievements": {"1321440": {"ACH_TWO": {"unlock_time": 70}}},
+    }
+    merged_profile = _merge_profiles(local_profile, remote_profile)
+    merged_game = merged_profile["games"]["steam:1321440"]
+    assert merged_game["favorite"] is False
+    assert merged_game["playtime_baseline_seconds"] == 300
+    assert {x["session_id"] for x in merged_game["playtime_sessions"]} == {"s1", "s2"}
+    assert merged_game["last_played"] == 200
+    assert set(merged_profile["achievements"]["1321440"]) == {"ACH_ONE", "ACH_TWO"}
+    print("✓ Generalized profile merge preserves achievements and synchronizes game metadata")
 
     # 2. Updater: AppImage detection & binary header validation
     with tempfile.TemporaryDirectory() as td:

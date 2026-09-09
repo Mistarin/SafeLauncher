@@ -2118,6 +2118,8 @@ class MainWindow(QMainWindow):
         for game_id in selected:
             self.db.toggle_favorite(game_id)
         self._refresh_library()
+        for game_id in selected:
+            self._sync_launcher_metadata_async(game_id)
 
     def _on_toggle_favorite(self):
         """Toggle favorite status for currently selected game"""
@@ -2129,12 +2131,14 @@ class MainWindow(QMainWindow):
         self._show_toast("Added to Favorites" if new_fav else "Removed from Favorites")
         self._refresh_library()
         self._select_game_by_id(game_id)
+        self._sync_launcher_metadata_async(game_id)
 
     def _on_card_favorite_clicked(self, game_id: int):
         """Toggle a game's favorite directly from its library card."""
         new_fav = self.db.toggle_favorite(game_id)
         self._show_toast("Added to Favorites" if new_fav else "Removed from Favorites")
         self._refresh_library()
+        self._sync_launcher_metadata_async(game_id)
 
     def _refresh_library(self):
         """Clear and reload game banners into dynamic responsive grid based on search, status filter, and sorting."""
@@ -5530,6 +5534,7 @@ class MainWindow(QMainWindow):
             name, path, exe, mode, banner_path = dialog.get_values()
             version_override, patch_notes_url = dialog.get_version_metadata()
             manual_build_id = dialog.get_build_id()
+            manual_steam_id = dialog.get_steam_id()
             if not name or not path or not exe:
                 QMessageBox.warning(self, "Error", "All fields are required.")
                 return
@@ -5545,6 +5550,7 @@ class MainWindow(QMainWindow):
             save_sandbox_config(path, exe)
             self.db.update_game(game_id, name, path, exe, mode, banner_path)
             self.db.update_game_mode(game_id, mode)
+            self.db.update_game_steam_id(game_id, manual_steam_id)
             logger.info(f"Saved game settings for {game_id}: executable='{exe}', mode='{mode}'")
             self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
             if manual_build_id is not None:
@@ -5554,6 +5560,7 @@ class MainWindow(QMainWindow):
                 self.metadata_attempted_builds.discard(game_id)
                 self.steam_check_results.pop(game_id, None)
             self._refresh_library()
+            self._sync_launcher_metadata_async(game_id)
             self._show_toast(f"Updated settings for '{name}'.")
     
 

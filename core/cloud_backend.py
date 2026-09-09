@@ -75,7 +75,7 @@ def describe_cloud_error(error: Exception) -> str:
             "The cloud backend rejected this save because it is too large. "
             "Older deployments still enforce the former 50 MB limit; choose "
             "Setup Cloud → Redeploy existing backend and deploy SafeLauncherCloud "
-            "v1.5.0 or newer. The current free-tier limit is 1 GB total storage."
+            "v1.7.0 or newer. The current free-tier limit is 1 GB total storage."
         )
     if status == 507 or code == "quota_exceeded":
         return (
@@ -307,6 +307,19 @@ class ConvexSaveBackend:
         except Exception as e:
             raise CloudBackendError(f"Achievement profile decrypt failed: {e}", "profile_corrupt") from e
 
+    def get_profile(self) -> dict:
+        """Fetch the encrypted generalized launcher profile."""
+        response = self._check(self._request("GET", "/api/profile", timeout=6), "Launcher profile fetch")
+        encoded = response.get("data")
+        if not encoded:
+            return {"revision": response.get("revision", 0), "profile": {}}
+        try:
+            plaintext = save_crypto.decrypt_save(base64.b64decode(encoded), self.data_key_b64())
+            profile = json.loads(plaintext.decode("utf-8"))
+            return {"revision": response.get("revision", 0), "profile": profile if isinstance(profile, dict) else {}}
+        except Exception as e:
+            raise CloudBackendError(f"Launcher profile decrypt failed: {e}", "profile_corrupt") from e
+
     def put_achievement_profile(self, profile: dict, revision=None) -> dict:
         """Encrypt and conditionally replace the account-wide achievement ledger."""
         plaintext = json.dumps(profile, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -317,6 +330,18 @@ class ConvexSaveBackend:
         return self._check(
             self._request("PUT", "/api/profile/achievements", json_body=body, timeout=10),
             "Achievement profile upload",
+        )
+
+    def put_profile(self, profile: dict, revision=None) -> dict:
+        """Encrypt and conditionally replace the generalized launcher profile."""
+        plaintext = json.dumps(profile, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        encoded = base64.b64encode(save_crypto.encrypt_save(plaintext, self.data_key_b64())).decode("ascii")
+        body = {"data": encoded}
+        if revision is not None:
+            body["revision"] = revision
+        return self._check(
+            self._request("PUT", "/api/profile", json_body=body, timeout=10),
+            "Launcher profile upload",
         )
 
     # ------------------------------------------------------------------ #

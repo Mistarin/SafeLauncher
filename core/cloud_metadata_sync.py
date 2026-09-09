@@ -48,13 +48,30 @@ def _merge_sessions(local: list, remote: list) -> list:
 
 
 def _merge_profiles(local: dict, remote: dict) -> dict:
-    """Union achievement profiles by AppID/API name; never remove unlocks."""
+    """Merge the account profile without losing achievements or playtime."""
+    merged_games = {}
+    for identity in set((local or {}).get("games", {}) or {}) | set((remote or {}).get("games", {}) or {}):
+        left = ((local or {}).get("games", {}) or {}).get(identity, {}) or {}
+        right = ((remote or {}).get("games", {}) or {}).get(identity, {}) or {}
+        left_key = (float(left.get("favorite_changed_at", 0) or 0), str(left.get("favorite_change_id", "") or ""))
+        right_key = (float(right.get("favorite_changed_at", 0) or 0), str(right.get("favorite_change_id", "") or ""))
+        favorite_source = right if right_key >= left_key else left
+        merged_games[str(identity)] = {
+            "identity_key": str(identity),
+            "app_id": str(left.get("app_id") or right.get("app_id") or ""),
+            "favorite": bool(favorite_source.get("favorite", False)),
+            "favorite_changed_at": max(left_key[0], right_key[0]),
+            "favorite_change_id": str(favorite_source.get("favorite_change_id", "") or ""),
+            "playtime_baseline_seconds": max(int(left.get("playtime_baseline_seconds", 0) or 0), int(right.get("playtime_baseline_seconds", 0) or 0)),
+            "playtime_sessions": _merge_sessions(left.get("playtime_sessions"), right.get("playtime_sessions")),
+            "last_played": max(int(left.get("last_played", 0) or 0), int(right.get("last_played", 0) or 0)),
+        }
     merged = {}
     for app_id in set((local or {}).get("achievements", {}) or {}) | set((remote or {}).get("achievements", {}) or {}):
         left = ((local or {}).get("achievements", {}) or {}).get(app_id, {}) or {}
         right = ((remote or {}).get("achievements", {}) or {}).get(app_id, {}) or {}
         merged[str(app_id)] = _merge_unlocks(left, right)
-    return {"format_version": 1, "achievements": merged}
+    return {"format_version": 2, "games": merged_games, "achievements": merged}
 
 
 class CloudMetadataSync:
@@ -109,7 +126,45 @@ class CloudMetadataSync:
     @staticmethod
     def _local_profile(db) -> dict:
         db.collect_profile_from_games()
-        return {"format_version": 1, "achievements": db.get_profile_unlocks()}
+        games = {}
+        for game in db.get_all_games():
+            identity = db.profile_identity(game.name, game.steam_id)
+            sessions = db.get_playtime_sessions(game.id)
+            session_total = sum(int(x.get("duration_seconds", 0) or 0) for x in sessions)
+            games[identity] = {
+                "identity_key": identity,
+                "app_id": str(game.steam_id or "").strip(),
+                "favorite": bool(game.is_favorite),
+                "favorite_changed_at": 0,
+                "favorite_change_id": "",
+                "playtime_baseline_seconds": max(0, int(game.playtime_seconds or 0) - session_total),
+                "playtime_sessions": sessions,
+                "last_played": max(0, int(game.last_played or 0)),
+            }
+        # Retain profile-only entries for games removed from this installation.
+        for item in db.get_profile_games():
+            current = games.get(item["identity_key"])
+            if current:
+                current["favorite_changed_at"] = item["favorite_changed_at"]
+                current["favorite_change_id"] = item["favorite_change_id"]
+            else:
+                games[item["identity_key"]] = item
+        # If a previously local game has now been assigned an AppID, carry
+        # its profile history into the stable Steam identity.  The old local
+        # record remains as a harmless alias until the next cleanup pass.
+        for game in db.get_all_games():
+            app_id = str(game.steam_id or "").strip()
+            if not app_id:
+                continue
+            steam_identity = db.profile_identity(game.name, app_id)
+            local_identity = db.profile_identity(game.name, "")
+            if local_identity in games and local_identity != steam_identity:
+                migrated = _merge_profiles(
+                    {"games": {steam_identity: games.get(steam_identity, {})}},
+                    {"games": {steam_identity: games[local_identity]}},
+                )["games"][steam_identity]
+                games[steam_identity] = migrated
+        return {"format_version": 2, "games": games, "achievements": db.get_profile_unlocks()}
 
     @staticmethod
     def _merge_legacy_game_unlocks(profile: dict, game_metadata: dict, app_id: str) -> None:
@@ -122,6 +177,20 @@ class CloudMetadataSync:
 
     @staticmethod
     def _apply_profile(db, profile: dict) -> None:
+        for identity, value in (profile.get("games", {}) or {}).items():
+            if not isinstance(value, dict):
+                continue
+            item = dict(value)
+            item["identity_key"] = str(identity)
+            sessions = item.get("playtime_sessions", []) or []
+            item["playtime_seconds"] = int(item.get("playtime_baseline_seconds", 0) or 0) + sum(
+                int(x.get("duration_seconds", 0) or 0) for x in sessions if isinstance(x, dict)
+            )
+            db.merge_profile_game(item)
+            for game in db.get_all_games():
+                if db.profile_identity(game.name, game.steam_id) == str(identity):
+                    db.merge_playtime_sessions(game.id, sessions)
+                    db.project_profile_game(game.id, item)
         for app_id, unlocks in (profile.get("achievements", {}) or {}).items():
             db.merge_profile_unlocks(str(app_id), {
                 str(name): float((value or {}).get("unlock_time", 0) or 0)
@@ -159,10 +228,10 @@ class CloudMetadataSync:
                     except Exception as exc:
                         logger.debug("Legacy achievement migration unavailable for %s: %s", game.name, exc)
                 for attempt in range(2):
-                    remote_result = backend.get_achievement_profile()
+                    remote_result = backend.get_profile()
                     merged = _merge_profiles(local, remote_result.get("profile") or {})
                     try:
-                        backend.put_achievement_profile(merged, remote_result.get("revision"))
+                        backend.put_profile(merged, remote_result.get("revision"))
                         cls._apply_profile(db, merged)
                         return True
                     except Exception:
@@ -172,11 +241,20 @@ class CloudMetadataSync:
 
             root = os.path.join(CloudSaveSyncEngine.get_cloud_root(), "metadata")
             os.makedirs(root, mode=0o700, exist_ok=True)
-            path = os.path.join(root, "achievement_profile.json")
+            path = os.path.join(root, "launcher_profile.json")
             remote = {}
             if os.path.isfile(path):
                 try:
                     with open(path, "r", encoding="utf-8") as fh:
+                        remote = json.load(fh)
+                except (OSError, ValueError):
+                    remote = {}
+            # Read the old filename once so existing installations migrate
+            # without requiring a cloud backend.
+            legacy_profile_path = os.path.join(root, "achievement_profile.json")
+            if not remote and os.path.isfile(legacy_profile_path):
+                try:
+                    with open(legacy_profile_path, "r", encoding="utf-8") as fh:
                         remote = json.load(fh)
                 except (OSError, ValueError):
                     remote = {}
