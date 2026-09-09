@@ -745,15 +745,15 @@ def run_cloud_setup_wizard() -> int:
     if not site_url.startswith("http://") and not site_url.startswith("https://"):
         site_url = "https://" + site_url
 
-    print(f"\n  {BOLD}Secret Access Key (Recommended):{RESET}")
+    print(f"\n  {BOLD}Secret Access Key (Required for the current backend):{RESET}")
     print(f"     {DIM}Acts as a private password for your server endpoint. It stops anyone else{RESET}")
     print(f"     {DIM}who finds your public .convex.site URL from uploading files and filling{RESET}")
     print(f"     {DIM}up your 1 GB free Convex storage quota.{RESET}")
-    print(f"     {DIM}• If you configured a secret key on your server, enter it below.{RESET}")
+    print(f"     {DIM}• Enter the same value configured as SAFELAUNCHER_SECRET_KEY on the server.{RESET}")
     print(f"     {DIM}• If this is a new setup, enter a passphrase to configure it on Convex now.{RESET}")
-    print(f"     {DIM}• Press Enter to skip (leaves the server open to anyone with the URL).{RESET}\n")
+    print(f"     {DIM}• Leaving this blank will keep cloud status and sync disabled.{RESET}\n")
 
-    key_prompt = f"  {CYAN}{BOLD}➜{RESET} Secret Access Key [{current_key}]: " if current_key else f"  {CYAN}{BOLD}➜{RESET} Secret Access Key (press Enter to skip): "
+    key_prompt = f"  {CYAN}{BOLD}➜{RESET} Secret Access Key [{current_key}]: " if current_key else f"  {CYAN}{BOLD}➜{RESET} Secret Access Key (required): "
     entered_key = input(key_prompt).strip()
     secret_key = entered_key if entered_key else current_key
 

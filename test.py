@@ -75,6 +75,7 @@ try:
     assert mixed_status.update_indicator.label == "Game Update: Available"
     assert mixed_status.cloud_indicator.label == "Cloud Save: Synced"
     assert cloud_indicator(SyncStatus.LOCAL_NEWER).label == "Cloud Save: Ready to upload"
+    assert cloud_indicator(SyncStatus.CLOUD_AUTH_REQUIRED).label == "Cloud Save: Setup required"
     assert update_indicator(False).visible is False
     snapshot = LibraryController().build_snapshot(
         [(77, "Mixed Status Game", "/tmp", "game.exe", "wine", "", "", 0, 0, 0, "", "", "", "", 0, "", "", 0, "")],
@@ -453,6 +454,30 @@ try:
     assert deploy_key_wiz.pages.currentIndex() == 2
     deploy_key_wiz.reject()
     print("✓ Deploy-key wizard automatic/manual paths instantiated cleanly offscreen")
+
+    from core.operation_registry import OperationRegistry
+    from ui.components.activity_drawer import ActivityDrawer
+    activity_registry = OperationRegistry()
+    activity_drawer = ActivityDrawer(activity_registry)
+    activity_drawer.show()
+    activity_registry.start("A long background operation that should wrap cleanly", category="Test")
+    activity_registry.start("A completed operation", category="Test")
+    activity_registry.finish(activity_registry.all()[-1].operation_id)
+    activity_registry.fail(
+        activity_registry.all()[0].operation_id,
+        "A diagnostic message long enough to wrap across multiple lines without painting over another activity row.",
+    )
+    QApplication.processEvents()
+    activity_item = activity_drawer.list_widget.item(0)
+    activity_widget = activity_drawer.list_widget.itemWidget(activity_item)
+    assert activity_item.sizeHint().height() >= activity_widget.sizeHint().height()
+    assert activity_drawer.list_widget.visualItemRect(activity_item).height() >= activity_widget.height()
+    assert activity_widget.detail_label.wordWrap()
+    assert "#F05D6C" in activity_widget.title_label.styleSheet()
+    completed_widget = activity_drawer.list_widget.itemWidget(activity_drawer.list_widget.item(1))
+    assert "#A1A1AA" in completed_widget.title_label.styleSheet()
+    activity_drawer.close()
+    print("✓ Activity drawer rows reserve wrapped message height and use neutral status colors")
 
     from core.plugins.gpu_screen_recorder import GpuRecorderService, GpuRecorderConfig
     rec_cfg = GpuRecorderConfig(enabled=False, mode="replay_buffer", history_seconds=90, codec="hevc", bitrate="20M")
@@ -1901,7 +1926,7 @@ try:
         cover_rect = QRect(0, 0, 100, 100)
         for st in (SyncStatus.IN_SYNC, SyncStatus.LOCAL_NEWER, SyncStatus.CLOUD_NEWER,
                    SyncStatus.CLOUD_ONLY, SyncStatus.CLOUD_OFFLINE, SyncStatus.CONFLICT,
-                   SyncStatus.NO_SAVES):
+                   SyncStatus.NO_SAVES, SyncStatus.CLOUD_AUTH_REQUIRED):
             delegate._draw_cloud_badge(painter, cover_rect, st)
         painter.end()
 

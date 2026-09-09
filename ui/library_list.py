@@ -224,7 +224,7 @@ class LibraryListItemWidget(QWidget):
         self.cloud_badge.setStyleSheet(
             f"QLabel {{ background: rgba(20, 23, 29, 0.72); color: {meta.color}; "
             f"border: 1px solid {meta.color}; border-radius: 4px; padding: 1px 6px; "
-            "font-weight: bold; font-size: 10px; }}"
+            "font-weight: bold; font-size: 10px; }"
         )
         self.cloud_badge.show()
 
@@ -241,7 +241,7 @@ class LibraryListItemWidget(QWidget):
                 self.update_badge.setStyleSheet(
                     f"QLabel {{ background: rgba(20, 23, 29, 0.72); color: {meta.color}; "
                     f"border: 1px solid {meta.color}; border-radius: 4px; padding: 1px 6px; "
-                    "font-weight: bold; font-size: 10px; }}"
+                    "font-weight: bold; font-size: 10px; }"
                 )
 
     def set_missing(self, is_missing: bool) -> None:

@@ -2,7 +2,10 @@
 
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
-from PyQt6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import (
+    QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+    QPushButton, QSizePolicy, QVBoxLayout,
+)
 
 from core.operation_registry import Operation
 
@@ -22,8 +25,13 @@ class ActivityDrawer(QFrame):
                 border-radius: 12px;
             }
             QLabel { background: transparent; color: #F4F4F5; }
-            QListWidget { background: transparent; border: none; }
-            QListWidget::item { border: none; padding: 4px; }
+            QListWidget {
+                background: transparent;
+                border: none;
+                outline: none;
+                show-decoration-selected: 0;
+            }
+            QListWidget::item { border: none; padding: 4px 0px; }
             QPushButton {
                 background: transparent;
                 color: #A1A1AA;
@@ -56,14 +64,10 @@ class ActivityDrawer(QFrame):
         registry.operation_failed.connect(self._upsert)
 
     def _state_color(self, state: str) -> str:
-        return {
-            "running": "#3B9FE8",
-            "queued": "#A1A1AA",
-            "stopping": "#FF9F0A",
-            "completed": "#35C98A",
-            "failed": "#F05D6C",
-            "cancelled": "#FF9F0A",
-        }.get(state, "#A1A1AA")
+        # Activity is informational, not a success banner. Keep ordinary
+        # states neutral so the drawer reads consistently; reserve red for a
+        # failed operation that needs attention.
+        return "#F05D6C" if state == "failed" else "#A1A1AA"
 
     def _upsert(self, operation: Operation):
         existing = None
@@ -81,11 +85,16 @@ class ActivityDrawer(QFrame):
         widget = self.list_widget.itemWidget(existing)
         if widget is None:
             widget = QFrame()
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             layout = QHBoxLayout(widget)
             layout.setContentsMargins(2, 2, 2, 2)
             text = QVBoxLayout()
+            text.setContentsMargins(0, 0, 0, 0)
+            text.setSpacing(2)
             widget.title_label = QLabel()
             widget.detail_label = QLabel()
+            widget.title_label.setWordWrap(True)
+            widget.detail_label.setWordWrap(True)
             widget.detail_label.setStyleSheet("color: #A1A1AA; font-size: 11px;")
             text.addWidget(widget.title_label)
             text.addWidget(widget.detail_label)
@@ -156,6 +165,12 @@ class ActivityDrawer(QFrame):
         else:
             widget.action_button.setText("")
             widget.action_button.setEnabled(False)
+
+        # QListWidget does not infer an item row's height from an embedded
+        # widget. Without an explicit size hint, wrapped activity messages
+        # paint into the next row and appear to overlap.
+        widget.updateGeometry()
+        existing.setSizeHint(widget.sizeHint())
 
         self.list_widget.scrollToBottom()
 

@@ -616,15 +616,15 @@ class CloudWizardDialog(PopupDialog):
         sb_layout.setContentsMargins(4, 4, 4, 4)
         sb_layout.setSpacing(4)
 
-        sb_title = QLabel("<b>Secret Access Key</b> (Recommended)")
+        sb_title = QLabel("<b>Secret Access Key</b> (Required)")
         sb_title.setStyleSheet("color: #FBBF24; font-size: 13px;")
         sb_layout.addWidget(sb_title)
 
         sb_desc = QLabel(
             "Acts as a private password for your server endpoint. It stops anyone else on the internet "
             "who discovers your public <code>.convex.site</code> URL from uploading files and filling up your 1 GB storage quota.<br>"
-            "<span style='color: #9CA3AF; font-size: 11px;'>• If you set <code>SAFELAUNCHER_SECRET_KEY</code> on your backend, enter it below.<br>"
-            "• If you did not set a secret key on your server, you can leave this blank.</span>"
+            "<span style='color: #9CA3AF; font-size: 11px;'>• Set <code>SAFELAUNCHER_SECRET_KEY</code> on your backend and enter the same value below.<br>"
+            "• The current SafeLauncherCloud backend rejects requests without this key.</span>"
         )
         sb_desc.setWordWrap(True)
         sb_desc.setStyleSheet("color: #D1D5DB; font-size: 12px;")
@@ -635,7 +635,7 @@ class CloudWizardDialog(PopupDialog):
         existing_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
         self.edit_key = QLineEdit(existing_key)
         self.edit_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.edit_key.setPlaceholderText("Enter your secret key (or leave blank if none)")
+        self.edit_key.setPlaceholderText("Enter the key configured on your backend")
         key_row.addWidget(self.edit_key, 1)
 
         self.btn_toggle_key = QPushButton("Show")

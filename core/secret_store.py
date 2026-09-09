@@ -18,6 +18,7 @@ import json
 import os
 import secrets
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -31,6 +32,10 @@ logger = get_logger("SecretStore")
 SERVICE_NAME = "SafeLauncher"
 _NONCE_SIZE = 12
 _FILE_MAGIC = b"SafeLauncherSecrets1\0"
+_STORE_LOCK = threading.RLock()
+_SECRET_CACHE: dict[str, Optional[str]] = {}
+_KEYRING_UNSET = object()
+_KEYRING = _KEYRING_UNSET
 
 
 def _data_dir() -> Path:
@@ -55,15 +60,25 @@ def _safe_chmod(path: Path, mode: int = 0o600) -> None:
 
 def _available_keyring():
     """Return a usable keyring module, or None for fail/headless backends."""
+    global _KEYRING
+    with _STORE_LOCK:
+        if _KEYRING is not _KEYRING_UNSET:
+            return _KEYRING
     try:
         import keyring
 
         backend = keyring.get_keyring()
         module = type(backend).__module__
         if module.startswith("keyring.backends.fail") or getattr(backend, "priority", 0) <= 0:
+            with _STORE_LOCK:
+                _KEYRING = None
             return None
+        with _STORE_LOCK:
+            _KEYRING = keyring
         return keyring
     except Exception:
+        with _STORE_LOCK:
+            _KEYRING = None
         return None
 
 
@@ -146,27 +161,41 @@ def get_secret(name: str, default: str = "", *, legacy_name: Optional[str] = Non
     name = str(name or "").strip()
     if not name:
         return default
-    keyring = _available_keyring()
-    if keyring is not None:
-        try:
-            value = keyring.get_password(SERVICE_NAME, name)
-            if value:
-                return str(value).strip()
-        except Exception:
-            keyring = None
-    value = _load_file().get(name, "").strip()
-    if value:
-        return value
+    with _STORE_LOCK:
+        if name in _SECRET_CACHE:
+            return _SECRET_CACHE[name] or default
 
-    legacy = _legacy_value(legacy_name or name)
-    if legacy:
-        if set_secret(name, legacy):
+        keyring = _available_keyring()
+        if keyring is not None:
             try:
-                QSettings("SafeLauncher", "SafeLauncher").remove(legacy_name or name)
+                value = keyring.get_password(SERVICE_NAME, name)
+                if value:
+                    value = str(value).strip()
+                    _SECRET_CACHE[name] = value
+                    return value
             except Exception:
-                pass
-        return legacy
-    return default
+                # Do not retry a broken desktop keyring for every game status
+                # worker; the encrypted fallback remains available.
+                global _KEYRING
+                _KEYRING = None
+
+        value = _load_file().get(name, "").strip()
+        if value:
+            _SECRET_CACHE[name] = value
+            return value
+
+        legacy = _legacy_value(legacy_name or name)
+        if legacy:
+            if set_secret(name, legacy):
+                try:
+                    QSettings("SafeLauncher", "SafeLauncher").remove(legacy_name or name)
+                except Exception:
+                    pass
+            _SECRET_CACHE[name] = legacy
+            return legacy
+        fallback = str(default or "").strip()
+        _SECRET_CACHE[name] = fallback or None
+        return fallback
 
 
 def set_secret(name: str, value: str) -> bool:
@@ -177,53 +206,57 @@ def set_secret(name: str, value: str) -> bool:
         return False
     if not value:
         return delete_secret(name)
-    keyring = _available_keyring()
-    if keyring is not None:
-        try:
-            keyring.set_password(SERVICE_NAME, name, value)
-            _remove_fallback_value(name)
+    with _STORE_LOCK:
+        keyring = _available_keyring()
+        if keyring is not None:
+            try:
+                keyring.set_password(SERVICE_NAME, name, value)
+                _remove_fallback_value(name)
+                _SECRET_CACHE[name] = value
+                try:
+                    QSettings("SafeLauncher", "SafeLauncher").remove(name)
+                except Exception:
+                    pass
+                return True
+            except Exception as exc:
+                global _KEYRING
+                _KEYRING = None
+                logger.warning("OS credential store unavailable; using encrypted fallback: %s", exc)
+        values = _load_file()
+        values[name] = value
+        saved = _save_file(values)
+        if saved:
+            _SECRET_CACHE[name] = value
             try:
                 QSettings("SafeLauncher", "SafeLauncher").remove(name)
             except Exception:
                 pass
-            return True
-        except Exception as exc:
-            logger.warning("OS credential store unavailable; using encrypted fallback: %s", exc)
-    values = _load_file()
-    if value:
-        values[name] = value
-    else:
-        values.pop(name, None)
-    saved = _save_file(values)
-    if saved:
-        try:
-            QSettings("SafeLauncher", "SafeLauncher").remove(name)
-        except Exception:
-            pass
-    return saved
+        return saved
 
 
 def delete_secret(name: str) -> bool:
     """Forget a secret from both the preferred and fallback stores."""
     name = str(name or "").strip()
     changed = False
-    keyring = _available_keyring()
-    if keyring is not None:
+    with _STORE_LOCK:
+        keyring = _available_keyring()
+        if keyring is not None:
+            try:
+                keyring.delete_password(SERVICE_NAME, name)
+                changed = True
+            except Exception:
+                pass
+        values = _load_file()
+        if name in values:
+            values.pop(name, None)
+            changed = _save_file(values) or changed
         try:
-            keyring.delete_password(SERVICE_NAME, name)
+            QSettings("SafeLauncher", "SafeLauncher").remove(name)
             changed = True
         except Exception:
             pass
-    values = _load_file()
-    if name in values:
-        values.pop(name, None)
-        changed = _save_file(values) or changed
-    try:
-        QSettings("SafeLauncher", "SafeLauncher").remove(name)
-        changed = True
-    except Exception:
-        pass
-    return changed
+        _SECRET_CACHE.pop(name, None)
+        return changed
 
 
 def secret_suffix(name: str, length: int = 4) -> str:

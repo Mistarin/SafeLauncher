@@ -50,6 +50,7 @@ class SyncStatus(Enum):
     CLOUD_NEWER = "cloud_newer"
     CONFLICT = "conflict"
     NO_SAVES = "no_saves"
+    CLOUD_AUTH_REQUIRED = "cloud_auth_required"
     CLOUD_OFFLINE = "cloud_offline"
 
 
@@ -159,6 +160,16 @@ def backend_active() -> bool:
     return bool(get_site_url())
 
 
+def _cloud_auth_configured() -> bool:
+    """Return whether the fail-closed Convex API has a client secret."""
+    from core.secret_store import get_secret
+    return bool(get_secret(
+        "cloud_secret_key",
+        os.environ.get("SAFELAUNCHER_SECRET_KEY", ""),
+        legacy_name="cloud_secret_key",
+    ))
+
+
 _backend_singleton = None
 _backend_context = ""
 _LISTING_CACHE = {"ts": 0.0, "data": None, "context": ""}
@@ -201,6 +212,11 @@ def _get_cloud_listing(force_refresh: bool = False, max_age_seconds: float = 30.
     neither extend nor truncate the freshness window.
     """
     global _LISTING_CACHE
+    if backend_active() and not _cloud_auth_configured():
+        from core.cloud_backend import CloudBackendError
+        raise CloudBackendError(
+            "Cloud authentication is not configured.", "auth_required", 401
+        )
     import time
     now = time.monotonic()
     context = cloud_context_fingerprint()
@@ -544,7 +560,7 @@ class CloudSaveSyncEngine:
     @classmethod
     def _remote_stats(cls, name_key: str, local_mtime: float = 0.0,
                       game_name: str = "") -> Tuple[SaveStats, Optional[dict]]:
-        """Best-effort cloud stats; returns None on any backend failure.
+        """Best-effort cloud stats; preserve authentication failures for callers.
 
         ``game_name`` should be the raw library title (e.g. "The Witcher 3").
         ``name_key`` is the normalised cloud key (e.g. "the-witcher-3").
@@ -555,6 +571,14 @@ class CloudSaveSyncEngine:
         try:
             snapshot = cls._remote_game_snapshot(name_key)
         except Exception as e:
+            # Authentication errors are actionable configuration failures,
+            # not transient offline states. Let check_sync_status translate
+            # them into the same setup-required status used for a missing key.
+            if getattr(e, "status_code", 0) in (401, 403) or getattr(e, "code", "") in {
+                "auth",
+                "auth_required",
+            }:
+                raise
             logger.warning(f"Cloud stats unavailable for '{name_key}': {e}")
             return None, None
         if not snapshot:
@@ -642,13 +666,31 @@ class CloudSaveSyncEngine:
         local_stats, _ = cls.get_local_save_stats(game_name, game_path, steam_id)
 
         if backend_active():
-            key = resolve_name_key(game_name)
-            cloud_stats, _snap = cls._remote_stats(key, local_mtime=local_stats.last_modified,
-                                                   game_name=game_name)
+            if not _cloud_auth_configured():
+                return SyncStatus.CLOUD_AUTH_REQUIRED, local_stats, SaveStats(exists=False)
+            try:
+                # Name resolution may refresh the cloud listing, so it must
+                # be inside the same failure boundary as the remote stats
+                # request. A network failure here is still an offline status,
+                # not an uncaught preflight exception.
+                key = resolve_name_key(game_name)
+                cloud_stats, _snap = cls._remote_stats(
+                    key,
+                    local_mtime=local_stats.last_modified,
+                    game_name=game_name,
+                )
+            except Exception as exc:
+                if getattr(exc, "status_code", 0) in (401, 403) or getattr(exc, "code", "") in {
+                    "auth",
+                    "auth_required",
+                }:
+                    return SyncStatus.CLOUD_AUTH_REQUIRED, local_stats, SaveStats(exists=False)
+                logger.warning(f"Cloud stats unavailable for '{game_name}': {exc}")
+                return SyncStatus.CLOUD_OFFLINE, local_stats, SaveStats(exists=False)
             if cloud_stats is not None:
                 return cls._decide(local_stats, cloud_stats)
-            # Cloud unreachable (network or auth failure): say so instead of
-            # guessing a sync state from the local-folder engine's disk cache.
+            # Cloud unreachable: say so instead of guessing a sync state from
+            # the local-folder engine's disk cache.
             return SyncStatus.CLOUD_OFFLINE, local_stats, SaveStats(exists=False)
 
         cloud_stats, _zip = cls.get_cloud_save_stats(game_name)

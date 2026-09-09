@@ -99,6 +99,7 @@ from core.playtime_tracker import PlaytimeTrackerThread, _shutdown_firejail_sand
 from core.game_session import GameSessionManager
 from core.safe_thread import FunctionWorker, WorkerSupervisor
 from core.operation_registry import OperationRegistry
+from core.secret_store import get_secret
 from ui.components.activity_drawer import ActivityDrawer
 
 
@@ -186,6 +187,9 @@ class MainWindow(QMainWindow):
         self._hero_attempted = set()
         self._icon_attempted = set()
         self.playtime_trackers = []  # keep references so GC doesn't kill running threads
+        self._metadata_sync_in_flight = set()
+        self._metadata_sync_tokens = {}
+        self._metadata_sync_pending = set()
         self.game_sessions = GameSessionManager(self)
         self.game_sessions.session_state_changed.connect(self._on_game_session_state_changed)
         self._stopping_game_ids = set()  # game IDs transitioning from running to stopped
@@ -3861,10 +3865,17 @@ class MainWindow(QMainWindow):
 
         # Cloud Save status: instant render from cache if available, background refresh only if stale (> 30 min)
         import time
+        from core.cloud_save_sync import backend_active, _cloud_auth_configured
         cached_save = self.cloud_save_status_cache.get(game_id)
         now = time.time()
         last_checked = self.save_state_store.checked_at(game_id)
         is_stale = (now - last_checked) > 1800  # 30 mins
+
+        cloud_auth_required = backend_active() and not _cloud_auth_configured()
+        if cloud_auth_required:
+            self._mark_cloud_auth_required([game_id])
+            cached_save = self.cloud_save_status_cache.get(game_id)
+            is_stale = False
 
         if cached_save is not None:
             c_status, c_local, c_cloud = cached_save
@@ -3875,7 +3886,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "btn_detail_cloud_restore"):
                 self.btn_detail_cloud_restore.hide()
 
-        if cached_save is None or is_stale:
+        if not cloud_auth_required and (cached_save is None or is_stale):
             self._spawn_status_fetchers(
                 [(game_id, name, path or "", str(steam_id or ""))],
                 self._on_cloud_save_status_calculated,
@@ -4181,7 +4192,11 @@ class MainWindow(QMainWindow):
             status = preflight.status
             local_stats = preflight.local_stats
             cloud_stats = preflight.cloud_stats
-            if status == SyncStatus.CLOUD_OFFLINE:
+            if status == SyncStatus.CLOUD_AUTH_REQUIRED:
+                payload["toast"] = (
+                    f"Cloud setup required — launching '{game_name}' with local saves."
+                )
+            elif status == SyncStatus.CLOUD_OFFLINE:
                 payload["toast"] = f"Cloud not connected — launching '{game_name}' with local saves."
             elif status == SyncStatus.CLOUD_ONLY:
                 auto_newer = self.settings.value("auto_prefer_newer_saves", False, type=bool)
@@ -4842,9 +4857,19 @@ class MainWindow(QMainWindow):
 
     def _sync_launcher_metadata_async(self, game_id: int):
         """Sync launcher-owned metadata without blocking the GUI thread."""
+        from core.cloud_save_sync import backend_active, _cloud_auth_configured
+        if backend_active() and not _cloud_auth_configured():
+            return
+        if game_id in self._metadata_sync_in_flight:
+            self._metadata_sync_pending.add(game_id)
+            return
+
         game = self.games_by_id.get(game_id)
         if not game:
             return
+        self._metadata_sync_in_flight.add(game_id)
+        sync_token = object()
+        self._metadata_sync_tokens[game_id] = sync_token
         name = game[1]
         app_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
         db_path = getattr(self.db, "db_path", None)
@@ -4867,7 +4892,23 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 logger.debug(f"Launcher metadata background sync failed for '{name}': {exc}")
 
-        self._start_managed_task("SafeLauncher-MetadataSync", run)
+        # The completion callback is connected before the worker starts. The
+        # finished fallback below covers cancellation and exceptions.
+        def _release_metadata_slot(token=sync_token, gid=game_id):
+            if self._metadata_sync_tokens.get(gid) is not token:
+                return
+            self._metadata_sync_tokens.pop(gid, None)
+            self._metadata_sync_in_flight.discard(gid)
+            if gid in self._metadata_sync_pending:
+                self._metadata_sync_pending.discard(gid)
+                self._sync_launcher_metadata_async(gid)
+
+        worker = self._start_managed_task(
+            "SafeLauncher-MetadataSync",
+            run,
+            lambda _result: _release_metadata_slot(),
+        )
+        worker.finished.connect(_release_metadata_slot)
 
     def _cleanup_tracker(self, tracker: PlaytimeTrackerThread):
         """Remove finished tracker from the list so it can be garbage collected."""
@@ -5013,8 +5054,17 @@ class MainWindow(QMainWindow):
         game_ids=[…]   -> exactly these games (after uploads, restores, edits)
         """
         import time
-        from core.cloud_save_sync import backend_active, SyncStatus
+        from core.cloud_save_sync import backend_active, SyncStatus, _cloud_auth_configured
         if not backend_active():
+            return
+        # The SafeLauncherCloud API deliberately fails closed without its
+        # client secret. Do not start one worker per game just to receive the
+        # same 401; render a useful setup state synchronously instead.
+        if not _cloud_auth_configured():
+            if game_ids is None:
+                self._mark_cloud_auth_required()
+            elif game_ids:
+                self._mark_cloud_auth_required(game_ids)
             return
         tag = f" ({reason})" if reason else ""
         generation = self.cloud_sync_coordinator.generation
@@ -5094,6 +5144,46 @@ class MainWindow(QMainWindow):
         self._start_managed_task(
             "SafeLauncher-CloudRecheckDiff", _diff, _finish_diff
         )
+
+    def _mark_cloud_auth_required(self, game_ids=None):
+        """Show cloud setup guidance without issuing doomed HTTP requests."""
+        import time
+        from core.cloud_save_sync import SyncStatus
+
+        if game_ids is None:
+            target_ids = [int(game[0]) for game in self.games]
+        else:
+            target_ids = [int(game_id) for game_id in game_ids]
+        checked_at = time.time()
+        generation = self.cloud_sync_coordinator.generation
+        changed = False
+
+        for game_id in target_ids:
+            if game_id not in self.games_by_id:
+                continue
+            status = SyncStatus.CLOUD_AUTH_REQUIRED
+            existing = self.cloud_save_status_cache.get(game_id)
+            if existing is not None and existing[0] == status:
+                continue
+            self.cloud_save_status_cache[game_id] = (status, None, None)
+            changed = True
+            self.save_state_store.set_cloud_status(
+                game_id,
+                status,
+                checked_at=checked_at,
+                context_generation=generation,
+            )
+            current = self.game_status_by_id.get(game_id, GameStatusState())
+            self.game_status_by_id[game_id] = replace(
+                current,
+                cloud_status=status,
+                local_stats=None,
+                cloud_stats=None,
+                cloud_checked_at=checked_at,
+            )
+            self._render_cloud_status(game_id, status)
+        if changed:
+            self._save_persistent_cache()
 
     def _spawn_status_fetchers(self, targets: list, on_result, tag: str = "", generation=None):
         """Spawn per-game status fetchers, skipping games already in flight."""

@@ -657,8 +657,8 @@ class UserSettingsDialog(PopupDialog):
         key_row = QHBoxLayout()
         self.edit_cloud_secret_key = QLineEdit(saved_key)
         self.edit_cloud_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.edit_cloud_secret_key.setPlaceholderText("Optional (Recommended to lock storage quota)")
-        self.edit_cloud_secret_key.setToolTip("Recommended: Private password for your Convex server endpoint so only your devices can use your 1 GB storage quota.")
+        self.edit_cloud_secret_key.setPlaceholderText("Required for cloud status and sync")
+        self.edit_cloud_secret_key.setToolTip("Required: the Secret Access Key configured on your SafeLauncherCloud backend.")
         key_row.addWidget(self.edit_cloud_secret_key, 1)
 
         btn_toggle_key = QPushButton("Show")
@@ -675,7 +675,7 @@ class UserSettingsDialog(PopupDialog):
 
         btn_toggle_key.clicked.connect(_toggle_key)
         key_row.addWidget(btn_toggle_key)
-        form_mode.addRow("Secret Key (Recommended):", key_row)
+        form_mode.addRow("Secret Key (Required):", key_row)
 
         # A deployment key is deliberately separate from the save API key.
         # It is only used by the optional one-click backend updater and is

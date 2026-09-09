@@ -90,7 +90,7 @@ class AchievementProfileDialog(PopupDialog):
             from core.cloud_metadata_sync import CloudMetadataSync
             worker_db = GameDatabase(db_path) if db_path else GameDatabase()
             try:
-                return CloudMetadataSync.sync_profile(worker_db)
+                return CloudMetadataSync.sync_profile(worker_db, force=True)
             finally:
                 worker_db.close()
 

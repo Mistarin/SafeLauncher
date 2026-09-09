@@ -74,6 +74,12 @@ def cloud_indicator(status: SyncStatus | None) -> StatusIndicator:
         SyncStatus.CLOUD_ONLY: ("Cloud Save: Available", "A cloud save is available to restore.", "ph.cloud-arrow-down-fill", "#3B9FE8"),
         SyncStatus.CONFLICT: ("Cloud Save: Conflict", "Local and cloud saves conflict and require a choice.", "ph.warning-circle-bold", "#E5A93D"),
         SyncStatus.NO_SAVES: ("Cloud Save: No save detected", "No local or cloud save files were found.", "ph.cloud-slash-bold", "#F05D6C"),
+        SyncStatus.CLOUD_AUTH_REQUIRED: (
+            "Cloud Save: Setup required",
+            "Add the Secret Access Key in Settings → Cloud to check cloud saves.",
+            "ph.key-bold",
+            "#E5A93D",
+        ),
         SyncStatus.CLOUD_OFFLINE: ("Cloud Save: Offline", "Cloud status is unknown because the backend is unavailable.", "ph.cloud-slash-bold", "#6F7682"),
     }
     label, tooltip, icon, color = values.get(

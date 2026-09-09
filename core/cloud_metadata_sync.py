@@ -8,6 +8,7 @@ works for games without save files and is not coupled to save conflicts.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import tempfile
 import time
@@ -18,6 +19,13 @@ from core.logger import get_logger
 
 logger = get_logger("CloudMetadata")
 _PROFILE_SYNC_LOCK = threading.Lock()
+_PROFILE_SYNC_TTL_SECONDS = 60.0
+_PROFILE_SYNC_STATE = {
+    "context": "",
+    "db_key": "",
+    "local_digest": "",
+    "synced_at": 0.0,
+}
 
 
 def _merge_unlocks(local: dict, remote: dict) -> dict:
@@ -202,17 +210,42 @@ class CloudMetadataSync:
                 db.project_profile_achievements(game.id, app_id)
 
     @classmethod
-    def sync_profile(cls, db) -> bool:
+    def sync_profile(cls, db, *, force: bool = False) -> bool:
         """Union local and cloud account-wide unlocks, then project locally."""
         with _PROFILE_SYNC_LOCK:
-            return cls._sync_profile_locked(db)
+            return cls._sync_profile_locked(db, force=force)
 
     @classmethod
-    def _sync_profile_locked(cls, db) -> bool:
+    def _sync_profile_locked(cls, db, *, force: bool = False) -> bool:
         """Serialized implementation of :meth:`sync_profile`."""
+        from core.cloud_save_sync import backend_active, _cloud_auth_configured
+        if backend_active() and not _cloud_auth_configured():
+            # The backend rejects unauthenticated requests. Return quietly so
+            # startup does not create one failed network operation per game.
+            return False
+
         local = cls._local_profile(db)
         try:
-            from core.cloud_save_sync import backend_active, CloudSaveSyncEngine, resolve_name_key
+            from core.cloud_save_sync import (
+                backend_active,
+                CloudSaveSyncEngine,
+                resolve_name_key,
+                cloud_context_fingerprint,
+            )
+            context = cloud_context_fingerprint()
+            db_key = str(getattr(db, "db_path", "") or f"memory:{id(db)}")
+            local_digest = hashlib.sha256(
+                json.dumps(local, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            now = time.monotonic()
+            if (
+                not force
+                and _PROFILE_SYNC_STATE["context"] == context
+                and _PROFILE_SYNC_STATE["db_key"] == db_key
+                and _PROFILE_SYNC_STATE["local_digest"] == local_digest
+                and now - _PROFILE_SYNC_STATE["synced_at"] < _PROFILE_SYNC_TTL_SECONDS
+            ):
+                return True
             if backend_active():
                 from core.cloud_save_sync import _backend
                 backend = _backend()
@@ -233,6 +266,12 @@ class CloudMetadataSync:
                     try:
                         backend.put_profile(merged, remote_result.get("revision"))
                         cls._apply_profile(db, merged)
+                        _PROFILE_SYNC_STATE.update(
+                            context=context,
+                            db_key=db_key,
+                            local_digest=local_digest,
+                            synced_at=time.monotonic(),
+                        )
                         return True
                     except Exception:
                         if attempt == 1:
@@ -281,6 +320,12 @@ class CloudMetadataSync:
                 except OSError:
                     pass
             cls._apply_profile(db, merged)
+            _PROFILE_SYNC_STATE.update(
+                context=context,
+                db_key=db_key,
+                local_digest=local_digest,
+                synced_at=time.monotonic(),
+            )
             return True
         except Exception as exc:
             logger.warning("Achievement profile sync failed: %s", exc)
@@ -288,7 +333,12 @@ class CloudMetadataSync:
 
     @classmethod
     def sync_game(cls, db, game_id: int, game_name: str, app_id: str = "", drop_legacy_achievements: bool = False) -> bool:
-        from core.cloud_save_sync import backend_active, resolve_name_key
+        from core.cloud_save_sync import backend_active, resolve_name_key, _cloud_auth_configured
+
+        if backend_active() and not _cloud_auth_configured():
+            # Check before resolve_name_key: resolving a cloud key can itself
+            # perform a listing request, which is pointless without a secret.
+            return False
 
         key = f"{resolve_name_key(game_name)}-{str(app_id).strip()}" if str(app_id).strip() else resolve_name_key(game_name)
         local = cls._local_payload(db, game_id, key, app_id, include_legacy_achievements=not drop_legacy_achievements)
