@@ -20,3 +20,15 @@ The service deliberately stores only bounded JSON profile documents. Avatars
 are already compressed by the desktop client and embedded in the document;
 backgrounds are theme data (colors, gradients, and presets), not uploaded
 files.
+
+The service also owns friend requests, accepted friendships, and directional
+blocks. Relationship writes require the owner bearer token; public profile
+reads do not reveal a friend list. A request is addressed by the recipient's
+opaque profile handle, and the recipient must accept it before a friendship is
+created. The service does not call any user's private SafeLauncherCloud
+deployment.
+
+For the official desktop build, deploy this project once as the developer's
+central public-profile service and configure its resulting `.convex.site` URL
+as `SAFELAUNCHER_PROFILE_SERVICE_URL` (or in the profile page). The client
+keeps the URL override so self-hosted deployments can use the same API.

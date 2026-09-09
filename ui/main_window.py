@@ -1140,6 +1140,7 @@ class MainWindow(QMainWindow):
         self.profile_page.hide()
         self.profile_page.back_requested.connect(self._close_profile_page)
         self.profile_page.open_public_requested.connect(self._open_public_profile_prompt)
+        self.profile_page.open_profile_handle_requested.connect(self._open_public_profile_handle)
         self.profile_page.settings_requested.connect(self._open_settings)
         self.profile_page.profile_changed.connect(self._on_profile_changed)
         self.profile_page.private_profile_changed.connect(self._on_private_profile_changed)
@@ -4929,6 +4930,14 @@ class MainWindow(QMainWindow):
         if not value:
             QMessageBox.warning(self, "Public Profile", "That profile handle is empty.")
             return
+        if not HANDLE_RE.fullmatch(value):
+            QMessageBox.warning(self, "Public Profile", "That is not a valid SafeLauncher profile handle.")
+            return
+        self._open_public_profile_handle(value)
+
+    def _open_public_profile_handle(self, handle: str):
+        """Fetch and display a public profile without opening another window."""
+        value = str(handle or "").strip().lstrip("@").lower()
         if not HANDLE_RE.fullmatch(value):
             QMessageBox.warning(self, "Public Profile", "That is not a valid SafeLauncher profile handle.")
             return

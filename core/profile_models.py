@@ -27,6 +27,8 @@ COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 MAX_NAME_LENGTH = 64
 MAX_PUBLIC_GAMES = 24
 MAX_PUBLIC_ACHIEVEMENTS = 20
+MAX_PUBLIC_FRIENDS = 100
+MAX_PUBLIC_FRIEND_REQUESTS = 50
 
 DEFAULT_BACKGROUND = {
     "kind": "gradient",
@@ -299,6 +301,75 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
         "favorite_games": favorites,
         "recent_achievements": recent,
         "updated_at": updated_at,
+    }
+
+
+def normalize_profile_summary(value: Any) -> dict[str, Any] | None:
+    """Normalize the small, private social-list representation from the service."""
+    if not isinstance(value, dict):
+        return None
+    handle = str(value.get("handle", "") or "").strip().lower()
+    if not HANDLE_RE.fullmatch(handle):
+        return None
+    try:
+        updated_at = max(0, int(value.get("updated_at", 0) or 0))
+    except (TypeError, ValueError, OverflowError):
+        updated_at = 0
+    return {
+        "handle": handle,
+        "display_name": _clean_name(value.get("display_name"), "Player"),
+        "updated_at": updated_at,
+    }
+
+
+def normalize_social_snapshot(value: Any) -> dict[str, Any] | None:
+    """Validate an owner-authenticated social response before it reaches Qt."""
+    if not isinstance(value, dict):
+        return None
+
+    def summaries(key: str) -> list[dict[str, Any]]:
+        raw = value.get(key)
+        if not isinstance(raw, list):
+            return []
+        result = []
+        for item in raw[:MAX_PUBLIC_FRIENDS]:
+            normalized = normalize_profile_summary(item)
+            if normalized is not None:
+                result.append(normalized)
+        return result
+
+    def requests(key: str) -> list[dict[str, Any]]:
+        raw = value.get(key)
+        if not isinstance(raw, list):
+            return []
+        result = []
+        for item in raw[:MAX_PUBLIC_FRIEND_REQUESTS]:
+            if not isinstance(item, dict):
+                continue
+            request_id = str(item.get("request_id", "") or "").strip()
+            summary = normalize_profile_summary(item)
+            if not request_id or summary is None:
+                continue
+            summary["request_id"] = request_id[:128]
+            try:
+                summary["created_at"] = max(0, int(item.get("created_at", 0) or 0))
+            except (TypeError, ValueError, OverflowError):
+                summary["created_at"] = 0
+            result.append(summary)
+        return result
+
+    blocked = value.get("blocked_handles")
+    blocked_handles = []
+    if isinstance(blocked, list):
+        for handle in blocked[:MAX_PUBLIC_FRIENDS]:
+            handle = str(handle or "").strip().lower()
+            if HANDLE_RE.fullmatch(handle):
+                blocked_handles.append(handle)
+    return {
+        "friends": summaries("friends"),
+        "incoming_requests": requests("incoming_requests"),
+        "outgoing_requests": requests("outgoing_requests"),
+        "blocked_handles": blocked_handles,
     }
 
 

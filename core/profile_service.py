@@ -9,7 +9,7 @@ from urllib.parse import quote
 import requests
 from PyQt6.QtCore import QSettings
 
-from core.profile_models import normalize_public_document
+from core.profile_models import normalize_public_document, normalize_social_snapshot
 
 
 class ProfileServiceError(RuntimeError):
@@ -96,4 +96,58 @@ class ProfileServiceClient:
         return self._request(
             "POST", f"/api/profile/v1/{quote(handle, safe='')}/rotate-token",
             json_body={"ownerToken": new_token}, owner=True,
+        )
+
+    def get_social(self, handle: str) -> dict[str, Any]:
+        """Fetch the authenticated owner's private friends/request snapshot."""
+        requested_handle = str(handle or "").strip().lower()
+        payload = self._request(
+            "GET", f"/api/profile/v1/{quote(requested_handle, safe='')}/friends", owner=True
+        )
+        snapshot = normalize_social_snapshot(payload)
+        if snapshot is None:
+            raise ProfileServiceError("The social profile response is invalid or corrupt.", "invalid_social")
+        return snapshot
+
+    def send_friend_request(self, handle: str, target_handle: str) -> dict:
+        return self._request(
+            "POST",
+            f"/api/profile/v1/{quote(str(handle).strip().lower(), safe='')}/friend-requests",
+            json_body={"targetHandle": str(target_handle).strip().lower()},
+            owner=True,
+        )
+
+    def respond_friend_request(self, handle: str, request_id: str, action: str) -> dict:
+        action = str(action or "").strip().lower()
+        if action not in {"accept", "decline", "cancel"}:
+            raise ProfileServiceError("The friend request action is invalid.", "invalid_action")
+        return self._request(
+            "POST",
+            f"/api/profile/v1/{quote(str(handle).strip().lower(), safe='')}/friend-requests/"
+            f"{quote(str(request_id).strip(), safe='')}/{action}",
+            owner=True,
+        )
+
+    def remove_friend(self, handle: str, friend_handle: str) -> dict:
+        return self._request(
+            "DELETE",
+            f"/api/profile/v1/{quote(str(handle).strip().lower(), safe='')}/friends/"
+            f"{quote(str(friend_handle).strip().lower(), safe='')}",
+            owner=True,
+        )
+
+    def block_user(self, handle: str, target_handle: str) -> dict:
+        return self._request(
+            "POST",
+            f"/api/profile/v1/{quote(str(handle).strip().lower(), safe='')}/blocks",
+            json_body={"targetHandle": str(target_handle).strip().lower()},
+            owner=True,
+        )
+
+    def unblock_user(self, handle: str, target_handle: str) -> dict:
+        return self._request(
+            "DELETE",
+            f"/api/profile/v1/{quote(str(handle).strip().lower(), safe='')}/blocks/"
+            f"{quote(str(target_handle).strip().lower(), safe='')}",
+            owner=True,
         )

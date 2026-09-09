@@ -37,6 +37,8 @@ The profile page is available from `View → Profile` or the user icon in the ti
 
 The public profile is derived from the local account profile and never includes game paths, executable names, devices, cloud credentials, or private save state. Deploy the independent Convex service in `services/profile_cloud` as its own Convex project; do not deploy it into a personal save backend.
 
+Friends use the same public-profile service: share the generated handle, open the other profile, and choose `Add friend`. Requests require acceptance and friend lists remain private to each owner. SafeLauncher clients do not connect Convex deployments directly to one another.
+
 
 ## What's Included
 

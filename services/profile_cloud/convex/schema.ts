@@ -12,4 +12,31 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_handle", ["handle"]),
+  friendRequests: defineTable({
+    requesterHandle: v.string(),
+    recipientHandle: v.string(),
+    status: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_requester_status", ["requesterHandle", "status"])
+    .index("by_recipient_status", ["recipientHandle", "status"]),
+  friendships: defineTable({
+    pairKey: v.string(),
+    memberA: v.string(),
+    memberB: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_pair", ["pairKey"])
+    .index("by_member_a", ["memberA"])
+    .index("by_member_b", ["memberB"]),
+  profileBlocks: defineTable({
+    blockerHandle: v.string(),
+    blockedHandle: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_blocker", ["blockerHandle"])
+    .index("by_blocked", ["blockedHandle"])
+    .index("by_pair", ["blockerHandle", "blockedHandle"]),
 });

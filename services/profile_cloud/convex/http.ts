@@ -8,10 +8,49 @@ import {
   readJsonBody,
   sha256,
   validHandle,
+  validRequestId,
   validatePublicProfile,
 } from "./lib/api";
 
 const http = httpRouter();
+const SERVICE_VERSION = "1.1.0";
+
+function throwSocialError(result: any): void {
+  const error = result?.error;
+  if (!error) return;
+  const statuses: Record<string, number> = {
+    unauthorized: 401,
+    not_found: 404,
+    target_not_found: 404,
+    request_not_found: 404,
+    profile_exists: 409,
+    blocked: 409,
+    self_request: 400,
+    self_block: 400,
+    invalid_action: 400,
+    request_limit: 429,
+    friend_limit: 409,
+    block_limit: 409,
+  };
+  const messages: Record<string, string> = {
+    unauthorized: "The profile owner token is invalid.",
+    not_found: "Profile not found.",
+    target_not_found: "The target profile was not found.",
+    request_not_found: "The friend request is no longer pending.",
+    blocked: "This profile relationship is blocked.",
+    self_request: "You cannot send a friend request to yourself.",
+    self_block: "You cannot block yourself.",
+    invalid_action: "The friend request action is invalid.",
+    request_limit: "You have reached the pending friend request limit.",
+    friend_limit: "You have reached the friend limit.",
+    block_limit: "You have reached the blocked-profile limit.",
+  };
+  throw new ApiError(
+    statuses[error] || 400,
+    error,
+    messages[error] || "The social operation could not be completed.",
+  );
+}
 
 async function dispatch(
   method: string,
@@ -27,7 +66,7 @@ async function dispatch(
       return jsonResponse({
         ok: true,
         service: "safelauncher-public-profiles",
-        version: "1.0.0",
+        version: SERVICE_VERSION,
       });
     }
     if (url.pathname === "/api/profile/v1" && method === "POST") {
@@ -67,6 +106,141 @@ async function dispatch(
         );
       return jsonResponse(result);
     }
+
+    const socialMatch = url.pathname.match(
+      /^\/api\/profile\/v1\/([^/]+)\/(friends|friend-requests|blocks)(?:\/([^/]+)(?:\/(accept|decline|cancel))?)?$/,
+    );
+    if (socialMatch) {
+      const handle = socialMatch[1];
+      const resource = socialMatch[2];
+      const identifier = socialMatch[3];
+      const action = socialMatch[4];
+      if (!validHandle(handle))
+        throw new ApiError(404, "not_found", "Profile not found.");
+
+      const tokenHash = await sha256(ownerToken(req));
+      if (
+        method === "GET" &&
+        resource === "friends" &&
+        !identifier &&
+        !action
+      ) {
+        const result = await ctx.runQuery(internal.profiles.getSocial, {
+          handle,
+          ownerTokenHash: tokenHash,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+
+      if (resource === "friend-requests" && method === "POST" && !identifier) {
+        const body = await readJsonBody(req);
+        const targetHandle = body.targetHandle;
+        if (!validHandle(targetHandle))
+          throw new ApiError(
+            400,
+            "invalid_handle",
+            "A valid target handle is required.",
+          );
+        const result = await ctx.runMutation(
+          internal.profiles.createFriendRequest,
+          {
+            requesterHandle: handle,
+            ownerTokenHash: tokenHash,
+            recipientHandle: targetHandle,
+          },
+        );
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+
+      if (
+        resource === "friend-requests" &&
+        method === "POST" &&
+        Boolean(identifier) &&
+        Boolean(action)
+      ) {
+        if (!validRequestId(identifier))
+          throw new ApiError(
+            400,
+            "invalid_request",
+            "The friend request identifier is invalid.",
+          );
+        const result = await ctx.runMutation(
+          internal.profiles.respondFriendRequest,
+          {
+            requestId: identifier as any,
+            handle,
+            ownerTokenHash: tokenHash,
+            action,
+          },
+        );
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+
+      if (
+        resource === "friends" &&
+        method === "DELETE" &&
+        identifier &&
+        !action
+      ) {
+        if (!validHandle(identifier))
+          throw new ApiError(
+            400,
+            "invalid_handle",
+            "A valid friend handle is required.",
+          );
+        const result = await ctx.runMutation(internal.profiles.removeFriend, {
+          handle,
+          ownerTokenHash: tokenHash,
+          friendHandle: identifier,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+
+      if (resource === "blocks" && method === "POST" && !identifier) {
+        const body = await readJsonBody(req);
+        const blockedHandle = body.targetHandle;
+        if (!validHandle(blockedHandle))
+          throw new ApiError(
+            400,
+            "invalid_handle",
+            "A valid target handle is required.",
+          );
+        const result = await ctx.runMutation(internal.profiles.blockUser, {
+          handle,
+          ownerTokenHash: tokenHash,
+          blockedHandle,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+
+      if (
+        resource === "blocks" &&
+        method === "DELETE" &&
+        identifier &&
+        !action
+      ) {
+        if (!validHandle(identifier))
+          throw new ApiError(
+            400,
+            "invalid_handle",
+            "A valid blocked handle is required.",
+          );
+        const result = await ctx.runMutation(internal.profiles.unblockUser, {
+          handle,
+          ownerTokenHash: tokenHash,
+          blockedHandle: identifier,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+      throw new ApiError(405, "method_not_allowed", "Method not allowed.");
+    }
+
     if (!match || !validHandle(match[1]))
       throw new ApiError(404, "not_found", "Profile not found.");
     const handle = match[1];

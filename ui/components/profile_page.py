@@ -16,8 +16,8 @@ from PyQt6.QtWidgets import (
 from core.profile_assets import AvatarError, normalize_avatar
 from core.profile_models import (
     BACKGROUND_PRESETS, build_public_projection, generate_profile_handle,
-    load_profile_settings, normalize_background, normalize_public_document,
-    save_profile_settings,
+    HANDLE_RE, load_profile_settings, normalize_background,
+    normalize_public_document, save_profile_settings,
 )
 from core.profile_service import ProfileServiceClient, ProfileServiceError, get_profile_service_url
 from core.secret_store import get_secret, set_secret
@@ -35,6 +35,7 @@ class ProfilePageWidget(QWidget):
     back_requested = pyqtSignal()
     open_public_requested = pyqtSignal()
     settings_requested = pyqtSignal()
+    open_profile_handle_requested = pyqtSignal(str)
     profile_changed = pyqtSignal()
     private_profile_changed = pyqtSignal()
 
@@ -51,6 +52,15 @@ class ProfilePageWidget(QWidget):
         self._public_revision = int(self.settings.value("profile_public_revision", 0, type=int) or 0)
         self._publishing = False
         self._publish_dirty = False
+        self._social_snapshot: dict[str, Any] = {
+            "friends": [],
+            "incoming_requests": [],
+            "outgoing_requests": [],
+            "blocked_handles": [],
+        }
+        self._social_handle = ""
+        self._social_loading = False
+        self._social_mutating = False
         self._publish_timer = QTimer(self)
         self._publish_timer.setSingleShot(True)
         self._publish_timer.setInterval(1500)
@@ -75,6 +85,7 @@ class ProfilePageWidget(QWidget):
             QLabel#profileStatCaption {{ color: {TEXT_MUTED}; font-size: 11px; }}
             QListWidget#profileList {{ background: {SURFACE}; color: {TEXT_PRIMARY}; border: none; outline: none; }}
             QListWidget#profileList::item {{ padding: 8px 4px; border: none; }}
+            QFrame#profileSocialRow {{ background: transparent; border: none; }}
             QLineEdit#profileEditorInput, QComboBox#profileEditorInput {{
                 background: {SURFACE_ELEVATED}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER};
                 border-radius: 6px; padding: 7px 9px; font-size: 12px;
@@ -148,6 +159,7 @@ class ProfilePageWidget(QWidget):
         identity.addWidget(self.public_badge)
         self.name_label = QLabel()
         self.name_label.setObjectName("profileName")
+        self.name_label.setTextFormat(Qt.TextFormat.PlainText)
         self.name_label.setWordWrap(True)
         identity.addWidget(self.name_label)
         self.handle_label = QLabel()
@@ -253,6 +265,58 @@ class ProfilePageWidget(QWidget):
         favorite_layout.addWidget(self.favorite_list)
         self.column_layout.addWidget(self.favorite_section)
 
+        self.friends_section = self._section("Friends")
+        friends_layout = self.friends_section.layout()
+        friends_layout.setContentsMargins(18, 14, 18, 14)
+        self.friends_hint = QLabel()
+        self.friends_hint.setObjectName("profileMuted")
+        self.friends_hint.setWordWrap(True)
+        friends_layout.addWidget(self.friends_hint)
+        self.friend_controls = QHBoxLayout()
+        self.friend_handle_edit = QLineEdit()
+        self.friend_handle_edit.setObjectName("profileEditorInput")
+        self.friend_handle_edit.setPlaceholderText("Paste a profile handle")
+        self.friend_handle_edit.setMaxLength(40)
+        self.friend_handle_edit.returnPressed.connect(self._send_friend_request)
+        self.friend_controls.addWidget(self.friend_handle_edit, 1)
+        self.btn_add_friend = QPushButton("Add friend")
+        self.btn_add_friend.clicked.connect(self._send_friend_request)
+        self.friend_controls.addWidget(self.btn_add_friend)
+        self.btn_refresh_friends = QPushButton("Refresh")
+        self.btn_refresh_friends.setIcon(get_icon("ph.arrows-clockwise-bold", color=TEXT_SECONDARY))
+        self.btn_refresh_friends.clicked.connect(self._refresh_social)
+        self.friend_controls.addWidget(self.btn_refresh_friends)
+        friends_layout.addLayout(self.friend_controls)
+        self.btn_public_add_friend = QPushButton("Add friend")
+        self.btn_public_add_friend.clicked.connect(self._send_friend_request)
+        friends_layout.addWidget(self.btn_public_add_friend)
+        self.incoming_title = QLabel("Incoming requests")
+        self.incoming_title.setObjectName("profileMuted")
+        friends_layout.addWidget(self.incoming_title)
+        self.incoming_layout = QVBoxLayout()
+        self.incoming_layout.setSpacing(2)
+        friends_layout.addLayout(self.incoming_layout)
+        self.outgoing_title = QLabel("Outgoing requests")
+        self.outgoing_title.setObjectName("profileMuted")
+        friends_layout.addWidget(self.outgoing_title)
+        self.outgoing_layout = QVBoxLayout()
+        self.outgoing_layout.setSpacing(2)
+        friends_layout.addLayout(self.outgoing_layout)
+        self.friends_list = QVBoxLayout()
+        self.friends_list.setSpacing(2)
+        friends_layout.addLayout(self.friends_list)
+        self.blocked_title = QLabel("Blocked profiles")
+        self.blocked_title.setObjectName("profileMuted")
+        friends_layout.addWidget(self.blocked_title)
+        self.blocked_layout = QVBoxLayout()
+        self.blocked_layout.setSpacing(2)
+        friends_layout.addLayout(self.blocked_layout)
+        self.friends_status = QLabel()
+        self.friends_status.setObjectName("profileMuted")
+        self.friends_status.setWordWrap(True)
+        friends_layout.addWidget(self.friends_status)
+        self.column_layout.addWidget(self.friends_section)
+
         self.achievement_section = self._section("Recent achievements")
         achievement_layout = self.achievement_section.layout()
         achievement_layout.setContentsMargins(18, 14, 18, 14)
@@ -305,10 +369,15 @@ class ProfilePageWidget(QWidget):
         self.mode_label.setText("OWNER VIEW")
         self._profile_settings = load_profile_settings(self.settings, fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"))
         self._document = build_public_projection(self.db, self._profile_settings)
+        if self._profile_settings.get("public_handle") != self._social_handle:
+            self._social_snapshot = self._empty_social_snapshot()
+            self._social_handle = ""
         self.editor.setVisible(self._editing)
         self.btn_edit.setVisible(not self._editing)
         self._set_admin_controls(True)
         self._render(self._document)
+        if self.isVisible():
+            self._refresh_social()
 
     def mark_local_data_changed(self) -> None:
         """Refresh local stats and coalesce a public update after game events."""
@@ -333,11 +402,33 @@ class ProfilePageWidget(QWidget):
         self._mode = "public"
         self._editing = False
         self._document = normalized
+        self._social_snapshot = self._empty_social_snapshot()
+        self._social_handle = ""
         self.mode_label.setText("PUBLIC VIEW")
         self.editor.setVisible(False)
         self._set_admin_controls(False)
         self._render(normalized)
         return True
+
+    @staticmethod
+    def _empty_social_snapshot() -> dict[str, Any]:
+        return {
+            "friends": [],
+            "incoming_requests": [],
+            "outgoing_requests": [],
+            "blocked_handles": [],
+        }
+
+    def _local_owner_identity(self) -> tuple[str, str, str]:
+        settings = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        return (
+            str(settings.get("public_handle", "") or "").strip().lower(),
+            str(get_secret("profile_owner_token") or "").strip(),
+            get_profile_service_url(),
+        )
 
     def _set_admin_controls(self, enabled: bool) -> None:
         has_owner_token = bool(get_secret("profile_owner_token"))
@@ -354,6 +445,7 @@ class ProfilePageWidget(QWidget):
         self.btn_copy_handle.setVisible(enabled and published)
         self.btn_open_public.setVisible(enabled)
         self.btn_settings.setVisible(True)
+        self._update_social_controls(enabled, published, has_owner_token)
 
     def _background_style(self, background: dict[str, Any]) -> str:
         background = normalize_background(background)
@@ -402,6 +494,304 @@ class ProfilePageWidget(QWidget):
             self.footer_status.setText("This is a public projection. Private launcher data is not shown.")
         self._fill_list(self.favorite_list, document.get("favorite_games"), lambda item: f"♥  {item.get('name', 'Favorite game')}")
         self._fill_list(self.achievement_list, document.get("recent_achievements"), lambda item: f"★  {item.get('name', 'Achievement')}  ·  {item.get('game', 'Game')}")
+        self._render_social()
+
+    def _update_social_controls(self, owner_enabled: bool, published: bool, has_owner_token: bool) -> None:
+        """Keep social controls aligned with the owner/public view boundary."""
+        owner_ready = owner_enabled and published and has_owner_token
+        public_target = self._mode == "public" and bool(self._document.get("handle"))
+        local_handle, local_token, local_service_url = self._local_owner_identity()
+        local_settings = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        public_ready = (
+            public_target
+            and bool(local_settings.get("published"))
+            and bool(local_handle)
+            and bool(local_token)
+            and local_service_url.startswith(("http://", "https://"))
+            and local_handle != str(self._document.get("handle", "") or "").lower()
+        )
+        self.friend_handle_edit.setVisible(owner_enabled)
+        self.btn_add_friend.setVisible(owner_enabled)
+        self.btn_refresh_friends.setVisible(owner_enabled)
+        self.btn_public_add_friend.setVisible(public_target)
+        self.incoming_title.setVisible(owner_enabled)
+        self.incoming_layout.setEnabled(owner_enabled)
+        self.outgoing_title.setVisible(owner_enabled)
+        self.outgoing_layout.setEnabled(owner_enabled)
+        self.friends_list.setEnabled(owner_enabled)
+        self.blocked_title.setVisible(owner_enabled)
+        self.blocked_layout.setEnabled(owner_enabled)
+        self.friend_handle_edit.setEnabled(owner_ready and not self._social_mutating)
+        self.btn_add_friend.setEnabled(owner_ready and not self._social_mutating)
+        self.btn_refresh_friends.setEnabled(owner_ready and not self._social_loading and not self._social_mutating)
+        self.btn_public_add_friend.setEnabled(public_ready and not self._social_mutating)
+
+    @staticmethod
+    def _clear_social_layout(layout: QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _social_row(self, summary: dict[str, Any], actions: list[tuple[str, Any]]) -> QFrame:
+        row = QFrame()
+        row.setObjectName("profileSocialRow")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setSpacing(6)
+        name = str(summary.get("display_name", "Player"))
+        handle = str(summary.get("handle", ""))
+        label = QLabel(f"{name}  ·  @{handle}")
+        label.setObjectName("profileMuted")
+        label.setTextFormat(Qt.TextFormat.PlainText)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(label, 1)
+        for caption, callback in actions:
+            button = QPushButton(caption)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(callback)
+            layout.addWidget(button)
+        return row
+
+    def _render_social(self) -> None:
+        if self._mode == "public":
+            self.friends_hint.setText("Friend lists are private. You can send a request to this profile if you have configured your own published profile.")
+            self.friends_status.clear()
+            self._clear_social_layout(self.incoming_layout)
+            self._clear_social_layout(self.outgoing_layout)
+            self._clear_social_layout(self.friends_list)
+            self._clear_social_layout(self.blocked_layout)
+            self.friends_section.setVisible(True)
+            return
+
+        handle, token, service_url = self._local_owner_identity()
+        self.friends_section.setVisible(True)
+        if not bool(self._profile_settings.get("published")):
+            self.friends_hint.setText("Publish your profile to add friends and receive requests. Your friend list is private.")
+        elif not token or not service_url.startswith(("http://", "https://")):
+            self.friends_hint.setText("Configure the public profile service and keep your owner token available to use friends.")
+        else:
+            self.friends_hint.setText("Your friend list is private. Share your handle or paste someone else’s handle to send a request.")
+
+        self._clear_social_layout(self.incoming_layout)
+        self._clear_social_layout(self.outgoing_layout)
+        self._clear_social_layout(self.friends_list)
+        self._clear_social_layout(self.blocked_layout)
+        snapshot = self._social_snapshot
+        incoming = snapshot.get("incoming_requests", [])
+        outgoing = snapshot.get("outgoing_requests", [])
+        friends = snapshot.get("friends", [])
+        blocked = snapshot.get("blocked_handles", [])
+        for item in incoming if isinstance(incoming, list) else []:
+            if not isinstance(item, dict):
+                continue
+            request_id = str(item.get("request_id", ""))
+            friend_handle = str(item.get("handle", ""))
+            self.incoming_layout.addWidget(self._social_row(item, [
+                ("View", lambda checked=False, h=friend_handle: self.open_profile_handle_requested.emit(h)),
+                ("Accept", lambda checked=False, r=request_id: self._respond_to_request(r, "accept")),
+                ("Decline", lambda checked=False, r=request_id: self._respond_to_request(r, "decline")),
+                ("Block", lambda checked=False, h=friend_handle: self._block_profile(h)),
+            ]))
+        for item in outgoing if isinstance(outgoing, list) else []:
+            if not isinstance(item, dict):
+                continue
+            request_id = str(item.get("request_id", ""))
+            friend_handle = str(item.get("handle", ""))
+            self.outgoing_layout.addWidget(self._social_row(item, [
+                ("View", lambda checked=False, h=friend_handle: self.open_profile_handle_requested.emit(h)),
+                ("Cancel", lambda checked=False, r=request_id: self._respond_to_request(r, "cancel")),
+            ]))
+        for item in friends if isinstance(friends, list) else []:
+            if not isinstance(item, dict):
+                continue
+            friend_handle = str(item.get("handle", ""))
+            self.friends_list.addWidget(self._social_row(item, [
+                ("View", lambda checked=False, h=friend_handle: self.open_profile_handle_requested.emit(h)),
+                ("Remove", lambda checked=False, h=friend_handle: self._remove_friend(h)),
+            ]))
+        for blocked_handle in blocked if isinstance(blocked, list) else []:
+            blocked_handle = str(blocked_handle)
+            row = QFrame()
+            row.setObjectName("profileSocialRow")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 2, 0, 2)
+            row_layout.addWidget(QLabel(f"@{blocked_handle}"), 1)
+            unblock = QPushButton("Unblock")
+            unblock.clicked.connect(lambda checked=False, h=blocked_handle: self._unblock_profile(h))
+            row_layout.addWidget(unblock)
+            self.blocked_layout.addWidget(row)
+
+        self.incoming_title.setText(f"Incoming requests ({len(incoming) if isinstance(incoming, list) else 0})")
+        self.outgoing_title.setText(f"Outgoing requests ({len(outgoing) if isinstance(outgoing, list) else 0})")
+        self.blocked_title.setText(f"Blocked profiles ({len(blocked) if isinstance(blocked, list) else 0})")
+        count = len(friends) if isinstance(friends, list) else 0
+        self.friends_status.setText(f"{count} friend{'s' if count != 1 else ''}")
+
+    def _refresh_social(self) -> None:
+        if self._mode != "owner" or self._social_loading or self._social_mutating:
+            return
+        handle, token, service_url = self._local_owner_identity()
+        local_settings = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        if not bool(local_settings.get("published")) or not handle or not token:
+            self._social_snapshot = self._empty_social_snapshot()
+            self._social_handle = ""
+            self._render_social()
+            return
+        if not service_url.startswith(("http://", "https://")):
+            self._social_snapshot = self._empty_social_snapshot()
+            self._social_handle = ""
+            self._render_social()
+            return
+        self._social_loading = True
+        self._social_handle = handle
+        self._update_social_controls(True, True, True)
+        self.friends_status.setText("Loading friends…")
+        worker = self._tasks.start(
+            "SafeLauncher-RefreshFriends",
+            lambda: ProfileServiceClient(service_url, token).get_social(handle),
+            lambda result, expected_handle=handle: self._social_refresh_done(result, expected_handle),
+        )
+        worker.error_occurred.connect(
+            lambda error, expected_handle=handle: self._social_refresh_done(
+                ProfileServiceError(error, "social_refresh_failed"), expected_handle
+            )
+        )
+
+    def _social_refresh_done(self, result: Any, expected_handle: str = "") -> None:
+        self._social_loading = False
+        if self._mode != "owner":
+            return
+        handle, token, _ = self._local_owner_identity()
+        if expected_handle and (handle != expected_handle or self._social_handle != expected_handle):
+            return
+        self._update_social_controls(True, bool(self._profile_settings.get("published")), bool(token))
+        if isinstance(result, Exception):
+            self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.friends_status.setText(f"Friends could not be refreshed: {result}")
+            return
+        snapshot = result if isinstance(result, dict) else None
+        if snapshot is None:
+            self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.friends_status.setText("Friends could not be refreshed because the service response was invalid.")
+            return
+        self._social_snapshot = snapshot
+        self._social_handle = handle
+        self.friends_status.setStyleSheet("")
+        self._render_social()
+
+    def _start_social_mutation(self, operation, success_message: str) -> None:
+        if self._social_mutating:
+            return
+        owner_handle, token, service_url = self._local_owner_identity()
+        local_settings = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        if not bool(local_settings.get("published")) or not owner_handle or not token:
+            self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.friends_status.setText("Publish your profile and keep its owner token available before managing friends.")
+            return
+        if not service_url.startswith(("http://", "https://")):
+            self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.friends_status.setText("Configure the public profile service before managing friends.")
+            return
+        self._social_mutating = True
+        self._update_social_controls(self._mode == "owner", True, True)
+        self.friends_status.setStyleSheet("")
+        self.friends_status.setText("Updating friends…")
+        worker = self._tasks.start(
+            "SafeLauncher-FriendOperation",
+            lambda: operation(ProfileServiceClient(service_url, token), owner_handle),
+            lambda result: self._social_mutation_done(result, success_message),
+        )
+        worker.error_occurred.connect(
+            lambda error: self._social_mutation_done(ProfileServiceError(error, "social_operation_failed"), success_message)
+        )
+
+    def _send_friend_request(self) -> None:
+        if self._mode == "public":
+            target_handle = str(self._document.get("handle", "") or "").strip().lower()
+        else:
+            target_handle = self.friend_handle_edit.text().strip().lstrip("@").lower()
+        if not HANDLE_RE.fullmatch(target_handle):
+            self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.friends_status.setText("Enter a valid SafeLauncher profile handle.")
+            return
+        owner_handle, _, _ = self._local_owner_identity()
+        if target_handle == owner_handle:
+            self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.friends_status.setText("You cannot send a friend request to yourself.")
+            return
+        self._start_social_mutation(
+            lambda client, handle: client.send_friend_request(handle, target_handle),
+            "Friend request sent.",
+        )
+
+    def _respond_to_request(self, request_id: str, action: str) -> None:
+        if not request_id:
+            return
+        self._start_social_mutation(
+            lambda client, handle: client.respond_friend_request(handle, request_id, action),
+            {"accept": "Friend request accepted.", "decline": "Friend request declined.", "cancel": "Friend request canceled."}.get(action, "Friend request updated."),
+        )
+
+    def _remove_friend(self, friend_handle: str) -> None:
+        if QMessageBox.question(
+            self,
+            "Remove friend",
+            f"Remove @{friend_handle} from your friends?",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._start_social_mutation(
+            lambda client, handle: client.remove_friend(handle, friend_handle),
+            "Friend removed.",
+        )
+
+    def _block_profile(self, friend_handle: str) -> None:
+        if QMessageBox.question(
+            self,
+            "Block profile",
+            f"Block @{friend_handle}? This also removes any friendship or pending request.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._start_social_mutation(
+            lambda client, handle: client.block_user(handle, friend_handle),
+            "Profile blocked.",
+        )
+
+    def _unblock_profile(self, blocked_handle: str) -> None:
+        self._start_social_mutation(
+            lambda client, handle: client.unblock_user(handle, blocked_handle),
+            "Profile unblocked.",
+        )
+
+    def _social_mutation_done(self, result: Any, success_message: str) -> None:
+        self._social_mutating = False
+        if isinstance(result, Exception):
+            self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.friends_status.setText(str(result))
+            self._update_social_controls(self._mode == "owner", bool(self._profile_settings.get("published")), bool(get_secret("profile_owner_token")))
+            return
+        self.friends_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
+        self.friends_status.setText(success_message)
+        if self._mode == "owner":
+            self._refresh_social()
+        else:
+            self.btn_public_add_friend.setEnabled(False)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._mode == "owner":
+            self._refresh_social()
 
     @staticmethod
     def _format_hours(seconds: int) -> str:

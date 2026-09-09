@@ -18,7 +18,7 @@ from core.profile_models import (
     DEFAULT_BACKGROUND,
     build_public_projection,
     load_profile_settings,
-    normalize_public_document,
+    normalize_public_document, normalize_social_snapshot,
     save_profile_settings,
 )
 from database import GameDatabase
@@ -99,6 +99,55 @@ class ProfileModelTests(unittest.TestCase):
         self.assertEqual(request["json"], {"ownerToken": "n" * 43})
         self.assertEqual(request["headers"]["Authorization"], "Bearer " + "o" * 43)
 
+    def test_social_snapshot_accepts_only_bounded_public_summaries(self):
+        snapshot = normalize_social_snapshot({
+            "friends": [{
+                "handle": "01234567890123456789",
+                "display_name": "  Friend   One ",
+                "updated_at": "not-a-timestamp",
+                "path": "/private/path",
+            }],
+            "incoming_requests": [{
+                "request_id": "request-1",
+                "handle": "abcdefabcdefabcdefabcd",
+                "display_name": "Incoming",
+                "created_at": 12,
+            }],
+            "outgoing_requests": [],
+            "blocked_handles": ["short", "FEDCFEDCFEDCFEDCFEDC"],
+        })
+        self.assertEqual(snapshot["friends"][0]["display_name"], "Friend One")
+        self.assertEqual(snapshot["friends"][0]["updated_at"], 0)
+        self.assertEqual(snapshot["incoming_requests"][0]["request_id"], "request-1")
+        self.assertEqual(snapshot["blocked_handles"], ["fedcfedcfedcfedcfedc"])
+
+    def test_social_client_uses_owner_authentication_and_routes(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "friends": [],
+            "incoming_requests": [],
+            "outgoing_requests": [],
+            "blocked_handles": [],
+        }
+        session = Mock()
+        session.request.return_value = response
+        owner = "o" * 43
+        handle = "01234567890123456789"
+        target = "abcdefabcdefabcdefabcd"
+        client = ProfileServiceClient("https://profiles.example", owner)
+        client.session = session
+
+        self.assertEqual(client.get_social(handle)["friends"], [])
+        self.assertEqual(session.request.call_args.args[:2], ("GET", "https://profiles.example/api/profile/v1/01234567890123456789/friends"))
+        self.assertEqual(session.request.call_args.kwargs["headers"]["Authorization"], "Bearer " + owner)
+
+        client.send_friend_request(handle, target)
+        self.assertEqual(session.request.call_args.args[:2], ("POST", "https://profiles.example/api/profile/v1/01234567890123456789/friend-requests"))
+        self.assertEqual(session.request.call_args.kwargs["json"], {"targetHandle": target})
+
+        client.remove_friend(handle, target)
+        self.assertEqual(session.request.call_args.args[:2], ("DELETE", "https://profiles.example/api/profile/v1/01234567890123456789/friends/abcdefabcdefabcdefabcd"))
+
 
 class ProfilePageTests(unittest.TestCase):
     @classmethod
@@ -120,6 +169,7 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertTrue(page.show_public(public))
                 self.assertEqual(page._mode, "public")
                 self.assertFalse(page.editor.isVisible())
+                self.assertFalse(page.friends_section.isHidden())
                 page.show_owner()
                 self.assertEqual(page._mode, "owner")
             finally:
