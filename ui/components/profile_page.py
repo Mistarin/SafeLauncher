@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSettings, QSignalBlocker, QTimer
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
 from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import (
     QColorDialog, QFileDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
     QPlainTextEdit,
     QProgressBar, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
-    QApplication, QInputDialog,
+    QInputDialog,
 )
 
 from core.profile_assets import AvatarError, normalize_avatar
@@ -225,13 +225,13 @@ class ProfilePageWidget(QWidget):
         self._artwork_inflight: set[str] = set()
         self._selected_profile_game: dict[str, Any] | None = None
         self._games_return_index = 0
-        self._handle_check_serial = 0
-        self._handle_check_inflight = False
-        self._handle_availability: bool | None = None
-        self._handle_check_timer = QTimer(self)
-        self._handle_check_timer.setSingleShot(True)
-        self._handle_check_timer.setInterval(350)
-        self._handle_check_timer.timeout.connect(self._check_handle_availability)
+        self._profile_games: list[dict[str, Any]] = []
+        self._all_games_populated = False
+        self._local_refresh_pending = False
+        self._local_refresh_timer = QTimer(self)
+        self._local_refresh_timer.setSingleShot(True)
+        self._local_refresh_timer.setInterval(100)
+        self._local_refresh_timer.timeout.connect(self._refresh_local_projection)
         self._publish_timer = QTimer(self)
         self._publish_timer.setSingleShot(True)
         self._publish_timer.setInterval(1500)
@@ -255,7 +255,6 @@ class ProfilePageWidget(QWidget):
             QFrame#profileHero {{ border: none; }}
             QLabel#profileEyebrow {{ color: {TEXT_MUTED}; font-size: 11px; font-weight: 700; letter-spacing: 1px; }}
             QLabel#profileName {{ color: {TEXT_PRIMARY}; font-size: 28px; font-weight: 750; }}
-            QLabel#profileHandle {{ color: {TEXT_SECONDARY}; font-size: 12px; }}
             QLabel#profileBio {{ color: {TEXT_PRIMARY}; font-size: 13px; }}
             QLabel#profileMuted {{ color: {TEXT_SECONDARY}; font-size: 12px; }}
             QLabel#profileStatValue {{ color: {TEXT_PRIMARY}; font-size: 20px; font-weight: 750; }}
@@ -339,9 +338,6 @@ class ProfilePageWidget(QWidget):
         self.name_label.setTextFormat(Qt.TextFormat.PlainText)
         self.name_label.setWordWrap(True)
         identity.addWidget(self.name_label)
-        self.handle_label = QLabel()
-        self.handle_label.setObjectName("profileHandle")
-        identity.addWidget(self.handle_label)
         self.bio_label = QLabel()
         self.bio_label.setObjectName("profileBio")
         self.bio_label.setTextFormat(Qt.TextFormat.PlainText)
@@ -371,19 +367,6 @@ class ProfilePageWidget(QWidget):
         self.name_edit.setMaxLength(64)
         name_row.addWidget(self.name_edit, 1)
         editor_layout.addLayout(name_row)
-        handle_row = QHBoxLayout()
-        handle_row.addWidget(QLabel("Profile handle"))
-        self.handle_edit = QLineEdit()
-        self.handle_edit.setObjectName("profileEditorInput")
-        self.handle_edit.setMaxLength(40)
-        self.handle_edit.setPlaceholderText("username")
-        self.handle_edit.textChanged.connect(self._schedule_handle_availability)
-        handle_row.addWidget(self.handle_edit, 1)
-        editor_layout.addLayout(handle_row)
-        self.handle_hint = QLabel("Your handle is the stable public profile address. It can be changed before first publishing.")
-        self.handle_hint.setObjectName("profileMuted")
-        self.handle_hint.setWordWrap(True)
-        editor_layout.addWidget(self.handle_hint)
         bio_row = QHBoxLayout()
         bio_row.addWidget(QLabel("Bio"), 0, Qt.AlignmentFlag.AlignTop)
         bio_column = QVBoxLayout()
@@ -425,16 +408,7 @@ class ProfilePageWidget(QWidget):
         self.btn_custom_color.clicked.connect(self._choose_color)
         background_row.addWidget(self.btn_custom_color)
         editor_layout.addLayout(background_row)
-        service_row = QHBoxLayout()
-        service_row.addWidget(QLabel("Profile service"))
-        self.service_url_edit = QLineEdit()
-        self.service_url_edit.setObjectName("profileEditorInput")
-        self.service_url_edit.setPlaceholderText("https://profilegateway.vercel.app")
-        self.service_url_edit.setReadOnly(True)
-        self.service_url_edit.setToolTip("The official SafeLauncher profile gateway is used for public profiles.")
-        service_row.addWidget(self.service_url_edit, 1)
-        editor_layout.addLayout(service_row)
-        self.editor_hint = QLabel("The profile service stores only this public projection. Private save data stays on your configured cloud.")
+        self.editor_hint = QLabel("Only the information shown on your public profile is shared. Private launcher data stays private.")
         self.editor_hint.setObjectName("profileMuted")
         self.editor_hint.setWordWrap(True)
         editor_layout.addWidget(self.editor_hint)
@@ -654,9 +628,6 @@ class ProfilePageWidget(QWidget):
         self.btn_publish.setIcon(get_icon("ph.upload-simple-bold", color="#FFFFFF"))
         self.btn_publish.clicked.connect(self._publish)
         bottom.addWidget(self.btn_publish)
-        self.btn_copy_handle = QPushButton("Copy handle")
-        self.btn_copy_handle.clicked.connect(self._copy_handle)
-        bottom.addWidget(self.btn_copy_handle)
         self.btn_resync = QPushButton("Resync private data")
         self.btn_resync.setIcon(get_icon("ph.arrows-clockwise-bold", color=TEXT_SECONDARY))
         self.btn_resync.clicked.connect(self._resync_private)
@@ -681,6 +652,8 @@ class ProfilePageWidget(QWidget):
 
     def show_owner(self) -> None:
         self._mode = "owner"
+        self._local_refresh_timer.stop()
+        self._local_refresh_pending = False
         self.mode_label.setText("OWNER VIEW")
         self._profile_settings = load_profile_settings(self.settings, fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"))
         self._document = build_public_projection(self.db, self._profile_settings)
@@ -697,13 +670,13 @@ class ProfilePageWidget(QWidget):
             self.friends_status.setText("Offline mode — friends are not refreshed.")
 
     def mark_local_data_changed(self) -> None:
-        """Refresh local stats and coalesce a public update after game events."""
+        """Coalesce bursts of local game events into one UI/public refresh."""
         if self._editing:
             return
+        self._local_refresh_pending = True
         self._profile_settings = load_profile_settings(self.settings, fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"))
         if self._mode == "owner" and self.isVisible():
-            self._document = build_public_projection(self.db, self._profile_settings)
-            self._render(self._document)
+            self._local_refresh_timer.start()
         if (
             automatic_network_allowed(self.settings)
             and self._profile_settings.get("published")
@@ -714,6 +687,20 @@ class ProfilePageWidget(QWidget):
             else:
                 self._publish_timer.start()
 
+    def _refresh_local_projection(self) -> None:
+        """Refresh visible local profile data once after an event burst."""
+        if not self._local_refresh_pending or self._editing:
+            return
+        self._local_refresh_pending = False
+        if self._mode != "owner" or not self.isVisible():
+            return
+        self._profile_settings = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        self._document = build_public_projection(self.db, self._profile_settings)
+        self._render(self._document)
+
     def show_public(self, document: dict[str, Any]) -> bool:
         normalized = normalize_public_document(document)
         if normalized is None:
@@ -721,6 +708,8 @@ class ProfilePageWidget(QWidget):
             self.footer_status.setText("This public profile is invalid or unavailable.")
             return False
         self._mode = "public"
+        self._local_refresh_timer.stop()
+        self._local_refresh_pending = False
         self._editing = False
         self._document = normalized
         self._social_snapshot = self._empty_social_snapshot()
@@ -766,7 +755,6 @@ class ProfilePageWidget(QWidget):
             if not signed_in else ""
         )
         self.btn_resync.setVisible(enabled)
-        self.btn_copy_handle.setVisible(enabled and published)
         self.btn_open_public.setVisible(enabled)
         self.btn_settings.setVisible(True)
         self._update_social_controls(enabled, published, signed_in)
@@ -787,8 +775,6 @@ class ProfilePageWidget(QWidget):
     def _render(self, document: dict[str, Any]) -> None:
         self.setStyleSheet(self._base_style + self._background_style(document.get("background", {})))
         self.name_label.setText(str(document.get("display_name", "Player")))
-        handle = str(document.get("handle", "") or "")
-        self.handle_label.setText(f"@{handle}" if handle else "Not published yet")
         bio = str(document.get("bio", "") or "").strip()
         self.bio_label.setText(bio)
         self.bio_label.setVisible(bool(bio))
@@ -812,7 +798,6 @@ class ProfilePageWidget(QWidget):
             else:
                 self.status_label.setText("Only you can see this profile until it is published.")
             self.btn_publish.setText("Unpublish profile" if published else "Publish profile")
-            self.btn_copy_handle.setVisible(published)
             self.footer_status.setText("Public publishing is separate from private game-save cloud synchronization.")
             self._populate_editor()
         else:
@@ -841,6 +826,8 @@ class ProfilePageWidget(QWidget):
         self._game_cards = {}
         raw_games = document.get("games", []) if isinstance(document.get("games"), list) else []
         games = [game for game in raw_games if isinstance(game, dict) and str(game.get("app_id", ""))]
+        self._profile_games = games
+        self._all_games_populated = False
         pending: dict[str, str] = {}
         self.games_all_title.setText(f"All games ({len(games)})")
         if not games:
@@ -848,36 +835,15 @@ class ProfilePageWidget(QWidget):
             empty.setObjectName("profileMuted")
             empty.setWordWrap(True)
             self.games_grid.addWidget(empty, 0, 0, 1, 3)
-            all_empty = QLabel("No Steam games are visible on this profile yet.")
-            all_empty.setObjectName("profileMuted")
-            all_empty.setWordWrap(True)
-            self.games_all_grid.addWidget(all_empty, 0, 0, 1, 3)
             return
 
-        def add_card(game: dict[str, Any], index: int, layout: QGridLayout, request_artwork: bool) -> None:
-            app_id = str(game.get("app_id", ""))
-            card = ProfileGameCard(game)
-            card.clicked.connect(self._open_game_detail)
-            self._game_cards.setdefault(app_id, []).append(card)
-            row, column = divmod(index, 3)
-            layout.addWidget(card, row, column)
-            url = str(game.get("artwork_url", "") or "")
-            if not url:
-                return
-            if url in self._artwork_cache:
-                card.set_artwork_bytes(self._artwork_cache[url])
-            elif request_artwork and url not in self._artwork_inflight:
-                pending[app_id] = url
-
         for index, game in enumerate(games[:5]):
-            add_card(game, index, self.games_grid, True)
+            self._add_game_card(game, index, self.games_grid, pending)
         if len(games) > 5:
             see_more = ProfileSeeMoreCard(len(games))
             see_more.clicked.connect(self._show_all_games)
             row, column = divmod(5, 3)
             self.games_grid.addWidget(see_more, row, column)
-        for index, game in enumerate(games):
-            add_card(game, index, self.games_all_grid, False)
         for column in range(3):
             self.games_grid.setColumnStretch(column, 1)
             self.games_all_grid.setColumnStretch(column, 1)
@@ -886,14 +852,45 @@ class ProfilePageWidget(QWidget):
         # from starting dozens of image requests during navigation.
         self._queue_artwork_download(pending)
 
+    def _add_game_card(
+        self,
+        game: dict[str, Any],
+        index: int,
+        layout: QGridLayout,
+        pending: dict[str, str] | None = None,
+    ) -> None:
+        """Create one library card and optionally schedule its artwork.
+
+        The complete library is populated only when opened. Keeping widget
+        creation lazy matters more than image-download laziness for profiles
+        with many games, because Qt layout/style work happens on the GUI
+        thread.
+        """
+        app_id = str(game.get("app_id", ""))
+        card = ProfileGameCard(game)
+        card.clicked.connect(self._open_game_detail)
+        self._game_cards.setdefault(app_id, []).append(card)
+        row, column = divmod(index, 3)
+        layout.addWidget(card, row, column)
+        url = str(game.get("artwork_url", "") or "")
+        if not url:
+            return
+        if url in self._artwork_cache:
+            card.set_artwork_bytes(self._artwork_cache[url])
+        elif pending is not None and url not in self._artwork_inflight:
+            pending[app_id] = url
+
     def _show_all_games(self) -> None:
         """Open the complete library and lazily fetch its remaining artwork."""
         self.games_stack.setCurrentIndex(1)
+        if self._all_games_populated:
+            return
+        self._all_games_populated = True
+        self._clear_grid(self.games_all_grid)
         pending: dict[str, str] = {}
-        for app_id, cards in self._game_cards.items():
-            if not cards:
-                continue
-            game = cards[-1].game
+        for index, game in enumerate(self._profile_games):
+            self._add_game_card(game, index, self.games_all_grid)
+            app_id = str(game.get("app_id", ""))
             url = str(game.get("artwork_url", "") or "")
             if url and url not in self._artwork_cache and url not in self._artwork_inflight:
                 pending[app_id] = url
@@ -1354,24 +1351,10 @@ class ProfilePageWidget(QWidget):
     def _populate_editor(self) -> None:
         if self._mode != "owner":
             return
-        with QSignalBlocker(self.name_edit), QSignalBlocker(self.handle_edit), QSignalBlocker(self.bio_edit):
+        with QSignalBlocker(self.name_edit), QSignalBlocker(self.bio_edit):
             self.name_edit.setText(self._profile_settings.get("display_name", "Player"))
-            self.handle_edit.setText(str(self._profile_settings.get("public_handle", "") or ""))
             self.bio_edit.setPlainText(str(self._profile_settings.get("bio", "") or ""))
-        handle = self.handle_edit.text()
-        published = bool(self._profile_settings.get("published"))
-        self.handle_edit.setReadOnly(published)
-        self._handle_check_timer.stop()
-        self._handle_check_serial += 1
-        self._handle_check_inflight = False
-        self._handle_availability = True if published and handle else None
         self._update_bio_count()
-        self.handle_hint.setText(
-            "Published handles are stable so shared profile links keep working."
-            if published else
-            "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens. Availability is checked before publishing."
-        )
-        self.service_url_edit.setText(get_profile_service_url())
         background = normalize_background(self._profile_settings.get("background"))
         found = False
         for index in range(self.background_combo.count()):
@@ -1399,73 +1382,6 @@ class ProfilePageWidget(QWidget):
             cursor.setPosition(position)
             self.bio_edit.setTextCursor(cursor)
         self._update_bio_count()
-
-    def _schedule_handle_availability(self, _text: str = "") -> None:
-        """Debounce availability checks so typing never creates a request storm."""
-        self._handle_check_timer.stop()
-        self._handle_check_serial += 1
-        self._handle_availability = None
-        if self._mode != "owner" or not self._editing or self.handle_edit.isReadOnly():
-            return
-        candidate = normalize_username_handle(self.handle_edit.text())
-        if not candidate:
-            self.handle_hint.setText("Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens.")
-            self.handle_hint.setStyleSheet("")
-            return
-        if not automatic_network_allowed(self.settings):
-            self.handle_hint.setText("Offline mode — the handle will be checked when you publish.")
-            self.handle_hint.setStyleSheet(f"color:{TEXT_SECONDARY};")
-            return
-        self.handle_hint.setText("Checking handle availability…")
-        self.handle_hint.setStyleSheet(f"color:{TEXT_SECONDARY};")
-        self._handle_check_timer.start()
-
-    def _check_handle_availability(self) -> None:
-        if self._mode != "owner" or not self._editing or self.handle_edit.isReadOnly():
-            return
-        candidate = normalize_username_handle(self.handle_edit.text())
-        if not candidate or not automatic_network_allowed(self.settings):
-            return
-        serial = self._handle_check_serial
-        self._handle_check_inflight = True
-
-        def work():
-            with self._central_profile_client() as client:
-                return client.check_handle_availability(candidate)
-
-        worker = self._tasks.start(
-            "SafeLauncher-ProfileHandleAvailability",
-            work,
-            lambda result, expected_serial=serial, expected_handle=candidate: self._handle_availability_done(
-                result, expected_serial, expected_handle
-            ),
-        )
-        worker.error_occurred.connect(
-            lambda error, expected_serial=serial, expected_handle=candidate: self._handle_availability_error(
-                error, expected_serial, expected_handle
-            )
-        )
-
-    def _handle_availability_done(self, result: Any, serial: int, handle: str) -> None:
-        if serial != self._handle_check_serial or handle != normalize_username_handle(self.handle_edit.text()):
-            return
-        self._handle_check_inflight = False
-        available = isinstance(result, bool) and result
-        self._handle_availability = available
-        if available:
-            self.handle_hint.setText("Handle is available. It becomes stable after publishing.")
-            self.handle_hint.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
-        else:
-            self.handle_hint.setText("That handle is already taken. Choose another one.")
-            self.handle_hint.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-
-    def _handle_availability_error(self, _error: str, serial: int, handle: str) -> None:
-        if serial != self._handle_check_serial or handle != normalize_username_handle(self.handle_edit.text()):
-            return
-        self._handle_check_inflight = False
-        self._handle_availability = None
-        self.handle_hint.setText("Could not check availability; the server will verify it when you publish.")
-        self.handle_hint.setStyleSheet(f"color:{TEXT_SECONDARY};")
 
     def _on_auth_progress(self, message: str) -> None:
         """Render device-login progress emitted by the worker thread."""
@@ -1645,34 +1561,6 @@ class ProfilePageWidget(QWidget):
         if not name:
             QMessageBox.warning(self, "Profile", "Enter a display name.")
             return
-        handle = self.handle_edit.text().strip().lower()
-        current_handle = str(self._profile_settings.get("public_handle", "") or "").lower()
-        if bool(self._profile_settings.get("published")):
-            handle = current_handle
-        elif not HANDLE_RE.fullmatch(handle):
-            handle = normalize_username_handle(handle)
-        if not handle or not HANDLE_RE.fullmatch(handle):
-            QMessageBox.warning(
-                self,
-                "Profile handle",
-                "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens.",
-            )
-            return
-        if not bool(self._profile_settings.get("published")):
-            if self._handle_check_inflight:
-                QMessageBox.information(
-                    self,
-                    "Checking profile handle",
-                    "Wait for the handle availability check to finish, then save again.",
-                )
-                return
-            if self._handle_availability is False:
-                QMessageBox.warning(
-                    self,
-                    "Profile handle unavailable",
-                    "That handle is already taken. Choose another one.",
-                )
-                return
         selected = self.background_combo.currentData()
         if selected == "custom":
             background = self._profile_settings.get("background", {})
@@ -1681,7 +1569,6 @@ class ProfilePageWidget(QWidget):
         value = dict(self._profile_settings)
         value.update({
             "display_name": name,
-            "public_handle": handle,
             "bio": self.bio_edit.toPlainText(),
             "avatar": self._draft_avatar,
             "background": background,
@@ -1696,11 +1583,26 @@ class ProfilePageWidget(QWidget):
         self.footer_status.setText("Profile changes saved locally. Publish to update the public profile.")
 
     def _choose_avatar(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Choose profile picture", "", "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
-        if not path:
+        # The native portal picker is unreliable in some desktop/session
+        # combinations (and can fail silently when the app has a custom
+        # frameless window). An explicit Qt dialog keeps this action usable
+        # without depending on the host portal registration.
+        dialog = QFileDialog(self)
+        dialog.setWindowTitle("Choose profile picture")
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dialog.setNameFilter("Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        pictures = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
+        if pictures:
+            dialog.setDirectory(pictures)
+        if not dialog.exec():
+            return
+        selected = dialog.selectedFiles()
+        if not selected:
             return
         try:
-            self._draft_avatar = normalize_avatar(path)
+            self._draft_avatar = normalize_avatar(selected[0])
             self._set_avatar(self._draft_avatar)
         except AvatarError as exc:
             QMessageBox.warning(self, "Profile picture", str(exc))
@@ -1715,26 +1617,22 @@ class ProfilePageWidget(QWidget):
         color = QColorDialog.getColor(initial, self, "Choose profile background")
         if color.isValid():
             draft_name = self.name_edit.text()
-            draft_handle = self.handle_edit.text()
             draft_bio = self.bio_edit.toPlainText()
             self.background_combo.setCurrentIndex(self.background_combo.findData("custom"))
             self._profile_settings["background"] = {"kind": "solid", "color": color.name().upper()}
             self._render(build_public_projection(self.db, {
                 **self._profile_settings,
                 "display_name": draft_name or self._profile_settings.get("display_name", "Player"),
-                "public_handle": draft_handle or self._profile_settings.get("public_handle", ""),
                 "bio": draft_bio,
                 "avatar": self._draft_avatar,
                 "background": self._profile_settings["background"],
             }))
             # Rendering also refreshes the owner editor. Restore the in-flight
             # draft so choosing a color does not discard typed fields.
-            with QSignalBlocker(self.name_edit), QSignalBlocker(self.handle_edit), QSignalBlocker(self.bio_edit):
+            with QSignalBlocker(self.name_edit), QSignalBlocker(self.bio_edit):
                 self.name_edit.setText(draft_name)
-                self.handle_edit.setText(draft_handle)
                 self.bio_edit.setPlainText(draft_bio)
             self._update_bio_count()
-            self._schedule_handle_availability(draft_handle)
 
     def _publish(self) -> None:
         if self._mode != "owner":
@@ -1760,16 +1658,6 @@ class ProfilePageWidget(QWidget):
             handle = self._profile_settings.get("public_handle")
         self._profile_settings = save_profile_settings(self.settings, {**self._profile_settings, "public_handle": handle}, mark_changed=False)
         self._publish_current_document()
-
-    def _copy_handle(self) -> None:
-        handle = str(self._profile_settings.get("public_handle", "") or "")
-        if not handle:
-            return
-        clipboard = QApplication.clipboard()
-        if clipboard is not None:
-            clipboard.setText(handle)
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
-            self.footer_status.setText("Public profile handle copied to the clipboard.")
 
     def _publish_current_document(self) -> None:
         if self._publishing:
@@ -1979,5 +1867,7 @@ class ProfilePageWidget(QWidget):
         self.settings.sync()
 
     def closeEvent(self, event) -> None:
+        self._local_refresh_timer.stop()
+        self._publish_timer.stop()
         self._tasks.cancel_all(250)
         super().closeEvent(event)

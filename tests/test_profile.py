@@ -463,6 +463,7 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertTrue(page.show_public(public))
                 self.assertFalse(page.bio_label.isHidden())
                 self.assertEqual(page.games_grid.count(), 6)  # five games plus See more
+                self.assertEqual(page.games_all_grid.count(), 0)  # populated on demand
                 page.games_grid.itemAt(5).widget().clicked.emit()
                 self.assertEqual(page.games_stack.currentIndex(), 1)
                 self.assertEqual(page.games_all_grid.count(), 6)
@@ -494,7 +495,7 @@ class ProfilePageTests(unittest.TestCase):
             window.deleteLater()
             self.app.processEvents()
 
-    def test_editor_blocks_a_known_taken_handle_before_local_save(self):
+    def test_profile_editor_keeps_identity_fields_internal(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
             save_profile_settings(settings, {
@@ -508,13 +509,16 @@ class ProfilePageTests(unittest.TestCase):
             page = ProfilePageWidget(db, settings)
             try:
                 page._start_edit()
-                page._handle_availability = False
                 page.name_edit.setText("New Name")
-                with patch("ui.components.profile_page.QMessageBox.warning") as warning:
-                    page._save_edit()
-                warning.assert_called_once()
-                self.assertTrue(page._editing)
-                self.assertEqual(load_profile_settings(settings)["display_name"], "Player")
+                page.bio_edit.setPlainText("A visible bio")
+                page._save_edit()
+                self.assertFalse(hasattr(page, "handle_edit"))
+                self.assertFalse(hasattr(page, "service_url_edit"))
+                self.assertFalse(hasattr(page, "handle_label"))
+                loaded = load_profile_settings(settings)
+                self.assertEqual(loaded["display_name"], "New Name")
+                self.assertEqual(loaded["bio"], "A visible bio")
+                self.assertEqual(loaded["public_handle"], "taken-name")
             finally:
                 page.close()
                 page.deleteLater()

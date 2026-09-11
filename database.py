@@ -1350,6 +1350,32 @@ class GameDatabase:
             logger.error(f"Error getting achievements for game {game_id}: {e}")
             return []
 
+    def get_profile_achievement_rows(self) -> Dict[int, List[dict]]:
+        """Return the small achievement projection needed by public profiles.
+
+        Public profile rendering used to issue one full achievement query per
+        game. Keep the existing detailed API for the achievements page, but
+        provide this narrow bulk read for profile generation so a large local
+        library does not create an N+1 query pattern.
+        """
+        try:
+            rows = self.conn.execute("""
+                SELECT game_id, app_id, api_name, display_name
+                FROM achievements
+                ORDER BY game_id, unlocked DESC, unlock_time DESC, display_name ASC
+            """).fetchall()
+            result: Dict[int, List[dict]] = {}
+            for game_id, app_id, api_name, display_name in rows:
+                result.setdefault(int(game_id), []).append({
+                    "app_id": str(app_id or ""),
+                    "api_name": str(api_name or ""),
+                    "display_name": str(display_name or ""),
+                })
+            return result
+        except Exception as e:
+            logger.error(f"Error getting profile achievement rows: {e}")
+            return {}
+
     def get_achievement_stats(self, game_id: int) -> Tuple[int, int, float]:
         """Return (unlocked_count, total_count, percentage)."""
         try:

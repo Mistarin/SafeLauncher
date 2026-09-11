@@ -243,25 +243,25 @@ def merge_profile_settings(local: Any, remote: Any) -> dict[str, Any]:
     return left
 
 
-def _game_name_map(db) -> dict[str, str]:
-    result = {}
-    for game in db.get_all_games():
-        result[db.profile_identity(game.name, game.steam_id)] = str(game.name)
-    return result
-
-
 def build_public_projection(db, settings: dict[str, Any], *, now: int | None = None) -> dict[str, Any]:
     """Build the only payload allowed to leave the desktop for public viewing."""
     profile = normalize_profile_settings(settings)
-    game_names = _game_name_map(db)
+    # Read the game table once. This function runs during profile navigation
+    # and before publishing; repeated full-table reads made the UI scale
+    # poorly as the local library grew.
+    all_games = db.get_all_games()
+    game_names = {
+        db.profile_identity(game.name, game.steam_id): str(game.name)
+        for game in all_games
+    }
     current_local_identities = {
-        db.profile_identity(game.name, "") for game in db.get_all_games()
+        db.profile_identity(game.name, "") for game in all_games
         if str(game.steam_id or "").strip()
     }
     profile_games = {str(x.get("identity_key")): x for x in db.get_profile_games() if isinstance(x, dict)}
     games_by_app: dict[str, dict[str, Any]] = {}
     total_playtime = 0
-    for game in db.get_all_games():
+    for game in all_games:
         # The live game row includes both the baseline and finalized sessions;
         # use it for installed games so totals neither omit sessions nor count
         # the baseline twice.
@@ -315,11 +315,12 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
     known_by_app: dict[str, set[str]] = {}
     display_names = {}
     app_game_names = {}
-    for game in db.get_all_games():
+    achievement_rows_by_game = db.get_profile_achievement_rows()
+    for game in all_games:
         app_id = steam_app_id(game.steam_id)
         if not app_id:
             continue
-        rows = db.get_game_achievements(game.id)
+        rows = achievement_rows_by_game.get(game.id, [])
         app_game_names.setdefault(app_id, game.name)
         for row in rows:
             api_name = str(row.get("api_name", ""))
