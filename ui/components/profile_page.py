@@ -31,6 +31,9 @@ from ui.theme import (
     SURFACE, SURFACE_ELEVATED, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 )
 
+PROFILE_CARD_HEIGHT = 196
+PROFILE_ARTWORK_HEIGHT = 104
+
 
 class ProfileGameCard(QFrame):
     """Compact, clickable public-library card with playtime and achievements."""
@@ -42,7 +45,8 @@ class ProfileGameCard(QFrame):
         self.game = dict(game)
         self._pixmap = QPixmap()
         self.setObjectName("profileGameCard")
-        self.setMinimumSize(180, 188)
+        self.setMinimumWidth(180)
+        self.setFixedHeight(PROFILE_CARD_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Open game profile")
@@ -52,8 +56,7 @@ class ProfileGameCard(QFrame):
 
         self.artwork = QLabel("Steam artwork")
         self.artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.artwork.setMinimumHeight(96)
-        self.artwork.setMaximumHeight(160)
+        self.artwork.setFixedHeight(PROFILE_ARTWORK_HEIGHT)
         self.artwork.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none; font-size:11px;")
         self.artwork.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(self.artwork)
@@ -61,7 +64,7 @@ class ProfileGameCard(QFrame):
         self.name = QLabel(str(self.game.get("name", "Game")))
         self.name.setTextFormat(Qt.TextFormat.PlainText)
         self.name.setWordWrap(True)
-        self.name.setMaximumHeight(34)
+        self.name.setFixedHeight(34)
         self.name.setStyleSheet(f"color:{TEXT_PRIMARY}; font-size:12px; font-weight:700; border:none;")
         self.name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(self.name)
@@ -151,7 +154,8 @@ class ProfileSeeMoreCard(QFrame):
     def __init__(self, count: int, parent=None):
         super().__init__(parent)
         self.setObjectName("profileSeeMoreCard")
-        self.setMinimumSize(180, 188)
+        self.setMinimumWidth(180)
+        self.setFixedHeight(PROFILE_CARD_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("View the complete games library")

@@ -463,6 +463,11 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertTrue(page.show_public(public))
                 self.assertFalse(page.bio_label.isHidden())
                 self.assertEqual(page.games_grid.count(), 6)  # five games plus See more
+                card_heights = {
+                    page.games_grid.itemAt(index).widget().height()
+                    for index in range(page.games_grid.count())
+                }
+                self.assertEqual(len(card_heights), 1)
                 self.assertEqual(page.games_all_grid.count(), 0)  # populated on demand
                 page.games_grid.itemAt(5).widget().clicked.emit()
                 self.assertEqual(page.games_stack.currentIndex(), 1)
