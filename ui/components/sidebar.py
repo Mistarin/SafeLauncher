@@ -1,6 +1,6 @@
 import os
 from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QLineEdit,
+    QAbstractButton, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QLineEdit,
     QMainWindow, QDialog, QGraphicsDropShadowEffect, QScrollArea, QWidget, QSlider, QToolButton
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
@@ -608,25 +608,15 @@ class HeaderBar(QFrame):
                 color: #8E8E93;
                 border: none;
                 border-radius: 6px;
-                padding: 0;
+                padding: 0 8px;
                 margin: 0;
+                text-align: left;
             }
             QToolButton:hover {
                 background: #202633;
                 color: #FFFFFF;
             }
         """
-        self.btn_profile = QToolButton()
-        self.btn_profile.setIcon(get_icon("ph.user-circle-bold", color="#8E8E93"))
-        self.btn_profile.setIconSize(QSize(17, 17))
-        self.btn_profile.setFixedSize(30, 30)
-        self.btn_profile.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_profile.setToolTip("Profile and account menu")
-        self.btn_profile.setStyleSheet(profile_control_style)
-        self.btn_profile.setMenu(self.profile_menu)
-        self.btn_profile.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        layout.addWidget(self.btn_profile)
-
         # Retained for backwards-compatibility; hidden as search now resides in each view toolbar
         self.search_input = QLineEdit()
         self.search_input.setVisible(False)
@@ -634,15 +624,23 @@ class HeaderBar(QFrame):
 
         layout.addStretch()
 
-        self.profile_identity_label = QLabel()
-        self.profile_identity_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.profile_identity_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.profile_identity_label.setMaximumWidth(180)
-        self.profile_identity_label.setStyleSheet(
-            "color:#B7B7BD; background:transparent; font-size:11px; font-weight:600;"
-        )
-        self.profile_identity_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(self.profile_identity_label)
+        # One atomic identity control sits immediately beside the native window
+        # controls. Keeping the avatar, display name, and menu on the same
+        # button avoids the old dead-label/active-icon split hit target.
+        self.btn_profile = QToolButton()
+        self.btn_profile.setIcon(get_icon("ph.user-circle-bold", color="#8E8E93"))
+        self.btn_profile.setIconSize(QSize(17, 17))
+        self.btn_profile.setText("Player")
+        self.btn_profile.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_profile.setMinimumWidth(92)
+        self.btn_profile.setMaximumWidth(210)
+        self.btn_profile.setFixedHeight(30)
+        self.btn_profile.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_profile.setToolTip("Profile and account menu")
+        self.btn_profile.setStyleSheet(profile_control_style)
+        self.btn_profile.setMenu(self.profile_menu)
+        self.btn_profile.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        layout.addWidget(self.btn_profile)
 
         # Window Control Buttons
         control_style = """
@@ -697,14 +695,23 @@ class HeaderBar(QFrame):
         layout.addWidget(self.btn_close)
 
     def set_profile_identity(self, display_name: str = "", handle: str = "") -> None:
-        """Show the local profile identity immediately before window controls."""
+        """Update the combined local-profile control without exposing claims."""
         display_name = " ".join(str(display_name or "").split()) or "Player"
         handle = str(handle or "").strip().lstrip("@").lower()
-        visible = f"@{handle}" if handle else display_name
-        self.profile_identity_label.setText(visible[:32])
-        self.profile_identity_label.setToolTip(
+        visible = display_name[:24] or (f"@{handle}" if handle else "Player")
+        self.btn_profile.setText(visible)
+        self.btn_profile.setToolTip(
             f"{display_name}  ·  @{handle}" if handle else display_name
         )
+
+    def _event_hits_interactive_child(self, event) -> bool:
+        """Prevent title-bar drag/double-click from stealing button clicks."""
+        target = self.childAt(event.position().toPoint())
+        while target is not None and target is not self:
+            if isinstance(target, (QAbstractButton, QLineEdit)):
+                return True
+            target = target.parentWidget()
+        return False
 
     def _toggle_max_restore(self):
         if self.main_window.isMaximized():
@@ -714,6 +721,10 @@ class HeaderBar(QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            if self._event_hits_interactive_child(event):
+                self.drag_pos = None
+                event.ignore()
+                return
             handle = self.main_window.windowHandle()
             if handle is not None:
                 if self.main_window.isMaximized():
@@ -743,6 +754,9 @@ class HeaderBar(QFrame):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            if self._event_hits_interactive_child(event):
+                event.ignore()
+                return
             self._toggle_max_restore()
             event.accept()
 

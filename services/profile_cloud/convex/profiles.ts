@@ -129,6 +129,14 @@ export const get = internalQuery({
   },
 });
 
+export const handleAvailable = internalQuery({
+  args: { handle: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await getProfile(ctx, args.handle);
+    return { handle: args.handle, available: !existing };
+  },
+});
+
 export const getByIdentity = internalQuery({
   args: { ownerIdentityHash: v.string() },
   handler: async (ctx, args) => {

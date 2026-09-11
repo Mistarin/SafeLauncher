@@ -16,7 +16,12 @@ import requests
 from PyQt6.QtCore import QSettings
 
 from core.central_auth import CentralAuthError, CentralAuthSession
-from core.profile_models import normalize_public_document, normalize_social_snapshot
+from core.profile_models import (
+    HANDLE_RE,
+    normalize_public_document,
+    normalize_social_snapshot,
+    normalize_username_handle,
+)
 
 
 OFFICIAL_PROFILE_GATEWAY_URL = "https://profilegateway.vercel.app"
@@ -182,8 +187,33 @@ class ProfileServiceClient:
                 pass
 
     # --- public reads -----------------------------------------------------
+    def check_handle_availability(self, handle: str) -> bool:
+        """Check whether an unpublished profile handle is currently free."""
+        raw_handle = str(handle or "").strip().lstrip("@").lower()
+        requested_handle = (
+            raw_handle
+            if HANDLE_RE.fullmatch(raw_handle)
+            else normalize_username_handle(raw_handle)
+        )
+        if not requested_handle or not HANDLE_RE.fullmatch(requested_handle):
+            raise ProfileServiceError("The profile handle is invalid.", "invalid_handle", 400)
+        payload = self._request(
+            "GET",
+            f"/api/profile/v1/handles/{quote(requested_handle, safe='')}/availability",
+        )
+        if payload.get("handle") != requested_handle or not isinstance(payload.get("available"), bool):
+            raise ProfileServiceError("The profile service returned an invalid handle availability response.", "invalid_response")
+        return bool(payload["available"])
+
     def fetch(self, handle: str) -> dict:
-        requested_handle = str(handle or "").strip().lstrip("@").lower()
+        raw_handle = str(handle or "").strip().lstrip("@").lower()
+        requested_handle = (
+            raw_handle
+            if HANDLE_RE.fullmatch(raw_handle)
+            else normalize_username_handle(raw_handle)
+        )
+        if not requested_handle or not HANDLE_RE.fullmatch(requested_handle):
+            raise ProfileServiceError("The profile handle is invalid.", "invalid_handle", 400)
         payload = self._request("GET", f"/api/profile/v1/{quote(requested_handle, safe='')}")
         document = normalize_public_document(payload.get("profile"))
         if document is None or document.get("handle") != requested_handle:

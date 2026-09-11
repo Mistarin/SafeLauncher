@@ -22,23 +22,25 @@ from PyQt6.QtCore import QSettings
 from core.profile_assets import validate_avatar_payload
 
 
-PRIVATE_PROFILE_VERSION = 4
+PRIVATE_PROFILE_VERSION = 5
 PUBLIC_PROFILE_VERSION = 1
 LEGACY_HANDLE_RE = re.compile(r"^[a-f0-9]{20,40}$")
 USERNAME_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?$")
 HANDLE_RE = re.compile(r"^(?:[a-f0-9]{20,40}|[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?)$")
 COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 STEAM_APP_ID_RE = re.compile(r"^[1-9][0-9]{0,15}$")
-STEAM_BANNER_RE = re.compile(
+STEAM_ARTWORK_RE = re.compile(
     r"^https://(?:cdn\.akamai\.steamstatic\.com|shared\.akamai\.steamstatic\.com|"
-    r"steamcdn-a\.akamaihd\.net)/steam/apps/[1-9][0-9]{0,15}/header\.jpg$"
+    r"steamcdn-a\.akamaihd\.net)/(?:steam/apps|store_item_assets/steam/apps)/"
+    r"[1-9][0-9]{0,15}/capsule_616x353\.jpg$"
 )
-STEAM_BANNER_HOSTS = frozenset({
+STEAM_ARTWORK_HOSTS = frozenset({
     "cdn.akamai.steamstatic.com",
     "shared.akamai.steamstatic.com",
     "steamcdn-a.akamaihd.net",
 })
 MAX_NAME_LENGTH = 64
+MAX_BIO_LENGTH = 160
 MAX_PUBLIC_GAMES = 60
 MAX_PUBLIC_ACHIEVEMENTS = 20
 MAX_PUBLIC_GAME_ACHIEVEMENTS = 20
@@ -90,26 +92,53 @@ def steam_app_id(value: Any) -> str:
     return candidate if STEAM_APP_ID_RE.fullmatch(candidate) else ""
 
 
-def steam_banner_url(app_id: Any) -> str:
-    """Return the public Steam header image for a validated AppID."""
+def steam_artwork_url(app_id: Any) -> str:
+    """Return large public Steam capsule artwork for a validated AppID."""
     app_id = steam_app_id(app_id)
-    return f"https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/header.jpg" if app_id else ""
+    return (
+        f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/capsule_616x353.jpg"
+        if app_id else ""
+    )
 
 
-def valid_public_banner_url(value: Any) -> bool:
-    """Accept only the fixed Steam CDN header route in untrusted documents."""
-    if not isinstance(value, str) or not STEAM_BANNER_RE.fullmatch(value):
+def steam_banner_url(app_id: Any) -> str:
+    """Backward-compatible alias for callers that still use banner terminology."""
+    return steam_artwork_url(app_id)
+
+
+def valid_public_artwork_url(value: Any, app_id: Any = None) -> bool:
+    """Accept only the fixed Steam CDN capsule route for the same AppID."""
+    if not isinstance(value, str) or not STEAM_ARTWORK_RE.fullmatch(value):
         return False
     try:
         parsed = urlsplit(value)
     except ValueError:
         return False
-    return parsed.scheme == "https" and parsed.hostname in STEAM_BANNER_HOSTS and not parsed.query and not parsed.fragment
+    if parsed.scheme != "https" or parsed.hostname not in STEAM_ARTWORK_HOSTS or parsed.query or parsed.fragment:
+        return False
+    if app_id is not None:
+        expected = steam_app_id(app_id)
+        match = STEAM_ARTWORK_RE.fullmatch(value)
+        if not expected or match is None or f"/{expected}/capsule_616x353.jpg" not in value:
+            return False
+    return True
+
+
+def valid_public_banner_url(value: Any, app_id: Any = None) -> bool:
+    """Backward-compatible validator; new profiles use capsule artwork."""
+    return valid_public_artwork_url(value, app_id)
 
 
 def _clean_name(value: Any, fallback: str = "Player") -> str:
     value = " ".join(str(value or "").strip().split())[:MAX_NAME_LENGTH]
     return value or fallback
+
+
+def _clean_bio(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    value = re.sub(r"[\x00-\x1f\x7f]+", " ", value)
+    return " ".join(value.strip().split())[:MAX_BIO_LENGTH]
 
 
 def normalize_background(value: Any) -> dict[str, Any]:
@@ -142,6 +171,7 @@ def normalize_profile_settings(value: Any, fallback_name: str = "Player") -> dic
     avatar = validate_avatar_payload(value.get("avatar"))
     return {
         "display_name": _clean_name(value.get("display_name"), fallback_name),
+        "bio": _clean_bio(value.get("bio")),
         "avatar": avatar,
         "background": normalize_background(value.get("background")),
         "public_handle": handle,
@@ -165,6 +195,7 @@ def load_profile_settings(settings: QSettings | None = None, fallback_name: str 
         avatar = None
     return normalize_profile_settings({
         "display_name": settings.value("profile_display_name", fallback_name, type=str),
+        "bio": settings.value("profile_bio", "", type=str),
         "avatar": avatar,
         "background": background,
         "public_handle": settings.value("profile_public_handle", "", type=str),
@@ -180,6 +211,7 @@ def save_profile_settings(settings: QSettings, value: dict[str, Any], *, mark_ch
         normalized["changed_at"] = time.time()
         normalized["change_id"] = str(uuid.uuid4())
     settings.setValue("profile_display_name", normalized["display_name"])
+    settings.setValue("profile_bio", normalized["bio"])
     settings.setValue("profile_avatar", json.dumps(normalized["avatar"], sort_keys=True) if normalized["avatar"] else "")
     settings.setValue("profile_background", json.dumps(normalized["background"], sort_keys=True))
     settings.setValue("profile_public_handle", normalized["public_handle"])
@@ -239,7 +271,7 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
             candidate = {
                 "name": str(game.name or f"Steam App {app_id}")[:120],
                 "app_id": app_id,
-                "banner_url": steam_banner_url(app_id),
+                "artwork_url": steam_artwork_url(app_id),
                 "playtime_seconds": max(0, int(game.playtime_seconds or 0)),
                 "last_played": max(0, int(game.last_played or 0)),
                 "favorite": bool(game.is_favorite),
@@ -267,7 +299,7 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
             games_by_app[app_id] = {
                 "name": f"Steam App {app_id}",
                 "app_id": app_id,
-                "banner_url": steam_banner_url(app_id),
+                "artwork_url": steam_artwork_url(app_id),
                 "playtime_seconds": max(0, int(value.get("playtime_baseline_seconds", 0) or 0)),
                 "last_played": max(0, int(value.get("last_played", 0) or 0)),
                 "favorite": bool(value.get("favorite")),
@@ -301,7 +333,7 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
         games_by_app.setdefault(app_id, {
             "name": str(app_game_names.get(app_id, f"Steam App {app_id}"))[:120],
             "app_id": app_id,
-            "banner_url": steam_banner_url(app_id),
+            "artwork_url": steam_artwork_url(app_id),
             "playtime_seconds": 0,
             "last_played": 0,
             "favorite": False,
@@ -350,6 +382,7 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
         "schema_version": PUBLIC_PROFILE_VERSION,
         "handle": profile["public_handle"],
         "display_name": profile["display_name"],
+        "bio": profile["bio"],
         "avatar": profile["avatar"],
         "background": profile["background"],
         "stats": {
@@ -403,8 +436,13 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
             api_name = str(item.get("api_name", "") or "")[:128]
             if not api_name:
                 continue
+            achievement_app_id = steam_app_id(item.get("app_id"))
+            if achievement_app_id and achievement_app_id != app_id:
+                # A public document must not attach one game's achievement
+                # records to another game's detail page.
+                continue
             recent.append({
-                "app_id": steam_app_id(item.get("app_id")) or app_id,
+                "app_id": achievement_app_id or app_id,
                 "api_name": api_name,
                 "name": _clean_name(item.get("name"), "Achievement")[:120],
                 "game": _clean_name(item.get("game"), "Game")[:120],
@@ -427,13 +465,15 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
         if not app_id or app_id in seen_apps:
             continue
         seen_apps.add(app_id)
-        banner = str(item.get("banner_url", "") or "")
-        if not valid_public_banner_url(banner):
-            banner = steam_banner_url(app_id)
+        artwork = str(item.get("artwork_url", "") or "")
+        if not valid_public_artwork_url(artwork, app_id):
+            # Older documents used header banners. Do not render those as the
+            # new library artwork; derive the correct capsule from AppID.
+            artwork = steam_artwork_url(app_id)
         games.append({
             "name": _clean_name(item.get("name"), f"Steam App {app_id}")[:120],
             "app_id": app_id,
-            "banner_url": banner,
+            "artwork_url": artwork,
             "playtime_seconds": bounded_int(item.get("playtime_seconds"), 3_200_000_000),
             "last_played": bounded_int(item.get("last_played"), 4_000_000_000),
             "favorite": bool(item.get("favorite")),
@@ -458,7 +498,7 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
             games.append({
                 "name": item["name"],
                 "app_id": app_id,
-                "banner_url": steam_banner_url(app_id),
+                "artwork_url": steam_artwork_url(app_id),
                 "playtime_seconds": 0,
                 "last_played": 0,
                 "favorite": True,
@@ -493,6 +533,7 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
         "schema_version": PUBLIC_PROFILE_VERSION,
         "handle": handle,
         "display_name": name,
+        "bio": _clean_bio(value.get("bio")),
         "avatar": avatar,
         "background": background,
         "stats": stats,

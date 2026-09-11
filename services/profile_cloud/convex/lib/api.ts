@@ -133,18 +133,26 @@ function boundedString(
     : fallback;
 }
 
+function cleanBio(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 function validSteamAppId(value: unknown): value is string {
   return typeof value === "string" && /^[1-9][0-9]{0,15}$/.test(value);
 }
 
-function steamBannerUrl(appId: string): string {
-  return `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
+function steamArtworkUrl(appId: string): string {
+  return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/capsule_616x353.jpg`;
 }
 
-function validSteamBanner(value: unknown, appId: string): boolean {
+function validSteamArtwork(value: unknown, appId: string): boolean {
   return (
     typeof value === "string" &&
-    new RegExp(`^https://(?:cdn\\.akamai\\.steamstatic\\.com|shared\\.akamai\\.steamstatic\\.com|steamcdn-a\\.akamaihd\\.net)/steam/apps/${appId}/header\\.jpg$`).test(value)
+    new RegExp(`^https://(?:cdn\\.akamai\\.steamstatic\\.com|shared\\.akamai\\.steamstatic\\.com|steamcdn-a\\.akamaihd\\.net)/(?:steam/apps|store_item_assets/steam/apps)/${appId}/capsule_616x353\\.jpg$`).test(value)
   );
 }
 
@@ -172,6 +180,13 @@ export function validatePublicProfile(value: unknown): string {
       "Profile display name is invalid.",
     );
   }
+  if (profile.bio !== undefined && typeof profile.bio !== "string") {
+    throw new ApiError(400, "invalid_bio", "Profile bio is invalid.");
+  }
+  if (typeof profile.bio === "string" && profile.bio.length > 160) {
+    throw new ApiError(400, "invalid_bio", "Profile bio is too long.");
+  }
+  const bio = cleanBio(profile.bio);
   const avatar = profile.avatar;
   let cleanAvatar: Record<string, unknown> | null = null;
   if (avatar !== null && avatar !== undefined) {
@@ -290,9 +305,9 @@ export function validatePublicProfile(value: unknown): string {
       throw new ApiError(400, "invalid_games", "Game library entry is invalid.");
     }
     seenApps.add(appId);
-    const banner = boundedString(item.banner_url, 300);
-    if (banner && !validSteamBanner(banner, appId)) {
-      throw new ApiError(400, "invalid_games", "Game banner URL is invalid.");
+    const artwork = boundedString(item.artwork_url, 300);
+    if (artwork && !validSteamArtwork(artwork, appId)) {
+      throw new ApiError(400, "invalid_games", "Game artwork URL is invalid.");
     }
     const achievementInput =
       item.achievements && typeof item.achievements === "object" && !Array.isArray(item.achievements)
@@ -334,7 +349,7 @@ export function validatePublicProfile(value: unknown): string {
     cleanLibrary.push({
       name,
       app_id: appId,
-      banner_url: banner || steamBannerUrl(appId),
+      artwork_url: artwork || steamArtworkUrl(appId),
       playtime_seconds: Number.isSafeInteger(item.playtime_seconds)
         ? Math.max(0, Math.min(3_200_000_000, item.playtime_seconds as number))
         : 0,
@@ -391,6 +406,7 @@ export function validatePublicProfile(value: unknown): string {
     schema_version: 1,
     handle: profile.handle,
     display_name: displayName,
+    bio,
     avatar: cleanAvatar,
     background,
     stats: {

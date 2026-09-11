@@ -42,10 +42,13 @@ are already compressed by the desktop client and embedded in the document;
 backgrounds are theme data (colors, gradients, and presets), not uploaded
 files.
 
-The public projection includes a bounded `games` library. Each entry contains
-only the Steam AppID, display name, Steam CDN header image URL, playtime,
-favorite state, and an achievement summary (`unlocked_count`, `total_count`,
-percentage, and a short list of unlocked achievements). Installation paths,
+The public projection includes a bounded profile identity (`display_name`, an
+optional 160-character `bio`, and a stable `handle`) plus a bounded `games`
+library. Each entry contains only the Steam AppID, display name, Steam CDN
+16:9 capsule artwork URL, playtime, favorite state, and an achievement summary
+(`unlocked_count`, `total_count`, percentage, and a short list of unlocked
+achievements). Handles are immutable after publication; users can change their
+visible display name and bio. Installation paths,
 executables, save locations, cloud keys, email addresses, and OIDC subjects
 are never part of this document. Older profiles without `games` remain
 readable and are upgraded when their owner publishes again.

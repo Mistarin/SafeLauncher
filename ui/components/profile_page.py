@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSettings, QTimer
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSettings, QSignalBlocker, QTimer
 from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import (
     QColorDialog, QFileDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
+    QPlainTextEdit,
     QProgressBar, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
     QApplication, QInputDialog,
 )
 
 from core.profile_assets import AvatarError, normalize_avatar
 from core.profile_models import (
-    BACKGROUND_PRESETS, build_public_projection,
+    BACKGROUND_PRESETS, MAX_BIO_LENGTH, build_public_projection,
     HANDLE_RE, load_profile_settings, normalize_background, normalize_username_handle,
     normalize_public_document, profile_username_suggestion, save_profile_settings,
 )
@@ -50,13 +50,13 @@ class ProfileGameCard(QFrame):
         layout.setContentsMargins(8, 8, 8, 9)
         layout.setSpacing(6)
 
-        self.banner = QLabel("Steam artwork")
-        self.banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.banner.setMinimumHeight(86)
-        self.banner.setMaximumHeight(108)
-        self.banner.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none; font-size:11px;")
-        self.banner.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(self.banner)
+        self.artwork = QLabel("Steam artwork")
+        self.artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.artwork.setMinimumHeight(96)
+        self.artwork.setMaximumHeight(160)
+        self.artwork.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none; font-size:11px;")
+        self.artwork.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(self.artwork)
 
         self.name = QLabel(str(self.game.get("name", "Game")))
         self.name.setTextFormat(Qt.TextFormat.PlainText)
@@ -93,42 +93,41 @@ class ProfileGameCard(QFrame):
         )
         self.progress.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(self.progress)
-        for child in (self.banner, self.name, self.playtime, self.achievement_count, self.progress):
+        for child in (self.artwork, self.name, self.playtime, self.achievement_count, self.progress):
             child.installEventFilter(self)
 
     @staticmethod
     def _format_hours(seconds: int) -> str:
         return f"{seconds / 3600:.1f} h"
 
-    def set_banner_path(self, path: str) -> None:
-        pixmap = QPixmap(path)
-        if not pixmap.isNull():
-            self.set_banner_pixmap(pixmap)
-
-    def set_banner_bytes(self, data: bytes) -> None:
+    def set_artwork_bytes(self, data: bytes) -> None:
         pixmap = QPixmap()
         if data:
             pixmap.loadFromData(data)
         if not pixmap.isNull():
-            self.set_banner_pixmap(pixmap)
+            self.set_artwork_pixmap(pixmap)
 
-    def set_banner_pixmap(self, pixmap: QPixmap) -> None:
+    def set_artwork_pixmap(self, pixmap: QPixmap) -> None:
         self._pixmap = pixmap
-        self.banner.setText("")
-        self._refresh_banner()
+        self.artwork.setText("")
+        self._refresh_artwork()
 
-    def _refresh_banner(self) -> None:
+    def _refresh_artwork(self) -> None:
         if self._pixmap.isNull():
             return
-        self.banner.setPixmap(self._pixmap.scaled(
-            max(1, self.banner.width()), max(1, self.banner.height()),
+        self.artwork.setPixmap(self._pixmap.scaled(
+            max(1, self.artwork.width()), max(1, self.artwork.height()),
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,
             Qt.TransformationMode.SmoothTransformation,
         ))
 
+    # Compatibility aliases for callers from older profile-page integrations.
+    set_banner_bytes = set_artwork_bytes
+    set_banner_pixmap = set_artwork_pixmap
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._refresh_banner()
+        self._refresh_artwork()
 
     def eventFilter(self, watched, event) -> bool:
         if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
@@ -139,6 +138,48 @@ class ProfileGameCard(QFrame):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(dict(self.game))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+class ProfileSeeMoreCard(QFrame):
+    """Sixth-slot navigation card for profiles with a larger library."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, count: int, parent=None):
+        super().__init__(parent)
+        self.setObjectName("profileSeeMoreCard")
+        self.setMinimumSize(180, 188)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("View the complete games library")
+        self.setAccessibleName("View all profile games")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(7)
+        layout.addStretch()
+        icon = QLabel("+")
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setStyleSheet(f"color:{ACCENT_PRIMARY}; font-size:30px; font-weight:700; border:none;")
+        icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(icon)
+        title = QLabel("See more")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"color:{TEXT_PRIMARY}; font-size:13px; font-weight:700; border:none;")
+        title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(title)
+        detail = QLabel(f"View all {count} games")
+        detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        detail.setStyleSheet(f"color:{TEXT_SECONDARY}; font-size:10px; border:none;")
+        detail.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(detail)
+        layout.addStretch()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
             event.accept()
             return
         super().mousePressEvent(event)
@@ -179,12 +220,18 @@ class ProfilePageWidget(QWidget):
         self._social_loading = False
         self._social_mutating = False
         self._auth_in_flight = False
-        self._game_cards: dict[str, ProfileGameCard] = {}
-        self._banner_cache: dict[str, bytes] = {}
-        self._banner_inflight: set[str] = set()
-        self._banner_render_generation = 0
-        self._banner_loading = False
+        self._game_cards: dict[str, list[ProfileGameCard]] = {}
+        self._artwork_cache: dict[str, bytes] = {}
+        self._artwork_inflight: set[str] = set()
         self._selected_profile_game: dict[str, Any] | None = None
+        self._games_return_index = 0
+        self._handle_check_serial = 0
+        self._handle_check_inflight = False
+        self._handle_availability: bool | None = None
+        self._handle_check_timer = QTimer(self)
+        self._handle_check_timer.setSingleShot(True)
+        self._handle_check_timer.setInterval(350)
+        self._handle_check_timer.timeout.connect(self._check_handle_availability)
         self._publish_timer = QTimer(self)
         self._publish_timer.setSingleShot(True)
         self._publish_timer.setInterval(1500)
@@ -203,21 +250,24 @@ class ProfilePageWidget(QWidget):
             QFrame#profileSection {{ background: {SURFACE}; border: none; }}
             QFrame#profileGameCard {{ background: {SURFACE_ELEVATED}; border: none; border-radius: 8px; }}
             QFrame#profileGameCard:hover {{ background: #252A34; }}
+            QFrame#profileSeeMoreCard {{ background: {SURFACE}; border: 1px dashed {BORDER}; border-radius: 8px; }}
+            QFrame#profileSeeMoreCard:hover {{ background: {SURFACE_ELEVATED}; border-color: {ACCENT_PRIMARY}; }}
             QFrame#profileHero {{ border: none; }}
             QLabel#profileEyebrow {{ color: {TEXT_MUTED}; font-size: 11px; font-weight: 700; letter-spacing: 1px; }}
             QLabel#profileName {{ color: {TEXT_PRIMARY}; font-size: 28px; font-weight: 750; }}
             QLabel#profileHandle {{ color: {TEXT_SECONDARY}; font-size: 12px; }}
+            QLabel#profileBio {{ color: {TEXT_PRIMARY}; font-size: 13px; }}
             QLabel#profileMuted {{ color: {TEXT_SECONDARY}; font-size: 12px; }}
             QLabel#profileStatValue {{ color: {TEXT_PRIMARY}; font-size: 20px; font-weight: 750; }}
             QLabel#profileStatCaption {{ color: {TEXT_MUTED}; font-size: 11px; }}
             QListWidget#profileList {{ background: {SURFACE}; color: {TEXT_PRIMARY}; border: none; outline: none; }}
             QListWidget#profileList::item {{ padding: 8px 4px; border: none; }}
             QFrame#profileSocialRow {{ background: transparent; border: none; }}
-            QLineEdit#profileEditorInput, QComboBox#profileEditorInput {{
+            QLineEdit#profileEditorInput, QComboBox#profileEditorInput, QPlainTextEdit#profileEditorInput {{
                 background: {SURFACE_ELEVATED}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER};
                 border-radius: 6px; padding: 7px 9px; font-size: 12px;
             }}
-            QLineEdit#profileEditorInput:focus, QComboBox#profileEditorInput:focus {{ border-color: {ACCENT_PRIMARY}; }}
+            QLineEdit#profileEditorInput:focus, QComboBox#profileEditorInput:focus, QPlainTextEdit#profileEditorInput:focus {{ border-color: {ACCENT_PRIMARY}; }}
         """
         self.setStyleSheet(self._base_style)
         root = QVBoxLayout(self)
@@ -292,6 +342,12 @@ class ProfilePageWidget(QWidget):
         self.handle_label = QLabel()
         self.handle_label.setObjectName("profileHandle")
         identity.addWidget(self.handle_label)
+        self.bio_label = QLabel()
+        self.bio_label.setObjectName("profileBio")
+        self.bio_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.bio_label.setWordWrap(True)
+        self.bio_label.setVisible(False)
+        identity.addWidget(self.bio_label)
         self.status_label = QLabel()
         self.status_label.setObjectName("profileMuted")
         self.status_label.setWordWrap(True)
@@ -321,12 +377,29 @@ class ProfilePageWidget(QWidget):
         self.handle_edit.setObjectName("profileEditorInput")
         self.handle_edit.setMaxLength(40)
         self.handle_edit.setPlaceholderText("username")
+        self.handle_edit.textChanged.connect(self._schedule_handle_availability)
         handle_row.addWidget(self.handle_edit, 1)
         editor_layout.addLayout(handle_row)
         self.handle_hint = QLabel("Your handle is the stable public profile address. It can be changed before first publishing.")
         self.handle_hint.setObjectName("profileMuted")
         self.handle_hint.setWordWrap(True)
         editor_layout.addWidget(self.handle_hint)
+        bio_row = QHBoxLayout()
+        bio_row.addWidget(QLabel("Bio"), 0, Qt.AlignmentFlag.AlignTop)
+        bio_column = QVBoxLayout()
+        self.bio_edit = QPlainTextEdit()
+        self.bio_edit.setObjectName("profileEditorInput")
+        self.bio_edit.setPlaceholderText("Tell people a little about yourself")
+        self.bio_edit.setFixedHeight(68)
+        self.bio_edit.setTabChangesFocus(True)
+        self.bio_edit.textChanged.connect(self._limit_bio)
+        bio_column.addWidget(self.bio_edit)
+        self.bio_count = QLabel(f"0/{MAX_BIO_LENGTH}")
+        self.bio_count.setObjectName("profileMuted")
+        self.bio_count.setAlignment(Qt.AlignmentFlag.AlignRight)
+        bio_column.addWidget(self.bio_count)
+        bio_row.addLayout(bio_column, 1)
+        editor_layout.addLayout(bio_row)
         avatar_row = QHBoxLayout()
         avatar_row.addWidget(QLabel("Avatar"))
         self.btn_avatar = QPushButton("Choose image")
@@ -386,13 +459,17 @@ class ProfilePageWidget(QWidget):
         stat_items = (("games_count", "Games"), ("favorite_count", "Favorites"), ("playtime_seconds", "Playtime"), ("achievements_unlocked", "Achievements"))
         for index, (key, caption) in enumerate(stat_items):
             box = QVBoxLayout()
+            box.setAlignment(Qt.AlignmentFlag.AlignCenter)
             value = QLabel("0")
             value.setObjectName("profileStatValue")
+            value.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label = QLabel(caption)
             label.setObjectName("profileStatCaption")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             box.addWidget(value)
             box.addWidget(label)
             self.stats_grid.addLayout(box, 0, index)
+            self.stats_grid.setColumnStretch(index, 1)
             self.stat_labels[key] = value
         self.column_layout.addWidget(self.stats_section)
 
@@ -408,14 +485,34 @@ class ProfilePageWidget(QWidget):
         self.games_grid.setVerticalSpacing(10)
         self.games_stack.addWidget(self.games_library)
 
+        self.games_all_page = QWidget()
+        all_layout = QVBoxLayout(self.games_all_page)
+        all_layout.setContentsMargins(0, 0, 0, 0)
+        all_toolbar = QHBoxLayout()
+        self.btn_games_all_back = QPushButton("Preview")
+        self.btn_games_all_back.setIcon(get_icon("ph.arrow-left-bold", color=TEXT_SECONDARY))
+        self.btn_games_all_back.clicked.connect(lambda: self.games_stack.setCurrentIndex(0))
+        all_toolbar.addWidget(self.btn_games_all_back)
+        self.games_all_title = QLabel("All games")
+        self.games_all_title.setStyleSheet(f"color:{TEXT_PRIMARY}; font-size:14px; font-weight:700;")
+        all_toolbar.addWidget(self.games_all_title)
+        all_toolbar.addStretch()
+        all_layout.addLayout(all_toolbar)
+        self.games_all_grid = QGridLayout()
+        self.games_all_grid.setContentsMargins(0, 0, 0, 0)
+        self.games_all_grid.setHorizontalSpacing(10)
+        self.games_all_grid.setVerticalSpacing(10)
+        all_layout.addLayout(self.games_all_grid)
+        self.games_stack.addWidget(self.games_all_page)
+
         self.game_detail = QWidget()
         detail_layout = QVBoxLayout(self.game_detail)
         detail_layout.setContentsMargins(0, 0, 0, 0)
         detail_layout.setSpacing(10)
         detail_toolbar = QHBoxLayout()
-        self.btn_games_back = QPushButton("All games")
+        self.btn_games_back = QPushButton("Back to games")
         self.btn_games_back.setIcon(get_icon("ph.arrow-left-bold", color=TEXT_SECONDARY))
-        self.btn_games_back.clicked.connect(lambda: self.games_stack.setCurrentIndex(0))
+        self.btn_games_back.clicked.connect(self._return_to_games)
         detail_toolbar.addWidget(self.btn_games_back)
         detail_toolbar.addStretch()
         self.game_detail_app_id = QLabel()
@@ -425,11 +522,11 @@ class ProfilePageWidget(QWidget):
 
         detail_body = QHBoxLayout()
         detail_body.setSpacing(16)
-        self.game_detail_banner = QLabel("Steam artwork")
-        self.game_detail_banner.setFixedSize(270, 126)
-        self.game_detail_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.game_detail_banner.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none;")
-        detail_body.addWidget(self.game_detail_banner, 0, Qt.AlignmentFlag.AlignTop)
+        self.game_detail_artwork = QLabel("Steam artwork")
+        self.game_detail_artwork.setFixedSize(270, 155)
+        self.game_detail_artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.game_detail_artwork.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none;")
+        detail_body.addWidget(self.game_detail_artwork, 0, Qt.AlignmentFlag.AlignTop)
         detail_info = QVBoxLayout()
         detail_info.setSpacing(6)
         self.game_detail_name = QLabel()
@@ -692,6 +789,9 @@ class ProfilePageWidget(QWidget):
         self.name_label.setText(str(document.get("display_name", "Player")))
         handle = str(document.get("handle", "") or "")
         self.handle_label.setText(f"@{handle}" if handle else "Not published yet")
+        bio = str(document.get("bio", "") or "").strip()
+        self.bio_label.setText(bio)
+        self.bio_label.setVisible(bool(bio))
         stats = document.get("stats", {}) if isinstance(document.get("stats"), dict) else {}
         self.stat_labels["games_count"].setText(str(stats.get("games_count", 0)))
         self.stat_labels["favorite_count"].setText(str(stats.get("favorite_count", 0)))
@@ -724,18 +824,6 @@ class ProfilePageWidget(QWidget):
         self._fill_list(self.achievement_list, document.get("recent_achievements"), lambda item: f"★  {item.get('name', 'Achievement')}  ·  {item.get('game', 'Game')}")
         self._render_social()
 
-    def _local_banner_path(self, app_id: str) -> str:
-        """Use an existing local banner for the owner without publishing its path."""
-        if self._mode != "owner":
-            return ""
-        for game in self.db.get_all_games():
-            if str(game.steam_id or "").strip() != app_id:
-                continue
-            path = str(game.banner_url or "").strip()
-            if path and os.path.isfile(path):
-                return path
-        return ""
-
     @staticmethod
     def _clear_grid(layout: QGridLayout) -> None:
         while layout.count():
@@ -746,97 +834,147 @@ class ProfilePageWidget(QWidget):
                 widget.deleteLater()
 
     def _render_games(self, document: dict[str, Any]) -> None:
-        self._banner_render_generation += 1
-        generation = self._banner_render_generation
         self._selected_profile_game = None
         self.games_stack.setCurrentIndex(0)
         self._clear_grid(self.games_grid)
+        self._clear_grid(self.games_all_grid)
         self._game_cards = {}
         raw_games = document.get("games", []) if isinstance(document.get("games"), list) else []
         games = [game for game in raw_games if isinstance(game, dict) and str(game.get("app_id", ""))]
         pending: dict[str, str] = {}
+        self.games_all_title.setText(f"All games ({len(games)})")
         if not games:
             empty = QLabel("No Steam games are visible on this profile yet.")
             empty.setObjectName("profileMuted")
             empty.setWordWrap(True)
             self.games_grid.addWidget(empty, 0, 0, 1, 3)
+            all_empty = QLabel("No Steam games are visible on this profile yet.")
+            all_empty.setObjectName("profileMuted")
+            all_empty.setWordWrap(True)
+            self.games_all_grid.addWidget(all_empty, 0, 0, 1, 3)
             return
-        for index, game in enumerate(games):
+
+        def add_card(game: dict[str, Any], index: int, layout: QGridLayout, request_artwork: bool) -> None:
             app_id = str(game.get("app_id", ""))
             card = ProfileGameCard(game)
             card.clicked.connect(self._open_game_detail)
-            self._game_cards[app_id] = card
+            self._game_cards.setdefault(app_id, []).append(card)
             row, column = divmod(index, 3)
-            self.games_grid.addWidget(card, row, column)
-            local_path = self._local_banner_path(app_id)
-            if local_path:
-                card.set_banner_path(local_path)
-                continue
-            url = str(game.get("banner_url", "") or "")
+            layout.addWidget(card, row, column)
+            url = str(game.get("artwork_url", "") or "")
             if not url:
-                continue
-            if url in self._banner_cache:
-                card.set_banner_bytes(self._banner_cache[url])
-            elif url not in self._banner_inflight:
+                return
+            if url in self._artwork_cache:
+                card.set_artwork_bytes(self._artwork_cache[url])
+            elif request_artwork and url not in self._artwork_inflight:
                 pending[app_id] = url
+
+        for index, game in enumerate(games[:5]):
+            add_card(game, index, self.games_grid, True)
+        if len(games) > 5:
+            see_more = ProfileSeeMoreCard(len(games))
+            see_more.clicked.connect(self._show_all_games)
+            row, column = divmod(5, 3)
+            self.games_grid.addWidget(see_more, row, column)
+        for index, game in enumerate(games):
+            add_card(game, index, self.games_all_grid, False)
         for column in range(3):
             self.games_grid.setColumnStretch(column, 1)
+            self.games_all_grid.setColumnStretch(column, 1)
+        # The preview is the initial viewport. Full-library artwork is lazy
+        # loaded when the user opens "See more", preventing a large profile
+        # from starting dozens of image requests during navigation.
+        self._queue_artwork_download(pending)
+
+    def _show_all_games(self) -> None:
+        """Open the complete library and lazily fetch its remaining artwork."""
+        self.games_stack.setCurrentIndex(1)
+        pending: dict[str, str] = {}
+        for app_id, cards in self._game_cards.items():
+            if not cards:
+                continue
+            game = cards[-1].game
+            url = str(game.get("artwork_url", "") or "")
+            if url and url not in self._artwork_cache and url not in self._artwork_inflight:
+                pending[app_id] = url
+        self._queue_artwork_download(pending)
+
+    def _queue_artwork_download(self, pending: dict[str, str]) -> None:
         if not pending or not automatic_network_allowed(self.settings):
             return
 
-        self._banner_loading = True
-        self._banner_inflight.update(pending.values())
+        self._artwork_inflight.update(pending.values())
 
         def work():
             import requests
             downloaded = {}
-            for app_id, url in pending.items():
-                try:
-                    response = requests.get(
-                        url,
-                        headers={"Accept": "image/jpeg,image/*;q=0.8", "User-Agent": "SafeLauncher/1"},
-                        timeout=(2, 5),
-                    )
+            with requests.Session() as session:
+                session.headers.update({
+                    "Accept": "image/jpeg,image/*;q=0.8",
+                    "User-Agent": "SafeLauncher/1",
+                })
+                for app_id, url in pending.items():
                     try:
-                        if response.status_code == 200 and len(response.content) <= 4 * 1024 * 1024:
-                            downloaded[app_id] = (url, response.content)
-                    finally:
-                        response.close()
-                except requests.RequestException:
-                    continue
+                        response = session.get(url, timeout=(2, 5))
+                        try:
+                            if response.status_code == 200 and len(response.content) <= 4 * 1024 * 1024:
+                                downloaded[app_id] = (url, response.content)
+                        finally:
+                            response.close()
+                    except requests.RequestException:
+                        continue
             return downloaded
 
         worker = self._tasks.start(
-            "SafeLauncher-ProfileBanners",
+            "SafeLauncher-ProfileArtwork",
             work,
-            lambda result, expected_generation=generation, urls=set(pending.values()): self._banners_loaded(
-                result, expected_generation, urls
-            ),
+            lambda result, urls=set(pending.values()): self._artwork_loaded(result, urls),
         )
         worker.error_occurred.connect(
-            lambda _error, urls=set(pending.values()): self._banner_request_failed(urls)
+            lambda _error, urls=set(pending.values()): self._artwork_request_failed(urls)
         )
 
-    def _banner_request_failed(self, urls: set[str]) -> None:
-        self._banner_inflight.difference_update(urls)
-        self._banner_loading = bool(self._banner_inflight)
+    def _artwork_request_failed(self, urls: set[str]) -> None:
+        self._artwork_inflight.difference_update(urls)
 
-    def _banners_loaded(self, result: Any, generation: int, urls: set[str]) -> None:
+    def _artwork_loaded(self, result: Any, urls: set[str]) -> None:
         if not isinstance(result, dict):
-            self._banner_request_failed(urls)
+            self._artwork_request_failed(urls)
             return
-        self._banner_inflight.difference_update(urls)
+        self._artwork_inflight.difference_update(urls)
         for app_id, value in result.items():
             if not isinstance(value, tuple) or len(value) != 2:
                 continue
             url, data = value
             if not isinstance(url, str) or not isinstance(data, bytes) or not data:
                 continue
-            self._banner_cache[url] = data
-            card = self._game_cards.get(str(app_id)) if generation == self._banner_render_generation else None
-            if card is not None:
-                card.set_banner_bytes(data)
-        self._banner_loading = bool(self._banner_inflight)
+            self._artwork_cache[url] = data
+            # A request can outlive a profile navigation. The bytes are
+            # immutable, validated Steam CDN artwork, so applying them to a
+            # current card with the same AppID is safe and avoids leaving a
+            # placeholder forever after a fast owner/public refresh.
+            for card in self._game_cards.get(str(app_id), []):
+                if str(card.game.get("artwork_url", "")) == url:
+                    card.set_artwork_bytes(data)
+            if self._selected_profile_game and str(self._selected_profile_game.get("app_id", "")) == str(app_id):
+                pixmap = QPixmap()
+                pixmap.loadFromData(data)
+                self._set_detail_artwork(pixmap)
+
+    def _set_detail_artwork(self, pixmap: QPixmap) -> None:
+        if pixmap.isNull():
+            self.game_detail_artwork.clear()
+            self.game_detail_artwork.setText("Steam artwork")
+            return
+        self.game_detail_artwork.setText("")
+        self.game_detail_artwork.setPixmap(pixmap.scaled(
+            self.game_detail_artwork.size(),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        ))
+
+    def _return_to_games(self) -> None:
+        self.games_stack.setCurrentIndex(self._games_return_index)
 
     def _open_game_detail(self, game: dict[str, Any]) -> None:
         app_id = str(game.get("app_id", "") or "")
@@ -864,18 +1002,11 @@ class ProfilePageWidget(QWidget):
                     continue
                 name = str(item.get("name", "Achievement"))
                 self.game_detail_achievement_list.addItem(QListWidgetItem(f"✓  {name}"))
-        card = self._game_cards.get(app_id)
-        if card is not None and not card._pixmap.isNull():
-            self.game_detail_banner.setText("")
-            self.game_detail_banner.setPixmap(card._pixmap.scaled(
-                self.game_detail_banner.size(),
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation,
-            ))
-        else:
-            self.game_detail_banner.clear()
-            self.game_detail_banner.setText("Steam artwork")
-        self.games_stack.setCurrentIndex(1)
+        card = self._game_cards.get(app_id, [])
+        pixmap = next((item._pixmap for item in card if not item._pixmap.isNull()), QPixmap())
+        self._set_detail_artwork(pixmap)
+        self._games_return_index = self.games_stack.currentIndex() if self.games_stack.currentIndex() in (0, 1) else 0
+        self.games_stack.setCurrentIndex(2)
         self.scroll.verticalScrollBar().setValue(0)
 
     def _update_social_controls(self, owner_enabled: bool, published: bool, authenticated: bool) -> None:
@@ -1223,15 +1354,22 @@ class ProfilePageWidget(QWidget):
     def _populate_editor(self) -> None:
         if self._mode != "owner":
             return
-        self.name_edit.setText(self._profile_settings.get("display_name", "Player"))
-        handle = str(self._profile_settings.get("public_handle", "") or "")
-        self.handle_edit.setText(handle)
+        with QSignalBlocker(self.name_edit), QSignalBlocker(self.handle_edit), QSignalBlocker(self.bio_edit):
+            self.name_edit.setText(self._profile_settings.get("display_name", "Player"))
+            self.handle_edit.setText(str(self._profile_settings.get("public_handle", "") or ""))
+            self.bio_edit.setPlainText(str(self._profile_settings.get("bio", "") or ""))
+        handle = self.handle_edit.text()
         published = bool(self._profile_settings.get("published"))
         self.handle_edit.setReadOnly(published)
+        self._handle_check_timer.stop()
+        self._handle_check_serial += 1
+        self._handle_check_inflight = False
+        self._handle_availability = True if published and handle else None
+        self._update_bio_count()
         self.handle_hint.setText(
             "Published handles are stable so shared profile links keep working."
             if published else
-            "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens."
+            "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens. Availability is checked before publishing."
         )
         self.service_url_edit.setText(get_profile_service_url())
         background = normalize_background(self._profile_settings.get("background"))
@@ -1244,6 +1382,90 @@ class ProfilePageWidget(QWidget):
                 break
         if not found:
             self.background_combo.setCurrentIndex(self.background_combo.findData("custom"))
+
+    def _update_bio_count(self) -> None:
+        """Keep the editor counter based on the actual bounded text."""
+        text = self.bio_edit.toPlainText()
+        self.bio_count.setText(f"{len(text)}/{MAX_BIO_LENGTH}")
+
+    def _limit_bio(self) -> None:
+        """Bound pasted/input bio text without moving the user's cursor."""
+        text = self.bio_edit.toPlainText()
+        if len(text) > MAX_BIO_LENGTH:
+            cursor = self.bio_edit.textCursor()
+            position = min(cursor.position(), MAX_BIO_LENGTH)
+            with QSignalBlocker(self.bio_edit):
+                self.bio_edit.setPlainText(text[:MAX_BIO_LENGTH])
+            cursor.setPosition(position)
+            self.bio_edit.setTextCursor(cursor)
+        self._update_bio_count()
+
+    def _schedule_handle_availability(self, _text: str = "") -> None:
+        """Debounce availability checks so typing never creates a request storm."""
+        self._handle_check_timer.stop()
+        self._handle_check_serial += 1
+        self._handle_availability = None
+        if self._mode != "owner" or not self._editing or self.handle_edit.isReadOnly():
+            return
+        candidate = normalize_username_handle(self.handle_edit.text())
+        if not candidate:
+            self.handle_hint.setText("Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens.")
+            self.handle_hint.setStyleSheet("")
+            return
+        if not automatic_network_allowed(self.settings):
+            self.handle_hint.setText("Offline mode — the handle will be checked when you publish.")
+            self.handle_hint.setStyleSheet(f"color:{TEXT_SECONDARY};")
+            return
+        self.handle_hint.setText("Checking handle availability…")
+        self.handle_hint.setStyleSheet(f"color:{TEXT_SECONDARY};")
+        self._handle_check_timer.start()
+
+    def _check_handle_availability(self) -> None:
+        if self._mode != "owner" or not self._editing or self.handle_edit.isReadOnly():
+            return
+        candidate = normalize_username_handle(self.handle_edit.text())
+        if not candidate or not automatic_network_allowed(self.settings):
+            return
+        serial = self._handle_check_serial
+        self._handle_check_inflight = True
+
+        def work():
+            with self._central_profile_client() as client:
+                return client.check_handle_availability(candidate)
+
+        worker = self._tasks.start(
+            "SafeLauncher-ProfileHandleAvailability",
+            work,
+            lambda result, expected_serial=serial, expected_handle=candidate: self._handle_availability_done(
+                result, expected_serial, expected_handle
+            ),
+        )
+        worker.error_occurred.connect(
+            lambda error, expected_serial=serial, expected_handle=candidate: self._handle_availability_error(
+                error, expected_serial, expected_handle
+            )
+        )
+
+    def _handle_availability_done(self, result: Any, serial: int, handle: str) -> None:
+        if serial != self._handle_check_serial or handle != normalize_username_handle(self.handle_edit.text()):
+            return
+        self._handle_check_inflight = False
+        available = isinstance(result, bool) and result
+        self._handle_availability = available
+        if available:
+            self.handle_hint.setText("Handle is available. It becomes stable after publishing.")
+            self.handle_hint.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
+        else:
+            self.handle_hint.setText("That handle is already taken. Choose another one.")
+            self.handle_hint.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+
+    def _handle_availability_error(self, _error: str, serial: int, handle: str) -> None:
+        if serial != self._handle_check_serial or handle != normalize_username_handle(self.handle_edit.text()):
+            return
+        self._handle_check_inflight = False
+        self._handle_availability = None
+        self.handle_hint.setText("Could not check availability; the server will verify it when you publish.")
+        self.handle_hint.setStyleSheet(f"color:{TEXT_SECONDARY};")
 
     def _on_auth_progress(self, message: str) -> None:
         """Render device-login progress emitted by the worker thread."""
@@ -1373,6 +1595,7 @@ class ProfilePageWidget(QWidget):
             remote_settings = {
                 **self._profile_settings,
                 "display_name": remote.get("display_name", self._profile_settings.get("display_name", "Player")),
+                "bio": remote.get("bio", self._profile_settings.get("bio", "")),
                 "avatar": remote.get("avatar"),
                 "background": remote.get("background"),
                 "public_handle": remote.get("handle", self._profile_settings.get("public_handle", "")),
@@ -1435,6 +1658,21 @@ class ProfilePageWidget(QWidget):
                 "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens.",
             )
             return
+        if not bool(self._profile_settings.get("published")):
+            if self._handle_check_inflight:
+                QMessageBox.information(
+                    self,
+                    "Checking profile handle",
+                    "Wait for the handle availability check to finish, then save again.",
+                )
+                return
+            if self._handle_availability is False:
+                QMessageBox.warning(
+                    self,
+                    "Profile handle unavailable",
+                    "That handle is already taken. Choose another one.",
+                )
+                return
         selected = self.background_combo.currentData()
         if selected == "custom":
             background = self._profile_settings.get("background", {})
@@ -1444,6 +1682,7 @@ class ProfilePageWidget(QWidget):
         value.update({
             "display_name": name,
             "public_handle": handle,
+            "bio": self.bio_edit.toPlainText(),
             "avatar": self._draft_avatar,
             "background": background,
         })
@@ -1476,17 +1715,26 @@ class ProfilePageWidget(QWidget):
         color = QColorDialog.getColor(initial, self, "Choose profile background")
         if color.isValid():
             draft_name = self.name_edit.text()
+            draft_handle = self.handle_edit.text()
+            draft_bio = self.bio_edit.toPlainText()
             self.background_combo.setCurrentIndex(self.background_combo.findData("custom"))
             self._profile_settings["background"] = {"kind": "solid", "color": color.name().upper()}
             self._render(build_public_projection(self.db, {
                 **self._profile_settings,
                 "display_name": draft_name or self._profile_settings.get("display_name", "Player"),
+                "public_handle": draft_handle or self._profile_settings.get("public_handle", ""),
+                "bio": draft_bio,
                 "avatar": self._draft_avatar,
                 "background": self._profile_settings["background"],
             }))
             # Rendering also refreshes the owner editor. Restore the in-flight
             # draft so choosing a color does not discard typed fields.
-            self.name_edit.setText(draft_name)
+            with QSignalBlocker(self.name_edit), QSignalBlocker(self.handle_edit), QSignalBlocker(self.bio_edit):
+                self.name_edit.setText(draft_name)
+                self.handle_edit.setText(draft_handle)
+                self.bio_edit.setPlainText(draft_bio)
+            self._update_bio_count()
+            self._schedule_handle_availability(draft_handle)
 
     def _publish(self) -> None:
         if self._mode != "owner":

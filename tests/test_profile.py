@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 from PIL import Image
 from PyQt6.QtCore import QSettings
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from core.profile_assets import MAX_AVATAR_BYTES, normalize_avatar, validate_avatar_payload
 from core.profile_models import (
@@ -20,7 +20,7 @@ from core.profile_models import (
     build_public_projection,
     load_profile_settings,
     normalize_public_document, normalize_social_snapshot, normalize_username_handle,
-    profile_username_suggestion, steam_banner_url,
+    profile_username_suggestion, steam_artwork_url,
     save_profile_settings,
 )
 from database import GameDatabase
@@ -35,6 +35,7 @@ from core.central_auth import (
     get_central_auth_config,
 )
 from ui.components.profile_page import ProfilePageWidget
+from ui.components.sidebar import HeaderBar
 
 
 class ProfileModelTests(unittest.TestCase):
@@ -65,10 +66,12 @@ class ProfileModelTests(unittest.TestCase):
             settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
             saved = save_profile_settings(settings, {
                 "display_name": "  Martin   Player ",
+                "bio": "bio " * 100,
                 "background": {"kind": "gradient", "stops": ["#101010", "#AABBCC"], "angle": 999},
             })
             loaded = load_profile_settings(settings)
             self.assertEqual(loaded["display_name"], "Martin Player")
+            self.assertLessEqual(len(loaded["bio"]), 160)
             self.assertEqual(loaded["background"]["angle"], 360)
             self.assertEqual(saved["avatar"], loaded["avatar"])
 
@@ -81,6 +84,7 @@ class ProfileModelTests(unittest.TestCase):
             document = build_public_projection(db, {
                 "display_name": "Player",
                 "public_handle": "01234567890123456789",
+                "bio": "  A   public   bio. ",
                 "background": DEFAULT_BACKGROUND,
             })
             encoded = json.dumps(document)
@@ -90,7 +94,8 @@ class ProfileModelTests(unittest.TestCase):
             self.assertNotIn("owner_token", encoded)
             self.assertEqual(document["stats"]["playtime_seconds"], 3600)
             self.assertEqual(document["games"][0]["app_id"], "12345")
-            self.assertEqual(document["games"][0]["banner_url"], steam_banner_url("12345"))
+            self.assertEqual(document["bio"], "A public bio.")
+            self.assertEqual(document["games"][0]["artwork_url"], steam_artwork_url("12345"))
             self.assertEqual(document["games"][0]["achievements"]["unlocked_count"], 0)
         finally:
             db.close()
@@ -137,11 +142,32 @@ class ProfileModelTests(unittest.TestCase):
         unsafe["games"] = [{
             "name": "Game",
             "app_id": "123",
-            "banner_url": "https://attacker.example/image.jpg",
+            "artwork_url": "https://attacker.example/image.jpg",
             "achievements": {"recent": []},
         }]
         normalized_unsafe = normalize_public_document(unsafe)
-        self.assertEqual(normalized_unsafe["games"][0]["banner_url"], steam_banner_url("123"))
+        self.assertEqual(normalized_unsafe["games"][0]["artwork_url"], steam_artwork_url("123"))
+
+    def test_public_bio_and_artwork_are_bounded_and_legacy_artwork_is_replaced(self):
+        document = normalize_public_document({
+            "schema_version": 1,
+            "handle": "01234567890123456789",
+            "display_name": "Visible",
+            "bio": "x" * 500,
+            "background": DEFAULT_BACKGROUND,
+            "games": [{
+                "name": "Game",
+                "app_id": "123",
+                "banner_url": "https://cdn.akamai.steamstatic.com/steam/apps/123/header.jpg",
+                "artwork_url": "https://cdn.akamai.steamstatic.com/steam/apps/456/capsule_616x353.jpg",
+                "achievements": {"recent": [{"app_id": "456", "api_name": "wrong"}]},
+            }],
+            "favorite_games": [],
+            "recent_achievements": [],
+        })
+        self.assertEqual(document["bio"], "x" * 160)
+        self.assertEqual(document["games"][0]["artwork_url"], steam_artwork_url("123"))
+        self.assertEqual(document["games"][0]["achievements"]["recent"], [])
 
     def test_owner_token_rotation_sends_new_token_without_returning_it(self):
         response = Mock(status_code=200)
@@ -209,6 +235,23 @@ class ProfileModelTests(unittest.TestCase):
 
         client.remove_friend(handle, target)
         self.assertEqual(session.request.call_args.args[:2], ("DELETE", "https://profiles.example/api/profile/v1/01234567890123456789/friends/abcdefabcdefabcdefabcd"))
+
+    def test_handle_availability_is_public_and_validates_response_shape(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {"handle": "new-player", "available": True}
+        session = Mock()
+        session.request.return_value = response
+        client = ProfileServiceClient("https://profiles.example")
+        client.session = session
+
+        self.assertTrue(client.check_handle_availability("@New Player"))
+        request = session.request.call_args
+        self.assertEqual(request.args[:2], ("GET", "https://profiles.example/api/profile/v1/handles/new-player/availability"))
+        self.assertNotIn("Authorization", request.kwargs["headers"])
+
+        response.json.return_value = {"handle": "other", "available": "yes"}
+        with self.assertRaisesRegex(ProfileServiceError, "invalid handle availability"):
+            client.check_handle_availability("other")
 
     def test_v2_client_uses_central_bearer_and_never_sends_legacy_token(self):
         response = Mock(status_code=200)
@@ -387,6 +430,91 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertFalse(page.friends_section.isHidden())
                 page.show_owner()
                 self.assertEqual(page._mode, "owner")
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
+    def test_profile_editor_bio_and_sixth_game_navigation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            db = GameDatabase(":memory:")
+            page = ProfilePageWidget(db, settings)
+            try:
+                games = [{
+                    "name": f"Game {index}",
+                    "app_id": str(1000 + index),
+                    "artwork_url": f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{1000 + index}/capsule_616x353.jpg",
+                    "playtime_seconds": index * 3600,
+                    "achievements": {"unlocked_count": index, "total_count": 10, "recent": []},
+                } for index in range(6)]
+                public = normalize_public_document({
+                    "schema_version": 1,
+                    "handle": "01234567890123456789",
+                    "display_name": "Public Player",
+                    "bio": "A short public bio",
+                    "background": DEFAULT_BACKGROUND,
+                    "stats": {},
+                    "games": games,
+                    "favorite_games": [],
+                    "recent_achievements": [],
+                })
+                self.assertTrue(page.show_public(public))
+                self.assertFalse(page.bio_label.isHidden())
+                self.assertEqual(page.games_grid.count(), 6)  # five games plus See more
+                page.games_grid.itemAt(5).widget().clicked.emit()
+                self.assertEqual(page.games_stack.currentIndex(), 1)
+                self.assertEqual(page.games_all_grid.count(), 6)
+                page.games_all_grid.itemAt(0).widget().clicked.emit(games[0])
+                self.assertEqual(page.games_stack.currentIndex(), 2)
+                page.btn_games_back.click()
+                self.assertEqual(page.games_stack.currentIndex(), 1)
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
+    def test_header_uses_one_combined_identity_control(self):
+        class TestWindow(QMainWindow):
+            def _toggle_maximize(self):
+                pass
+
+        window = TestWindow()
+        header = HeaderBar(window)
+        try:
+            header.set_profile_identity("Martin Player", "martin-player")
+            self.assertEqual(header.btn_profile.text(), "Martin Player")
+            self.assertIn("@martin-player", header.btn_profile.toolTip())
+            self.assertFalse(hasattr(header, "profile_identity_label"))
+            self.assertIsNotNone(header.btn_profile.menu())
+        finally:
+            header.deleteLater()
+            window.deleteLater()
+            self.app.processEvents()
+
+    def test_editor_blocks_a_known_taken_handle_before_local_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            save_profile_settings(settings, {
+                "display_name": "Player",
+                "public_handle": "taken-name",
+                "published": False,
+                "bio": "old bio",
+                "background": DEFAULT_BACKGROUND,
+            })
+            db = GameDatabase(":memory:")
+            page = ProfilePageWidget(db, settings)
+            try:
+                page._start_edit()
+                page._handle_availability = False
+                page.name_edit.setText("New Name")
+                with patch("ui.components.profile_page.QMessageBox.warning") as warning:
+                    page._save_edit()
+                warning.assert_called_once()
+                self.assertTrue(page._editing)
+                self.assertEqual(load_profile_settings(settings)["display_name"], "Player")
             finally:
                 page.close()
                 page.deleteLater()

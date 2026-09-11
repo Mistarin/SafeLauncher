@@ -21,9 +21,12 @@ function fetchThroughGateway(request: Request, requestEnv: Env = env) {
 describe("profile gateway", () => {
   it("allows only the public profile read and exact authenticated routes", () => {
     expect(classify("/api/profile/v1/01234567890123456789", "GET").kind).toBe("public");
+    expect(classify("/api/profile/v1/martin-player", "GET").kind).toBe("public");
+    expect(classify("/api/profile/v1/handles/martin-player/availability", "GET").kind).toBe("public");
     expect(classify("/api/telemetry/ping", "POST").kind).toBe("public");
     expect(classify("/api/telemetry/ping", "GET").kind).toBe("invalid");
     expect(classify("/api/profile/v1/01234567890123456789", "POST").kind).toBe("invalid");
+    expect(classify("/api/profile/v1/handles/martin-player/availability", "POST").kind).toBe("invalid");
     expect(classify("/api/profile/v2/me", "PUT").kind).toBe("auth");
     expect(classify("/api/profile/v2/me/claim", "POST").kind).toBe("auth");
     expect(classify("/api/profile/v2/me/friends/01234567890123456789", "DELETE").kind).toBe("auth");

@@ -134,6 +134,26 @@ async function dispatch(
       });
     }
 
+    const availabilityMatch = url.pathname.match(
+      /^\/api\/profile\/v1\/handles\/([^/]+)\/availability$/,
+    );
+    if (availabilityMatch) {
+      if (method !== "GET")
+        throw new ApiError(405, "method_not_allowed", "Method not allowed.");
+      let handle = "";
+      try {
+        handle = decodeURIComponent(availabilityMatch[1]).trim().toLowerCase();
+      } catch {
+        throw new ApiError(400, "invalid_handle", "The profile handle is invalid.");
+      }
+      if (!validHandle(handle))
+        throw new ApiError(400, "invalid_handle", "The profile handle is invalid.");
+      const result = await ctx.runQuery(internal.profiles.handleAvailable, { handle });
+      // Availability is a uniqueness hint, not cacheable public profile data;
+      // the create mutation remains the authoritative race-safe check.
+      return jsonResponse(result);
+    }
+
     if (url.pathname === "/api/telemetry/ping" && method === "POST") {
       const body = await readJsonBody(req);
       const clientId = body.clientId;
