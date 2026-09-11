@@ -111,7 +111,7 @@ from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
 from core.central_auth import CentralAuthSession
 from core.profile_service import ProfileServiceClient, get_profile_service_url
-from core.profile_models import HANDLE_RE
+from core.profile_models import HANDLE_RE, load_profile_settings
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -356,6 +356,7 @@ class MainWindow(QMainWindow):
         self.title_bar.export_save_requested.connect(self._on_export)
         self.title_bar.import_save_requested.connect(self._on_import)
         self.title_bar.disk_manager_requested.connect(self._open_disk_manager)
+        self._update_header_identity()
 
         # Non-intrusive Update Notification Banner (Hidden by default)
         self.update_banner = QFrame()
@@ -1670,6 +1671,16 @@ class MainWindow(QMainWindow):
         self.title_bar.btn_max.setIcon(get_app_icon("restore" if maximized else "maximize", color="#F4F4F5"))
         self.title_bar.btn_max.setToolTip("Restore window" if maximized else "Maximize window")
 
+    def _update_header_identity(self) -> None:
+        """Keep the local username visible without exposing auth credentials."""
+        if not hasattr(self, "title_bar"):
+            return
+        profile = load_profile_settings(self.settings, fallback_name=self.user_name)
+        self.title_bar.set_profile_identity(
+            str(profile.get("display_name", "") or self.user_name),
+            str(profile.get("public_handle", "") or ""),
+        )
+
     def _open_settings(self):
         """Open launcher preferences and persist profile changes."""
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
@@ -1755,6 +1766,7 @@ class MainWindow(QMainWindow):
         # dialog, so a rejected session may still have changed the config.
         self._maybe_refresh_cloud_config(cloud_before)
         self._apply_network_policy_change(offline_before)
+        self._update_header_identity()
         dialog.deleteLater()
 
     def _maybe_refresh_cloud_config(self, before: tuple):
@@ -5101,12 +5113,14 @@ class MainWindow(QMainWindow):
 
     def _on_profile_changed(self):
         """Persist profile presentation metadata through the private ledger."""
+        self._update_header_identity()
         if hasattr(self, "profile_page"):
             self.profile_page.mark_local_data_changed()
         self._sync_profile_metadata_async()
 
     def _on_private_profile_changed(self):
         """Persist a publish-state or handle change without republishing."""
+        self._update_header_identity()
         self._sync_profile_metadata_async()
 
     def _sync_profile_metadata_async(self):

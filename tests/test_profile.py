@@ -19,7 +19,8 @@ from core.profile_models import (
     DEFAULT_BACKGROUND,
     build_public_projection,
     load_profile_settings,
-    normalize_public_document, normalize_social_snapshot,
+    normalize_public_document, normalize_social_snapshot, normalize_username_handle,
+    profile_username_suggestion, steam_banner_url,
     save_profile_settings,
 )
 from database import GameDatabase
@@ -88,11 +89,35 @@ class ProfileModelTests(unittest.TestCase):
             self.assertNotIn("game.exe", encoded)
             self.assertNotIn("owner_token", encoded)
             self.assertEqual(document["stats"]["playtime_seconds"], 3600)
+            self.assertEqual(document["games"][0]["app_id"], "12345")
+            self.assertEqual(document["games"][0]["banner_url"], steam_banner_url("12345"))
+            self.assertEqual(document["games"][0]["achievements"]["unlocked_count"], 0)
+        finally:
+            db.close()
+
+    def test_projection_groups_account_achievements_by_steam_app(self):
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game("Achievement Game", "/private/path", "game.exe", "umu", steam_id="98765")
+            db.save_achievement_schema(game_id, "98765", [
+                {"api_name": "ACH_ONE", "display_name": "First"},
+                {"api_name": "ACH_TWO", "display_name": "Second"},
+            ])
+            db.record_achievement_state(game_id, "98765", {"ACH_ONE": 1_700_000_000})
+            document = build_public_projection(db, {
+                "display_name": "Player",
+                "public_handle": "player",
+                "background": DEFAULT_BACKGROUND,
+            })
+            game = next(item for item in document["games"] if item["app_id"] == "98765")
+            self.assertEqual(game["achievements"]["unlocked_count"], 1)
+            self.assertEqual(game["achievements"]["total_count"], 2)
+            self.assertEqual(game["achievements"]["recent"][0]["name"], "First")
         finally:
             db.close()
 
     def test_remote_document_rejects_bad_handle_and_keeps_only_public_shape(self):
-        bad = {"schema_version": 1, "handle": "short", "display_name": "x"}
+        bad = {"schema_version": 1, "handle": "ab", "display_name": "x"}
         self.assertIsNone(normalize_public_document(bad))
         valid = {
             "schema_version": 1,
@@ -107,6 +132,16 @@ class ProfileModelTests(unittest.TestCase):
         self.assertEqual(normalized["display_name"], "Visible")
         self.assertEqual(normalized["stats"]["games_count"], 1)
         self.assertNotIn("path", normalized)
+
+        unsafe = dict(valid)
+        unsafe["games"] = [{
+            "name": "Game",
+            "app_id": "123",
+            "banner_url": "https://attacker.example/image.jpg",
+            "achievements": {"recent": []},
+        }]
+        normalized_unsafe = normalize_public_document(unsafe)
+        self.assertEqual(normalized_unsafe["games"][0]["banner_url"], steam_banner_url("123"))
 
     def test_owner_token_rotation_sends_new_token_without_returning_it(self):
         response = Mock(status_code=200)
@@ -136,12 +171,17 @@ class ProfileModelTests(unittest.TestCase):
                 "created_at": 12,
             }],
             "outgoing_requests": [],
-            "blocked_handles": ["short", "FEDCFEDCFEDCFEDCFEDC"],
+                "blocked_handles": ["ab", "FEDCFEDCFEDCFEDCFEDC"],
         })
         self.assertEqual(snapshot["friends"][0]["display_name"], "Friend One")
         self.assertEqual(snapshot["friends"][0]["updated_at"], 0)
         self.assertEqual(snapshot["incoming_requests"][0]["request_id"], "request-1")
         self.assertEqual(snapshot["blocked_handles"], ["fedcfedcfedcfedcfedc"])
+
+    def test_username_handles_are_ascii_and_suggested_from_oidc_claims(self):
+        self.assertEqual(normalize_username_handle("Ž Martin 42"), "z-martin-42")
+        self.assertEqual(profile_username_suggestion({"preferred_username": "Martin_42"}), "martin_42")
+        self.assertEqual(profile_username_suggestion({"email": "martin@example.test"}), "player")
 
     def test_social_client_uses_owner_authentication_and_routes(self):
         response = Mock(status_code=200)
@@ -279,6 +319,26 @@ class ProfileModelTests(unittest.TestCase):
 
         self.assertEqual(http.post.call_count, 1)
         self.assertEqual(http.post.call_args.kwargs["data"]["grant_type"], "refresh_token")
+
+    def test_userinfo_uses_access_token_and_returns_oidc_claims(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "sub": "auth0|opaque-subject",
+            "preferred_username": "martin_42",
+            "name": "Martin",
+            "email": "private@example.test",
+        }
+        http = Mock()
+        http.get.return_value = response
+        session = CentralAuthSession(
+            CentralAuthConfig("https://login.example", "client-id", "https://profiles.example"),
+            session=http,
+        )
+        with patch("core.central_auth.set_secret", return_value=True):
+            session._set_tokens({"access_token": "access-token", "expires_in": 3600})
+        self.assertEqual(session.userinfo()["preferred_username"], "martin_42")
+        self.assertEqual(http.get.call_args.args[0], "https://login.example/userinfo")
+        self.assertEqual(http.get.call_args.kwargs["headers"]["Authorization"], "Bearer access-token")
 
     def test_resource_server_denial_has_actionable_auth0_guidance(self):
         response = Mock(status_code=403)

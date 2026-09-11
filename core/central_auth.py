@@ -58,6 +58,10 @@ class CentralAuthConfig:
     def token_url(self) -> str:
         return urljoin(self.issuer_base, "oauth/token")
 
+    @property
+    def userinfo_url(self) -> str:
+        return urljoin(self.issuer_base, "userinfo")
+
 
 def _settings() -> QSettings:
     return QSettings("SafeLauncher", "SafeLauncher")
@@ -302,3 +306,44 @@ class CentralAuthSession:
         if not token:
             raise CentralAuthError("Sign in to manage your public profile.", "not_signed_in")
         return f"Bearer {token}"
+
+    def userinfo(self) -> dict[str, Any]:
+        """Return the authenticated OIDC claims used for first-login setup.
+
+        Only the short-lived access token is sent to Auth0.  The caller should
+        persist a derived public handle, never the email or raw identity
+        claims.  A single refresh retry handles an access token that expires
+        between ``authorization_header`` and this request.
+        """
+        auth_header = self.authorization_header()
+        for attempt in range(2):
+            response = None
+            try:
+                response = self.http.get(
+                    self.config.userinfo_url,
+                    headers={"Accept": "application/json", "Authorization": auth_header},
+                    timeout=(5, 15),
+                )
+            except requests.RequestException as exc:
+                raise CentralAuthError(f"The identity provider is unreachable: {exc}", "unreachable") from exc
+            try:
+                try:
+                    value = response.json()
+                except ValueError:
+                    value = {}
+                if response.status_code == 401 and attempt == 0:
+                    auth_header = self.authorization_header(force_refresh=True)
+                    continue
+                if response.status_code >= 400 or not isinstance(value, dict):
+                    raise CentralAuthError(
+                        str(value.get("message") or "The identity provider rejected the identity request.")
+                        if isinstance(value, dict) else "The identity provider returned an invalid identity response.",
+                        "userinfo_failed",
+                    )
+                return value
+            finally:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+        raise CentralAuthError("The identity provider rejected the identity request.", "userinfo_failed")

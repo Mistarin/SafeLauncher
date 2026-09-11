@@ -42,6 +42,14 @@ are already compressed by the desktop client and embedded in the document;
 backgrounds are theme data (colors, gradients, and presets), not uploaded
 files.
 
+The public projection includes a bounded `games` library. Each entry contains
+only the Steam AppID, display name, Steam CDN header image URL, playtime,
+favorite state, and an achievement summary (`unlocked_count`, `total_count`,
+percentage, and a short list of unlocked achievements). Installation paths,
+executables, save locations, cloud keys, email addresses, and OIDC subjects
+are never part of this document. Older profiles without `games` remain
+readable and are upgraded when their owner publishes again.
+
 The service also owns friend requests, accepted friendships, and directional
 blocks. Relationship writes require the authenticated central identity; public
 profile reads do not reveal a friend list. A request is addressed by the recipient's

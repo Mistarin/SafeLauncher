@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QTimer
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSettings, QTimer
 from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import (
     QColorDialog, QFileDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-    QScrollArea, QSizePolicy, QVBoxLayout, QWidget, QApplication,
+    QProgressBar, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
+    QApplication, QInputDialog,
 )
 
 from core.profile_assets import AvatarError, normalize_avatar
 from core.profile_models import (
-    BACKGROUND_PRESETS, build_public_projection, generate_profile_handle,
-    HANDLE_RE, load_profile_settings, normalize_background,
-    normalize_public_document, save_profile_settings,
+    BACKGROUND_PRESETS, build_public_projection,
+    HANDLE_RE, load_profile_settings, normalize_background, normalize_username_handle,
+    normalize_public_document, profile_username_suggestion, save_profile_settings,
 )
 from core.profile_service import ProfileServiceClient, ProfileServiceError, get_profile_service_url, is_local_service_url
 from core.central_auth import CentralAuthError, CentralAuthSession
@@ -28,6 +30,118 @@ from ui.theme import (
     ACCENT_PRIMARY, BG_APP, BORDER, SEMANTIC_ERROR, SEMANTIC_SUCCESS,
     SURFACE, SURFACE_ELEVATED, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 )
+
+
+class ProfileGameCard(QFrame):
+    """Compact, clickable public-library card with playtime and achievements."""
+
+    clicked = pyqtSignal(dict)
+
+    def __init__(self, game: dict[str, Any], parent=None):
+        super().__init__(parent)
+        self.game = dict(game)
+        self._pixmap = QPixmap()
+        self.setObjectName("profileGameCard")
+        self.setMinimumSize(180, 188)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Open game profile")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 9)
+        layout.setSpacing(6)
+
+        self.banner = QLabel("Steam artwork")
+        self.banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.banner.setMinimumHeight(86)
+        self.banner.setMaximumHeight(108)
+        self.banner.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none; font-size:11px;")
+        self.banner.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(self.banner)
+
+        self.name = QLabel(str(self.game.get("name", "Game")))
+        self.name.setTextFormat(Qt.TextFormat.PlainText)
+        self.name.setWordWrap(True)
+        self.name.setMaximumHeight(34)
+        self.name.setStyleSheet(f"color:{TEXT_PRIMARY}; font-size:12px; font-weight:700; border:none;")
+        self.name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(self.name)
+
+        achievement = self.game.get("achievements") if isinstance(self.game.get("achievements"), dict) else {}
+        unlocked = max(0, int(achievement.get("unlocked_count", 0) or 0))
+        total = max(unlocked, int(achievement.get("total_count", 0) or 0))
+        playtime = max(0, int(self.game.get("playtime_seconds", 0) or 0))
+        meta = QHBoxLayout()
+        meta.setSpacing(6)
+        self.playtime = QLabel(self._format_hours(playtime))
+        self.playtime.setStyleSheet(f"color:{TEXT_SECONDARY}; font-size:10px; border:none;")
+        self.playtime.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        meta.addWidget(self.playtime)
+        self.achievement_count = QLabel(f"{unlocked}/{total} achievements" if total else "No achievements")
+        self.achievement_count.setStyleSheet(f"color:{TEXT_SECONDARY}; font-size:10px; border:none;")
+        self.achievement_count.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        meta.addWidget(self.achievement_count, 1)
+        layout.addLayout(meta)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(round(float(achievement.get("percentage", 0) or 0) * 10))
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(5)
+        self.progress.setStyleSheet(
+            f"QProgressBar {{ background:{SURFACE}; border:none; border-radius:2px; }}"
+            f"QProgressBar::chunk {{ background:{ACCENT_PRIMARY}; border-radius:2px; }}"
+        )
+        self.progress.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(self.progress)
+        for child in (self.banner, self.name, self.playtime, self.achievement_count, self.progress):
+            child.installEventFilter(self)
+
+    @staticmethod
+    def _format_hours(seconds: int) -> str:
+        return f"{seconds / 3600:.1f} h"
+
+    def set_banner_path(self, path: str) -> None:
+        pixmap = QPixmap(path)
+        if not pixmap.isNull():
+            self.set_banner_pixmap(pixmap)
+
+    def set_banner_bytes(self, data: bytes) -> None:
+        pixmap = QPixmap()
+        if data:
+            pixmap.loadFromData(data)
+        if not pixmap.isNull():
+            self.set_banner_pixmap(pixmap)
+
+    def set_banner_pixmap(self, pixmap: QPixmap) -> None:
+        self._pixmap = pixmap
+        self.banner.setText("")
+        self._refresh_banner()
+
+    def _refresh_banner(self) -> None:
+        if self._pixmap.isNull():
+            return
+        self.banner.setPixmap(self._pixmap.scaled(
+            max(1, self.banner.width()), max(1, self.banner.height()),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        ))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._refresh_banner()
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(dict(self.game))
+            return True
+        return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(dict(self.game))
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
 
 class ProfilePageWidget(QWidget):
@@ -65,6 +179,12 @@ class ProfilePageWidget(QWidget):
         self._social_loading = False
         self._social_mutating = False
         self._auth_in_flight = False
+        self._game_cards: dict[str, ProfileGameCard] = {}
+        self._banner_cache: dict[str, bytes] = {}
+        self._banner_inflight: set[str] = set()
+        self._banner_render_generation = 0
+        self._banner_loading = False
+        self._selected_profile_game: dict[str, Any] | None = None
         self._publish_timer = QTimer(self)
         self._publish_timer.setSingleShot(True)
         self._publish_timer.setInterval(1500)
@@ -81,6 +201,8 @@ class ProfilePageWidget(QWidget):
             QScrollArea#profileScroll > QWidget > QWidget {{ background: transparent; }}
             QWidget#profileCanvas {{ background: transparent; }}
             QFrame#profileSection {{ background: {SURFACE}; border: none; }}
+            QFrame#profileGameCard {{ background: {SURFACE_ELEVATED}; border: none; border-radius: 8px; }}
+            QFrame#profileGameCard:hover {{ background: #252A34; }}
             QFrame#profileHero {{ border: none; }}
             QLabel#profileEyebrow {{ color: {TEXT_MUTED}; font-size: 11px; font-weight: 700; letter-spacing: 1px; }}
             QLabel#profileName {{ color: {TEXT_PRIMARY}; font-size: 28px; font-weight: 750; }}
@@ -193,6 +315,18 @@ class ProfilePageWidget(QWidget):
         self.name_edit.setMaxLength(64)
         name_row.addWidget(self.name_edit, 1)
         editor_layout.addLayout(name_row)
+        handle_row = QHBoxLayout()
+        handle_row.addWidget(QLabel("Profile handle"))
+        self.handle_edit = QLineEdit()
+        self.handle_edit.setObjectName("profileEditorInput")
+        self.handle_edit.setMaxLength(40)
+        self.handle_edit.setPlaceholderText("username")
+        handle_row.addWidget(self.handle_edit, 1)
+        editor_layout.addLayout(handle_row)
+        self.handle_hint = QLabel("Your handle is the stable public profile address. It can be changed before first publishing.")
+        self.handle_hint.setObjectName("profileMuted")
+        self.handle_hint.setWordWrap(True)
+        editor_layout.addWidget(self.handle_hint)
         avatar_row = QHBoxLayout()
         avatar_row.addWidget(QLabel("Avatar"))
         self.btn_avatar = QPushButton("Choose image")
@@ -261,6 +395,79 @@ class ProfilePageWidget(QWidget):
             self.stats_grid.addLayout(box, 0, index)
             self.stat_labels[key] = value
         self.column_layout.addWidget(self.stats_section)
+
+        self.games_section = self._section("Games library")
+        games_layout = self.games_section.layout()
+        games_layout.setContentsMargins(18, 14, 18, 14)
+        self.games_stack = QStackedWidget()
+
+        self.games_library = QWidget()
+        self.games_grid = QGridLayout(self.games_library)
+        self.games_grid.setContentsMargins(0, 0, 0, 0)
+        self.games_grid.setHorizontalSpacing(10)
+        self.games_grid.setVerticalSpacing(10)
+        self.games_stack.addWidget(self.games_library)
+
+        self.game_detail = QWidget()
+        detail_layout = QVBoxLayout(self.game_detail)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(10)
+        detail_toolbar = QHBoxLayout()
+        self.btn_games_back = QPushButton("All games")
+        self.btn_games_back.setIcon(get_icon("ph.arrow-left-bold", color=TEXT_SECONDARY))
+        self.btn_games_back.clicked.connect(lambda: self.games_stack.setCurrentIndex(0))
+        detail_toolbar.addWidget(self.btn_games_back)
+        detail_toolbar.addStretch()
+        self.game_detail_app_id = QLabel()
+        self.game_detail_app_id.setObjectName("profileMuted")
+        detail_toolbar.addWidget(self.game_detail_app_id)
+        detail_layout.addLayout(detail_toolbar)
+
+        detail_body = QHBoxLayout()
+        detail_body.setSpacing(16)
+        self.game_detail_banner = QLabel("Steam artwork")
+        self.game_detail_banner.setFixedSize(270, 126)
+        self.game_detail_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.game_detail_banner.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none;")
+        detail_body.addWidget(self.game_detail_banner, 0, Qt.AlignmentFlag.AlignTop)
+        detail_info = QVBoxLayout()
+        detail_info.setSpacing(6)
+        self.game_detail_name = QLabel()
+        self.game_detail_name.setObjectName("profileName")
+        self.game_detail_name.setTextFormat(Qt.TextFormat.PlainText)
+        self.game_detail_name.setStyleSheet(f"color:{TEXT_PRIMARY}; font-size:20px; font-weight:750;")
+        self.game_detail_name.setWordWrap(True)
+        detail_info.addWidget(self.game_detail_name)
+        self.game_detail_playtime = QLabel()
+        self.game_detail_playtime.setObjectName("profileMuted")
+        detail_info.addWidget(self.game_detail_playtime)
+        self.game_detail_achievements = QLabel()
+        self.game_detail_achievements.setObjectName("profileMuted")
+        detail_info.addWidget(self.game_detail_achievements)
+        self.game_detail_progress = QProgressBar()
+        self.game_detail_progress.setRange(0, 1000)
+        self.game_detail_progress.setTextVisible(False)
+        self.game_detail_progress.setFixedHeight(7)
+        self.game_detail_progress.setStyleSheet(
+            f"QProgressBar {{ background:{SURFACE}; border:none; border-radius:3px; }}"
+            f"QProgressBar::chunk {{ background:{ACCENT_PRIMARY}; border-radius:3px; }}"
+        )
+        detail_info.addWidget(self.game_detail_progress)
+        detail_info.addStretch()
+        detail_body.addLayout(detail_info, 1)
+        detail_layout.addLayout(detail_body)
+
+        detail_title = QLabel("Unlocked achievements")
+        detail_title.setStyleSheet(f"color:{TEXT_PRIMARY}; font-size:13px; font-weight:700;")
+        detail_layout.addWidget(detail_title)
+        self.game_detail_achievement_list = QListWidget()
+        self.game_detail_achievement_list.setObjectName("profileList")
+        self.game_detail_achievement_list.setMinimumHeight(70)
+        self.game_detail_achievement_list.setMaximumHeight(230)
+        detail_layout.addWidget(self.game_detail_achievement_list)
+        self.games_stack.addWidget(self.game_detail)
+        games_layout.addWidget(self.games_stack)
+        self.column_layout.addWidget(self.games_section)
 
         self.favorite_section = self._section("Favorite games")
         favorite_layout = self.favorite_section.layout()
@@ -512,9 +719,164 @@ class ProfilePageWidget(QWidget):
             self.public_badge.setText("PUBLIC PROFILE")
             self.status_label.setText("Read-only profile")
             self.footer_status.setText("This is a public projection. Private launcher data is not shown.")
+        self._render_games(document)
         self._fill_list(self.favorite_list, document.get("favorite_games"), lambda item: f"♥  {item.get('name', 'Favorite game')}")
         self._fill_list(self.achievement_list, document.get("recent_achievements"), lambda item: f"★  {item.get('name', 'Achievement')}  ·  {item.get('game', 'Game')}")
         self._render_social()
+
+    def _local_banner_path(self, app_id: str) -> str:
+        """Use an existing local banner for the owner without publishing its path."""
+        if self._mode != "owner":
+            return ""
+        for game in self.db.get_all_games():
+            if str(game.steam_id or "").strip() != app_id:
+                continue
+            path = str(game.banner_url or "").strip()
+            if path and os.path.isfile(path):
+                return path
+        return ""
+
+    @staticmethod
+    def _clear_grid(layout: QGridLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _render_games(self, document: dict[str, Any]) -> None:
+        self._banner_render_generation += 1
+        generation = self._banner_render_generation
+        self._selected_profile_game = None
+        self.games_stack.setCurrentIndex(0)
+        self._clear_grid(self.games_grid)
+        self._game_cards = {}
+        raw_games = document.get("games", []) if isinstance(document.get("games"), list) else []
+        games = [game for game in raw_games if isinstance(game, dict) and str(game.get("app_id", ""))]
+        pending: dict[str, str] = {}
+        if not games:
+            empty = QLabel("No Steam games are visible on this profile yet.")
+            empty.setObjectName("profileMuted")
+            empty.setWordWrap(True)
+            self.games_grid.addWidget(empty, 0, 0, 1, 3)
+            return
+        for index, game in enumerate(games):
+            app_id = str(game.get("app_id", ""))
+            card = ProfileGameCard(game)
+            card.clicked.connect(self._open_game_detail)
+            self._game_cards[app_id] = card
+            row, column = divmod(index, 3)
+            self.games_grid.addWidget(card, row, column)
+            local_path = self._local_banner_path(app_id)
+            if local_path:
+                card.set_banner_path(local_path)
+                continue
+            url = str(game.get("banner_url", "") or "")
+            if not url:
+                continue
+            if url in self._banner_cache:
+                card.set_banner_bytes(self._banner_cache[url])
+            elif url not in self._banner_inflight:
+                pending[app_id] = url
+        for column in range(3):
+            self.games_grid.setColumnStretch(column, 1)
+        if not pending or not automatic_network_allowed(self.settings):
+            return
+
+        self._banner_loading = True
+        self._banner_inflight.update(pending.values())
+
+        def work():
+            import requests
+            downloaded = {}
+            for app_id, url in pending.items():
+                try:
+                    response = requests.get(
+                        url,
+                        headers={"Accept": "image/jpeg,image/*;q=0.8", "User-Agent": "SafeLauncher/1"},
+                        timeout=(2, 5),
+                    )
+                    try:
+                        if response.status_code == 200 and len(response.content) <= 4 * 1024 * 1024:
+                            downloaded[app_id] = (url, response.content)
+                    finally:
+                        response.close()
+                except requests.RequestException:
+                    continue
+            return downloaded
+
+        worker = self._tasks.start(
+            "SafeLauncher-ProfileBanners",
+            work,
+            lambda result, expected_generation=generation, urls=set(pending.values()): self._banners_loaded(
+                result, expected_generation, urls
+            ),
+        )
+        worker.error_occurred.connect(
+            lambda _error, urls=set(pending.values()): self._banner_request_failed(urls)
+        )
+
+    def _banner_request_failed(self, urls: set[str]) -> None:
+        self._banner_inflight.difference_update(urls)
+        self._banner_loading = bool(self._banner_inflight)
+
+    def _banners_loaded(self, result: Any, generation: int, urls: set[str]) -> None:
+        if not isinstance(result, dict):
+            self._banner_request_failed(urls)
+            return
+        self._banner_inflight.difference_update(urls)
+        for app_id, value in result.items():
+            if not isinstance(value, tuple) or len(value) != 2:
+                continue
+            url, data = value
+            if not isinstance(url, str) or not isinstance(data, bytes) or not data:
+                continue
+            self._banner_cache[url] = data
+            card = self._game_cards.get(str(app_id)) if generation == self._banner_render_generation else None
+            if card is not None:
+                card.set_banner_bytes(data)
+        self._banner_loading = bool(self._banner_inflight)
+
+    def _open_game_detail(self, game: dict[str, Any]) -> None:
+        app_id = str(game.get("app_id", "") or "")
+        if not app_id:
+            return
+        self._selected_profile_game = dict(game)
+        self.game_detail_name.setText(str(game.get("name", f"Steam App {app_id}")))
+        self.game_detail_app_id.setText(f"Steam AppID {app_id}")
+        self.game_detail_playtime.setText(
+            f"Playtime  ·  {ProfileGameCard._format_hours(max(0, int(game.get('playtime_seconds', 0) or 0)))}"
+        )
+        achievement = game.get("achievements") if isinstance(game.get("achievements"), dict) else {}
+        unlocked = max(0, int(achievement.get("unlocked_count", 0) or 0))
+        total = max(unlocked, int(achievement.get("total_count", 0) or 0))
+        percentage = max(0.0, min(100.0, float(achievement.get("percentage", 0) or 0)))
+        self.game_detail_achievements.setText(f"Achievements  ·  {unlocked}/{total} unlocked  ·  {percentage:.1f}%")
+        self.game_detail_progress.setValue(round(percentage * 10))
+        self.game_detail_achievement_list.clear()
+        recent = achievement.get("recent", []) if isinstance(achievement.get("recent"), list) else []
+        if not recent:
+            self.game_detail_achievement_list.addItem(QListWidgetItem("No unlocked achievements published yet."))
+        else:
+            for item in recent:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name", "Achievement"))
+                self.game_detail_achievement_list.addItem(QListWidgetItem(f"✓  {name}"))
+        card = self._game_cards.get(app_id)
+        if card is not None and not card._pixmap.isNull():
+            self.game_detail_banner.setText("")
+            self.game_detail_banner.setPixmap(card._pixmap.scaled(
+                self.game_detail_banner.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+        else:
+            self.game_detail_banner.clear()
+            self.game_detail_banner.setText("Steam artwork")
+        self.games_stack.setCurrentIndex(1)
+        self.scroll.verticalScrollBar().setValue(0)
 
     def _update_social_controls(self, owner_enabled: bool, published: bool, authenticated: bool) -> None:
         """Keep social controls aligned with the owner/public view boundary."""
@@ -862,6 +1224,15 @@ class ProfilePageWidget(QWidget):
         if self._mode != "owner":
             return
         self.name_edit.setText(self._profile_settings.get("display_name", "Player"))
+        handle = str(self._profile_settings.get("public_handle", "") or "")
+        self.handle_edit.setText(handle)
+        published = bool(self._profile_settings.get("published"))
+        self.handle_edit.setReadOnly(published)
+        self.handle_hint.setText(
+            "Published handles are stable so shared profile links keep working."
+            if published else
+            "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens."
+        )
         self.service_url_edit.setText(get_profile_service_url())
         background = normalize_background(self._profile_settings.get("background"))
         found = False
@@ -917,6 +1288,46 @@ class ProfilePageWidget(QWidget):
                 self.auth_progress.emit("Signed in; the old migration token could not be removed locally.")
             return client.current_profile()
 
+    def _setup_username(self, identity: dict[str, Any] | None = None) -> bool:
+        """Collect the first public handle without persisting OIDC claims."""
+        identity = identity if isinstance(identity, dict) else {}
+        local = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        if str(local.get("public_handle", "") or ""):
+            return True
+        suggestion = profile_username_suggestion(identity)
+        while True:
+            value, accepted = QInputDialog.getText(
+                self,
+                "Choose your profile handle",
+                "This handle is used in your public profile URL. You can change it before publishing:",
+                text=suggestion,
+            )
+            if not accepted:
+                return False
+            handle = normalize_username_handle(value)
+            if not handle:
+                QMessageBox.warning(
+                    self,
+                    "Invalid profile handle",
+                    "Use at least 3 characters: lowercase letters, numbers, dots, underscores, or hyphens.",
+                )
+                continue
+            display_name = str(local.get("display_name", "Player") or "Player")
+            identity_name = str(identity.get("name") or identity.get("nickname") or "").strip()
+            if display_name == "Player" and identity_name:
+                display_name = " ".join(identity_name.split())[:64] or display_name
+            self._profile_settings = save_profile_settings(self.settings, {
+                **local,
+                "display_name": display_name,
+                "public_handle": handle,
+                "published": False,
+            })
+            self.profile_changed.emit()
+            return True
+
     def _sign_in(self) -> None:
         if self._auth_in_flight or self._mode != "owner":
             return
@@ -933,7 +1344,14 @@ class ProfilePageWidget(QWidget):
             self.central_auth.device_login(
                 progress=lambda message: self.auth_progress.emit(message),
             )
-            return self._reconcile_authenticated_profile()
+            remote = self._reconcile_authenticated_profile()
+            return {
+                "remote": remote,
+                # Existing profiles already have a stable handle. Avoid an
+                # unnecessary identity request and never retain claims after
+                # the first-login suggestion has been derived.
+                "identity": {} if remote is not None else self.central_auth.userinfo(),
+            }
 
         worker = self._tasks.start("SafeLauncher-CentralSignIn", work, self._sign_in_done)
         worker.error_occurred.connect(self._sign_in_error)
@@ -948,7 +1366,9 @@ class ProfilePageWidget(QWidget):
             self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.footer_status.setText(f"Central sign-in failed: {result}")
             return
-        remote = result if isinstance(result, dict) else None
+        payload = result if isinstance(result, dict) else {}
+        remote = payload.get("remote") if isinstance(payload.get("remote"), dict) else None
+        identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
         if remote is not None:
             remote_settings = {
                 **self._profile_settings,
@@ -964,8 +1384,12 @@ class ProfilePageWidget(QWidget):
             self.settings.sync()
             status_message = "Signed in and connected to your public profile."
         else:
-            status_message = "Signed in. Publish this profile to make it public."
+            if self._setup_username(identity):
+                status_message = f"Signed in as @{self._profile_settings.get('public_handle')}. Publish this profile to make it public."
+            else:
+                status_message = "Signed in. Choose a profile handle before publishing."
         self.show_owner()
+        self.private_profile_changed.emit()
         self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
         self.footer_status.setText(status_message)
 
@@ -998,6 +1422,19 @@ class ProfilePageWidget(QWidget):
         if not name:
             QMessageBox.warning(self, "Profile", "Enter a display name.")
             return
+        handle = self.handle_edit.text().strip().lower()
+        current_handle = str(self._profile_settings.get("public_handle", "") or "").lower()
+        if bool(self._profile_settings.get("published")):
+            handle = current_handle
+        elif not HANDLE_RE.fullmatch(handle):
+            handle = normalize_username_handle(handle)
+        if not handle or not HANDLE_RE.fullmatch(handle):
+            QMessageBox.warning(
+                self,
+                "Profile handle",
+                "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens.",
+            )
+            return
         selected = self.background_combo.currentData()
         if selected == "custom":
             background = self._profile_settings.get("background", {})
@@ -1006,6 +1443,7 @@ class ProfilePageWidget(QWidget):
         value = dict(self._profile_settings)
         value.update({
             "display_name": name,
+            "public_handle": handle,
             "avatar": self._draft_avatar,
             "background": background,
         })
@@ -1067,7 +1505,11 @@ class ProfilePageWidget(QWidget):
             self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.footer_status.setText("The central profile gateway is not configured for this build.")
             return
-        handle = self._profile_settings.get("public_handle") or generate_profile_handle()
+        handle = self._profile_settings.get("public_handle")
+        if not handle:
+            if not self._setup_username({}):
+                return
+            handle = self._profile_settings.get("public_handle")
         self._profile_settings = save_profile_settings(self.settings, {**self._profile_settings, "public_handle": handle}, mark_changed=False)
         self._publish_current_document()
 

@@ -12,8 +12,10 @@ import json
 import re
 import secrets
 import time
+import unicodedata
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
 from PyQt6.QtCore import QSettings
 
@@ -22,11 +24,24 @@ from core.profile_assets import validate_avatar_payload
 
 PRIVATE_PROFILE_VERSION = 4
 PUBLIC_PROFILE_VERSION = 1
-HANDLE_RE = re.compile(r"^[a-f0-9]{20,40}$")
+LEGACY_HANDLE_RE = re.compile(r"^[a-f0-9]{20,40}$")
+USERNAME_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?$")
+HANDLE_RE = re.compile(r"^(?:[a-f0-9]{20,40}|[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?)$")
 COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+STEAM_APP_ID_RE = re.compile(r"^[1-9][0-9]{0,15}$")
+STEAM_BANNER_RE = re.compile(
+    r"^https://(?:cdn\.akamai\.steamstatic\.com|shared\.akamai\.steamstatic\.com|"
+    r"steamcdn-a\.akamaihd\.net)/steam/apps/[1-9][0-9]{0,15}/header\.jpg$"
+)
+STEAM_BANNER_HOSTS = frozenset({
+    "cdn.akamai.steamstatic.com",
+    "shared.akamai.steamstatic.com",
+    "steamcdn-a.akamaihd.net",
+})
 MAX_NAME_LENGTH = 64
-MAX_PUBLIC_GAMES = 24
+MAX_PUBLIC_GAMES = 60
 MAX_PUBLIC_ACHIEVEMENTS = 20
+MAX_PUBLIC_GAME_ACHIEVEMENTS = 20
 MAX_PUBLIC_FRIENDS = 100
 MAX_PUBLIC_FRIEND_REQUESTS = 50
 
@@ -46,6 +61,50 @@ BACKGROUND_PRESETS = {
 
 def generate_profile_handle() -> str:
     return secrets.token_hex(12)
+
+
+def normalize_username_handle(value: Any) -> str:
+    """Turn an Auth0 username or entered name into a stable public handle."""
+    raw = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+    raw = raw.strip().lstrip("@").casefold()
+    raw = re.sub(r"[^a-z0-9._-]+", "-", raw)
+    raw = re.sub(r"[-_.]{2,}", "-", raw).strip("-_.")[:32].strip("-_.")
+    return raw if USERNAME_HANDLE_RE.fullmatch(raw) else ""
+
+
+def profile_username_suggestion(identity: Any) -> str:
+    """Choose a non-secret Auth0 field as the initial handle suggestion."""
+    identity = identity if isinstance(identity, dict) else {}
+    # Never derive a public handle from an email address.  Some Auth0 social
+    # connections omit ``preferred_username``; in that case the user chooses
+    # a handle from a safe display-name suggestion instead.
+    for key in ("preferred_username", "nickname", "name"):
+        candidate = normalize_username_handle(identity.get(key))
+        if candidate:
+            return candidate
+    return "player"
+
+
+def steam_app_id(value: Any) -> str:
+    candidate = str(value or "").strip()
+    return candidate if STEAM_APP_ID_RE.fullmatch(candidate) else ""
+
+
+def steam_banner_url(app_id: Any) -> str:
+    """Return the public Steam header image for a validated AppID."""
+    app_id = steam_app_id(app_id)
+    return f"https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/header.jpg" if app_id else ""
+
+
+def valid_public_banner_url(value: Any) -> bool:
+    """Accept only the fixed Steam CDN header route in untrusted documents."""
+    if not isinstance(value, str) or not STEAM_BANNER_RE.fullmatch(value):
+        return False
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and parsed.hostname in STEAM_BANNER_HOSTS and not parsed.query and not parsed.fragment
 
 
 def _clean_name(value: Any, fallback: str = "Player") -> str:
@@ -168,22 +227,30 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
         if str(game.steam_id or "").strip()
     }
     profile_games = {str(x.get("identity_key")): x for x in db.get_profile_games() if isinstance(x, dict)}
-    favorites = []
+    games_by_app: dict[str, dict[str, Any]] = {}
     total_playtime = 0
-    for identity, value in profile_games.items():
-        if not value.get("favorite"):
-            continue
-        app_id = str(value.get("app_id", "") or "").strip()
-        name = game_names.get(identity) or (f"Steam App {app_id}" if app_id else "Favorite game")
-        favorites.append({"name": name[:120], "app_id": app_id[:16]})
     for game in db.get_all_games():
-        identity = db.profile_identity(game.name, game.steam_id)
         # The live game row includes both the baseline and finalized sessions;
         # use it for installed games so totals neither omit sessions nor count
         # the baseline twice.
         total_playtime += max(0, int(game.playtime_seconds or 0))
-        if game.is_favorite and not any(x["name"] == game.name for x in favorites):
-            favorites.append({"name": str(game.name)[:120], "app_id": str(game.steam_id or "")[:16]})
+        app_id = steam_app_id(game.steam_id)
+        if app_id:
+            candidate = {
+                "name": str(game.name or f"Steam App {app_id}")[:120],
+                "app_id": app_id,
+                "banner_url": steam_banner_url(app_id),
+                "playtime_seconds": max(0, int(game.playtime_seconds or 0)),
+                "last_played": max(0, int(game.last_played or 0)),
+                "favorite": bool(game.is_favorite),
+            }
+            existing = games_by_app.get(app_id)
+            if existing is None:
+                games_by_app[app_id] = candidate
+            else:
+                existing["favorite"] = bool(existing["favorite"] or candidate["favorite"])
+                existing["playtime_seconds"] = max(existing["playtime_seconds"], candidate["playtime_seconds"])
+                existing["last_played"] = max(existing["last_played"], candidate["last_played"])
     for identity, value in profile_games.items():
         if identity in game_names:
             continue
@@ -195,16 +262,29 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
         sessions = value.get("playtime_sessions", []) if isinstance(value.get("playtime_sessions"), list) else []
         total_playtime += max(0, int(value.get("playtime_baseline_seconds", 0) or 0))
         total_playtime += sum(max(0, int(item.get("duration_seconds", 0) or 0)) for item in sessions if isinstance(item, dict))
-    favorites = sorted(favorites, key=lambda item: item["name"].casefold())[:MAX_PUBLIC_GAMES]
+        app_id = steam_app_id(value.get("app_id"))
+        if app_id and app_id not in games_by_app:
+            games_by_app[app_id] = {
+                "name": f"Steam App {app_id}",
+                "app_id": app_id,
+                "banner_url": steam_banner_url(app_id),
+                "playtime_seconds": max(0, int(value.get("playtime_baseline_seconds", 0) or 0)),
+                "last_played": max(0, int(value.get("last_played", 0) or 0)),
+                "favorite": bool(value.get("favorite")),
+            }
+        elif app_id and app_id in games_by_app:
+            games_by_app[app_id]["favorite"] = bool(games_by_app[app_id]["favorite"] or value.get("favorite"))
+            games_by_app[app_id]["last_played"] = max(
+                games_by_app[app_id]["last_played"], max(0, int(value.get("last_played", 0) or 0))
+            )
 
     records = db.get_profile_unlock_records(include_pending=False)
-    unlocked = 0
     recent = []
-    known_keys = set()
+    known_by_app: dict[str, set[str]] = {}
     display_names = {}
     app_game_names = {}
     for game in db.get_all_games():
-        app_id = str(game.steam_id or "").strip()
+        app_id = steam_app_id(game.steam_id)
         if not app_id:
             continue
         rows = db.get_game_achievements(game.id)
@@ -212,21 +292,59 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
         for row in rows:
             api_name = str(row.get("api_name", ""))
             if api_name:
-                known_keys.add((app_id, api_name))
+                known_by_app.setdefault(app_id, set()).add(api_name)
                 display_names[(app_id, api_name)] = str(row.get("display_name") or api_name or "Achievement")
     for app_id, values in records.items():
+        app_id = steam_app_id(app_id)
+        if not app_id:
+            continue
+        games_by_app.setdefault(app_id, {
+            "name": str(app_game_names.get(app_id, f"Steam App {app_id}"))[:120],
+            "app_id": app_id,
+            "banner_url": steam_banner_url(app_id),
+            "playtime_seconds": 0,
+            "last_played": 0,
+            "favorite": False,
+        })
         for api_name, value in values.items():
             if not isinstance(value, dict):
                 continue
-            unlocked += 1
             recent.append({
-                "app_id": str(app_id)[:16],
+                "app_id": app_id,
                 "api_name": str(api_name)[:128],
                 "name": display_names.get((str(app_id), str(api_name)), str(api_name))[:120],
                 "game": str(app_game_names.get(str(app_id), f"Steam App {app_id}"))[:120],
                 "unlocked_at": max(0, int(float(value.get("unlock_time", 0) or 0))),
             })
     recent.sort(key=lambda item: (-item["unlocked_at"], item["game"].casefold(), item["name"].casefold()))
+
+    games = sorted(
+        games_by_app.values(),
+        key=lambda item: (
+            not bool(item.get("favorite")),
+            -int(item.get("playtime_seconds", 0) or 0),
+            -int(item.get("last_played", 0) or 0),
+            str(item.get("name", "")).casefold(),
+        ),
+    )[:MAX_PUBLIC_GAMES]
+    for game in games:
+        app_id = game["app_id"]
+        game_unlocks = [item for item in recent if item["app_id"] == app_id][:MAX_PUBLIC_GAME_ACHIEVEMENTS]
+        unlocked_count = sum(1 for item in records.get(app_id, {}).values() if isinstance(item, dict))
+        known_count = len(known_by_app.get(app_id, set()))
+        total_count = max(known_count, unlocked_count)
+        game["achievements"] = {
+            "unlocked_count": unlocked_count,
+            "total_count": total_count,
+            "percentage": round((unlocked_count / total_count) * 100.0, 1) if total_count else 0.0,
+            "recent": game_unlocks,
+        }
+    favorites = [
+        {"name": item["name"], "app_id": item["app_id"]}
+        for item in games if item.get("favorite")
+    ]
+    unlocked = sum(int(item["achievements"]["unlocked_count"]) for item in games)
+    known = sum(int(item["achievements"]["total_count"]) for item in games)
 
     return {
         "schema_version": PUBLIC_PROFILE_VERSION,
@@ -235,12 +353,13 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
         "avatar": profile["avatar"],
         "background": profile["background"],
         "stats": {
-            "games_count": len(game_names),
+            "games_count": len(games),
             "favorite_count": len(favorites),
             "playtime_seconds": total_playtime,
             "achievements_unlocked": unlocked,
-            "achievements_known": max(len(known_keys), unlocked),
+            "achievements_known": max(known, unlocked),
         },
+        "games": games,
         "favorite_games": favorites,
         "recent_achievements": recent[:MAX_PUBLIC_ACHIEVEMENTS],
         "updated_at": max(0, int(now if now is not None else time.time())),
@@ -265,12 +384,91 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
         except (TypeError, ValueError, OverflowError):
             stats[key] = 0
     stats["achievements_known"] = max(stats["achievements_known"], stats["achievements_unlocked"])
+
+    def bounded_int(raw: Any, maximum: int) -> int:
+        try:
+            return max(0, min(maximum, int(raw or 0)))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    def normalize_game_achievements(raw: Any, app_id: str) -> dict[str, Any]:
+        raw = raw if isinstance(raw, dict) else {}
+        unlocked_count = bounded_int(raw.get("unlocked_count"), 10_000_000)
+        total_count = max(unlocked_count, bounded_int(raw.get("total_count"), 10_000_000))
+        recent = []
+        raw_recent = raw.get("recent", []) if isinstance(raw.get("recent"), list) else []
+        for item in raw_recent[:MAX_PUBLIC_GAME_ACHIEVEMENTS]:
+            if not isinstance(item, dict):
+                continue
+            api_name = str(item.get("api_name", "") or "")[:128]
+            if not api_name:
+                continue
+            recent.append({
+                "app_id": steam_app_id(item.get("app_id")) or app_id,
+                "api_name": api_name,
+                "name": _clean_name(item.get("name"), "Achievement")[:120],
+                "game": _clean_name(item.get("game"), "Game")[:120],
+                "unlocked_at": bounded_int(item.get("unlocked_at"), 4_000_000_000),
+            })
+        return {
+            "unlocked_count": unlocked_count,
+            "total_count": total_count,
+            "percentage": round((unlocked_count / total_count) * 100.0, 1) if total_count else 0.0,
+            "recent": recent,
+        }
+
+    raw_games = value.get("games", []) if isinstance(value.get("games"), list) else []
+    games = []
+    seen_apps = set()
+    for item in raw_games[:MAX_PUBLIC_GAMES]:
+        if not isinstance(item, dict):
+            continue
+        app_id = steam_app_id(item.get("app_id"))
+        if not app_id or app_id in seen_apps:
+            continue
+        seen_apps.add(app_id)
+        banner = str(item.get("banner_url", "") or "")
+        if not valid_public_banner_url(banner):
+            banner = steam_banner_url(app_id)
+        games.append({
+            "name": _clean_name(item.get("name"), f"Steam App {app_id}")[:120],
+            "app_id": app_id,
+            "banner_url": banner,
+            "playtime_seconds": bounded_int(item.get("playtime_seconds"), 3_200_000_000),
+            "last_played": bounded_int(item.get("last_played"), 4_000_000_000),
+            "favorite": bool(item.get("favorite")),
+            "achievements": normalize_game_achievements(item.get("achievements"), app_id),
+        })
+
     raw_favorites = value.get("favorite_games", [])
     raw_favorites = raw_favorites if isinstance(raw_favorites, list) else []
     favorites = []
     for item in raw_favorites[:MAX_PUBLIC_GAMES]:
         if isinstance(item, dict):
-            favorites.append({"name": _clean_name(item.get("name"), "Favorite game")[:120], "app_id": str(item.get("app_id", ""))[:16]})
+            favorites.append({"name": _clean_name(item.get("name"), "Favorite game")[:120], "app_id": steam_app_id(item.get("app_id"))})
+    if not games:
+        # Profiles published by older clients have no library field. Preserve
+        # their public favorites as minimal library cards until they publish
+        # again from a newer client.
+        for item in favorites:
+            app_id = item.get("app_id", "")
+            if not app_id or app_id in seen_apps:
+                continue
+            seen_apps.add(app_id)
+            games.append({
+                "name": item["name"],
+                "app_id": app_id,
+                "banner_url": steam_banner_url(app_id),
+                "playtime_seconds": 0,
+                "last_played": 0,
+                "favorite": True,
+                "achievements": {
+                    "unlocked_count": 0,
+                    "total_count": 0,
+                    "percentage": 0.0,
+                    "recent": [],
+                },
+            })
     raw_recent = value.get("recent_achievements", [])
     raw_recent = raw_recent if isinstance(raw_recent, list) else []
     recent = []
@@ -281,7 +479,7 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
             except (TypeError, ValueError, OverflowError):
                 stamp = 0
             recent.append({
-                "app_id": str(item.get("app_id", ""))[:16],
+                "app_id": steam_app_id(item.get("app_id")),
                 "api_name": str(item.get("api_name", ""))[:128],
                 "name": _clean_name(item.get("name"), "Achievement")[:120],
                 "game": _clean_name(item.get("game"), "Game")[:120],
@@ -298,6 +496,7 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
         "avatar": avatar,
         "background": background,
         "stats": stats,
+        "games": games,
         "favorite_games": favorites,
         "recent_achievements": recent,
         "updated_at": updated_at,

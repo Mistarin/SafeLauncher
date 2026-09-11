@@ -634,6 +634,16 @@ class HeaderBar(QFrame):
 
         layout.addStretch()
 
+        self.profile_identity_label = QLabel()
+        self.profile_identity_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.profile_identity_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.profile_identity_label.setMaximumWidth(180)
+        self.profile_identity_label.setStyleSheet(
+            "color:#B7B7BD; background:transparent; font-size:11px; font-weight:600;"
+        )
+        self.profile_identity_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(self.profile_identity_label)
+
         # Window Control Buttons
         control_style = """
             QPushButton {
@@ -685,6 +695,16 @@ class HeaderBar(QFrame):
         self.btn_close.setStyleSheet(control_style)
         self.btn_close.clicked.connect(self.main_window.close)
         layout.addWidget(self.btn_close)
+
+    def set_profile_identity(self, display_name: str = "", handle: str = "") -> None:
+        """Show the local profile identity immediately before window controls."""
+        display_name = " ".join(str(display_name or "").split()) or "Player"
+        handle = str(handle or "").strip().lstrip("@").lower()
+        visible = f"@{handle}" if handle else display_name
+        self.profile_identity_label.setText(visible[:32])
+        self.profile_identity_label.setToolTip(
+            f"{display_name}  ·  @{handle}" if handle else display_name
+        )
 
     def _toggle_max_restore(self):
         if self.main_window.isMaximized():

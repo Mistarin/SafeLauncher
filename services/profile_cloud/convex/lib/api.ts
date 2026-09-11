@@ -109,7 +109,10 @@ export async function sha256(value: string): Promise<string> {
 }
 
 export function validHandle(value: unknown): value is string {
-  return typeof value === "string" && /^[a-f0-9]{20,40}$/.test(value);
+  return (
+    typeof value === "string" &&
+    (/^[a-f0-9]{20,40}$/.test(value) || /^[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?$/.test(value))
+  );
 }
 
 export function validRequestId(value: unknown): value is string {
@@ -128,6 +131,21 @@ function boundedString(
   return typeof value === "string"
     ? value.trim().slice(0, maxLength)
     : fallback;
+}
+
+function validSteamAppId(value: unknown): value is string {
+  return typeof value === "string" && /^[1-9][0-9]{0,15}$/.test(value);
+}
+
+function steamBannerUrl(appId: string): string {
+  return `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
+}
+
+function validSteamBanner(value: unknown, appId: string): boolean {
+  return (
+    typeof value === "string" &&
+    new RegExp(`^https://(?:cdn\\.akamai\\.steamstatic\\.com|shared\\.akamai\\.steamstatic\\.com|steamcdn-a\\.akamaihd\\.net)/steam/apps/${appId}/header\\.jpg$`).test(value)
+  );
 }
 
 export function validatePublicProfile(value: unknown): string {
@@ -248,7 +266,89 @@ export function validatePublicProfile(value: unknown): string {
         "invalid_games",
         "Favorite game name is invalid.",
       );
-    cleanGames.push({ name, app_id: boundedString(item.app_id, 16) });
+    const appId = boundedString(item.app_id, 16);
+    if (appId && !validSteamAppId(appId)) {
+      throw new ApiError(400, "invalid_games", "Favorite game AppID is invalid.");
+    }
+    cleanGames.push({ name, app_id: appId });
+  }
+
+  const cleanLibrary: Array<Record<string, unknown>> = [];
+  const rawLibrary = profile.games === undefined ? [] : profile.games;
+  if (!Array.isArray(rawLibrary) || rawLibrary.length > 60) {
+    throw new ApiError(400, "invalid_games", "Game library is invalid.");
+  }
+  const seenApps = new Set<string>();
+  for (const raw of rawLibrary) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new ApiError(400, "invalid_games", "Game library is invalid.");
+    }
+    const item = raw as Record<string, unknown>;
+    const appId = boundedString(item.app_id, 16);
+    const name = boundedString(item.name, 120);
+    if (!validSteamAppId(appId) || !name || seenApps.has(appId)) {
+      throw new ApiError(400, "invalid_games", "Game library entry is invalid.");
+    }
+    seenApps.add(appId);
+    const banner = boundedString(item.banner_url, 300);
+    if (banner && !validSteamBanner(banner, appId)) {
+      throw new ApiError(400, "invalid_games", "Game banner URL is invalid.");
+    }
+    const achievementInput =
+      item.achievements && typeof item.achievements === "object" && !Array.isArray(item.achievements)
+        ? (item.achievements as Record<string, unknown>)
+        : {};
+    const count = (key: string): number =>
+      Number.isSafeInteger(achievementInput[key])
+        ? Math.max(0, Math.min(10_000_000, achievementInput[key] as number))
+        : 0;
+    const unlockedCount = count("unlocked_count");
+    const totalCount = Math.max(unlockedCount, count("total_count"));
+    const rawRecent = achievementInput.recent;
+    if (!Array.isArray(rawRecent) || rawRecent.length > 20) {
+      throw new ApiError(400, "invalid_achievements", "Per-game achievement list is invalid.");
+    }
+    const cleanRecent: Array<Record<string, string | number>> = [];
+    for (const rawAchievement of rawRecent) {
+      if (!rawAchievement || typeof rawAchievement !== "object" || Array.isArray(rawAchievement)) {
+        throw new ApiError(400, "invalid_achievements", "Per-game achievement is invalid.");
+      }
+      const achievement = rawAchievement as Record<string, unknown>;
+      const achievementAppId = boundedString(achievement.app_id, 16);
+      const apiName = boundedString(achievement.api_name, 128);
+      const achievementName = boundedString(achievement.name, 120);
+      const gameName = boundedString(achievement.game, 120);
+      if (achievementAppId !== appId || !apiName || !achievementName || !gameName) {
+        throw new ApiError(400, "invalid_achievements", "Per-game achievement is invalid.");
+      }
+      cleanRecent.push({
+        app_id: appId,
+        api_name: apiName,
+        name: achievementName,
+        game: gameName,
+        unlocked_at: Number.isSafeInteger(achievement.unlocked_at)
+          ? Math.max(0, Math.min(4_000_000_000, achievement.unlocked_at as number))
+          : 0,
+      });
+    }
+    cleanLibrary.push({
+      name,
+      app_id: appId,
+      banner_url: banner || steamBannerUrl(appId),
+      playtime_seconds: Number.isSafeInteger(item.playtime_seconds)
+        ? Math.max(0, Math.min(3_200_000_000, item.playtime_seconds as number))
+        : 0,
+      last_played: Number.isSafeInteger(item.last_played)
+        ? Math.max(0, Math.min(4_000_000_000, item.last_played as number))
+        : 0,
+      favorite: item.favorite === true,
+      achievements: {
+        unlocked_count: unlockedCount,
+        total_count: totalCount,
+        percentage: totalCount ? Math.round((unlockedCount / totalCount) * 1000) / 10 : 0,
+        recent: cleanRecent,
+      },
+    });
   }
   const cleanAchievements: Array<Record<string, string | number>> = [];
   if (
@@ -303,6 +403,7 @@ export function validatePublicProfile(value: unknown): string {
         stat("achievements_unlocked"),
       ),
     },
+    games: cleanLibrary,
     favorite_games: cleanGames,
     recent_achievements: cleanAchievements,
     updated_at: Number.isSafeInteger(profile.updated_at)
