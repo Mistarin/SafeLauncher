@@ -22,6 +22,7 @@ class ProfileAvatarCatalogDialog(QDialog):
     """A bounded, keyboard-accessible table of cloud-backed avatars."""
 
     visible_avatar_ids = pyqtSignal(object)
+    catalog_avatar_ids = pyqtSignal(object)
 
     def __init__(self, catalog: list[dict[str, Any]], current_id: str = "", parent=None):
         super().__init__(parent)
@@ -95,7 +96,12 @@ class ProfileAvatarCatalogDialog(QDialog):
             self.table.selectRow(self._rows_by_id[self._current_id])
         elif self.table.rowCount():
             self.table.selectRow(0)
+        QTimer.singleShot(0, self._request_catalog_thumbnails)
         QTimer.singleShot(0, self._request_visible_thumbnails)
+
+    def _request_catalog_thumbnails(self) -> None:
+        if self._rows_by_id:
+            self.catalog_avatar_ids.emit(list(self._rows_by_id))
 
     def _filter_rows(self, text: str) -> None:
         needle = text.strip().casefold()
@@ -125,4 +131,3 @@ class ProfileAvatarCatalogDialog(QDialog):
             return
         label.setText("")
         label.setPixmap(pixmap.scaled(68, 68, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-

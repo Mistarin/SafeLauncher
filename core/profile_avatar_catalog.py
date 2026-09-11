@@ -19,8 +19,10 @@ MAX_AVATAR_CATALOG_ITEMS = 128
 MAX_AVATAR_LABEL_LENGTH = 80
 MAX_AVATAR_CATEGORY_LENGTH = 32
 AVATAR_CATALOG_CACHE_TTL = 24 * 60 * 60
-MAX_CACHED_AVATAR_FILES = 24
-MAX_CACHED_AVATAR_BYTES = 12 * 1024 * 1024
+# The approved catalog is small enough to keep on disk after the first batch
+# fetch. The in-memory QPixmap cache remains deliberately smaller.
+MAX_CACHED_AVATAR_FILES = 64
+MAX_CACHED_AVATAR_BYTES = 16 * 1024 * 1024
 
 
 def normalize_avatar_catalog(value: Any) -> list[dict[str, Any]] | None:

@@ -1657,11 +1657,41 @@ class ProfilePageWidget(QWidget):
         if not isinstance(data, bytes) or not data or len(data) > MAX_PROFILE_AVATAR_BYTES:
             return None
         pixmap = QPixmap()
-        if not pixmap.loadFromData(data, "PNG"):
+        if not pixmap.loadFromData(ProfilePageWidget._png_without_iccp(data), "PNG"):
             return None
         if pixmap.width() <= 0 or pixmap.height() <= 0 or pixmap.width() * pixmap.height() > 4_000_000:
             return None
         return pixmap
+
+    @staticmethod
+    def _png_without_iccp(data: bytes) -> bytes:
+        """Remove broken embedded ICC profiles before handing PNGs to Qt.
+
+        The catalog files are developer-provided and remain byte-for-byte
+        hashable in the cache. This decode-only normalization prevents Qt's
+        noisy ``iCCP: known incorrect sRGB profile`` warning without changing
+        the signed catalog bytes or the cloud representation.
+        """
+        signature = b"\x89PNG\r\n\x1a\n"
+        if not data.startswith(signature):
+            return data
+        chunks = [signature]
+        offset = len(signature)
+        try:
+            while offset + 12 <= len(data):
+                length = int.from_bytes(data[offset:offset + 4], "big")
+                end = offset + 12 + length
+                if end > len(data):
+                    return data
+                chunk_type = data[offset + 4:offset + 8]
+                if chunk_type != b"iCCP":
+                    chunks.append(data[offset:end])
+                offset = end
+                if chunk_type == b"IEND":
+                    return b"".join(chunks)
+        except (TypeError, ValueError, OverflowError):
+            return data
+        return data
 
     def _cache_avatar_pixmap(self, avatar_id: str, pixmap: QPixmap) -> None:
         self._avatar_pixmaps.pop(avatar_id, None)
@@ -1687,65 +1717,73 @@ class ProfilePageWidget(QWidget):
             self._queue_avatar_image(avatar_id)
 
     def _queue_avatar_image(self, avatar_id: str, dialog: ProfileAvatarCatalogDialog | None = None) -> None:
-        avatar_id = normalize_avatar_id(avatar_id)
-        if not avatar_id:
+        """Compatibility entrypoint that joins the shared batch request."""
+        self._queue_avatar_batch([avatar_id])
+
+    def _queue_avatar_batch(self, avatar_ids: Any) -> None:
+        requested: list[str] = []
+        seen: set[str] = set()
+        for value in list(avatar_ids or []):
+            avatar_id = normalize_avatar_id(value)
+            if avatar_id and avatar_id not in seen:
+                requested.append(avatar_id)
+                seen.add(avatar_id)
+        requested = [avatar_id for avatar_id in requested[:128] if avatar_id not in self._avatar_inflight]
+        if not requested:
             return
-        catalog_item = self._avatar_catalog_item(avatar_id)
-        expected_hash = str(catalog_item.get("sha256", "")) if catalog_item else ""
-        if avatar_id in self._avatar_pixmaps:
-            if dialog is not None:
-                dialog.set_thumbnail(avatar_id, self._avatar_pixmaps[avatar_id])
-            return
-        if expected_hash:
-            cached = read_cached_avatar(avatar_id, expected_hash)
-            pixmap = self._decode_avatar(cached)
-            if pixmap is not None:
-                self._cache_avatar_pixmap(avatar_id, pixmap)
-                if dialog is not None:
-                    dialog.set_thumbnail(avatar_id, pixmap)
-                current_avatar = self._draft_avatar_id if self._editing else self._document.get("avatar_id")
-                if normalize_avatar_id(current_avatar) == avatar_id:
-                    self._set_avatar(avatar_id)
-                return
-        if avatar_id in self._avatar_inflight or not automatic_network_allowed(self.settings):
-            return
-        self._avatar_inflight.add(avatar_id)
+        self._avatar_inflight.update(requested)
         service_url = get_profile_service_url()
 
         def work():
-            with ProfileServiceClient(service_url) as client:
-                return client.fetch_avatar_bytes(avatar_id)
+            downloaded: dict[str, bytes] = {}
+            missing: list[str] = []
+            for avatar_id in requested:
+                catalog_item = self._avatar_catalog_item(avatar_id)
+                expected_hash = str(catalog_item.get("sha256", "")) if catalog_item else ""
+                cached = read_cached_avatar(avatar_id, expected_hash) if expected_hash else b""
+                if cached:
+                    downloaded[avatar_id] = cached
+                else:
+                    missing.append(avatar_id)
+            if missing and automatic_network_allowed(self.settings):
+                with ProfileServiceClient(service_url) as client:
+                    downloaded.update(client.fetch_avatar_batch(missing))
+            return downloaded
 
         worker = self._tasks.start(
-            "SafeLauncher-ProfileAvatar",
+            "SafeLauncher-ProfileAvatarBatch",
             work,
-            lambda result, expected_id=avatar_id: self._avatar_image_loaded(expected_id, result),
+            lambda result, expected_ids=set(requested): self._avatar_batch_loaded(expected_ids, result),
         )
         worker.error_occurred.connect(
-            lambda _error, expected_id=avatar_id: self._avatar_image_failed(expected_id)
+            lambda _error, expected_ids=set(requested): self._avatar_batch_failed(expected_ids)
         )
 
-    def _avatar_image_failed(self, avatar_id: str) -> None:
-        self._avatar_inflight.discard(avatar_id)
+    def _avatar_batch_failed(self, avatar_ids: set[str]) -> None:
+        self._avatar_inflight.difference_update(avatar_ids)
 
-    def _avatar_image_loaded(self, avatar_id: str, data: Any) -> None:
-        self._avatar_inflight.discard(avatar_id)
-        if not isinstance(data, bytes):
+    def _avatar_batch_loaded(self, avatar_ids: set[str], result: Any) -> None:
+        self._avatar_inflight.difference_update(avatar_ids)
+        if not isinstance(result, dict):
             return
-        pixmap = self._decode_avatar(data)
-        if pixmap is None:
-            return
-        expected = self._avatar_catalog_item(avatar_id)
-        digest = hashlib.sha256(data).hexdigest()
-        if expected and digest != str(expected.get("sha256", "")):
-            return
-        self._cache_avatar_pixmap(avatar_id, pixmap)
-        save_cached_avatar(avatar_id, digest, data)
-        if self._avatar_dialog is not None and self._avatar_dialog.isVisible():
-            self._avatar_dialog.set_thumbnail(avatar_id, pixmap)
-        current_avatar = self._draft_avatar_id if self._editing else self._document.get("avatar_id")
-        if normalize_avatar_id(current_avatar) == avatar_id:
-            self._set_avatar(avatar_id)
+        for avatar_id, data in result.items():
+            avatar_id = normalize_avatar_id(avatar_id)
+            if avatar_id not in avatar_ids or not isinstance(data, bytes):
+                continue
+            expected = self._avatar_catalog_item(avatar_id)
+            digest = hashlib.sha256(data).hexdigest()
+            if expected and digest != str(expected.get("sha256", "")):
+                continue
+            pixmap = self._decode_avatar(data)
+            if pixmap is None:
+                continue
+            self._cache_avatar_pixmap(avatar_id, pixmap)
+            save_cached_avatar(avatar_id, digest, data)
+            if self._avatar_dialog is not None and self._avatar_dialog.isVisible():
+                self._avatar_dialog.set_thumbnail(avatar_id, pixmap)
+            current_avatar = self._draft_avatar_id if self._editing else self._document.get("avatar_id")
+            if normalize_avatar_id(current_avatar) == avatar_id:
+                self._set_avatar(avatar_id)
 
     def _avatar_catalog_loaded(self, result: Any) -> None:
         self._avatar_catalog_loading = False
@@ -1767,6 +1805,9 @@ class ProfilePageWidget(QWidget):
             return
         dialog = ProfileAvatarCatalogDialog(self._avatar_catalog, self._draft_avatar_id, self)
         self._avatar_dialog = dialog
+        dialog.catalog_avatar_ids.connect(
+            lambda ids, expected_dialog=dialog: self._load_avatar_thumbnails(expected_dialog, ids)
+        )
         dialog.visible_avatar_ids.connect(
             lambda ids, expected_dialog=dialog: self._load_avatar_thumbnails(expected_dialog, ids)
         )
@@ -1786,8 +1827,7 @@ class ProfilePageWidget(QWidget):
     def _load_avatar_thumbnails(self, dialog: ProfileAvatarCatalogDialog, avatar_ids: Any) -> None:
         if self._avatar_dialog is not dialog or not dialog.isVisible():
             return
-        for avatar_id in list(avatar_ids)[:8]:
-            self._queue_avatar_image(str(avatar_id), dialog)
+        self._queue_avatar_batch(list(avatar_ids))
 
     def _populate_editor(self) -> None:
         if self._mode != "owner":

@@ -6,10 +6,18 @@ clients publish a privacy-filtered profile projection directly to this service.
 
 ```bash
 npm install
-npx convex dev
-# configure the deployment, then deploy:
+# This is a central production deployment. Replace the value with the
+# deployment name shown in the Convex dashboard (for example,
+# prod:joyful-capybara-123):
+export CONVEX_DEPLOYMENT='prod:<central-deployment-name>'
 npx convex deploy --yes
+# Bash/Zsh: unset CONVEX_DEPLOYMENT
+# Fish: set -e CONVEX_DEPLOYMENT
 ```
+
+Do not run `npx convex dev` for the production import. It selects or creates a
+development deployment and would leave the central production database
+unchanged.
 
 ## Central authentication and gateway
 

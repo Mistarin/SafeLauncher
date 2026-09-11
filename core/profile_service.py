@@ -279,6 +279,39 @@ class ProfileServiceClient:
         finally:
             response.close()
 
+    def fetch_avatar_batch(
+        self,
+        avatar_ids: Any,
+        *,
+        max_items: int = 128,
+        max_total_bytes: int = 12 * 1024 * 1024,
+    ) -> dict[str, bytes]:
+        """Fetch a bounded avatar set through one reusable HTTP session.
+
+        Individual catalog entries are allowed to disappear without making
+        the rest of the selector unusable. The caller can therefore render
+        whatever was cached or downloaded while preserving the catalog order.
+        """
+        requested: list[str] = []
+        seen: set[str] = set()
+        for value in list(avatar_ids or [])[:max(0, int(max_items))]:
+            normalized = normalize_avatar_id(value)
+            if normalized and normalized not in seen:
+                requested.append(normalized)
+                seen.add(normalized)
+        downloaded: dict[str, bytes] = {}
+        total = 0
+        for avatar_id in requested:
+            try:
+                data = self.fetch_avatar_bytes(avatar_id)
+            except ProfileServiceError:
+                continue
+            if not data or total + len(data) > max_total_bytes:
+                continue
+            downloaded[avatar_id] = data
+            total += len(data)
+        return downloaded
+
     # --- Auth0-owned profile API -----------------------------------------
     def current_profile(self) -> dict[str, Any] | None:
         payload = self._request("GET", "/api/profile/v2/me", owner=True)

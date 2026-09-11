@@ -332,6 +332,22 @@ class ProfileModelTests(unittest.TestCase):
         with self.assertRaisesRegex(ProfileServiceError, "non-image"):
             client.fetch_avatar_bytes("1-1")
 
+    def test_avatar_batch_reuses_one_client_and_skips_missing_entries(self):
+        good = Mock(status_code=200)
+        good.headers = {"Content-Type": "image/png", "Content-Length": "3"}
+        good.iter_content.return_value = [b"PNG"]
+        missing = Mock(status_code=404)
+        missing.headers = {"Content-Type": "application/json"}
+        session = Mock()
+        session.get.side_effect = [good, missing]
+        client = ProfileServiceClient("https://profiles.example")
+        client.session = session
+
+        self.assertEqual(client.fetch_avatar_batch(["1-1", "r-1-1"]), {"1-1": b"PNG"})
+        self.assertEqual(session.get.call_count, 2)
+        good.close.assert_called_once()
+        missing.close.assert_called_once()
+
     def test_v2_client_uses_central_bearer_and_never_sends_legacy_token(self):
         response = Mock(status_code=200)
         response.json.return_value = {
@@ -522,6 +538,18 @@ class ProfilePageTests(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
             self.app.processEvents()
+
+    def test_avatar_decode_removes_only_bad_iccp_chunk(self):
+        signature = b"\x89PNG\r\n\x1a\n"
+
+        def chunk(kind, payload=b""):
+            return len(payload).to_bytes(4, "big") + kind + payload + b"crc!"
+
+        encoded = signature + chunk(b"iCCP", b"broken-profile") + chunk(b"IEND")
+        decoded = ProfilePageWidget._png_without_iccp(encoded)
+        self.assertNotIn(b"iCCP", decoded)
+        self.assertIn(b"IEND", decoded)
+        self.assertEqual(ProfilePageWidget._png_without_iccp(b"not-a-png"), b"not-a-png")
 
     def test_owner_and_public_views_share_one_persistent_page(self):
         with tempfile.TemporaryDirectory() as directory:
