@@ -1,9 +1,12 @@
 """CI checks for the client/server security boundary.
 
-This deliberately uses only the standard library and the tracked Git tree so
-it also runs before optional build tooling is installed.  It checks both the
-desktop release inputs and the server source for accidentally committed
-credentials, while allowing test fixtures to contain clearly fake values.
+This deliberately uses only the standard library and Git so it also runs
+before optional build tooling is installed. It checks both the desktop release
+inputs and the server source for accidentally committed credentials, while
+allowing test fixtures to contain clearly fake values. When full history is
+available, it also checks reachable historical snapshots and commit messages;
+this prevents a sensitive deployment origin from being removed in a later
+commit while remaining exposed in Git history.
 """
 
 from __future__ import annotations
@@ -52,11 +55,15 @@ ALLOWED_CONVEX_FIXTURE_HOSTS = {
     "central-profile.convex.site",
     "central-profile.eu-west-1.convex.site",
     "mytest.convex.site",
+    "my-project.convex.site",
+    "my-saves.convex.site",
     "project.convex.site",
     "scheme-less.convex.site",
     "test-deployment.eu-west-1.convex.site",
     "test.convex.site",
     "your-central-deployment.eu-west-1.convex.site",
+    "your-profile-service.convex.site",
+    "your-project.convex.site",
 }
 PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
 TOKEN_LIKE = re.compile(
@@ -64,6 +71,12 @@ TOKEN_LIKE = re.compile(
 )
 JWT_LIKE = re.compile(
     r"\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
+)
+HISTORY_GREP_PATTERN = (
+    r"https?://[A-Za-z0-9.-]+\.convex\.(site|cloud)"
+    r"|-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"
+    r"|\b(gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|vercel_[A-Za-z0-9_]{20,})\b"
+    r"|\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
 )
 PRIVATE_FILE = re.compile(r"(?:^|/)(?:\.env(?:\..*)?|.*\.(?:pem|p12|pfx|key))$", re.IGNORECASE)
 PLACEHOLDER_VALUES = {
@@ -105,6 +118,84 @@ def is_release_input(path: Path) -> bool:
 
 def line_number(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
+
+
+def historical_commits() -> list[str]:
+    result = subprocess.run(
+        ["git", "rev-list", "--all"],
+        cwd=ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    return [commit for commit in result.stdout.splitlines() if commit]
+
+
+def audit_history(findings: list[str]) -> None:
+    """Reject secrets and real Convex origins in reachable Git history.
+
+    CI checks out the repository with full history. Local invocations against a
+    shallow checkout still audit whatever history is available; this keeps the
+    audit useful for developers without weakening the CI behavior.
+    """
+
+    commits = historical_commits()
+    if not commits:
+        return
+
+    for commit in commits:
+        result = subprocess.run(
+            ["git", "grep", "--no-color", "-I", "-n", "-E", HISTORY_GREP_PATTERN, commit, "--"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if result.returncode == 2:
+            raise RuntimeError(result.stderr.strip() or f"git grep failed for {commit}")
+        if result.returncode != 0:
+            continue
+
+        for raw_line in result.stdout.splitlines():
+            # git grep emits <commit>:<path>:<line>:<text>. Limit the split
+            # from the left so a URL's own ``https://`` is kept intact.
+            snapshot_text = raw_line.split(":", 3)[-1]
+            url_match = CONVEX_URL.search(snapshot_text)
+            if url_match:
+                host = (urlsplit(url_match.group(0)).hostname or "").lower()
+                if host not in ALLOWED_CONVEX_FIXTURE_HOSTS:
+                    findings.append(
+                        f"history {commit[:12]}: unapproved concrete Convex URL in a reachable snapshot"
+                    )
+                    continue
+
+            if PRIVATE_KEY.search(snapshot_text):
+                findings.append(f"history {commit[:12]}: private-key block in a reachable snapshot")
+            elif TOKEN_LIKE.search(snapshot_text):
+                findings.append(f"history {commit[:12]}: provider token in a reachable snapshot")
+            elif JWT_LIKE.search(snapshot_text):
+                findings.append(f"history {commit[:12]}: JWT-looking credential in a reachable snapshot")
+
+    log_result = subprocess.run(
+        ["git", "log", "--all", "--format=%H%x00%B"],
+        cwd=ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    for record in log_result.stdout.split("\0"):
+        for match in CONVEX_URL.finditer(record):
+            host = (urlsplit(match.group(0)).hostname or "").lower()
+            if host not in ALLOWED_CONVEX_FIXTURE_HOSTS:
+                findings.append("history: unapproved concrete Convex URL in a commit message")
+                break
+        for pattern, label in (
+            (PRIVATE_KEY, "private-key block"),
+            (TOKEN_LIKE, "provider token"),
+            (JWT_LIKE, "JWT-looking credential"),
+        ):
+            if pattern.search(record):
+                findings.append(f"history: {label} in a commit message")
 
 
 def main() -> int:
@@ -162,6 +253,11 @@ def main() -> int:
     telemetry = texts.get(ROOT / "core/telemetry.py", "")
     if "OFFICIAL_PROFILE_GATEWAY_URL" not in telemetry or ".convex." in telemetry:
         findings.append("core/telemetry.py: telemetry must use the profile gateway, never a Convex origin")
+
+    try:
+        audit_history(findings)
+    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+        findings.append(f"history audit could not complete: {exc}")
 
     if findings:
         print("Security boundary audit failed:", file=sys.stderr)

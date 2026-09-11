@@ -16,6 +16,10 @@ jobs:
       XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The security audit checks reachable historical snapshots as well
+          # as the current tree, so shallow history would make it incomplete.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
