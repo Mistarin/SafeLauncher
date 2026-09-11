@@ -37,10 +37,33 @@ The one-time `/api/profile/v2/me/claim` route migrates a legacy owner-token
 profile to the signed-in Auth0 identity. The old token hash is removed only
 after the claim succeeds. New profiles have no bearer owner token at all.
 
-The service deliberately stores only bounded JSON profile documents. Avatars
-are already compressed by the desktop client and embedded in the document;
-backgrounds are theme data (colors, gradients, presets, or a Steam AppID), not
-uploaded files.
+The service deliberately stores only bounded JSON profile documents. Profile
+pictures are not user uploads: the developer imports the approved PNG catalog
+into Convex File Storage, and profiles store only a validated `avatar_id`.
+Public images are served through the gateway-backed HTTP action, never through
+raw Convex storage URLs. Backgrounds remain theme data (colors, gradients,
+presets, or a Steam AppID), not uploaded files.
+
+### Importing the approved avatar catalog
+
+Run this only from the developer environment after setting the deployment URL
+and the private import key as shell environment variables. Neither value is
+part of a desktop build or committed configuration:
+
+```bash
+export SAFELAUNCHER_CONVEX_URL='https://your-central-deployment.convex.cloud'
+export SAFELAUNCHER_AVATAR_IMPORT_KEY='<private-random-value>'
+npx convex env set SAFELAUNCHER_AVATAR_IMPORT_KEY "$SAFELAUNCHER_AVATAR_IMPORT_KEY"
+npx convex deploy --yes
+npm run import-avatars -- --source-dir '/home/martin/Stažené/ProfilePictures/FINAL'
+npm run import-avatars -- --migrate-legacy
+```
+
+The importer validates the PNG signature, dimensions, size, and SHA-256 hash;
+re-running it is safe. The migration removes legacy embedded avatar payloads
+from existing profiles and sets them to the default avatar. The Convex
+deployment must have `SAFELAUNCHER_AVATAR_IMPORT_KEY` set to the same private
+value. The normal gateway key remains separate.
 
 The public projection includes a bounded profile identity (`display_name`, an
 optional 160-character `bio`, and a stable `handle`) plus a bounded `games`

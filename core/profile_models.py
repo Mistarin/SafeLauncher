@@ -19,14 +19,12 @@ from urllib.parse import urlsplit
 
 from PyQt6.QtCore import QSettings
 
-from core.profile_assets import validate_avatar_payload
-
-
-PRIVATE_PROFILE_VERSION = 5
-PUBLIC_PROFILE_VERSION = 1
+PRIVATE_PROFILE_VERSION = 6
+PUBLIC_PROFILE_VERSION = 2
 LEGACY_HANDLE_RE = re.compile(r"^[a-f0-9]{20,40}$")
 USERNAME_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?$")
 HANDLE_RE = re.compile(r"^(?:[a-f0-9]{20,40}|[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?)$")
+AVATAR_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 STEAM_APP_ID_RE = re.compile(r"^[1-9][0-9]{0,15}$")
 STEAM_ARTWORK_RE = re.compile(
@@ -90,6 +88,12 @@ def profile_username_suggestion(identity: Any) -> str:
         if candidate:
             return candidate
     return "player"
+
+
+def normalize_avatar_id(value: Any) -> str:
+    """Normalize the opaque ID of a developer-provided cloud avatar."""
+    candidate = str(value or "").strip().casefold()
+    return candidate if AVATAR_ID_RE.fullmatch(candidate) else ""
 
 
 def steam_app_id(value: Any) -> str:
@@ -199,11 +203,11 @@ def normalize_profile_settings(value: Any, fallback_name: str = "Player") -> dic
         changed_at = max(0.0, float(value.get("changed_at", 0) or 0))
     except (TypeError, ValueError, OverflowError):
         changed_at = 0.0
-    avatar = validate_avatar_payload(value.get("avatar"))
+    avatar_id = normalize_avatar_id(value.get("avatar_id"))
     return {
         "display_name": _clean_name(value.get("display_name"), fallback_name),
         "bio": _clean_bio(value.get("bio")),
-        "avatar": avatar,
+        "avatar_id": avatar_id,
         "background": normalize_background(value.get("background")),
         "public_handle": handle,
         "published": bool(value.get("published", False)),
@@ -219,15 +223,16 @@ def load_profile_settings(settings: QSettings | None = None, fallback_name: str 
         background = json.loads(raw_background) if raw_background else DEFAULT_BACKGROUND
     except (TypeError, ValueError):
         background = DEFAULT_BACKGROUND
-    raw_avatar = settings.value("profile_avatar", "", type=str)
-    try:
-        avatar = json.loads(raw_avatar) if raw_avatar else None
-    except (TypeError, ValueError):
-        avatar = None
+    # The old key contained user-supplied base64 image data.  It is deliberately
+    # removed on read; custom avatars are no longer part of the profile model.
+    legacy_avatar = settings.value("profile_avatar", "", type=str)
+    if legacy_avatar:
+        settings.remove("profile_avatar")
+        settings.sync()
     return normalize_profile_settings({
         "display_name": settings.value("profile_display_name", fallback_name, type=str),
         "bio": settings.value("profile_bio", "", type=str),
-        "avatar": avatar,
+        "avatar_id": settings.value("profile_avatar_id", "", type=str),
         "background": background,
         "public_handle": settings.value("profile_public_handle", "", type=str),
         "published": settings.value("profile_published", False, type=bool),
@@ -243,7 +248,8 @@ def save_profile_settings(settings: QSettings, value: dict[str, Any], *, mark_ch
         normalized["change_id"] = str(uuid.uuid4())
     settings.setValue("profile_display_name", normalized["display_name"])
     settings.setValue("profile_bio", normalized["bio"])
-    settings.setValue("profile_avatar", json.dumps(normalized["avatar"], sort_keys=True) if normalized["avatar"] else "")
+    settings.setValue("profile_avatar_id", normalized["avatar_id"])
+    settings.remove("profile_avatar")
     settings.setValue("profile_background", json.dumps(normalized["background"], sort_keys=True))
     settings.setValue("profile_public_handle", normalized["public_handle"])
     settings.setValue("profile_published", normalized["published"])
@@ -270,7 +276,7 @@ def merge_profile_settings(local: Any, remote: Any) -> dict[str, Any]:
         return left
     # Markerless legacy profiles should not erase a populated local profile.
     if left_key == (0, "") and right_key == (0, ""):
-        return left if left["display_name"] != "Player" or left["avatar"] else right
+        return left if left["display_name"] != "Player" or left["avatar_id"] else right
     return left
 
 
@@ -415,7 +421,7 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
         "handle": profile["public_handle"],
         "display_name": profile["display_name"],
         "bio": profile["bio"],
-        "avatar": profile["avatar"],
+        "avatar_id": profile["avatar_id"] or None,
         "background": profile["background"],
         "stats": {
             "games_count": len(games),
@@ -439,7 +445,7 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
     if not HANDLE_RE.fullmatch(handle):
         return None
     name = _clean_name(value.get("display_name"))
-    avatar = validate_avatar_payload(value.get("avatar"))
+    avatar_id = normalize_avatar_id(value.get("avatar_id"))
     background = normalize_background(value.get("background"))
     raw_stats = value.get("stats") if isinstance(value.get("stats"), dict) else {}
     stats = {}
@@ -565,7 +571,7 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
         "handle": handle,
         "display_name": name,
         "bio": _clean_bio(value.get("bio")),
-        "avatar": avatar,
+        "avatar_id": avatar_id or None,
         "background": background,
         "stats": stats,
         "games": games,

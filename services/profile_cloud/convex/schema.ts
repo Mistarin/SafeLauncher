@@ -16,6 +16,19 @@ export default defineSchema({
   })
     .index("by_handle", ["handle"])
     .index("by_owner_identity", ["ownerIdentityHash"]),
+  profileAvatars: defineTable({
+    avatarId: v.string(),
+    label: v.string(),
+    category: v.string(),
+    order: v.number(),
+    storageId: v.id("_storage"),
+    sha256: v.string(),
+    width: v.number(),
+    height: v.number(),
+    bytes: v.number(),
+    enabled: v.boolean(),
+    updatedAt: v.number(),
+  }).index("by_avatar_id", ["avatarId"]),
   friendRequests: defineTable({
     requesterHandle: v.string(),
     recipientHandle: v.string(),

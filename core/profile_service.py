@@ -18,10 +18,12 @@ from PyQt6.QtCore import QSettings
 from core.central_auth import CentralAuthError, CentralAuthSession
 from core.profile_models import (
     HANDLE_RE,
+    normalize_avatar_id,
     normalize_public_document,
     normalize_social_snapshot,
     normalize_username_handle,
 )
+from core.profile_avatar_catalog import normalize_avatar_catalog
 
 
 OFFICIAL_PROFILE_GATEWAY_URL = "https://profilegateway.vercel.app"
@@ -220,6 +222,62 @@ class ProfileServiceClient:
             raise ProfileServiceError("The public profile is invalid or corrupt.", "invalid_profile")
         document["revision"] = max(0, int(payload.get("revision", 0) or 0))
         return document
+
+    def list_avatar_catalog(self) -> list[dict[str, Any]]:
+        """Fetch the public, developer-managed avatar catalog."""
+        payload = self._request("GET", "/api/profile/v2/avatars")
+        catalog = normalize_avatar_catalog(payload.get("avatars"))
+        if catalog is None:
+            raise ProfileServiceError(
+                "The profile service returned an invalid avatar catalog.",
+                "invalid_avatar_catalog",
+            )
+        return catalog
+
+    def avatar_url(self, avatar_id: str) -> str:
+        normalized = normalize_avatar_id(avatar_id)
+        if not normalized:
+            raise ProfileServiceError("The avatar identifier is invalid.", "invalid_avatar", 400)
+        return f"{self.site_url}/api/profile/v2/avatars/{quote(normalized, safe='')}"
+
+    def fetch_avatar_bytes(self, avatar_id: str) -> bytes:
+        """Fetch one bounded image through the profile gateway."""
+        url = self.avatar_url(avatar_id)
+        try:
+            response = self.session.get(
+                url,
+                headers={"Accept": "image/png,image/*;q=0.8"},
+                timeout=(5, 12),
+                stream=True,
+            )
+        except requests.RequestException as exc:
+            raise ProfileServiceError(f"Profile service is unreachable: {exc}", "unreachable") from exc
+        try:
+            if response.status_code != 200:
+                raise ProfileServiceError(
+                    f"Profile service returned HTTP {response.status_code}",
+                    "avatar_fetch_failed",
+                    response.status_code,
+                )
+            if not response.headers.get("Content-Type", "").lower().startswith("image/"):
+                raise ProfileServiceError("The profile service returned a non-image avatar.", "invalid_avatar_response")
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > 512 * 1024:
+                raise ProfileServiceError("The avatar response is too large.", "avatar_too_large")
+            chunks: list[bytes] = []
+            size = 0
+            for chunk in response.iter_content(chunk_size=32 * 1024):
+                if not chunk:
+                    continue
+                size += len(chunk)
+                if size > 512 * 1024:
+                    raise ProfileServiceError("The avatar response is too large.", "avatar_too_large")
+                chunks.append(chunk)
+            return b"".join(chunks)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ProfileServiceError("The avatar response is invalid.", "invalid_avatar_response") from exc
+        finally:
+            response.close()
 
     # --- Auth0-owned profile API -----------------------------------------
     def current_profile(self) -> dict[str, Any] | None:

@@ -115,6 +115,10 @@ export function validHandle(value: unknown): value is string {
   );
 }
 
+export function validAvatarId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(value);
+}
+
 export function validRequestId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{8,128}$/.test(value);
 }
@@ -162,7 +166,7 @@ export function validatePublicProfile(value: unknown): string {
   }
   const profile = value as Record<string, unknown>;
   if (
-    profile.schema_version !== 1 ||
+    (profile.schema_version !== 1 && profile.schema_version !== 2) ||
     typeof profile.handle !== "string" ||
     !validHandle(profile.handle)
   ) {
@@ -187,30 +191,14 @@ export function validatePublicProfile(value: unknown): string {
     throw new ApiError(400, "invalid_bio", "Profile bio is too long.");
   }
   const bio = cleanBio(profile.bio);
-  const avatar = profile.avatar;
-  let cleanAvatar: Record<string, unknown> | null = null;
-  if (avatar !== null && avatar !== undefined) {
-    if (!avatar || typeof avatar !== "object" || Array.isArray(avatar)) {
-      throw new ApiError(400, "invalid_avatar", "Avatar payload is invalid.");
-    }
-    const input = avatar as Record<string, unknown>;
-    const data = boundedString(input.data_b64, 360_000);
-    if (
-      input.mime !== "image/jpeg" ||
-      !data ||
-      data.length > 350_000 ||
-      !/^[A-Za-z0-9+/=]+$/.test(data)
-    ) {
-      throw new ApiError(400, "invalid_avatar", "Avatar payload is invalid.");
-    }
-    cleanAvatar = {
-      mime: "image/jpeg",
-      data_b64: data,
-      sha256: boundedString(input.sha256, 64),
-      width: Number.isSafeInteger(input.width) ? input.width : 0,
-      height: Number.isSafeInteger(input.height) ? input.height : 0,
-      bytes: Number.isSafeInteger(input.bytes) ? input.bytes : 0,
-    };
+  if (Object.prototype.hasOwnProperty.call(profile, "avatar") && profile.avatar !== null && profile.avatar !== undefined) {
+    throw new ApiError(400, "invalid_avatar", "Custom avatar payloads are not supported.");
+  }
+  const avatarId = profile.avatar_id === null || profile.avatar_id === undefined
+    ? null
+    : profile.avatar_id;
+  if (avatarId !== null && !validAvatarId(avatarId)) {
+    throw new ApiError(400, "invalid_avatar", "Avatar identifier is invalid.");
   }
   const inputBackground = profile.background;
   let background: Record<string, unknown>;
@@ -418,11 +406,11 @@ export function validatePublicProfile(value: unknown): string {
     });
   }
   const clean = {
-    schema_version: 1,
+    schema_version: 2,
     handle: profile.handle,
     display_name: displayName,
     bio,
-    avatar: cleanAvatar,
+    avatar_id: avatarId,
     background,
     stats: {
       games_count: stat("games_count"),

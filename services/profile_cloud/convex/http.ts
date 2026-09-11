@@ -9,6 +9,7 @@ import {
   requireGateway,
   readJsonBody,
   sha256,
+  validAvatarId,
   validHandle,
   validRequestId,
   validatePublicProfile,
@@ -24,11 +25,39 @@ function generatedHandle(): string {
 }
 
 function profilePayload(profile: any): Record<string, unknown> {
+  let value: Record<string, unknown>;
+  try {
+    value = JSON.parse(profile.profile) as Record<string, unknown>;
+  } catch {
+    throw new ApiError(500, "invalid_stored_profile", "The stored public profile is invalid.");
+  }
+  // Strip legacy embedded images before a profile can leave the deployment.
+  // Re-validating also removes any fields that were never part of the public
+  // projection and upgrades old documents to the ID-only avatar shape.
+  delete value.avatar;
+  value.schema_version = 2;
+  value.avatar_id = validAvatarId(value.avatar_id) ? value.avatar_id : null;
   return {
-    profile: JSON.parse(profile.profile),
+    profile: JSON.parse(validatePublicProfile(value)),
     revision: profile.revision,
     updatedAt: profile.updatedAt,
   };
+}
+
+async function validateAvatarReference(ctx: any, serialized: string): Promise<void> {
+  let profile: Record<string, unknown>;
+  try {
+    profile = JSON.parse(serialized) as Record<string, unknown>;
+  } catch {
+    throw new ApiError(400, "invalid_profile", "Profile is invalid.");
+  }
+  const avatarId = profile.avatar_id;
+  if (avatarId === null || avatarId === undefined || avatarId === "") return;
+  if (!validAvatarId(avatarId)) {
+    throw new ApiError(400, "invalid_avatar", "Avatar identifier is invalid.");
+  }
+  const avatar = await ctx.runQuery(internal.avatar_catalog.get, { avatarId });
+  if (!avatar) throw new ApiError(400, "invalid_avatar", "That avatar is no longer available.");
 }
 
 function throwProfileError(result: any): void {
@@ -134,6 +163,34 @@ async function dispatch(
       });
     }
 
+    if (url.pathname === "/api/profile/v2/avatars" && method === "GET") {
+      const avatars = await ctx.runQuery(internal.avatar_catalog.list, {});
+      return jsonResponse({ avatars }, 200, true);
+    }
+    const avatarMatch = url.pathname.match(
+      /^\/api\/profile\/v2\/avatars\/([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)$/,
+    );
+    if (avatarMatch && method === "GET") {
+      const avatar = await ctx.runQuery(internal.avatar_catalog.get, {
+        avatarId: avatarMatch[1],
+      });
+      if (!avatar) throw new ApiError(404, "not_found", "Avatar not found.");
+      const blob = await ctx.storage.get(avatar.storageId);
+      if (!blob) throw new ApiError(404, "not_found", "Avatar not found.");
+      return new Response(blob, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=86400",
+          "ETag": `"${avatar.sha256}"`,
+          "Content-Disposition": "inline",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer",
+          "Cross-Origin-Resource-Policy": "cross-origin",
+        },
+      });
+    }
+
     const availabilityMatch = url.pathname.match(
       /^\/api\/profile\/v1\/handles\/([^/]+)\/availability$/,
     );
@@ -204,6 +261,7 @@ async function dispatch(
             : generatedHandle();
           candidate.handle = handle;
           const serialized = validatePublicProfile(candidate);
+          await validateAvatarReference(ctx, serialized);
           if (owner)
             throw new ApiError(409, "profile_exists_for_identity", "This central account already owns a profile.");
           const result = await ctx.runMutation(internal.profiles.createForIdentity, {
@@ -223,6 +281,7 @@ async function dispatch(
             throw new ApiError(400, "invalid_revision", "A numeric revision is required.");
           const profile = body.profile as Record<string, unknown>;
           const serialized = validatePublicProfile(profile);
+          await validateAvatarReference(ctx, serialized);
           if (profile.handle !== owner.handle)
             throw new ApiError(400, "handle_mismatch", "The profile handle cannot be changed.");
           const result = await ctx.runMutation(internal.profiles.update, {
@@ -371,6 +430,7 @@ async function dispatch(
       }
       const profile = body.profile as Record<string, unknown>;
       const serialized = validatePublicProfile(profile);
+      await validateAvatarReference(ctx, serialized);
       if (profile.handle !== handle)
         throw new ApiError(
           400,
@@ -534,15 +594,7 @@ async function dispatch(
     if (method === "GET") {
       const profile = await ctx.runQuery(internal.profiles.get, { handle });
       if (!profile) throw new ApiError(404, "not_found", "Profile not found.");
-      return jsonResponse(
-        {
-          profile: JSON.parse(profile.profile),
-          revision: profile.revision,
-          updatedAt: profile.updatedAt,
-        },
-        200,
-        true,
-      );
+      return jsonResponse(profilePayload(profile), 200, true);
     }
     const token = ownerToken(req);
     const tokenHash = await sha256(token);
@@ -577,6 +629,7 @@ async function dispatch(
         );
       const profile = body.profile as Record<string, unknown>;
       const serialized = validatePublicProfile(profile);
+      await validateAvatarReference(ctx, serialized);
       if (profile.handle !== handle)
         throw new ApiError(
           400,

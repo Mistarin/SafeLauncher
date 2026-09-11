@@ -2,25 +2,28 @@
 
 from __future__ import annotations
 
-import io
 import json
+import hashlib
 import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 from unittest.mock import Mock
 
-from PIL import Image
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
-from core.profile_assets import MAX_AVATAR_BYTES, normalize_avatar, validate_avatar_payload
+from core.profile_avatar_catalog import (
+    normalize_avatar_catalog,
+    read_cached_avatar,
+    save_cached_avatar,
+)
 from core.profile_models import (
     DEFAULT_BACKGROUND,
     build_public_projection,
     load_profile_settings,
     normalize_public_document, normalize_social_snapshot, normalize_username_handle,
-    profile_username_suggestion, steam_hero_url, normalize_background,
+    profile_username_suggestion, steam_hero_url, normalize_background, normalize_avatar_id,
     save_profile_settings,
 )
 from database import GameDatabase
@@ -35,6 +38,7 @@ from core.central_auth import (
     get_central_auth_config,
 )
 from ui.components.profile_page import ProfilePageWidget
+from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
 from ui.components.sidebar import HeaderBar
 
 
@@ -51,15 +55,32 @@ class ProfileModelTests(unittest.TestCase):
         self.assertEqual(config.audience, OFFICIAL_AUTH0_AUDIENCE)
         self.assertTrue(config.configured)
 
-    def test_avatar_is_normalized_without_source_metadata(self):
-        source = io.BytesIO()
-        Image.new("RGBA", (1200, 600), (240, 40, 70, 128)).save(source, format="PNG")
-        avatar = normalize_avatar(source.getvalue())
-        self.assertEqual(avatar["mime"], "image/jpeg")
-        self.assertEqual(avatar["width"], avatar["height"])
-        self.assertLessEqual(avatar["bytes"], MAX_AVATAR_BYTES)
-        self.assertTrue(validate_avatar_payload(avatar))
-        self.assertNotIn("path", avatar)
+    def test_avatar_references_are_ids_and_catalog_data_is_bounded(self):
+        self.assertEqual(normalize_avatar_id("R 1-1"), "")
+        self.assertEqual(normalize_avatar_id("r-1-1"), "r-1-1")
+        catalog = normalize_avatar_catalog({"avatars": []})
+        self.assertIsNone(catalog)
+        catalog = normalize_avatar_catalog([{
+            "id": "r-1-1",
+            "label": "R 1-1",
+            "category": "R",
+            "order": 1,
+            "sha256": "a" * 64,
+            "width": 512,
+            "height": 512,
+            "bytes": 1024,
+        }])
+        self.assertEqual(catalog[0]["id"], "r-1-1")
+
+    def test_avatar_cache_is_hash_bound_and_rejects_path_traversal(self):
+        data = b"avatar-cache-fixture"
+        digest = hashlib.sha256(data).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("core.profile_avatar_catalog.avatar_cache_directory", return_value=Path(directory)):
+                save_cached_avatar("r-1-1", digest, data)
+                self.assertEqual(read_cached_avatar("r-1-1", digest), data)
+                self.assertEqual(read_cached_avatar("r-1-1", "0" * 64), b"")
+                self.assertEqual(read_cached_avatar("../outside", digest), b"")
 
     def test_settings_round_trip_is_bounded_and_json_safe(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -73,7 +94,16 @@ class ProfileModelTests(unittest.TestCase):
             self.assertEqual(loaded["display_name"], "Martin Player")
             self.assertLessEqual(len(loaded["bio"]), 160)
             self.assertEqual(loaded["background"]["angle"], 360)
-            self.assertEqual(saved["avatar"], loaded["avatar"])
+            self.assertEqual(saved["avatar_id"], loaded["avatar_id"])
+
+    def test_legacy_embedded_avatar_is_removed_from_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            settings.setValue("profile_avatar", '{"mime":"image/jpeg","data_b64":"secret"}')
+            settings.sync()
+            loaded = load_profile_settings(settings)
+            self.assertEqual(loaded["avatar_id"], "")
+            self.assertEqual(settings.value("profile_avatar", "", type=str), "")
 
     def test_projection_excludes_installation_details(self):
         db = GameDatabase(":memory:")
@@ -136,7 +166,12 @@ class ProfileModelTests(unittest.TestCase):
         normalized = normalize_public_document(valid)
         self.assertEqual(normalized["display_name"], "Visible")
         self.assertEqual(normalized["stats"]["games_count"], 1)
+        self.assertIsNone(normalized["avatar_id"])
         self.assertNotIn("path", normalized)
+
+        legacy_avatar = dict(valid)
+        legacy_avatar["avatar"] = {"mime": "image/jpeg", "data_b64": "not-public"}
+        self.assertNotIn("avatar", normalize_public_document(legacy_avatar))
 
         unsafe = dict(valid)
         unsafe["games"] = [{
@@ -263,6 +298,39 @@ class ProfileModelTests(unittest.TestCase):
         response.json.return_value = {"handle": "other", "available": "yes"}
         with self.assertRaisesRegex(ProfileServiceError, "invalid handle availability"):
             client.check_handle_availability("other")
+
+    def test_avatar_catalog_client_validates_catalog_and_uses_gateway_path(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {"avatars": [{
+            "id": "1-1",
+            "label": "1-1",
+            "category": "Standard",
+            "order": 0,
+            "sha256": "a" * 64,
+            "width": 512,
+            "height": 512,
+            "bytes": 1024,
+        }]}
+        session = Mock()
+        session.request.return_value = response
+        client = ProfileServiceClient("https://profiles.example")
+        client.session = session
+
+        self.assertEqual(client.list_avatar_catalog()[0]["id"], "1-1")
+        self.assertEqual(client.avatar_url("1-1"), "https://profiles.example/api/profile/v2/avatars/1-1")
+        self.assertNotIn("convex", client.avatar_url("1-1"))
+        with self.assertRaises(ProfileServiceError):
+            client.avatar_url("../storage-id")
+
+    def test_avatar_download_rejects_non_images_and_oversized_responses(self):
+        response = Mock(status_code=200)
+        response.headers = {"Content-Type": "application/json", "Content-Length": "10"}
+        session = Mock()
+        session.get.return_value = response
+        client = ProfileServiceClient("https://profiles.example")
+        client.session = session
+        with self.assertRaisesRegex(ProfileServiceError, "non-image"):
+            client.fetch_avatar_bytes("1-1")
 
     def test_v2_client_uses_central_bearer_and_never_sends_legacy_token(self):
         response = Mock(status_code=200)
@@ -422,6 +490,38 @@ class ProfilePageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_avatar_catalog_dialog_is_selectable_and_searchable(self):
+        catalog = [{
+            "id": "1-1",
+            "label": "1-1",
+            "category": "Standard",
+            "order": 0,
+            "sha256": "a" * 64,
+            "width": 512,
+            "height": 512,
+            "bytes": 1024,
+        }, {
+            "id": "r-1-1",
+            "label": "R 1-1",
+            "category": "R",
+            "order": 1,
+            "sha256": "b" * 64,
+            "width": 512,
+            "height": 512,
+            "bytes": 1024,
+        }]
+        dialog = ProfileAvatarCatalogDialog(catalog, "r-1-1")
+        try:
+            self.assertEqual(dialog.table.rowCount(), 2)
+            self.assertEqual(dialog.selected_avatar_id, "r-1-1")
+            dialog.search.setText("standard")
+            self.assertFalse(dialog.table.isRowHidden(0))
+            self.assertTrue(dialog.table.isRowHidden(1))
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+            self.app.processEvents()
 
     def test_owner_and_public_views_share_one_persistent_page(self):
         with tempfile.TemporaryDirectory() as directory:

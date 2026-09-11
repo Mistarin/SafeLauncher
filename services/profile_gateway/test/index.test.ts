@@ -23,6 +23,8 @@ describe("profile gateway", () => {
     expect(classify("/api/profile/v1/01234567890123456789", "GET").kind).toBe("public");
     expect(classify("/api/profile/v1/martin-player", "GET").kind).toBe("public");
     expect(classify("/api/profile/v1/handles/martin-player/availability", "GET").kind).toBe("public");
+    expect(classify("/api/profile/v2/avatars", "GET").kind).toBe("public");
+    expect(classify("/api/profile/v2/avatars/1-1", "GET").kind).toBe("public");
     expect(classify("/api/telemetry/ping", "POST").kind).toBe("public");
     expect(classify("/api/telemetry/ping", "GET").kind).toBe("invalid");
     expect(classify("/api/profile/v1/01234567890123456789", "POST").kind).toBe("invalid");
@@ -31,6 +33,8 @@ describe("profile gateway", () => {
     expect(classify("/api/profile/v2/me/claim", "POST").kind).toBe("auth");
     expect(classify("/api/profile/v2/me/friends/01234567890123456789", "DELETE").kind).toBe("auth");
     expect(classify("/api/profile/v2/me/unknown", "GET").kind).toBe("invalid");
+    expect(classify("/api/profile/v2/avatars/../storage-id", "GET").kind).toBe("invalid");
+    expect(classify("/api/profile/v2/avatars/1-1", "POST").kind).toBe("invalid");
     expect(classify("/api/profile/v2/me/friend-requests/bad/accept", "POST").kind).toBe("invalid");
   });
 

@@ -36,6 +36,7 @@ SECRET_NAMES = (
     "CONVEX_DEPLOY_KEY",
     "CONVEX_GATEWAY_KEY",
     "SAFELAUNCHER_GATEWAY_KEY",
+    "SAFELAUNCHER_AVATAR_IMPORT_KEY",
     "SAFELAUNCHER_SECRET_KEY",
     "VERCEL_TOKEN",
 )
@@ -62,6 +63,7 @@ ALLOWED_CONVEX_FIXTURE_HOSTS = {
     "test-deployment.eu-west-1.convex.site",
     "test.convex.site",
     "your-central-deployment.convex.site",
+    "your-central-deployment.convex.cloud",
     "your-central-deployment.eu-west-1.convex.site",
     "your-profile-service.convex.site",
     "your-project.convex.site",
@@ -86,6 +88,7 @@ PLACEHOLDER_VALUES = {
     "<same",
     "<your",
     "<a-long",
+    "<private-random",
     "process.env",
     "os.environ.get(\"",
     "getenv(\"",
@@ -225,7 +228,7 @@ def main() -> int:
 
         for pattern in (SECRET_ASSIGNMENT, DIRECT_ENV_ASSIGNMENT):
             for match in pattern.finditer(text):
-                value = match.group(1).strip().lower()
+                value = match.group(1).strip().strip("'\"").lower()
                 if not any(value.startswith(placeholder) for placeholder in PLACEHOLDER_VALUES):
                     findings.append(
                         f"{relative}:{line_number(text, match.start())}: credential assigned in tracked source"

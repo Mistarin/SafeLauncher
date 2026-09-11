@@ -2,32 +2,39 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from typing import Any
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
 from PyQt6.QtGui import QColor, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QColorDialog, QFileDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
+    QColorDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
     QPlainTextEdit,
     QProgressBar, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
     QInputDialog,
 )
 
-from core.profile_assets import AvatarError, normalize_avatar
 from core.profile_models import (
     BACKGROUND_PRESETS, MAX_BIO_LENGTH, build_public_projection,
-    HANDLE_RE, load_profile_settings, normalize_background, normalize_username_handle,
+    HANDLE_RE, load_profile_settings, normalize_avatar_id, normalize_background, normalize_username_handle,
     normalize_public_document, profile_username_suggestion, save_profile_settings,
     steam_app_id, steam_hero_url, steam_hero_urls,
 )
 from core.profile_service import ProfileServiceClient, ProfileServiceError, get_profile_service_url, is_local_service_url
+from core.profile_avatar_catalog import (
+    load_cached_avatar_catalog,
+    read_cached_avatar,
+    save_cached_avatar,
+    save_cached_avatar_catalog,
+)
 from core.central_auth import CentralAuthError, CentralAuthSession
 from core.secret_store import delete_secret, get_secret
 from core.safe_thread import TaskSupervisor
 from core.network_policy import automatic_network_allowed
 from ui.icons import get_icon
+from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
 from ui.theme import (
     ACCENT_PRIMARY, BG_APP, BORDER, SEMANTIC_ERROR, SEMANTIC_SUCCESS,
     SURFACE, SURFACE_ELEVATED, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
@@ -38,9 +45,16 @@ PROFILE_ARTWORK_HEIGHT = 104
 MAX_PROFILE_BACKGROUND_BYTES = 4 * 1024 * 1024
 MAX_PROFILE_BACKGROUND_PIXELS = 32_000_000
 MAX_PROFILE_BACKGROUND_CACHE_ITEMS = 3
+MAX_PROFILE_AVATAR_CACHE_ITEMS = 16
+MAX_PROFILE_AVATAR_BYTES = 512 * 1024
 
 
-def _download_profile_image(url: str, timeout: tuple[int, int]) -> bytes:
+def _download_profile_image(
+    url: str,
+    timeout: tuple[int, int],
+    *,
+    max_bytes: int = MAX_PROFILE_BACKGROUND_BYTES,
+) -> bytes:
     """Download one fixed artwork URL with a bounded response body."""
     import requests
 
@@ -57,7 +71,7 @@ def _download_profile_image(url: str, timeout: tuple[int, int]) -> bytes:
             return b""
         content_length = response.headers.get("Content-Length")
         try:
-            if content_length and int(content_length) > MAX_PROFILE_BACKGROUND_BYTES:
+            if content_length and int(content_length) > max_bytes:
                 return b""
         except (TypeError, ValueError, OverflowError):
             return b""
@@ -67,7 +81,7 @@ def _download_profile_image(url: str, timeout: tuple[int, int]) -> bytes:
             if not chunk:
                 continue
             size += len(chunk)
-            if size > MAX_PROFILE_BACKGROUND_BYTES:
+            if size > max_bytes:
                 return b""
             chunks.append(chunk)
         return b"".join(chunks) if size else b""
@@ -253,7 +267,7 @@ class ProfilePageWidget(QWidget):
         self._profile_settings: dict[str, Any] = {}
         self._document: dict[str, Any] = {}
         self._editing = False
-        self._draft_avatar = None
+        self._draft_avatar_id = ""
         self._public_revision = int(self.settings.value("profile_public_revision", 0, type=int) or 0)
         self._publishing = False
         self._publish_dirty = False
@@ -275,6 +289,11 @@ class ProfilePageWidget(QWidget):
         self._profile_background_pixmap = QPixmap()
         self._profile_background_blurred = QPixmap()
         self._profile_background_blur_size = (0, 0)
+        self._avatar_catalog: list[dict[str, Any]] = load_cached_avatar_catalog() or []
+        self._avatar_catalog_loading = False
+        self._avatar_dialog: ProfileAvatarCatalogDialog | None = None
+        self._avatar_pixmaps: dict[str, QPixmap] = {}
+        self._avatar_inflight: set[str] = set()
         self._selected_profile_game: dict[str, Any] | None = None
         self._games_return_index = 0
         self._profile_games: list[dict[str, Any]] = []
@@ -462,12 +481,15 @@ class ProfilePageWidget(QWidget):
         editor_layout.addLayout(bio_row)
         avatar_row = QHBoxLayout()
         avatar_row.addWidget(QLabel("Avatar"))
-        self.btn_avatar = QPushButton("Choose image")
+        self.btn_avatar = QPushButton("Choose profile picture")
         self.btn_avatar.clicked.connect(self._choose_avatar)
         avatar_row.addWidget(self.btn_avatar)
-        self.btn_remove_avatar = QPushButton("Remove")
+        self.btn_remove_avatar = QPushButton("Use initials")
         self.btn_remove_avatar.clicked.connect(self._remove_avatar)
         avatar_row.addWidget(self.btn_remove_avatar)
+        self.avatar_selection_label = QLabel("Cloud catalog")
+        self.avatar_selection_label.setObjectName("profileMuted")
+        avatar_row.addWidget(self.avatar_selection_label)
         avatar_row.addStretch()
         editor_layout.addLayout(avatar_row)
         background_row = QHBoxLayout()
@@ -1024,7 +1046,7 @@ class ProfilePageWidget(QWidget):
             "display_name": draft_name or self._profile_settings.get("display_name", "Player"),
             "public_handle": draft_handle or self._profile_settings.get("public_handle", ""),
             "bio": draft_bio,
-            "avatar": self._draft_avatar,
+            "avatar_id": self._draft_avatar_id,
             "background": background,
         }))
         with QSignalBlocker(self.name_edit), QSignalBlocker(self.handle_edit), QSignalBlocker(self.bio_edit):
@@ -1091,7 +1113,7 @@ class ProfilePageWidget(QWidget):
         unlocked = int(stats.get("achievements_unlocked", 0) or 0)
         known = int(stats.get("achievements_known", 0) or 0)
         self.stat_labels["achievements_unlocked"].setText(f"{unlocked}/{known}" if known else str(unlocked))
-        self._set_avatar(document.get("avatar"))
+        self._set_avatar(document.get("avatar_id"))
         if self._mode == "owner":
             published = bool(self._profile_settings.get("published"))
             signed_in = self.central_auth.signed_in
@@ -1630,21 +1652,142 @@ class ProfilePageWidget(QWidget):
             if isinstance(item, dict):
                 widget.addItem(QListWidgetItem(formatter(item)))
 
-    def _set_avatar(self, avatar: Any) -> None:
+    @staticmethod
+    def _decode_avatar(data: bytes) -> QPixmap | None:
+        if not isinstance(data, bytes) or not data or len(data) > MAX_PROFILE_AVATAR_BYTES:
+            return None
         pixmap = QPixmap()
-        if isinstance(avatar, dict):
-            try:
-                import base64
-                pixmap.loadFromData(base64.b64decode(str(avatar.get("data_b64", "")), validate=True), "JPEG")
-            except Exception:
-                pixmap = QPixmap()
-        if not pixmap.isNull():
+        if not pixmap.loadFromData(data, "PNG"):
+            return None
+        if pixmap.width() <= 0 or pixmap.height() <= 0 or pixmap.width() * pixmap.height() > 4_000_000:
+            return None
+        return pixmap
+
+    def _cache_avatar_pixmap(self, avatar_id: str, pixmap: QPixmap) -> None:
+        self._avatar_pixmaps.pop(avatar_id, None)
+        self._avatar_pixmaps[avatar_id] = pixmap
+        while len(self._avatar_pixmaps) > MAX_PROFILE_AVATAR_CACHE_ITEMS:
+            self._avatar_pixmaps.pop(next(iter(self._avatar_pixmaps)), None)
+
+    def _avatar_catalog_item(self, avatar_id: str) -> dict[str, Any] | None:
+        return next((item for item in self._avatar_catalog if item.get("id") == avatar_id), None)
+
+    def _set_avatar(self, value: Any) -> None:
+        avatar_id = normalize_avatar_id(value)
+        pixmap = self._avatar_pixmaps.get(avatar_id) if avatar_id else None
+        if pixmap is not None and not pixmap.isNull():
             self.avatar.setPixmap(pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
             self.avatar.setStyleSheet("border-radius:64px; background:#20242C;")
-        else:
-            self.avatar.clear()
-            self.avatar.setText("SL")
-            self.avatar.setStyleSheet(f"border-radius:64px; background:{SURFACE_ELEVATED}; color:{ACCENT_PRIMARY}; font-size:30px; font-weight:800;")
+            self._cache_avatar_pixmap(avatar_id, pixmap)
+            return
+        self.avatar.clear()
+        self.avatar.setText("SL")
+        self.avatar.setStyleSheet(f"border-radius:64px; background:{SURFACE_ELEVATED}; color:{ACCENT_PRIMARY}; font-size:30px; font-weight:800;")
+        if avatar_id:
+            self._queue_avatar_image(avatar_id)
+
+    def _queue_avatar_image(self, avatar_id: str, dialog: ProfileAvatarCatalogDialog | None = None) -> None:
+        avatar_id = normalize_avatar_id(avatar_id)
+        if not avatar_id:
+            return
+        catalog_item = self._avatar_catalog_item(avatar_id)
+        expected_hash = str(catalog_item.get("sha256", "")) if catalog_item else ""
+        if avatar_id in self._avatar_pixmaps:
+            if dialog is not None:
+                dialog.set_thumbnail(avatar_id, self._avatar_pixmaps[avatar_id])
+            return
+        if expected_hash:
+            cached = read_cached_avatar(avatar_id, expected_hash)
+            pixmap = self._decode_avatar(cached)
+            if pixmap is not None:
+                self._cache_avatar_pixmap(avatar_id, pixmap)
+                if dialog is not None:
+                    dialog.set_thumbnail(avatar_id, pixmap)
+                current_avatar = self._draft_avatar_id if self._editing else self._document.get("avatar_id")
+                if normalize_avatar_id(current_avatar) == avatar_id:
+                    self._set_avatar(avatar_id)
+                return
+        if avatar_id in self._avatar_inflight or not automatic_network_allowed(self.settings):
+            return
+        self._avatar_inflight.add(avatar_id)
+        service_url = get_profile_service_url()
+
+        def work():
+            with ProfileServiceClient(service_url) as client:
+                return client.fetch_avatar_bytes(avatar_id)
+
+        worker = self._tasks.start(
+            "SafeLauncher-ProfileAvatar",
+            work,
+            lambda result, expected_id=avatar_id: self._avatar_image_loaded(expected_id, result),
+        )
+        worker.error_occurred.connect(
+            lambda _error, expected_id=avatar_id: self._avatar_image_failed(expected_id)
+        )
+
+    def _avatar_image_failed(self, avatar_id: str) -> None:
+        self._avatar_inflight.discard(avatar_id)
+
+    def _avatar_image_loaded(self, avatar_id: str, data: Any) -> None:
+        self._avatar_inflight.discard(avatar_id)
+        if not isinstance(data, bytes):
+            return
+        pixmap = self._decode_avatar(data)
+        if pixmap is None:
+            return
+        expected = self._avatar_catalog_item(avatar_id)
+        digest = hashlib.sha256(data).hexdigest()
+        if expected and digest != str(expected.get("sha256", "")):
+            return
+        self._cache_avatar_pixmap(avatar_id, pixmap)
+        save_cached_avatar(avatar_id, digest, data)
+        if self._avatar_dialog is not None and self._avatar_dialog.isVisible():
+            self._avatar_dialog.set_thumbnail(avatar_id, pixmap)
+        current_avatar = self._draft_avatar_id if self._editing else self._document.get("avatar_id")
+        if normalize_avatar_id(current_avatar) == avatar_id:
+            self._set_avatar(avatar_id)
+
+    def _avatar_catalog_loaded(self, result: Any) -> None:
+        self._avatar_catalog_loading = False
+        self.btn_avatar.setEnabled(True)
+        if isinstance(result, Exception):
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.footer_status.setText(f"Could not load profile pictures: {result}")
+            return
+        if not isinstance(result, list) or not result:
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.footer_status.setText("The cloud profile picture catalog is empty.")
+            return
+        self._avatar_catalog = result
+        save_cached_avatar_catalog(result)
+        self._show_avatar_catalog()
+
+    def _show_avatar_catalog(self) -> None:
+        if not self._avatar_catalog:
+            return
+        dialog = ProfileAvatarCatalogDialog(self._avatar_catalog, self._draft_avatar_id, self)
+        self._avatar_dialog = dialog
+        dialog.visible_avatar_ids.connect(
+            lambda ids, expected_dialog=dialog: self._load_avatar_thumbnails(expected_dialog, ids)
+        )
+        try:
+            if dialog.exec() == dialog.DialogCode.Accepted:
+                selected = normalize_avatar_id(dialog.selected_avatar_id)
+                if selected:
+                    self._draft_avatar_id = selected
+                    item = self._avatar_catalog_item(selected)
+                    self.avatar_selection_label.setText(str(item.get("label", selected)) if item else selected)
+                    self._set_avatar(selected)
+        finally:
+            if self._avatar_dialog is dialog:
+                self._avatar_dialog = None
+            dialog.deleteLater()
+
+    def _load_avatar_thumbnails(self, dialog: ProfileAvatarCatalogDialog, avatar_ids: Any) -> None:
+        if self._avatar_dialog is not dialog or not dialog.isVisible():
+            return
+        for avatar_id in list(avatar_ids)[:8]:
+            self._queue_avatar_image(str(avatar_id), dialog)
 
     def _populate_editor(self) -> None:
         if self._mode != "owner":
@@ -1661,6 +1804,13 @@ class ProfilePageWidget(QWidget):
         self._handle_check_inflight = False
         self._handle_availability = True if published and handle else None
         self._update_bio_count()
+        selected_avatar = normalize_avatar_id(
+            self._draft_avatar_id if self._editing else self._profile_settings.get("avatar_id")
+        )
+        avatar_item = self._avatar_catalog_item(selected_avatar) if selected_avatar else None
+        self.avatar_selection_label.setText(
+            str(avatar_item.get("label", selected_avatar)) if avatar_item else (selected_avatar or "Using initials")
+        )
         self.handle_hint.setText(
             "Published usernames are locked so shared profile links keep working."
             if published else
@@ -1898,7 +2048,7 @@ class ProfilePageWidget(QWidget):
                 **self._profile_settings,
                 "display_name": remote.get("display_name", self._profile_settings.get("display_name", "Player")),
                 "bio": remote.get("bio", self._profile_settings.get("bio", "")),
-                "avatar": remote.get("avatar"),
+                "avatar_id": remote.get("avatar_id"),
                 "background": remote.get("background"),
                 "public_handle": remote.get("handle", self._profile_settings.get("public_handle", "")),
                 "published": True,
@@ -1932,14 +2082,14 @@ class ProfilePageWidget(QWidget):
         if self._mode != "owner":
             return
         self._editing = True
-        self._draft_avatar = self._profile_settings.get("avatar")
+        self._draft_avatar_id = str(self._profile_settings.get("avatar_id", "") or "")
         self.editor.setVisible(True)
         self.btn_edit.setVisible(False)
         self._populate_editor()
 
     def _cancel_edit(self) -> None:
         self._editing = False
-        self._draft_avatar = None
+        self._draft_avatar_id = ""
         self.show_owner()
 
     def _save_edit(self) -> None:
@@ -1991,45 +2141,50 @@ class ProfilePageWidget(QWidget):
             "display_name": name,
             "public_handle": handle,
             "bio": self.bio_edit.toPlainText(),
-            "avatar": self._draft_avatar,
+            "avatar_id": self._draft_avatar_id,
             "background": background,
         })
         normalized = save_profile_settings(self.settings, value)
         self._profile_settings = normalized
         self._editing = False
-        self._draft_avatar = None
+        self._draft_avatar_id = ""
         self.profile_changed.emit()
         self.show_owner()
         self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
         self.footer_status.setText("Profile changes saved locally. Publish to update the public profile.")
 
     def _choose_avatar(self) -> None:
-        # The native portal picker is unreliable in some desktop/session
-        # combinations (and can fail silently when the app has a custom
-        # frameless window). An explicit Qt dialog keeps this action usable
-        # without depending on the host portal registration.
-        dialog = QFileDialog(self)
-        dialog.setWindowTitle("Choose profile picture")
-        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
-        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
-        dialog.setNameFilter("Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
-        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-        pictures = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
-        if pictures:
-            dialog.setDirectory(pictures)
-        if not dialog.exec():
+        if self._mode != "owner" or not self._editing:
             return
-        selected = dialog.selectedFiles()
-        if not selected:
+        if self._avatar_catalog:
+            self._show_avatar_catalog()
             return
-        try:
-            self._draft_avatar = normalize_avatar(selected[0])
-            self._set_avatar(self._draft_avatar)
-        except AvatarError as exc:
-            QMessageBox.warning(self, "Profile picture", str(exc))
+        if not automatic_network_allowed(self.settings):
+            QMessageBox.information(
+                self,
+                "Profile pictures unavailable offline",
+                "Connect to the internet once to download the SafeLauncher profile picture catalog.",
+            )
+            return
+        if self._avatar_catalog_loading:
+            return
+        self._avatar_catalog_loading = True
+        self.btn_avatar.setEnabled(False)
+        self.footer_status.setStyleSheet("")
+        self.footer_status.setText("Loading cloud profile pictures…")
+
+        def work():
+            with ProfileServiceClient(get_profile_service_url()) as client:
+                return client.list_avatar_catalog()
+
+        worker = self._tasks.start("SafeLauncher-ProfileAvatarCatalog", work, self._avatar_catalog_loaded)
+        worker.error_occurred.connect(lambda error: self._avatar_catalog_loaded(ProfileServiceError(str(error), "catalog_fetch_failed")))
 
     def _remove_avatar(self) -> None:
-        self._draft_avatar = None
+        if self._mode != "owner" or not self._editing:
+            return
+        self._draft_avatar_id = ""
+        self.avatar_selection_label.setText("Using initials")
         self._set_avatar(None)
 
     def _choose_color(self) -> None:
@@ -2047,7 +2202,7 @@ class ProfilePageWidget(QWidget):
                 "display_name": draft_name or self._profile_settings.get("display_name", "Player"),
                 "public_handle": draft_handle or self._profile_settings.get("public_handle", ""),
                 "bio": draft_bio,
-                "avatar": self._draft_avatar,
+                "avatar_id": self._draft_avatar_id,
                 "background": self._profile_settings["background"],
             }))
             # Rendering also refreshes the owner editor. Restore the in-flight

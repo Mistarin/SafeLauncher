@@ -2,10 +2,12 @@
   "name": "safelauncher-profile-cloud",
   "version": "0.2.0",
   "private": true,
+  "type": "module",
   "description": "Central public-profile service for SafeLauncher",
   "scripts": {
     "dev": "convex dev",
-    "deploy": "convex deploy"
+    "deploy": "convex deploy",
+    "import-avatars": "node scripts/import_profile_avatars.mjs"
   },
   "dependencies": {
     "convex": "^1.25.4"
