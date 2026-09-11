@@ -495,7 +495,7 @@ class ProfilePageTests(unittest.TestCase):
             window.deleteLater()
             self.app.processEvents()
 
-    def test_profile_editor_keeps_identity_fields_internal(self):
+    def test_profile_editor_shows_username_but_hides_service_details(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
             save_profile_settings(settings, {
@@ -512,9 +512,10 @@ class ProfilePageTests(unittest.TestCase):
                 page.name_edit.setText("New Name")
                 page.bio_edit.setPlainText("A visible bio")
                 page._save_edit()
-                self.assertFalse(hasattr(page, "handle_edit"))
+                self.assertTrue(hasattr(page, "handle_edit"))
                 self.assertFalse(hasattr(page, "service_url_edit"))
-                self.assertFalse(hasattr(page, "handle_label"))
+                self.assertEqual(page.handle_edit.text(), "taken-name")
+                self.assertEqual(page.handle_label.text(), "@taken-name")
                 loaded = load_profile_settings(settings)
                 self.assertEqual(loaded["display_name"], "New Name")
                 self.assertEqual(loaded["bio"], "A visible bio")
