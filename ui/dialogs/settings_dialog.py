@@ -44,6 +44,12 @@ from core.cloud_backend import check_backend_health
 from core.cloud_detector import detect_local_cloud_installation
 from core.safe_thread import TaskSupervisor
 from core.secret_store import get_secret, set_secret, delete_secret
+from core.network_policy import (
+    automatic_network_allowed,
+    is_offline_mode,
+    offline_status_text,
+    set_offline_mode,
+)
 from core.logger import get_logger
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtCore import QUrl
@@ -655,6 +661,7 @@ class UserSettingsDialog(PopupDialog):
 
         from core.cloud_save_sync import cloud_mode as current_cloud_mode
         from core.cloud_backend import get_site_url
+        settings = QSettings("SafeLauncher", "SafeLauncher")
 
         form_mode = QFormLayout()
         form_mode.setSpacing(10)
@@ -668,13 +675,34 @@ class UserSettingsDialog(PopupDialog):
         self.combo_cloud_mode.currentIndexChanged.connect(self._on_cloud_mode_changed)
         form_mode.addRow("Cloud Backend:", self.combo_cloud_mode)
 
+        # This is deliberately separate from the cloud backend selector:
+        # offline mode also suppresses Steam, artwork, profile, telemetry,
+        # update, and other optional background requests.
+        self.chk_offline_mode = QCheckBox("Offline mode (disable automatic internet access)")
+        self.chk_offline_mode.setChecked(is_offline_mode(settings))
+        self.chk_offline_mode.setToolTip(
+            "Use cached/local data only. SafeLauncher will not start automatic "
+            "artwork, Steam, cloud, profile, telemetry, or update requests."
+        )
+        form_mode.addRow("Network:", self.chk_offline_mode)
+        self.lbl_offline_mode_help = QLabel(offline_status_text(settings))
+        self.lbl_offline_mode_help.setWordWrap(True)
+        self.lbl_offline_mode_help.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        self.chk_offline_mode.toggled.connect(
+            lambda enabled: self.lbl_offline_mode_help.setText(
+                "Offline mode enabled — automatic internet access is disabled."
+                if enabled else
+                "Online mode — automatic internet access is enabled."
+            )
+        )
+        form_mode.addRow("", self.lbl_offline_mode_help)
+
         # Convex Site URL
         self.edit_convex_url = QLineEdit(get_site_url())
         self.edit_convex_url.setPlaceholderText("https://your-project.convex.site")
         form_mode.addRow("Convex Site URL:", self.edit_convex_url)
 
         # Secret Access Key
-        settings = QSettings("SafeLauncher", "SafeLauncher")
         saved_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
         key_row = QHBoxLayout()
         self.edit_cloud_secret_key = QLineEdit(saved_key)
@@ -1223,6 +1251,7 @@ class UserSettingsDialog(PopupDialog):
             reset_cloud_backend()
             mode = self.combo_cloud_mode.currentData() or "local"
             set_cloud_mode(mode)
+            set_offline_mode(self.chk_offline_mode.isChecked(), settings)
 
             cloud_dir = self.edit_cloud_saves_dir.text().strip()
             if cloud_dir:
@@ -1256,6 +1285,16 @@ class UserSettingsDialog(PopupDialog):
             self.edit_cloud_saves_dir.setText(path)
 
     # ---- Cloud account handlers --------------------------------------------
+
+    def _dialog_network_allowed(self) -> bool:
+        """Apply the unsaved offline checkbox immediately inside Settings."""
+        if getattr(self, "chk_offline_mode", None) is not None:
+            try:
+                if self.chk_offline_mode.isChecked():
+                    return False
+            except RuntimeError:
+                return False
+        return automatic_network_allowed(QSettings("SafeLauncher", "SafeLauncher"))
 
     def _on_cloud_mode_changed(self, index: int):
         from core.cloud_save_sync import set_cloud_mode
@@ -1389,6 +1428,10 @@ class UserSettingsDialog(PopupDialog):
         self._account_probe_generation += 1
         generation = self._account_probe_generation
 
+        if not self._dialog_network_allowed():
+            self.accountStatusReady.emit("Offline mode — cloud account checks are disabled.")
+            return
+
         def _probe():
             try:
                 from core.cloud_backend import ConvexSaveBackend, get_site_url
@@ -1418,6 +1461,14 @@ class UserSettingsDialog(PopupDialog):
         """Probe backend health endpoint, measure latency, and check version parity."""
         self._health_probe_generation += 1
         generation = self._health_probe_generation
+        if not self._dialog_network_allowed():
+            self.lbl_health_status.setText("Offline mode")
+            self.lbl_health_latency.setText("--")
+            self.lbl_health_version.setText("Not checked")
+            self.lbl_version_warning.setText(
+                "Offline mode is enabled; backend health is not probed."
+            )
+            return
         url = self.edit_convex_url.text().strip().rstrip("/")
         key = self.edit_cloud_secret_key.text().strip()
         if not url:
@@ -1605,6 +1656,11 @@ class UserSettingsDialog(PopupDialog):
 
     def _manual_check_updates(self):
         """Manual trigger to check for SafeLauncher application updates."""
+        if not self._dialog_network_allowed():
+            self.lbl_update_status.setText(
+                "<font color='#9CA3AF'>Offline mode — update checks are disabled.</font>"
+            )
+            return
         self.btn_check_app_updates.setEnabled(False)
         self.lbl_update_status.setText("<font color='#3B82F6'>Checking GitHub Releases for updates…</font>")
 
@@ -1647,6 +1703,11 @@ class UserSettingsDialog(PopupDialog):
 
     def _start_appimage_download(self, asset_url: str):
         """Download new AppImage in background thread with progress reporting."""
+        if not self._dialog_network_allowed():
+            self.lbl_update_status.setText(
+                "<font color='#9CA3AF'>Offline mode — update downloads are disabled.</font>"
+            )
+            return
         self.lbl_update_status.setText("<font color='#3B82F6'>Downloading update…</font>")
 
         def _worker():

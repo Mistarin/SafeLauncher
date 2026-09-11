@@ -87,6 +87,14 @@ class AchievementProfileDialog(PopupDialog):
     def _resync(self):
         if self._busy:
             return
+        from core.network_policy import automatic_network_allowed
+        if not automatic_network_allowed():
+            QMessageBox.information(
+                self,
+                "Offline mode",
+                "Private achievement resync is unavailable while offline mode is enabled.",
+            )
+            return
         self._busy = True
         self.btn_resync.setEnabled(False)
         self.btn_resync.setText("Resyncing…")

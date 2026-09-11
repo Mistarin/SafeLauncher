@@ -1,3 +1,4 @@
+import os
 import sys
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QIcon
@@ -17,6 +18,12 @@ logger = get_logger("Main")
 
 
 def main():
+    # Apply the command-line override before any Qt objects or background
+    # services are created.  The shared policy is then seen consistently by
+    # MainWindow, telemetry, update checks, and managed downloads.
+    if "--offline" in sys.argv:
+        os.environ["SAFELAUNCHER_OFFLINE_MODE"] = "1"
+
     # Handle CLI system diagnostics / doctor
     if any(arg in sys.argv for arg in ("--doctor", "doctor", "-d")):
         from core.system_inspector import print_system_report
@@ -124,11 +131,13 @@ def main():
     window = MainWindow(db, runner, backup)
     # Run telemetry through the same owned worker lifecycle as every other
     # startup task; it remains silent and bounded when disabled/offline.
-    from core.telemetry import send_central_telemetry
-    window._start_managed_task(
-        "SafeLauncher-TelemetryPing",
-        lambda: send_central_telemetry(__version__),
-    )
+    from core.network_policy import automatic_network_allowed
+    if automatic_network_allowed(window.settings):
+        from core.telemetry import send_central_telemetry
+        window._start_managed_task(
+            "SafeLauncher-TelemetryPing",
+            lambda: send_central_telemetry(__version__),
+        )
     server = create_single_instance_server(window._show_and_raise)
     if not server.isListening():
         # A second process may have won the bind race. Do not start a second
@@ -138,12 +147,13 @@ def main():
 
     # 4. Ensure the bundled ludusavi save-detection engine is present.  The
     #    main window owns this task so shutdown can cancel and report it.
-    from core.ludusavi_installer import ensure_ludusavi
-    window._start_managed_task(
-        "SafeLauncher-LudusaviBootstrap",
-        ensure_ludusavi,
-        lambda result: logger.info("Ludusavi bootstrap finished: %s", result),
-    )
+    if automatic_network_allowed(window.settings):
+        from core.ludusavi_installer import ensure_ludusavi
+        window._start_managed_task(
+            "SafeLauncher-LudusaviBootstrap",
+            ensure_ludusavi,
+            lambda result: logger.info("Ludusavi bootstrap finished: %s", result),
+        )
 
     window.show()
     logger.info("SafeLauncher UI started successfully.")

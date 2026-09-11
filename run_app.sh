@@ -28,7 +28,7 @@ LOG_FILE="$LOG_DIR/run_app.log"
 
 cd "$PROJECT_DIR"
 if touch "$LOG_FILE" 2>/dev/null; then
-    exec "$PYTHON" "$PROJECT_DIR/main.py" >> "$LOG_FILE" 2>&1
+    exec "$PYTHON" "$PROJECT_DIR/main.py" "$@" >> "$LOG_FILE" 2>&1
 else
-    exec "$PYTHON" "$PROJECT_DIR/main.py"
+    exec "$PYTHON" "$PROJECT_DIR/main.py" "$@"
 fi

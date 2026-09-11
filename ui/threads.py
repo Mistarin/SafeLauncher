@@ -10,6 +10,7 @@ from core.proton_manager import fetch_online_ge_proton_releases
 from database import _APP_DATA_DIR
 from core.disk_utils import get_dir_size, format_size, peek_dir_size
 from core.logger import get_logger
+from core.network_policy import automatic_network_allowed
 
 logger = get_logger("UIThreads")
 
@@ -25,6 +26,9 @@ class BannerFetcher(SafeQThread):
     
     def safe_run(self):
         try:
+            if not automatic_network_allowed():
+                self.error_occurred.emit("Offline mode is enabled")
+                return
             result = self.sgdb_client.search_game(self.game_name)
             if result and result.get('found') and result.get('results'):
                 self.results_found.emit(result['results'])
@@ -46,6 +50,9 @@ class BannerDownloader(SafeQThread):
         
     def safe_run(self):
         try:
+            if not automatic_network_allowed():
+                self.download_failed.emit("Offline mode is enabled")
+                return
             path = self.sgdb_client.download_banner(self.banner_url)
             if path and os.path.exists(path):
                 self.download_complete.emit(path)
@@ -69,7 +76,7 @@ class BannerAutoFetcher(SafeQThread):
         
     def safe_run(self):
         try:
-            if self.isInterruptionRequested():
+            if self.isInterruptionRequested() or not automatic_network_allowed():
                 return
             res = self.sgdb_client.search_game(self.game_name)
             if self.isInterruptionRequested():
@@ -123,6 +130,9 @@ class GitHubReleasesFetcherThread(SafeQThread):
 
     def safe_run(self):
         try:
+            if not automatic_network_allowed():
+                self.fetch_failed.emit("Offline mode is enabled")
+                return
             releases = fetch_online_ge_proton_releases(max_results=12)
             self.releases_fetched.emit(releases)
         except Exception as e:
@@ -151,6 +161,9 @@ class UmuBootstrapWorker(SafeQThread):
                 self.process.wait()
 
     def safe_run(self):
+        if not automatic_network_allowed():
+            self.completed.emit(False, 0)
+            return
         try:
             prefix = os.path.join(_APP_DATA_DIR, "umu-bootstrap-prefix")
             os.makedirs(prefix, mode=0o700, exist_ok=True)
@@ -284,7 +297,9 @@ class HeroFetcherThread(SafeQThread):
         self.exe_path = exe_path
 
     def safe_run(self):
-        if self.isInterruptionRequested():
+        # A cached hero is handled before this worker is created; this worker
+        # is transport-only and must never start in offline mode.
+        if self.isInterruptionRequested() or not automatic_network_allowed():
             return
         hero_path = self.sgdb_client.download_hero_banner(self.steam_id, self.game_id, self.name, exe_path=self.exe_path)
         if not self.isInterruptionRequested() and hero_path and os.path.exists(hero_path):
@@ -304,7 +319,7 @@ class IconAutoFetcherThread(SafeQThread):
         self.exe_path = exe_path
 
     def safe_run(self):
-        if self.isInterruptionRequested():
+        if self.isInterruptionRequested() or not automatic_network_allowed():
             return
         icon_path = self.sgdb_client.fetch_and_cache_game_icon(self.game_id, self.steam_id, self.name, exe_path=self.exe_path)
         if not self.isInterruptionRequested() and icon_path and os.path.exists(icon_path):
@@ -324,7 +339,7 @@ class CloudSaveStatusFetcherThread(SafeQThread):
         self.coordinator = coordinator
 
     def safe_run(self):
-        if self.isInterruptionRequested():
+        if self.isInterruptionRequested() or not automatic_network_allowed():
             return
         try:
             from core.cloud_operations import CloudSyncCoordinator
@@ -356,7 +371,7 @@ class CloudSaveBatchQueueWorker(SafeQThread):
         self.coordinator = coordinator
 
     def safe_run(self):
-        if self.isInterruptionRequested() or not self.games:
+        if self.isInterruptionRequested() or not self.games or not automatic_network_allowed():
             return
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -435,6 +450,9 @@ class AchievementStatusFetcherThread(SafeQThread):
         self.db_path = db_path
 
     def safe_run(self):
+        # The resolver is local-first and its remote providers enforce the
+        # network policy themselves. Keep this worker available for local
+        # achievement files while offline.
         if self.isInterruptionRequested():
             return
         db = None
@@ -489,6 +507,8 @@ class AchievementBatchQueueWorker(SafeQThread):
         self.max_workers = max(1, min(max_workers, 5))
 
     def safe_run(self):
+        # Local achievement state remains useful offline; the provider layer
+        # skips its public/Steam transport when the policy is disabled.
         if self.isInterruptionRequested() or not self.games:
             return
 

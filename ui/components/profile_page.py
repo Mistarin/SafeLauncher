@@ -22,6 +22,7 @@ from core.profile_service import ProfileServiceClient, ProfileServiceError, get_
 from core.central_auth import CentralAuthError, CentralAuthSession
 from core.secret_store import delete_secret, get_secret
 from core.safe_thread import TaskSupervisor
+from core.network_policy import automatic_network_allowed
 from ui.icons import get_icon
 from ui.theme import (
     ACCENT_PRIMARY, BG_APP, BORDER, SEMANTIC_ERROR, SEMANTIC_SUCCESS,
@@ -386,8 +387,10 @@ class ProfilePageWidget(QWidget):
         self.btn_edit.setVisible(not self._editing)
         self._set_admin_controls(True)
         self._render(self._document)
-        if self.isVisible():
+        if self.isVisible() and automatic_network_allowed(self.settings):
             self._refresh_social()
+        elif self.isVisible():
+            self.friends_status.setText("Offline mode — friends are not refreshed.")
 
     def mark_local_data_changed(self) -> None:
         """Refresh local stats and coalesce a public update after game events."""
@@ -397,7 +400,11 @@ class ProfilePageWidget(QWidget):
         if self._mode == "owner" and self.isVisible():
             self._document = build_public_projection(self.db, self._profile_settings)
             self._render(self._document)
-        if self._profile_settings.get("published") and self.central_auth.signed_in:
+        if (
+            automatic_network_allowed(self.settings)
+            and self._profile_settings.get("published")
+            and self.central_auth.signed_in
+        ):
             if self._publishing:
                 self._publish_dirty = True
             else:
@@ -649,6 +656,9 @@ class ProfilePageWidget(QWidget):
     def _refresh_social(self) -> None:
         if self._mode != "owner" or self._social_loading or self._social_mutating:
             return
+        if not automatic_network_allowed(self.settings):
+            self.friends_status.setText("Offline mode — friends are not refreshed.")
+            return
         handle, _, service_url = self._local_owner_identity()
         local_settings = load_profile_settings(
             self.settings,
@@ -706,6 +716,10 @@ class ProfilePageWidget(QWidget):
 
     def _start_social_mutation(self, operation, success_message: str) -> None:
         if self._social_mutating:
+            return
+        if not automatic_network_allowed(self.settings):
+            self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.friends_status.setText("Offline mode — friend changes are unavailable.")
             return
         owner_handle, _, service_url = self._local_owner_identity()
         local_settings = load_profile_settings(
@@ -906,6 +920,10 @@ class ProfilePageWidget(QWidget):
     def _sign_in(self) -> None:
         if self._auth_in_flight or self._mode != "owner":
             return
+        if not automatic_network_allowed(self.settings):
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.footer_status.setText("Offline mode — central sign-in is unavailable.")
+            return
         self._auth_in_flight = True
         self._set_admin_controls(True)
         self.footer_status.setStyleSheet("")
@@ -1066,6 +1084,10 @@ class ProfilePageWidget(QWidget):
     def _publish_current_document(self) -> None:
         if self._publishing:
             return
+        if not automatic_network_allowed(self.settings):
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.footer_status.setText("Offline mode — public profile publishing is paused.")
+            return
         service_url = get_profile_service_url()
         profile_settings = load_profile_settings(
             self.settings,
@@ -1183,6 +1205,10 @@ class ProfilePageWidget(QWidget):
 
     def _unpublish(self) -> None:
         self._publish_timer.stop()
+        if not automatic_network_allowed(self.settings):
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.footer_status.setText("Offline mode — public profile changes are unavailable.")
+            return
         service_url = get_profile_service_url()
         if not service_url.startswith(("http://", "https://")) or not self.central_auth.signed_in:
             self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
@@ -1225,6 +1251,10 @@ class ProfilePageWidget(QWidget):
         self.private_profile_changed.emit()
 
     def _resync_private(self) -> None:
+        if not automatic_network_allowed(self.settings):
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.footer_status.setText("Offline mode — private profile resync is paused.")
+            return
         self.btn_resync.setEnabled(False)
         db_path = getattr(self.db, "db_path", None)
         def work():

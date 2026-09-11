@@ -26,6 +26,7 @@ from typing import Dict, List, Optional
 
 from core.logger import get_logger
 from core.achievement_models import AchievementProvenance
+from core.network_policy import automatic_network_allowed
 
 logger = get_logger("AchievementProviders")
 _APP_ID_RE = re.compile(r"^[0-9]{1,16}$")
@@ -80,6 +81,8 @@ class SteamSchemaProvider(AchievementProvider):
     name = "sentinel-steam-schema"
 
     def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False) -> List[dict]:
+        if not automatic_network_allowed():
+            return []
         from core.achievement_schema import fetch_steam_achievements_schema
         return fetch_steam_achievements_schema(
             app_id, game_path=game_path, proton_path=proton_path,
@@ -96,6 +99,8 @@ def _authenticated_steam_player_state(app_id: str) -> Dict[str, float]:
     configuration keeps this opt-in and avoids storing either credential in
     SafeLauncher settings.
     """
+    if not automatic_network_allowed():
+        return {}
     api_key = os.environ.get("STEAM_WEB_API_KEY", "").strip()
     steam_user_id = os.environ.get("STEAM_USER_ID", "").strip()
     if not _APP_ID_RE.fullmatch(str(app_id or "")) or str(app_id) == "0" or not api_key or not steam_user_id:

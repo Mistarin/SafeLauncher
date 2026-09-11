@@ -32,6 +32,9 @@ def _get_anonymous_client_id() -> str:
 
 def send_central_telemetry(app_version: str) -> bool:
     """Send one bounded anonymous heartbeat in the caller's managed worker."""
+    from core.network_policy import automatic_network_allowed
+    if not automatic_network_allowed():
+        return False
     resp = None
     try:
         settings = QSettings("SafeLauncher", "SafeLauncher")

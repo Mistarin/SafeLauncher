@@ -189,6 +189,13 @@ To contribute or modify the launcher:
 4. Run tests: `python test.py`
 5. Test GUI: `python main.py`
 
+When playing without a network connection, enable **Settings → Cloud → Offline
+mode** before disconnecting. SafeLauncher then uses local/cache data and does
+not start automatic artwork, Steam, cloud, profile, telemetry, or update
+requests. The same switch is available for scripts as
+`python main.py --offline` (also supported by `./run_app.sh --offline` and
+`./launcher.sh --offline`).
+
 ## License
 
 Created for personal use. Modify and distribute as needed.

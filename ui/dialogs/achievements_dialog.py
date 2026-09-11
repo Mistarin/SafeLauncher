@@ -808,9 +808,16 @@ class AchievementsDialog(PopupDialog):
         db_achs = self.db.get_game_achievements(self.game_id)
         if db_achs:
             self.achievements = db_achs
-            self.status_tag.setText(" Cached · checking… ")
+            self.status_tag.setText(" Cached · offline ")
             self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #0A84FF; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
             self._render_cards()
+
+        from core.network_policy import automatic_network_allowed
+        if not automatic_network_allowed():
+            self.status_tag.setText(" Cached · offline mode ")
+            self.status_tag.setStyleSheet("background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+            self._render_cards()
+            return
 
         self.status_tag.setText(" Resolving achievement data… ")
         self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #0A84FF; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")

@@ -24,6 +24,7 @@ from PyQt6.QtCore import pyqtSignal
 
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
+from core.network_policy import automatic_network_allowed
 
 logger = get_logger("AchievementSchema")
 
@@ -203,6 +204,8 @@ def download_achievement_icons_batch(
 ) -> List[Dict[str, Any]]:
     """Download achievement badges concurrently with a fast thread pool."""
     if not achievements or not app_id:
+        return achievements
+    if not automatic_network_allowed():
         return achievements
 
     schema_cache_file, app_icon_dir = _ensure_cache_dirs(app_id)
@@ -474,7 +477,7 @@ def fetch_steam_achievements_schema(
             cached_data = _validated_schema(json.loads(schema_cache_file.read_text(encoding="utf-8")))
             if cached_data:
                 logger.debug(f"Loaded {len(cached_data)} achievements from cache for AppID {app_id}")
-                if download_icons:
+                if download_icons and automatic_network_allowed():
                     download_achievement_icons_batch(cached_data, app_id, timeout=timeout)
                 return cached_data
         except Exception as e:
@@ -488,6 +491,11 @@ def fetch_steam_achievements_schema(
         except Exception:
             pass
         return _validated_schema(local_achs)
+
+    # The local cache and game files above remain useful offline. Once those
+    # are exhausted, do not enter the public Steam fallback chain at all.
+    if not automatic_network_allowed():
+        return []
 
     achievements: List[Dict[str, Any]] = []
     session = _get_http_session()

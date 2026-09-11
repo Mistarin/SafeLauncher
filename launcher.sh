@@ -23,5 +23,5 @@ if [ -z "$PYTHON_BIN" ]; then
 fi
 
 # Run detached in background without keeping terminal process attached
-nohup "$PYTHON_BIN" "$DIR/main.py" >/dev/null 2>&1 &
+nohup "$PYTHON_BIN" "$DIR/main.py" "$@" >/dev/null 2>&1 &
 echo "SafeLauncher started in background (PID: $!)."

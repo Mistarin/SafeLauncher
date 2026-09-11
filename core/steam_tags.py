@@ -3,6 +3,7 @@ import requests
 from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
+from core.network_policy import automatic_network_allowed
 
 logger = get_logger("SteamTags")
 
@@ -22,6 +23,8 @@ class SteamTagsFetcher(SafeQThread):
             self.tags_found.emit(self.game_id, tags, app_id)
 
     def safe_run(self):
+        if not automatic_network_allowed():
+            return
         resp = None
         resp_detail = None
         try:

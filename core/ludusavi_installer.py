@@ -102,6 +102,13 @@ def ensure_ludusavi() -> Optional[str]:
     if os.path.isfile(managed):
         return managed
 
+    # Looking for an already-installed binary is local work.  A first-run
+    # download, however, is optional and must never turn offline startup into
+    # a long DNS/HTTP timeout.
+    from core.network_policy import automatic_network_allowed
+    if not automatic_network_allowed():
+        return shutil.which("ludusavi")
+
     if os.environ.get("SAFELAUNCHER_NO_LUDUSAVI", "").strip() == "1":
         logger.info("Skipping ludusavi download (SAFELAUNCHER_NO_LUDUSAVI=1).")
         return shutil.which("ludusavi")

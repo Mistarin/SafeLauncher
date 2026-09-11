@@ -5,6 +5,7 @@ import requests
 from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
+from core.network_policy import automatic_network_allowed
 
 logger = get_logger("SteamBuildTracker")
 
@@ -101,7 +102,7 @@ class SteamBuildFetcher(SafeQThread):
         self.local_build_date = int(local_build_date or 0)
 
     def safe_run(self):
-        if self.isInterruptionRequested():
+        if self.isInterruptionRequested() or not automatic_network_allowed():
             return
         if not self.steam_id or self.steam_id == "0":
             self._fail("No Steam AppID is configured")

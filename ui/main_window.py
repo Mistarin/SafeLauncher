@@ -106,6 +106,7 @@ from core.game_session import GameSessionManager
 from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
 from core.operation_registry import OperationRegistry
 from core.secret_store import get_secret
+from core.network_policy import automatic_network_allowed, is_offline_mode
 from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
 from core.central_auth import CentralAuthSession
@@ -261,9 +262,10 @@ class MainWindow(QMainWindow):
         self.central_auth = CentralAuthSession()
         self.date_format = self.settings.value("date_format", get_date_format_key(), type=str)
         # CI/UI smoke tests must not depend on DNS or third-party response
-        # timing.  This only disables *automatic* background network work;
-        # explicit user actions continue to use their normal code paths.
+        # timing.  The shared policy also supports the user-facing offline
+        # setting, which is enforced by automatic and optional network paths.
         self._offline_test_mode = os.environ.get("SAFELAUNCHER_OFFLINE_TEST_MODE") == "1"
+        self._offline_mode = is_offline_mode(self.settings)
         # Compact is the product default.  Older releases persisted Grid/List
         # even though Compact became the primary unified library experience,
         # so migrate that stale preference once rather than surprising every
@@ -1298,11 +1300,11 @@ class MainWindow(QMainWindow):
         self._on_sync_sandbox(quiet=True)
         self._setup_tray_icon()
         self._refresh_library()
-        if not self._offline_test_mode:
+        if self._automatic_network_allowed():
             QTimer.singleShot(300, self._check_all_steam_updates)
             QTimer.singleShot(800, self._start_background_cloud_sync)
             QTimer.singleShot(1200, self._start_background_achievement_sync)
-        if os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") != "1":
+        if self._automatic_network_allowed() and os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") != "1":
             self._update_check_timer = QTimer(self)
             self._update_check_timer.setSingleShot(True)
             self._update_check_timer.timeout.connect(self._check_app_updates)
@@ -1313,7 +1315,7 @@ class MainWindow(QMainWindow):
         self._startup_backend_health = None
         self._startup_update_notice_shown = False
         if (
-            not self._offline_test_mode
+            self._automatic_network_allowed()
             and os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") != "1"
         ):
             # Let the main window and welcome wizard finish opening before the
@@ -1326,8 +1328,92 @@ class MainWindow(QMainWindow):
         # a side effect of processing pending events.  Normal launches retain
         # the first-run experience; tests and headless callers can explicitly
         # open it through the normal action when needed.
-        if show_wizard and not self._offline_test_mode:
+        if show_wizard and not self._offline_test_mode and self._automatic_network_allowed():
             QTimer.singleShot(150, self._show_welcome_wizard)
+
+    def _automatic_network_allowed(self) -> bool:
+        """Return the current background-network policy.
+
+        Read the setting each time instead of caching it permanently: Settings
+        can enable offline mode while the window is already open.
+        """
+        allowed = automatic_network_allowed(getattr(self, "settings", None))
+        self._offline_mode = is_offline_mode(getattr(self, "settings", None))
+        return allowed
+
+    def _apply_network_policy_change(self, was_offline: bool) -> None:
+        """Stop optional network work immediately after Settings changes."""
+        now_offline = is_offline_mode(self.settings)
+        self._offline_mode = now_offline
+        if now_offline or not self._automatic_network_allowed():
+            for timer_name in (
+                "_cloud_poll_timer", "_achievement_poll_timer", "_update_check_timer"
+            ):
+                timer = getattr(self, timer_name, None)
+                if timer is not None:
+                    try:
+                        timer.stop()
+                    except RuntimeError:
+                        pass
+            self._pending_auto_fetchers = []
+            for fetcher in list(self.auto_fetchers):
+                try:
+                    if fetcher.isRunning():
+                        fetcher.requestInterruption()
+                except RuntimeError:
+                    pass
+            self._cancel_metadata_fetchers()
+            self._cancel_optional_network_tasks()
+            profile_page = getattr(self, "profile_page", None)
+            if profile_page is not None:
+                try:
+                    profile_page._publish_timer.stop()
+                except (AttributeError, RuntimeError):
+                    pass
+            self._mark_cloud_offline()
+            if now_offline and not was_offline:
+                self._show_toast("Offline mode enabled — using cached and local data only.")
+            return
+
+        if was_offline:
+            self._show_toast("Online mode enabled — refreshing optional metadata.")
+            self._refresh_library()
+            if getattr(self, "_cloud_poll_timer", None) is None:
+                self._start_cloud_poll_timer()
+            elif not self._cloud_poll_timer.isActive():
+                self._cloud_poll_timer.start()
+            QTimer.singleShot(0, self._start_background_cloud_sync)
+            QTimer.singleShot(100, self._start_background_achievement_sync)
+            self._startup_backend_health = None
+            self._startup_update_notice_shown = False
+            if self.settings.value("convex_site_url", "", type=str).strip():
+                QTimer.singleShot(1200, self._check_backend_update_on_startup)
+            if os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") != "1":
+                timer = getattr(self, "_update_check_timer", None)
+                if timer is None:
+                    timer = QTimer(self)
+                    timer.setSingleShot(True)
+                    timer.timeout.connect(self._check_app_updates)
+                    self._update_check_timer = timer
+                timer.start(1000)
+
+    def _cancel_optional_network_tasks(self) -> None:
+        """Request cancellation for one-shot network tasks already in flight."""
+        markers = (
+            "account", "backend", "cloud", "metadata", "profile", "telemetry",
+            "update", "ludusavi", "publicprofile", "public_profile",
+        )
+        for worker in self.worker_supervisor.workers(running_only=True):
+            name = self.worker_supervisor.describe(worker).lower()
+            if not any(marker in name for marker in markers):
+                continue
+            try:
+                if hasattr(worker, "request_cancel"):
+                    worker.request_cancel()
+                else:
+                    worker.requestInterruption()
+            except RuntimeError:
+                pass
 
     def _apply_accessibility_metadata(self) -> None:
         """Give the primary shell controls stable names for assistive tech.
@@ -1366,7 +1452,10 @@ class MainWindow(QMainWindow):
 
     def _check_app_updates(self):
         """Check GitHub Releases for new SafeLauncher versions in background."""
-        if os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") == "1":
+        if (
+            not self._automatic_network_allowed()
+            or os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") == "1"
+        ):
             return
         try:
             from core.updater import UpdateCheckWorker
@@ -1381,6 +1470,10 @@ class MainWindow(QMainWindow):
 
     def _check_backend_update_on_startup(self):
         """Probe the configured cloud backend without delaying window startup."""
+        if not self._automatic_network_allowed():
+            self._startup_backend_health = {}
+            self._maybe_show_startup_update_notice()
+            return
         if self._startup_backend_health is not None:
             return
         try:
@@ -1580,6 +1673,7 @@ class MainWindow(QMainWindow):
     def _open_settings(self):
         """Open launcher preferences and persist profile changes."""
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
+        offline_before = is_offline_mode(self.settings)
         cloud_dir = self.settings.value("cloud_saves_dir", "", type=str)
         dialog = UserSettingsDialog(
             self.user_name,
@@ -1660,6 +1754,7 @@ class MainWindow(QMainWindow):
         # moment they are edited (mode combo) or via the embedded account
         # dialog, so a rejected session may still have changed the config.
         self._maybe_refresh_cloud_config(cloud_before)
+        self._apply_network_policy_change(offline_before)
         dialog.deleteLater()
 
     def _maybe_refresh_cloud_config(self, before: tuple):
@@ -2390,7 +2485,7 @@ class MainWindow(QMainWindow):
                 icon_url = g[18] if len(g) > 18 and g[18] else ""
                 banner_missing = not banner_url or not os.path.exists(banner_url)
                 icon_missing = not icon_url or not os.path.exists(icon_url)
-                if (not self._offline_test_mode and (banner_missing or icon_missing)) and game_id not in self._auto_fetch_attempted:
+                if (self._automatic_network_allowed() and (banner_missing or icon_missing)) and game_id not in self._auto_fetch_attempted:
                     self._auto_fetch_attempted.add(game_id)
                     full_exe = os.path.join(path, executable) if (path and executable) else ""
                     fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
@@ -2446,7 +2541,7 @@ class MainWindow(QMainWindow):
                 
                 banner_missing = not banner_url or not os.path.exists(banner_url)
                 icon_missing = not icon_url or not os.path.exists(icon_url)
-                if (not self._offline_test_mode and (banner_missing or icon_missing)) and game_id not in self._auto_fetch_attempted:
+                if (self._automatic_network_allowed() and (banner_missing or icon_missing)) and game_id not in self._auto_fetch_attempted:
                     self._auto_fetch_attempted.add(game_id)
                     full_exe = os.path.join(path, executable) if (path and executable) else ""
                     fetcher = BannerAutoFetcher(game_id, name, self.sgdb_client, exe_path=full_exe, steam_id=str(steam_id or ""))
@@ -2499,7 +2594,7 @@ class MainWindow(QMainWindow):
             full_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else ""
 
             hero_cache_file = self.sgdb_client.get_hero_cached_path(steam_id=s_id, game_name=g_name, exe_path=full_exe, game_id=g_id)
-            if not self._offline_test_mode and not hero_cache_file and g_id not in self._hero_attempted:
+            if self._automatic_network_allowed() and not hero_cache_file and g_id not in self._hero_attempted:
                 if not any(isinstance(f, HeroFetcherThread) and f.game_id == g_id for f in self.metadata_fetchers):
                     self._hero_attempted.add(g_id)
                     hero_thread = HeroFetcherThread(g_id, g_name, s_id, self.sgdb_client, exe_path=full_exe, parent=self)
@@ -2507,7 +2602,7 @@ class MainWindow(QMainWindow):
                     self._track_metadata_fetcher(hero_thread)
 
             icon_url = game[18] if len(game) > 18 and game[18] else ""
-            if (not self._offline_test_mode and (not icon_url or not os.path.exists(icon_url))) and g_id not in self._icon_attempted:
+            if (self._automatic_network_allowed() and (not icon_url or not os.path.exists(icon_url))) and g_id not in self._icon_attempted:
                 self._icon_attempted.add(g_id)
                 icon_thread = IconAutoFetcherThread(g_id, g_name, str(s_id or ""), self.sgdb_client, exe_path=full_exe, parent=self)
                 icon_thread.icon_downloaded.connect(self._on_icon_downloaded)
@@ -2615,6 +2710,9 @@ class MainWindow(QMainWindow):
 
     def _start_next_pending_fetcher(self):
         """Launch the next queued art fetch once a slot frees up."""
+        if not self._automatic_network_allowed():
+            self._pending_auto_fetchers = []
+            return
         while self._pending_auto_fetchers:
             if len(self.auto_fetchers) >= self.max_concurrent_auto_fetchers:
                 return
@@ -2860,7 +2958,7 @@ class MainWindow(QMainWindow):
             else:
                 hero_file = None
 
-        if not self._offline_test_mode and not hero_cache_path and g_id not in self._hero_attempted:
+        if self._automatic_network_allowed() and not hero_cache_path and g_id not in self._hero_attempted:
             if not any(isinstance(f, HeroFetcherThread) and f.game_id == g_id for f in self.metadata_fetchers):
                 self._hero_attempted.add(g_id)
                 hero_thread = HeroFetcherThread(g_id, g_name, s_id, self.sgdb_client, exe_path=full_exe, parent=self)
@@ -3303,6 +3401,13 @@ class MainWindow(QMainWindow):
 
     def _check_all_steam_updates(self):
         """Check every Steam-linked game once, used on startup and from the tools menu."""
+        if not self._automatic_network_allowed():
+            self._updates_offline = True
+            if hasattr(self, "nav_updates") and self.nav_updates is not None:
+                self.nav_updates.setEnabled(True)
+                self.nav_updates.setText(" Check for Updates (offline)")
+            self._show_toast("Offline mode enabled — Steam update checks are disabled.")
+            return
         games = self.db.get_all_games()
         pending = [0]
         self._updates_offline = False
@@ -3365,6 +3470,8 @@ class MainWindow(QMainWindow):
         record.  A new game without a reference stays unresolved until the
         user supplies its installed Build ID or date.
         """
+        if not self._automatic_network_allowed():
+            return
         if not steam_id or str(steam_id).strip() in ("", "0"):
             return
         if any(
@@ -4034,7 +4141,7 @@ class MainWindow(QMainWindow):
         else:
             self.hero_bg.set_hero_image(None)
 
-        if not hero_cache_path and game_id not in self._hero_attempted:
+        if self._automatic_network_allowed() and not hero_cache_path and game_id not in self._hero_attempted:
             if not any(isinstance(f, HeroFetcherThread) and f.game_id == game_id for f in self.metadata_fetchers):
                 self._hero_attempted.add(game_id)
                 hero_thread = HeroFetcherThread(game_id, name, steam_id, self.sgdb_client, exe_path=full_exe, parent=self)
@@ -4086,8 +4193,13 @@ class MainWindow(QMainWindow):
         last_checked = self.save_state_store.checked_at(game_id)
         is_stale = (now - last_checked) > 1800  # 30 mins
 
-        cloud_auth_required = backend_active() and not _cloud_auth_configured()
-        if cloud_auth_required:
+        network_allowed = self._automatic_network_allowed()
+        cloud_auth_required = network_allowed and backend_active() and not _cloud_auth_configured()
+        if not network_allowed:
+            self._mark_cloud_offline([game_id])
+            cached_save = self.cloud_save_status_cache.get(game_id)
+            is_stale = False
+        elif cloud_auth_required:
             self._mark_cloud_auth_required([game_id])
             cached_save = self.cloud_save_status_cache.get(game_id)
             is_stale = False
@@ -4096,12 +4208,16 @@ class MainWindow(QMainWindow):
             c_status, c_local, c_cloud = cached_save
             self._render_cloud_status(game_id, c_status, c_local, c_cloud)
         else:
-            self.detail_cloud_status.setText("Cloud Save: Checking...")
-            self.detail_cloud_status.setToolTip("Checking save sync status...")
+            if not network_allowed:
+                self.detail_cloud_status.setText("Cloud Save: Offline mode")
+                self.detail_cloud_status.setToolTip("Offline mode is enabled; using local/cached data only.")
+            else:
+                self.detail_cloud_status.setText("Cloud Save: Checking...")
+                self.detail_cloud_status.setToolTip("Checking save sync status...")
             if hasattr(self, "btn_detail_cloud_restore"):
                 self.btn_detail_cloud_restore.hide()
 
-        if not self._offline_test_mode and not cloud_auth_required and (cached_save is None or is_stale):
+        if network_allowed and not cloud_auth_required and (cached_save is None or is_stale):
             self._spawn_status_fetchers(
                 [(game_id, name, path or "", str(steam_id or ""))],
                 self._on_cloud_save_status_calculated,
@@ -4118,10 +4234,13 @@ class MainWindow(QMainWindow):
             self.db.update_build_id(game_id, local_build_id)
             self.db.update_build_date(game_id, local_build_date)
         self.local_version_by_game_id[game_id] = (local_build_id, local_build_date)
-        self.lbl_detail_update.setText("Checking Steam…")
+        self.lbl_detail_update.setText("Checking Steam…" if network_allowed else "Offline mode")
         self._render_update_date_detail(0, 0, False)
         self.lbl_detail_update.setStyleSheet("background: #1f2937; color: #d1d5db; border: 1px solid #4b5563; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
-        self.lbl_detail_versions.setText("Checking current and Steam versions…")
+        self.lbl_detail_versions.setText(
+            "Checking current and Steam versions…"
+            if network_allowed else "Offline mode — cached data only"
+        )
         self.lbl_detail_versions.setToolTip("")
         self.btn_retry_steam.setVisible(False)
         self.latest_checked_build_id = ""
@@ -4129,7 +4248,7 @@ class MainWindow(QMainWindow):
         steam_last_checked = getattr(self, "_steam_build_checked_ts", {}).get(game_id, 0)
         steam_is_stale = (now - steam_last_checked) > 7200  # 2 hours
 
-        if (not self._offline_test_mode and steam_id and steam_id != "0"
+        if (network_allowed and steam_id and steam_id != "0"
                 and (game_id not in self.metadata_attempted_builds or steam_is_stale)
                 and not any(
             isinstance(fetcher, SteamBuildFetcher) and fetcher.game_id == game_id
@@ -4151,7 +4270,9 @@ class MainWindow(QMainWindow):
             else:
                 self.detail_update_widget.setVisible(False)
                 self._render_update_date_detail(0, 0, False)
-                self.lbl_detail_versions.setText("")
+                self.lbl_detail_versions.setText(
+                    "Offline mode — cached data only" if not network_allowed else ""
+                )
 
         # Steam Tags Display & Auto Fetcher
         if tags_str:
@@ -4159,7 +4280,7 @@ class MainWindow(QMainWindow):
             self._update_tags_pills(tags_list)
         # Existing cached tags must not prevent resolving the Steam AppID:
         # UMU needs GAMEID=umu-<appid> for Steamworks/protonfixes games.
-        if not self._offline_test_mode and (not steam_id or str(steam_id) == "0"):
+        if network_allowed and (not steam_id or str(steam_id) == "0"):
             if game_id not in self.metadata_attempted_tags and not any(
                 isinstance(fetcher, SteamTagsFetcher) and fetcher.game_id == game_id
                 for fetcher in self.metadata_fetchers
@@ -4392,6 +4513,10 @@ class MainWindow(QMainWindow):
         game_name = ctx["game_name"]
         path = ctx["path"]
         steam_id = ctx["steam_id"]
+        if not self._automatic_network_allowed():
+            self._show_toast(f"Offline mode — launching '{game_name}' with local saves.")
+            self._continue_launch(ctx)
+            return
         self._show_toast(f"Checking cloud saves for '{game_name}'…")
 
         def _work():
@@ -4684,17 +4809,18 @@ class MainWindow(QMainWindow):
                         # Launch is a bounded backfill point: reconcile local
                         # state even when the schema is already cached.  Only
                         # request icons when the schema itself is missing.
-                        fetcher = SteamAchievementFetcherWorker(
-                            game_id,
-                            str(steam_id).strip(),
-                            game_path=path,
-                            proton_path=selected_proton or "",
-                            download_icons=not bool(cached_achs),
-                            parent=self
-                        )
-                        fetcher.resolution_ready.connect(self._on_achievement_resolution_ready)
-                        fetcher.schema_fetched.connect(self._on_achievement_schema_fetched)
-                        self._track_metadata_fetcher(fetcher)
+                        if self._automatic_network_allowed():
+                            fetcher = SteamAchievementFetcherWorker(
+                                game_id,
+                                str(steam_id).strip(),
+                                game_path=path,
+                                proton_path=selected_proton or "",
+                                download_icons=not bool(cached_achs),
+                                parent=self
+                            )
+                            fetcher.resolution_ready.connect(self._on_achievement_resolution_ready)
+                            fetcher.schema_fetched.connect(self._on_achievement_schema_fetched)
+                            self._track_metadata_fetcher(fetcher)
 
                         if game_id in self.achievement_watchers:
                             try:
@@ -4931,6 +5057,13 @@ class MainWindow(QMainWindow):
 
     def _open_public_profile_handle(self, handle: str):
         """Fetch and display a public profile without opening another window."""
+        if not self._automatic_network_allowed():
+            QMessageBox.information(
+                self,
+                "Public Profile",
+                "Offline mode is enabled. Public profiles are unavailable until online mode is restored.",
+            )
+            return
         value = str(handle or "").strip().lstrip("@").lower()
         if not HANDLE_RE.fullmatch(value):
             QMessageBox.warning(self, "Public Profile", "That is not a valid SafeLauncher profile handle.")
@@ -4978,6 +5111,12 @@ class MainWindow(QMainWindow):
 
     def _sync_profile_metadata_async(self):
         db_path = getattr(self.db, "db_path", None)
+
+        # Profile edits are local-first.  Do not create a cloud worker while
+        # offline mode is enabled (including when the setting was just
+        # persisted by the profile/settings surface).
+        if not self._automatic_network_allowed():
+            return
 
         def work():
             from database import GameDatabase
@@ -5275,6 +5414,8 @@ class MainWindow(QMainWindow):
 
     def _sync_launcher_metadata_async(self, game_id: int):
         """Sync launcher-owned metadata without blocking the GUI thread."""
+        if not self._automatic_network_allowed():
+            return
         from core.cloud_save_sync import backend_active, _cloud_auth_configured
         if backend_active() and not _cloud_auth_configured():
             return
@@ -5377,6 +5518,13 @@ class MainWindow(QMainWindow):
                     if rec_svc.is_running():
                         rec_svc.stop_recording()
                         logger.info("GPU recorder put on standby (all games closed)")
+
+        # Offline mode must also cover the automatic exit upload. Otherwise
+        # closing a game would create a cloud worker after all visible UI work
+        # had already stopped, which is exactly the kind of hidden operation
+        # that makes an offline shutdown appear hung.
+        if not self._automatic_network_allowed():
+            return
 
         # Auto Cloud Save Sync on Game Exit. Runs on a worker thread — zipping
         # multi-GB save trees must never freeze the GUI. Only uploads when
@@ -5484,6 +5632,10 @@ class MainWindow(QMainWindow):
         """
         import time
         from core.cloud_save_sync import backend_active, SyncStatus, _cloud_auth_configured
+        if not self._automatic_network_allowed():
+            if game_ids is None or game_ids:
+                self._mark_cloud_offline(game_ids)
+            return
         if not backend_active():
             return
         # The SafeLauncherCloud API deliberately fails closed without its
@@ -5614,8 +5766,50 @@ class MainWindow(QMainWindow):
         if changed:
             self._save_persistent_cache()
 
+    def _mark_cloud_offline(self, game_ids=None):
+        """Render a stable offline verdict without touching the network."""
+        import time
+        from core.cloud_save_sync import SyncStatus
+
+        if game_ids is None:
+            target_ids = [int(game[0]) for game in self.games]
+        else:
+            target_ids = [int(game_id) for game_id in game_ids]
+        checked_at = time.time()
+        generation = self.cloud_sync_coordinator.generation
+        changed = False
+
+        for game_id in target_ids:
+            if game_id not in self.games_by_id:
+                continue
+            status = SyncStatus.CLOUD_OFFLINE
+            existing = self.cloud_save_status_cache.get(game_id)
+            if existing is not None and existing[0] == status:
+                continue
+            self.cloud_save_status_cache[game_id] = (status, None, None)
+            changed = True
+            self.save_state_store.set_cloud_status(
+                game_id,
+                status,
+                checked_at=checked_at,
+                context_generation=generation,
+            )
+            current = self.game_status_by_id.get(game_id, GameStatusState())
+            self.game_status_by_id[game_id] = replace(
+                current,
+                cloud_status=status,
+                local_stats=None,
+                cloud_stats=None,
+                cloud_checked_at=checked_at,
+            )
+            self._render_cloud_status(game_id, status)
+        if changed:
+            self._save_persistent_cache()
+
     def _spawn_status_fetchers(self, targets: list, on_result, tag: str = "", generation=None):
         """Spawn per-game status fetchers, skipping games already in flight."""
+        if not self._automatic_network_allowed():
+            return
         if generation is None:
             generation = self.cloud_sync_coordinator.generation
         for gid, name, path, steam_id in targets:
@@ -5642,7 +5836,7 @@ class MainWindow(QMainWindow):
 
     def _start_background_cloud_sync(self):
         """Startup cloud save check & sync queue across the library."""
-        if getattr(self, "_offline_test_mode", False):
+        if not self._automatic_network_allowed():
             return
         self.request_cloud_recheck(None, "startup")
 
@@ -5661,17 +5855,30 @@ class MainWindow(QMainWindow):
         """Poll the cloud every 5 minutes so saves uploaded from another
         device surface mid-session instead of only at launch/exit."""
         self._cloud_poll_in_flight = False
+        if getattr(self, "_cloud_poll_timer", None) is not None:
+            try:
+                self._cloud_poll_timer.stop()
+                self._cloud_poll_timer.deleteLater()
+            except RuntimeError:
+                pass
         self._cloud_poll_timer = QTimer(self)
         self._cloud_poll_timer.setInterval(5 * 60 * 1000)
         self._cloud_poll_timer.timeout.connect(self._poll_cloud_for_changes)
-        self._cloud_poll_changed.connect(self._on_cloud_poll_changed)
-        self._cloud_poll_timer.start()
+        if not getattr(self, "_cloud_poll_signal_connected", False):
+            self._cloud_poll_changed.connect(self._on_cloud_poll_changed)
+            self._cloud_poll_signal_connected = True
+        if self._automatic_network_allowed():
+            self._cloud_poll_timer.start()
 
     def _poll_cloud_for_changes(self):
+        if not self._automatic_network_allowed():
+            return
         self.request_cloud_recheck([], "poll")
 
     def _on_cloud_poll_changed(self, changed: list):
         """GUI-thread: re-derive full status for games whose cloud copy changed."""
+        if not self._automatic_network_allowed():
+            return
         self._spawn_status_fetchers(changed, self._on_polled_cloud_status, "poll")
 
     def _on_polled_cloud_status(self, game_id: int, status, local_stats, cloud_stats):
@@ -5695,6 +5902,9 @@ class MainWindow(QMainWindow):
           None  -> full library scan (startup, bulk reload).
           [id]  -> targeted recheck for specific game(s) (post-launch, selection).
         """
+        if not self._automatic_network_allowed():
+            logger.debug("Achievement recheck skipped: offline mode is enabled.")
+            return
         tag = f" ({tag})" if tag else ""
         games_snapshot = list(self.games)
         if not games_snapshot:
@@ -5766,7 +5976,9 @@ class MainWindow(QMainWindow):
 
     def _start_background_achievement_sync(self):
         """Start bounded achievement monitoring without a library-wide scan."""
-        if getattr(self, "_offline_test_mode", False):
+        if not self._automatic_network_allowed():
+            if self._achievement_poll_timer is not None:
+                self._achievement_poll_timer.stop()
             return
         # Achievement resolution is deliberately lazy: selection, launch,
         # dialog open/close, and running-game polling are the explicit probes.
