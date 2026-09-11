@@ -26,6 +26,7 @@ from database import GameDatabase
 from core.profile_service import ProfileServiceClient, ProfileServiceError
 from core.central_auth import (
     CentralAuthConfig,
+    CentralAuthError,
     CentralAuthSession,
     OFFICIAL_AUTH0_AUDIENCE,
     OFFICIAL_AUTH0_CLIENT_ID,
@@ -252,6 +253,55 @@ class ProfileModelTests(unittest.TestCase):
         self.assertEqual(save_secret.call_args.args, ("central_profile_refresh_token", "refresh-token"))
         open_browser.assert_called_once_with("https://login.example/activate", new=2)
         self.assertEqual(http.post.call_args_list[0].kwargs["data"]["audience"], "https://profiles.example")
+
+    def test_forced_refresh_after_device_login_does_not_reuse_initial_token(self):
+        http = Mock()
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "access_token": "refreshed-access-token",
+            "refresh_token": "rotated-refresh-token",
+            "expires_in": 3600,
+        }
+        http.post.return_value = response
+        session = CentralAuthSession(
+            CentralAuthConfig("https://login.example", "client-id", "https://profiles.example"),
+            session=http,
+        )
+
+        with patch("core.central_auth.set_secret", return_value=True), \
+             patch("core.central_auth.get_secret", return_value="refresh-token"):
+            session._set_tokens({
+                "access_token": "device-access-token",
+                "refresh_token": "refresh-token",
+                "expires_in": 3600,
+            })
+            self.assertEqual(session.authorization_header(force_refresh=True), "Bearer refreshed-access-token")
+
+        self.assertEqual(http.post.call_count, 1)
+        self.assertEqual(http.post.call_args.kwargs["data"]["grant_type"], "refresh_token")
+
+    def test_resource_server_denial_has_actionable_auth0_guidance(self):
+        response = Mock(status_code=403)
+        response.json.return_value = {
+            "error": "unauthorized_client",
+            "error_description": (
+                'Client "client-id" is not authorized to access resource server '
+                '"https://profiles.example".'
+            ),
+        }
+        http = Mock()
+        http.post.return_value = response
+        session = CentralAuthSession(
+            CentralAuthConfig("https://login.example", "client-id", "https://profiles.example"),
+            session=http,
+        )
+
+        with self.assertRaises(CentralAuthError) as raised:
+            session._post_form("https://login.example/oauth/device/code", {"client_id": "client-id"})
+
+        self.assertEqual(raised.exception.code, "api_not_authorized")
+        self.assertIn("Applications → APIs", str(raised.exception))
+        self.assertIn("https://profiles.example", str(raised.exception))
 
 
 class ProfilePageTests(unittest.TestCase):

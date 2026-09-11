@@ -136,7 +136,7 @@ class CentralAuthSession:
             self._refresh_available = False
             delete_secret(_REFRESH_TOKEN_SECRET)
 
-    def _set_tokens(self, payload: dict[str, Any]) -> str:
+    def _set_tokens(self, payload: dict[str, Any], *, mark_refresh: bool = False) -> str:
         access_token = str(payload.get("access_token") or "").strip()
         if not access_token:
             raise CentralAuthError("The identity provider returned no access token.", "token_missing")
@@ -152,7 +152,13 @@ class CentralAuthSession:
                 self._refresh_available = True
             self._access_token = access_token
             self._access_expires_at = time.time() + expires_in
-            self._last_token_refresh_at = time.monotonic()
+            # Device login and refresh both install an access token, but only
+            # a refresh should activate the short reuse window below.  If the
+            # first API request after device login gets a transient 401, it
+            # must be allowed to consume the refresh token once instead of
+            # retrying the same newly-issued token.
+            if mark_refresh:
+                self._last_token_refresh_at = time.monotonic()
         return access_token
 
     def _post_form(self, url: str, data: dict[str, str]) -> dict[str, Any]:
@@ -170,6 +176,21 @@ class CentralAuthSession:
             if response.status_code >= 400:
                 code = str(payload.get("error") or "identity_provider_error")
                 description = str(payload.get("error_description") or "The identity provider rejected the request.")
+                normalized_description = description.lower()
+                if code == "unauthorized_client" and "resource server" in normalized_description:
+                    raise CentralAuthError(
+                        "Auth0 has not authorized this SafeLauncher application to use the central profile API. "
+                        "In the Auth0 Dashboard, open Applications → APIs, select the API with identifier "
+                        f"{self.config.audience}, and grant this Native Application user-delegated access. "
+                        "Then retry sign-in.",
+                        "api_not_authorized",
+                    )
+                if code == "unauthorized_client":
+                    raise CentralAuthError(
+                        "Auth0 rejected this application. Confirm it is a Native Application with the Device Code "
+                        "and Refresh Token grant types enabled, then retry sign-in.",
+                        "application_not_authorized",
+                    )
                 raise CentralAuthError(description, code)
             return payload
         finally:
@@ -252,7 +273,7 @@ class CentralAuthSession:
                 "audience": self.config.audience,
             },
         )
-        return self._set_tokens(payload)
+        return self._set_tokens(payload, mark_refresh=True)
 
     def access_token(self, *, force_refresh: bool = False) -> str:
         with self._lock:

@@ -1495,7 +1495,11 @@ class CompactGamePageWidget(QWidget):
 
         # System & Build Specs Card
         self.specs_card = QFrame(content_widget)
-        self.specs_card.setMaximumHeight(160)
+        # This card contains the runner, installation, and four build fields.
+        # A fixed height here compresses the grid once the build rows are
+        # visible, causing their text to overlap. Let the scroll area handle
+        # the extra height and keep every row at its natural size.
+        self.specs_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.specs_card.setStyleSheet("""
             QFrame {
                 background-color: #18181B;

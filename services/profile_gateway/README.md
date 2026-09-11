@@ -11,6 +11,9 @@ actions verify that header and independently validate Auth0 JWTs.
 1. Create an Auth0 Native Application and API.
 2. Enable Device Code, Refresh Token, offline access, and refresh-token rotation.
 3. Set the Auth0 API audience to `https://profiles.safelauncher.app`.
+   Grant the Native Application user-delegated access to this API under the
+   API's **Application Access** settings. If the API uses per-app
+   authorization, grant access specifically to the SafeLauncher application.
 4. Configure the Vercel project `profile_gateway` with these **Production** variables:
 
    ```text
@@ -55,6 +58,14 @@ The client ID, issuer, and audience are not secrets. Never place
 `CONVEX_GATEWAY_KEY`, an Auth0 client secret, or any other private credential
 in the desktop build. The client uses Auth0 Device Authorization Flow, so the
 native application must allow that grant and offline access.
+
+If sign-in reports that the client is not authorized to access the resource
+server, the API is denying this application's user-delegated access. In the
+Auth0 Dashboard, open **Applications → APIs**, select the API identified by
+`https://profiles.safelauncher.app`, and grant the SafeLauncher Native
+Application user-delegated access. Also confirm the application has **Device
+Code** and **Refresh Token** grant types enabled, and that the API allows
+offline access.
 
 ## Vercel rate limiting
 
