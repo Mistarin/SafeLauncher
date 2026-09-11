@@ -34,6 +34,11 @@ STEAM_ARTWORK_RE = re.compile(
     r"steamcdn-a\.akamaihd\.net)/(?:steam/apps|store_item_assets/steam/apps)/"
     r"[1-9][0-9]{0,15}/capsule_616x353\.jpg$"
 )
+STEAM_HERO_RE = re.compile(
+    r"^https://(?:cdn\.akamai\.steamstatic\.com|shared\.akamai\.steamstatic\.com|"
+    r"steamcdn-a\.akamaihd\.net)/(?:steam/apps|store_item_assets/steam/apps)/"
+    r"[1-9][0-9]{0,15}/(?:library_hero|page_bg_raw|page_bg_generated_v6)\.jpg$"
+)
 STEAM_ARTWORK_HOSTS = frozenset({
     "cdn.akamai.steamstatic.com",
     "shared.akamai.steamstatic.com",
@@ -101,14 +106,36 @@ def steam_artwork_url(app_id: Any) -> str:
     )
 
 
+def steam_hero_url(app_id: Any) -> str:
+    """Return the canonical public Steam hero artwork URL for an AppID."""
+    app_id = steam_app_id(app_id)
+    return (
+        f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_hero.jpg"
+        if app_id else ""
+    )
+
+
+def steam_hero_urls(app_id: Any) -> tuple[str, ...]:
+    """Return fixed Steam hero endpoints, ordered from preferred to fallback."""
+    app_id = steam_app_id(app_id)
+    if not app_id:
+        return ()
+    return (
+        steam_hero_url(app_id),
+        f"https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/library_hero.jpg",
+        f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/page_bg_raw.jpg",
+        f"https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/page_bg_generated_v6.jpg",
+    )
+
+
 def steam_banner_url(app_id: Any) -> str:
     """Backward-compatible alias for callers that still use banner terminology."""
     return steam_artwork_url(app_id)
 
 
 def valid_public_artwork_url(value: Any, app_id: Any = None) -> bool:
-    """Accept only the fixed Steam CDN capsule route for the same AppID."""
-    if not isinstance(value, str) or not STEAM_ARTWORK_RE.fullmatch(value):
+    """Accept only fixed Steam CDN artwork or hero routes for the same AppID."""
+    if not isinstance(value, str) or not (STEAM_ARTWORK_RE.fullmatch(value) or STEAM_HERO_RE.fullmatch(value)):
         return False
     try:
         parsed = urlsplit(value)
@@ -118,14 +145,13 @@ def valid_public_artwork_url(value: Any, app_id: Any = None) -> bool:
         return False
     if app_id is not None:
         expected = steam_app_id(app_id)
-        match = STEAM_ARTWORK_RE.fullmatch(value)
-        if not expected or match is None or f"/{expected}/capsule_616x353.jpg" not in value:
+        if not expected or f"/{expected}/" not in parsed.path:
             return False
     return True
 
 
 def valid_public_banner_url(value: Any, app_id: Any = None) -> bool:
-    """Backward-compatible validator; new profiles use capsule artwork."""
+    """Backward-compatible validator for fixed Steam artwork routes."""
     return valid_public_artwork_url(value, app_id)
 
 
@@ -147,6 +173,11 @@ def normalize_background(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return dict(DEFAULT_BACKGROUND)
     kind = str(value.get("kind", "gradient"))
+    if kind == "steam_hero":
+        app_id = steam_app_id(value.get("app_id"))
+        if app_id:
+            return {"kind": "steam_hero", "app_id": app_id, "url": steam_hero_url(app_id)}
+        return dict(DEFAULT_BACKGROUND)
     if kind == "solid" and COLOR_RE.fullmatch(str(value.get("color", ""))):
         return {"kind": "solid", "color": str(value["color"]).upper()}
     stops = value.get("stops")
@@ -271,7 +302,7 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
             candidate = {
                 "name": str(game.name or f"Steam App {app_id}")[:120],
                 "app_id": app_id,
-                "artwork_url": steam_artwork_url(app_id),
+                "artwork_url": steam_hero_url(app_id),
                 "playtime_seconds": max(0, int(game.playtime_seconds or 0)),
                 "last_played": max(0, int(game.last_played or 0)),
                 "favorite": bool(game.is_favorite),
@@ -299,7 +330,7 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
             games_by_app[app_id] = {
                 "name": f"Steam App {app_id}",
                 "app_id": app_id,
-                "artwork_url": steam_artwork_url(app_id),
+                "artwork_url": steam_hero_url(app_id),
                 "playtime_seconds": max(0, int(value.get("playtime_baseline_seconds", 0) or 0)),
                 "last_played": max(0, int(value.get("last_played", 0) or 0)),
                 "favorite": bool(value.get("favorite")),
@@ -334,7 +365,7 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
         games_by_app.setdefault(app_id, {
             "name": str(app_game_names.get(app_id, f"Steam App {app_id}"))[:120],
             "app_id": app_id,
-            "artwork_url": steam_artwork_url(app_id),
+            "artwork_url": steam_hero_url(app_id),
             "playtime_seconds": 0,
             "last_played": 0,
             "favorite": False,
@@ -466,11 +497,10 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
         if not app_id or app_id in seen_apps:
             continue
         seen_apps.add(app_id)
-        artwork = str(item.get("artwork_url", "") or "")
-        if not valid_public_artwork_url(artwork, app_id):
-            # Older documents used header banners. Do not render those as the
-            # new library artwork; derive the correct capsule from AppID.
-            artwork = steam_artwork_url(app_id)
+        # Older documents may contain a capsule or header URL. Ignore all
+        # client-provided artwork and derive the same widescreen hero route
+        # from the validated AppID for every public card.
+        artwork = steam_hero_url(app_id)
         games.append({
             "name": _clean_name(item.get("name"), f"Steam App {app_id}")[:120],
             "app_id": app_id,
@@ -499,7 +529,7 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
             games.append({
                 "name": item["name"],
                 "app_id": app_id,
-                "artwork_url": steam_artwork_url(app_id),
+                "artwork_url": steam_hero_url(app_id),
                 "playtime_seconds": 0,
                 "last_played": 0,
                 "favorite": True,

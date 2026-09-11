@@ -145,14 +145,14 @@ function validSteamAppId(value: unknown): value is string {
   return typeof value === "string" && /^[1-9][0-9]{0,15}$/.test(value);
 }
 
-function steamArtworkUrl(appId: string): string {
-  return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/capsule_616x353.jpg`;
+function steamHeroUrl(appId: string): string {
+  return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`;
 }
 
 function validSteamArtwork(value: unknown, appId: string): boolean {
   return (
     typeof value === "string" &&
-    new RegExp(`^https://(?:cdn\\.akamai\\.steamstatic\\.com|shared\\.akamai\\.steamstatic\\.com|steamcdn-a\\.akamaihd\\.net)/(?:steam/apps|store_item_assets/steam/apps)/${appId}/capsule_616x353\\.jpg$`).test(value)
+    new RegExp(`^https://(?:cdn\\.akamai\\.steamstatic\\.com|shared\\.akamai\\.steamstatic\\.com|steamcdn-a\\.akamaihd\\.net)/(?:steam/apps|store_item_assets/steam/apps)/${appId}/(?:capsule_616x353|library_hero)\\.jpg$`).test(value)
   );
 }
 
@@ -236,6 +236,18 @@ export function validatePublicProfile(value: unknown): string {
           ? Math.max(0, Math.min(360, candidate.angle as number))
           : 135,
       };
+    } else if (candidate.kind === "steam_hero") {
+      const appId = boundedString(candidate.app_id, 16);
+      if (!validSteamAppId(appId)) {
+        throw new ApiError(
+          400,
+          "invalid_background",
+          "Steam hero AppID is invalid.",
+        );
+      }
+      // Derive the URL server-side. Never persist or proxy a client-selected
+      // background URL, even if it resembles a Steam URL.
+      background = { kind: "steam_hero", app_id: appId, url: steamHeroUrl(appId) };
     } else {
       throw new ApiError(
         400,
@@ -349,7 +361,10 @@ export function validatePublicProfile(value: unknown): string {
     cleanLibrary.push({
       name,
       app_id: appId,
-      artwork_url: artwork || steamArtworkUrl(appId),
+      // Profile cards use a fixed Steam hero route. Keep accepting the old
+      // capsule URL above so older clients can publish during migration, but
+      // never store an arbitrary client-selected artwork URL.
+      artwork_url: steamHeroUrl(appId),
       playtime_seconds: Number.isSafeInteger(item.playtime_seconds)
         ? Math.max(0, Math.min(3_200_000_000, item.playtime_seconds as number))
         : 0,

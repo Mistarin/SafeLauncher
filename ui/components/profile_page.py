@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
-from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtGui import QColor, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QColorDialog, QFileDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
@@ -19,6 +20,7 @@ from core.profile_models import (
     BACKGROUND_PRESETS, MAX_BIO_LENGTH, build_public_projection,
     HANDLE_RE, load_profile_settings, normalize_background, normalize_username_handle,
     normalize_public_document, profile_username_suggestion, save_profile_settings,
+    steam_app_id, steam_hero_url, steam_hero_urls,
 )
 from core.profile_service import ProfileServiceClient, ProfileServiceError, get_profile_service_url, is_local_service_url
 from core.central_auth import CentralAuthError, CentralAuthSession
@@ -33,6 +35,47 @@ from ui.theme import (
 
 PROFILE_CARD_HEIGHT = 196
 PROFILE_ARTWORK_HEIGHT = 104
+MAX_PROFILE_BACKGROUND_BYTES = 4 * 1024 * 1024
+MAX_PROFILE_BACKGROUND_PIXELS = 32_000_000
+MAX_PROFILE_BACKGROUND_CACHE_ITEMS = 3
+
+
+def _download_profile_image(url: str, timeout: tuple[int, int]) -> bytes:
+    """Download one fixed artwork URL with a bounded response body."""
+    import requests
+
+    response = None
+    try:
+        response = requests.get(
+            url,
+            headers={"Accept": "image/jpeg,image/*;q=0.8", "User-Agent": "SafeLauncher/1"},
+            timeout=timeout,
+            stream=True,
+        )
+        content_type = response.headers.get("Content-Type", "")
+        if response.status_code != 200 or not content_type.startswith("image/"):
+            return b""
+        content_length = response.headers.get("Content-Length")
+        try:
+            if content_length and int(content_length) > MAX_PROFILE_BACKGROUND_BYTES:
+                return b""
+        except (TypeError, ValueError, OverflowError):
+            return b""
+        chunks = []
+        size = 0
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            size += len(chunk)
+            if size > MAX_PROFILE_BACKGROUND_BYTES:
+                return b""
+            chunks.append(chunk)
+        return b"".join(chunks) if size else b""
+    except requests.RequestException:
+        return b""
+    finally:
+        if response is not None:
+            response.close()
 
 
 class ProfileGameCard(QFrame):
@@ -54,7 +97,7 @@ class ProfileGameCard(QFrame):
         layout.setContentsMargins(8, 8, 8, 9)
         layout.setSpacing(6)
 
-        self.artwork = QLabel("Steam artwork")
+        self.artwork = QLabel("Steam hero")
         self.artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.artwork.setFixedHeight(PROFILE_ARTWORK_HEIGHT)
         self.artwork.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none; font-size:11px;")
@@ -227,6 +270,11 @@ class ProfilePageWidget(QWidget):
         self._game_cards: dict[str, list[ProfileGameCard]] = {}
         self._artwork_cache: dict[str, bytes] = {}
         self._artwork_inflight: set[str] = set()
+        self._profile_background_cache: dict[str, bytes] = {}
+        self._profile_background_inflight: set[str] = set()
+        self._profile_background_pixmap = QPixmap()
+        self._profile_background_blurred = QPixmap()
+        self._profile_background_blur_size = (0, 0)
         self._selected_profile_game: dict[str, Any] | None = None
         self._games_return_index = 0
         self._profile_games: list[dict[str, Any]] = []
@@ -432,11 +480,29 @@ class ProfilePageWidget(QWidget):
         self.background_combo.addItem("Violet", "violet")
         self.background_combo.addItem("Slate", "slate")
         self.background_combo.addItem("Custom solid color", "custom")
+        self.background_combo.addItem("Steam hero by AppID", "steam_hero")
+        self.background_combo.currentIndexChanged.connect(self._on_background_mode_changed)
         background_row.addWidget(self.background_combo, 1)
         self.btn_custom_color = QPushButton("Color")
         self.btn_custom_color.clicked.connect(self._choose_color)
         background_row.addWidget(self.btn_custom_color)
         editor_layout.addLayout(background_row)
+        self.background_hero_controls = QWidget()
+        hero_background_row = QHBoxLayout(self.background_hero_controls)
+        hero_background_row.setContentsMargins(0, 0, 0, 0)
+        hero_background_row.addWidget(QLabel("Hero AppID"))
+        self.background_app_id_edit = QLineEdit()
+        self.background_app_id_edit.setObjectName("profileEditorInput")
+        self.background_app_id_edit.setMaxLength(16)
+        self.background_app_id_edit.setPlaceholderText("e.g. 1321440")
+        self.background_app_id_edit.setToolTip("Enter a Steam AppID to use its hero artwork as your profile background.")
+        self.background_app_id_edit.returnPressed.connect(self._use_steam_hero_background)
+        hero_background_row.addWidget(self.background_app_id_edit, 1)
+        self.btn_use_hero_background = QPushButton("Use hero")
+        self.btn_use_hero_background.clicked.connect(self._use_steam_hero_background)
+        hero_background_row.addWidget(self.btn_use_hero_background)
+        editor_layout.addWidget(self.background_hero_controls)
+        self.background_hero_controls.setVisible(False)
         self.editor_hint = QLabel("Only the information shown on your public profile is shared. Private launcher data stays private.")
         self.editor_hint.setObjectName("profileMuted")
         self.editor_hint.setWordWrap(True)
@@ -525,7 +591,7 @@ class ProfilePageWidget(QWidget):
 
         detail_body = QHBoxLayout()
         detail_body.setSpacing(16)
-        self.game_detail_artwork = QLabel("Steam artwork")
+        self.game_detail_artwork = QLabel("Steam hero")
         self.game_detail_artwork.setFixedSize(270, 155)
         self.game_detail_artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.game_detail_artwork.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none;")
@@ -790,6 +856,8 @@ class ProfilePageWidget(QWidget):
 
     def _background_style(self, background: dict[str, Any]) -> str:
         background = normalize_background(background)
+        if background.get("kind") == "steam_hero":
+            return "QWidget#profileCanvas, QFrame#profileHero { background: transparent; }"
         if background.get("kind") == "solid":
             return (
                 f"QWidget#profileCanvas {{ background: {background['color']}; }}"
@@ -801,8 +869,214 @@ class ProfilePageWidget(QWidget):
             f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {stops[0]}, stop:1 {stops[-1]}); }}"
         )
 
+    def _profile_background_cache_path(self, app_id: str) -> str:
+        """Return a private cache path for a validated Steam AppID."""
+        app_id = steam_app_id(app_id)
+        if not app_id:
+            return ""
+        root = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.CacheLocation)
+        if not root:
+            return ""
+        directory = os.path.join(root, "profile_heroes")
+        try:
+            os.makedirs(directory, mode=0o700, exist_ok=True)
+        except OSError:
+            return ""
+        return os.path.join(directory, f"steam_{app_id}.jpg")
+
+    def _load_profile_background_bytes(self, app_id: str) -> bytes:
+        app_id = steam_app_id(app_id)
+        if not app_id:
+            return b""
+        cached = self._profile_background_cache.pop(app_id, None)
+        if cached:
+            self._profile_background_cache[app_id] = cached
+            return cached
+        path = self._profile_background_cache_path(app_id)
+        if not path:
+            return b""
+        try:
+            with open(path, "rb") as stream:
+                data = stream.read(MAX_PROFILE_BACKGROUND_BYTES + 1)
+            if 0 < len(data) <= MAX_PROFILE_BACKGROUND_BYTES:
+                self._cache_profile_background_bytes(app_id, data)
+                return data
+        except OSError:
+            pass
+        return b""
+
+    def _cache_profile_background_bytes(self, app_id: str, data: bytes) -> None:
+        """Keep only a small in-memory LRU-like window; disk remains the cache."""
+        self._profile_background_cache.pop(app_id, None)
+        self._profile_background_cache[app_id] = data
+        while len(self._profile_background_cache) > MAX_PROFILE_BACKGROUND_CACHE_ITEMS:
+            self._profile_background_cache.pop(next(iter(self._profile_background_cache)), None)
+
+    @staticmethod
+    def _decode_profile_background(data: bytes) -> QPixmap | None:
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(data):
+            return None
+        if (
+            pixmap.width() <= 0
+            or pixmap.height() <= 0
+            or pixmap.width() * pixmap.height() > MAX_PROFILE_BACKGROUND_PIXELS
+        ):
+            return None
+        return pixmap
+
+    def _set_profile_background_pixmap(self, pixmap: QPixmap) -> None:
+        self._profile_background_pixmap = pixmap if not pixmap.isNull() else QPixmap()
+        self._profile_background_blurred = QPixmap()
+        self._profile_background_blur_size = (0, 0)
+        self.update()
+
+    def _set_profile_background(self, value: Any) -> None:
+        """Resolve a profile background and queue only its fixed Steam URL."""
+        background = normalize_background(value)
+        if background.get("kind") != "steam_hero":
+            self._set_profile_background_pixmap(QPixmap())
+            return
+        app_id = steam_app_id(background.get("app_id"))
+        data = self._load_profile_background_bytes(app_id)
+        if data:
+            pixmap = self._decode_profile_background(data)
+            if pixmap is not None:
+                self._set_profile_background_pixmap(pixmap)
+                return
+        self._set_profile_background_pixmap(QPixmap())
+        self._queue_profile_background(app_id)
+
+    def _queue_profile_background(self, app_id: str) -> None:
+        app_id = steam_app_id(app_id)
+        if (
+            not app_id
+            or app_id in self._profile_background_inflight
+            or not automatic_network_allowed(self.settings)
+        ):
+            return
+        self._profile_background_inflight.add(app_id)
+
+        def work():
+            for candidate in steam_hero_urls(app_id):
+                data = _download_profile_image(candidate, (2, 6))
+                if data:
+                    return data
+            return b""
+
+        worker = self._tasks.start(
+            "SafeLauncher-ProfileBackground",
+            work,
+            lambda result, expected_app_id=app_id: self._profile_background_loaded(expected_app_id, result),
+        )
+        worker.error_occurred.connect(
+            lambda _error, expected_app_id=app_id: self._profile_background_failed(expected_app_id)
+        )
+
+    def _profile_background_failed(self, app_id: str) -> None:
+        self._profile_background_inflight.discard(app_id)
+
+    def _profile_background_loaded(self, app_id: str, data: Any) -> None:
+        self._profile_background_inflight.discard(app_id)
+        if not isinstance(data, bytes) or not data:
+            return
+        pixmap = self._decode_profile_background(data)
+        if pixmap is None:
+            return
+        self._cache_profile_background_bytes(app_id, data)
+        cache_path = self._profile_background_cache_path(app_id)
+        if cache_path:
+            temp_path = f"{cache_path}.tmp"
+            try:
+                with open(temp_path, "wb") as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temp_path, cache_path)
+            except OSError:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+        current = normalize_background(self._document.get("background", {}))
+        if current.get("kind") == "steam_hero" and current.get("app_id") == app_id:
+            self._set_profile_background_pixmap(pixmap)
+
+    def _on_background_mode_changed(self, _index: int = -1) -> None:
+        visible = self._editing and self.background_combo.currentData() == "steam_hero"
+        self.background_hero_controls.setVisible(visible)
+
+    def _use_steam_hero_background(self) -> None:
+        if self._mode != "owner" or not self._editing:
+            return
+        app_id = steam_app_id(self.background_app_id_edit.text())
+        if not app_id:
+            QMessageBox.warning(self, "Profile background", "Enter a valid numeric Steam AppID.")
+            return
+        background = normalize_background({"kind": "steam_hero", "app_id": app_id})
+        self._profile_settings["background"] = background
+        self.background_combo.setCurrentIndex(self.background_combo.findData("steam_hero"))
+        draft_name = self.name_edit.text()
+        draft_handle = self.handle_edit.text()
+        draft_bio = self.bio_edit.toPlainText()
+        self._render(build_public_projection(self.db, {
+            **self._profile_settings,
+            "display_name": draft_name or self._profile_settings.get("display_name", "Player"),
+            "public_handle": draft_handle or self._profile_settings.get("public_handle", ""),
+            "bio": draft_bio,
+            "avatar": self._draft_avatar,
+            "background": background,
+        }))
+        with QSignalBlocker(self.name_edit), QSignalBlocker(self.handle_edit), QSignalBlocker(self.bio_edit):
+            self.name_edit.setText(draft_name)
+            self.handle_edit.setText(draft_handle)
+            self.bio_edit.setPlainText(draft_bio)
+        self._update_bio_count()
+        self._on_background_mode_changed()
+        self.footer_status.setText(
+            "Steam hero selected. It will be downloaded when online and saved with your profile changes."
+        )
+
+    def paintEvent(self, event) -> None:
+        background = normalize_background(self._document.get("background", {}))
+        if background.get("kind") != "steam_hero":
+            super().paintEvent(event)
+            return
+        painter = QPainter(self)
+        if not painter.isActive():
+            return
+        width, height = self.width(), self.height()
+        painter.fillRect(self.rect(), QColor("#121214"))
+        if not self._profile_background_pixmap.isNull() and width > 0 and height > 0:
+            if self._profile_background_blur_size != (width, height):
+                scaled = self._profile_background_pixmap.scaled(
+                    width,
+                    height,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                small = scaled.scaled(
+                    max(1, width // 28),
+                    max(1, height // 28),
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self._profile_background_blurred = small.scaled(
+                    width,
+                    height,
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self._profile_background_blur_size = (width, height)
+            painter.setOpacity(0.42)
+            painter.drawPixmap(0, 0, self._profile_background_blurred)
+            painter.setOpacity(1.0)
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 145))
+        painter.end()
+
     def _render(self, document: dict[str, Any]) -> None:
         self.setStyleSheet(self._base_style + self._background_style(document.get("background", {})))
+        self._set_profile_background(document.get("background", {}))
         self.name_label.setText(str(document.get("display_name", "Player")))
         handle = str(document.get("handle", "") or "")
         self.handle_label.setText(f"@{handle}" if handle else "Username not set")
@@ -934,23 +1208,16 @@ class ProfilePageWidget(QWidget):
         self._artwork_inflight.update(pending.values())
 
         def work():
-            import requests
             downloaded = {}
-            with requests.Session() as session:
-                session.headers.update({
-                    "Accept": "image/jpeg,image/*;q=0.8",
-                    "User-Agent": "SafeLauncher/1",
-                })
-                for app_id, url in pending.items():
-                    try:
-                        response = session.get(url, timeout=(2, 5))
-                        try:
-                            if response.status_code == 200 and len(response.content) <= 4 * 1024 * 1024:
-                                downloaded[app_id] = (url, response.content)
-                        finally:
-                            response.close()
-                    except requests.RequestException:
-                        continue
+            for app_id, url in pending.items():
+                for candidate in steam_hero_urls(app_id):
+                    data = _download_profile_image(candidate, (2, 5))
+                    if data:
+                        # Keep the canonical URL as the cache key even when a
+                        # fallback endpoint supplied the bytes. That way all
+                        # cards for this AppID can use the same memory entry.
+                        downloaded[app_id] = (url, data)
+                        break
             return downloaded
 
         worker = self._tasks.start(
@@ -992,7 +1259,7 @@ class ProfilePageWidget(QWidget):
     def _set_detail_artwork(self, pixmap: QPixmap) -> None:
         if pixmap.isNull():
             self.game_detail_artwork.clear()
-            self.game_detail_artwork.setText("Steam artwork")
+            self.game_detail_artwork.setText("Steam hero")
             return
         self.game_detail_artwork.setText("")
         self.game_detail_artwork.setPixmap(pixmap.scaled(
@@ -1134,7 +1401,7 @@ class ProfilePageWidget(QWidget):
             request_id = str(item.get("request_id", ""))
             friend_handle = str(item.get("handle", ""))
             self.incoming_layout.addWidget(self._social_row(item, [
-                ("View", lambda checked=False, h=friend_handle: self.open_profile_handle_requested.emit(h)),
+                ("View profile", lambda checked=False, h=friend_handle: self.open_profile_handle_requested.emit(h)),
                 ("Accept", lambda checked=False, r=request_id: self._respond_to_request(r, "accept")),
                 ("Decline", lambda checked=False, r=request_id: self._respond_to_request(r, "decline")),
                 ("Block", lambda checked=False, h=friend_handle: self._block_profile(h)),
@@ -1145,7 +1412,7 @@ class ProfilePageWidget(QWidget):
             request_id = str(item.get("request_id", ""))
             friend_handle = str(item.get("handle", ""))
             self.outgoing_layout.addWidget(self._social_row(item, [
-                ("View", lambda checked=False, h=friend_handle: self.open_profile_handle_requested.emit(h)),
+                ("View profile", lambda checked=False, h=friend_handle: self.open_profile_handle_requested.emit(h)),
                 ("Cancel", lambda checked=False, r=request_id: self._respond_to_request(r, "cancel")),
             ]))
         for item in friends if isinstance(friends, list) else []:
@@ -1153,7 +1420,7 @@ class ProfilePageWidget(QWidget):
                 continue
             friend_handle = str(item.get("handle", ""))
             self.friends_list.addWidget(self._social_row(item, [
-                ("View", lambda checked=False, h=friend_handle: self.open_profile_handle_requested.emit(h)),
+                ("View profile", lambda checked=False, h=friend_handle: self.open_profile_handle_requested.emit(h)),
                 ("Remove", lambda checked=False, h=friend_handle: self._remove_friend(h)),
             ]))
         for blocked_handle in blocked if isinstance(blocked, list) else []:
@@ -1400,15 +1667,23 @@ class ProfilePageWidget(QWidget):
             "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens. Availability is checked before publishing."
         )
         background = normalize_background(self._profile_settings.get("background"))
-        found = False
-        for index in range(self.background_combo.count()):
-            candidate = BACKGROUND_PRESETS.get(self.background_combo.itemData(index))
-            if candidate and candidate == background:
-                self.background_combo.setCurrentIndex(index)
-                found = True
-                break
-        if not found:
-            self.background_combo.setCurrentIndex(self.background_combo.findData("custom"))
+        background_kind = background.get("kind")
+        with QSignalBlocker(self.background_combo), QSignalBlocker(self.background_app_id_edit):
+            if background_kind == "steam_hero":
+                self.background_combo.setCurrentIndex(self.background_combo.findData("steam_hero"))
+                self.background_app_id_edit.setText(str(background.get("app_id", "")))
+            else:
+                self.background_app_id_edit.clear()
+                found = False
+                for index in range(self.background_combo.count()):
+                    candidate = BACKGROUND_PRESETS.get(self.background_combo.itemData(index))
+                    if candidate and candidate == background:
+                        self.background_combo.setCurrentIndex(index)
+                        found = True
+                        break
+                if not found:
+                    self.background_combo.setCurrentIndex(self.background_combo.findData("custom"))
+        self._on_background_mode_changed()
 
     def _update_bio_count(self) -> None:
         """Keep the editor counter based on the actual bounded text."""
@@ -1701,7 +1976,13 @@ class ProfilePageWidget(QWidget):
                 )
                 return
         selected = self.background_combo.currentData()
-        if selected == "custom":
+        if selected == "steam_hero":
+            app_id = steam_app_id(self.background_app_id_edit.text())
+            if not app_id:
+                QMessageBox.warning(self, "Profile background", "Enter a valid numeric Steam AppID.")
+                return
+            background = normalize_background({"kind": "steam_hero", "app_id": app_id})
+        elif selected == "custom":
             background = self._profile_settings.get("background", {})
         else:
             background = BACKGROUND_PRESETS.get(selected, BACKGROUND_PRESETS["midnight"])

@@ -20,7 +20,7 @@ from core.profile_models import (
     build_public_projection,
     load_profile_settings,
     normalize_public_document, normalize_social_snapshot, normalize_username_handle,
-    profile_username_suggestion, steam_artwork_url,
+    profile_username_suggestion, steam_hero_url, normalize_background,
     save_profile_settings,
 )
 from database import GameDatabase
@@ -95,7 +95,7 @@ class ProfileModelTests(unittest.TestCase):
             self.assertEqual(document["stats"]["playtime_seconds"], 3600)
             self.assertEqual(document["games"][0]["app_id"], "12345")
             self.assertEqual(document["bio"], "A public bio.")
-            self.assertEqual(document["games"][0]["artwork_url"], steam_artwork_url("12345"))
+            self.assertEqual(document["games"][0]["artwork_url"], steam_hero_url("12345"))
             self.assertEqual(document["games"][0]["achievements"]["unlocked_count"], 0)
         finally:
             db.close()
@@ -146,7 +146,7 @@ class ProfileModelTests(unittest.TestCase):
             "achievements": {"recent": []},
         }]
         normalized_unsafe = normalize_public_document(unsafe)
-        self.assertEqual(normalized_unsafe["games"][0]["artwork_url"], steam_artwork_url("123"))
+        self.assertEqual(normalized_unsafe["games"][0]["artwork_url"], steam_hero_url("123"))
 
     def test_public_bio_and_artwork_are_bounded_and_legacy_artwork_is_replaced(self):
         document = normalize_public_document({
@@ -166,8 +166,19 @@ class ProfileModelTests(unittest.TestCase):
             "recent_achievements": [],
         })
         self.assertEqual(document["bio"], "x" * 160)
-        self.assertEqual(document["games"][0]["artwork_url"], steam_artwork_url("123"))
+        self.assertEqual(document["games"][0]["artwork_url"], steam_hero_url("123"))
         self.assertEqual(document["games"][0]["achievements"]["recent"], [])
+
+    def test_steam_hero_background_is_derived_from_app_id(self):
+        normalized = normalize_background({
+            "kind": "steam_hero",
+            "app_id": "1321440",
+            "url": "https://attacker.example/background.jpg",
+        })
+        self.assertEqual(normalized["kind"], "steam_hero")
+        self.assertEqual(normalized["app_id"], "1321440")
+        self.assertEqual(normalized["url"], steam_hero_url("1321440"))
+        self.assertEqual(normalize_background({"kind": "steam_hero", "app_id": "0"}), DEFAULT_BACKGROUND)
 
     def test_owner_token_rotation_sends_new_token_without_returning_it(self):
         response = Mock(status_code=200)
@@ -525,6 +536,33 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertEqual(loaded["display_name"], "New Name")
                 self.assertEqual(loaded["bio"], "A visible bio")
                 self.assertEqual(loaded["public_handle"], "taken-name")
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
+    def test_profile_editor_saves_steam_hero_background_from_appid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            save_profile_settings(settings, {
+                "display_name": "Player",
+                "public_handle": "profile-player",
+                "published": False,
+                "background": DEFAULT_BACKGROUND,
+            })
+            db = GameDatabase(":memory:")
+            page = ProfilePageWidget(db, settings)
+            try:
+                page._start_edit()
+                page.background_combo.setCurrentIndex(page.background_combo.findData("steam_hero"))
+                page.background_app_id_edit.setText("1321440")
+                with patch("ui.components.profile_page.automatic_network_allowed", return_value=False):
+                    page._save_edit()
+                saved = load_profile_settings(settings)
+                self.assertEqual(saved["background"]["kind"], "steam_hero")
+                self.assertEqual(saved["background"]["app_id"], "1321440")
+                self.assertEqual(saved["background"]["url"], steam_hero_url("1321440"))
             finally:
                 page.close()
                 page.deleteLater()
