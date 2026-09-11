@@ -2,7 +2,7 @@ import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
- * Server-side mutation limits complement Cloudflare's edge limits. Convex
+ * Server-side mutation limits complement the gateway's edge limits. Convex
  * mutations are transactional, so concurrent requests cannot increment a
  * bucket past its limit without one request being retried/rejected.
  */
@@ -41,4 +41,3 @@ export const consume = internalMutation({
     return { allowed: true, retryAfter: Math.ceil((expiresAt - now) / 1000) };
   },
 });
-

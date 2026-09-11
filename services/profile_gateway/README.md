@@ -18,6 +18,7 @@ actions verify that header and independently validate Auth0 JWTs.
    AUTH0_ISSUER=https://dev-712dm7e8q0c2tie3.us.auth0.com/
    AUTH0_AUDIENCE=https://profiles.safelauncher.app
    CONVEX_GATEWAY_KEY=<same random value configured in Convex>
+   PROFILE_RATE_LIMIT_ID=safelauncher-profile-api
    ```
 
    Keep the issuer's trailing slash; it must match the JWT `iss` claim exactly.
@@ -36,8 +37,8 @@ actions verify that header and independently validate Auth0 JWTs.
 
 The Convex origin and gateway secret are never included in SafeLauncher. The
 desktop application uses only `https://profilegateway.vercel.app` and Auth0's
-public issuer/client configuration. The Cloudflare Worker files remain as a
-fallback, but the Vercel project is the current production gateway.
+public issuer/client configuration. Vercel is the only supported production
+gateway for the centralized profile service.
 
 ## Desktop build configuration
 
@@ -57,9 +58,21 @@ native application must allow that grant and offline access.
 
 ## Vercel rate limiting
 
-Before broad public release, add a Vercel Firewall rate-limit rule for the
-`/api/profile/*` paths. The old Cloudflare deployment has Cloudflare Rate Limit
-bindings, but those bindings do not apply to the Vercel deployment.
+The Vercel adapter calls `@vercel/firewall` for every public profile read and
+authenticated profile/social request. Configure this Firewall custom rule in
+the Vercel dashboard before deploying:
+
+1. Open the project, select **Firewall → Configure → New Rule**.
+2. Set the condition to **@vercel/firewall** and use the rate-limit ID
+   `safelauncher-profile-api`. Select **Rate Limit**, **Fixed Window**, a
+   60-second window, and 120 requests. Keep the default 429 response.
+3. Review and **Publish** the Firewall change.
+
+Public requests use Vercel's source-IP key. Authenticated requests use the
+verified Auth0 subject as their rate-limit key, so one account cannot exhaust
+another account's authenticated quota. The ID is a configuration value, not a
+secret. If the ID is missing or the Vercel rule is unavailable, the gateway
+fails closed with `503` instead of forwarding an unprotected request.
 
 ## Local verification
 

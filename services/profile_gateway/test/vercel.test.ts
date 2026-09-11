@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { checkRateLimit } from "@vercel/firewall";
 import gateway from "../api/gateway";
+
+vi.mock("@vercel/firewall", () => ({
+  checkRateLimit: vi.fn(async () => ({ rateLimited: false })),
+}));
 
 const configuredEnvironment = {
   CONVEX_ORIGIN: "https://redacted.invalid",
   AUTH0_ISSUER: "https://tenant.example.auth0.com/",
   AUTH0_AUDIENCE: "https://profiles.safelauncher.app",
   CONVEX_GATEWAY_KEY: "vercel-test-gateway-key",
+  PROFILE_RATE_LIMIT_ID: "safelauncher-profile-api",
 };
 
 const environmentKeys = Object.keys(configuredEnvironment) as Array<keyof typeof configuredEnvironment>;
@@ -25,6 +31,8 @@ afterEach(() => {
     else process.env[key] = value;
   }
   savedEnvironment.clear();
+  vi.mocked(checkRateLimit).mockReset();
+  vi.mocked(checkRateLimit).mockResolvedValue({ rateLimited: false });
   vi.restoreAllMocks();
 });
 
@@ -43,6 +51,28 @@ describe("Vercel gateway adapter", () => {
     );
     expect(response.status).toBe(401);
     expect(await response.json()).toMatchObject({ code: "unauthorized" });
+  });
+
+  it("fails closed when a Vercel rate-limit rule is not configured", async () => {
+    setEnvironment({
+      ...configuredEnvironment,
+      PROFILE_RATE_LIMIT_ID: "",
+    });
+    const response = await gateway.fetch(
+      new Request("https://profilegateway.vercel.app/api/profile/v1/01234567890123456789"),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "rate_limiter_unavailable" });
+  });
+
+  it("fails closed when Vercel reports an unknown rate-limit ID", async () => {
+    setEnvironment();
+    vi.mocked(checkRateLimit).mockResolvedValueOnce({ rateLimited: false, error: "not-found" });
+    const response = await gateway.fetch(
+      new Request("https://profilegateway.vercel.app/api/profile/v1/01234567890123456789"),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "rate_limiter_unavailable" });
   });
 
   it("proxies a rewritten public path and injects only the server gateway key", async () => {

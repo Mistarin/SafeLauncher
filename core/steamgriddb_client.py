@@ -396,9 +396,9 @@ class SteamGridDBClient:
             urls_to_try = []
             if resolved_appid and str(resolved_appid).isdigit() and int(resolved_appid) > 0:
                 urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/library_hero.jpg")
-                urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steam/apps/{resolved_appid}/library_hero.jpg")
+                urls_to_try.append(f"https://cdn.akamai.steamstatic.com/steam/apps/{resolved_appid}/library_hero.jpg")
                 urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/page_bg_raw.jpg")
-                urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steam/apps/{resolved_appid}/page_bg_generated_v6.jpg")
+                urls_to_try.append(f"https://cdn.akamai.steamstatic.com/steam/apps/{resolved_appid}/page_bg_generated_v6.jpg")
                 urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/header.jpg")
                 urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/capsule_616x353.jpg")
 
@@ -574,7 +574,7 @@ class SteamGridDBClient:
                 _close_response(sgdb_resp)
 
         if resolved_appid and str(resolved_appid).isdigit() and int(resolved_appid) > 0:
-            urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steam/apps/{resolved_appid}/logo.png")
+            urls_to_try.append(f"https://cdn.akamai.steamstatic.com/steam/apps/{resolved_appid}/logo.png")
             urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/capsule_231x87.jpg")
             urls_to_try.append(f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{resolved_appid}/header.jpg")
 

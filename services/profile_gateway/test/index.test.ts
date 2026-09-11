@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import worker, { classify, type Env } from "../src/index";
+import { classify, handleGatewayRequest, type Env } from "../src/index";
 
 const env: Env = {
   CONVEX_ORIGIN: "https://redacted.invalid",
@@ -7,6 +7,16 @@ const env: Env = {
   AUTH0_AUDIENCE: "https://profiles.safelauncher.app",
   CONVEX_GATEWAY_KEY: "test-gateway-key",
 };
+
+const rateLimiter = {
+  async limit() {
+    return { success: true };
+  },
+};
+
+function fetchThroughGateway(request: Request, requestEnv: Env = env) {
+  return handleGatewayRequest(request, requestEnv, { rateLimiter });
+}
 
 describe("profile gateway", () => {
   it("allows only the public profile read and exact authenticated routes", () => {
@@ -20,7 +30,7 @@ describe("profile gateway", () => {
   });
 
   it("fails closed when deployment secrets are missing", async () => {
-    const response = await worker.fetch(
+    const response = await fetchThroughGateway(
       new Request("https://profiles.safelauncher.app/api/health"),
       { ...env, CONVEX_GATEWAY_KEY: "" },
     );
@@ -29,12 +39,22 @@ describe("profile gateway", () => {
   });
 
   it("rejects unauthenticated owner requests before contacting Convex", async () => {
-    const response = await worker.fetch(
+    const response = await fetchThroughGateway(
       new Request("https://profiles.safelauncher.app/api/profile/v2/me"),
       env,
     );
     expect(response.status).toBe(401);
     expect((await response.json() as { code?: string }).code).toBe("unauthorized");
+  });
+
+  it("fails closed when a rate limiter is not supplied", async () => {
+    const response = await handleGatewayRequest(
+      new Request("https://profiles.safelauncher.app/api/profile/v1/01234567890123456789"),
+      env,
+      {} as { rateLimiter: typeof rateLimiter },
+    );
+    expect(response.status).toBe(503);
+    expect((await response.json() as { code?: string }).code).toBe("rate_limiter_unavailable");
   });
 
   it("does not forward the client-supplied gateway header", async () => {
@@ -51,7 +71,7 @@ describe("profile gateway", () => {
       return upstream;
     };
     try {
-      const response = await worker.fetch(
+      const response = await fetchThroughGateway(
         new Request("https://profiles.safelauncher.app/api/profile/v1/01234567890123456789", {
           headers: { "X-SafeLauncher-Gateway-Key": "attacker-value" },
         }),

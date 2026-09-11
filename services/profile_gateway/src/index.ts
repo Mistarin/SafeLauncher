@@ -1,7 +1,7 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
 export interface GatewayRateLimiter {
-  limit(input: { key: string }): Promise<{ success: boolean }>;
+  limit(input: { key?: string }): Promise<{ success: boolean }>;
 }
 
 export interface Env {
@@ -9,13 +9,10 @@ export interface Env {
   AUTH0_ISSUER: string;
   AUTH0_AUDIENCE: string;
   CONVEX_GATEWAY_KEY: string;
-  PROFILE_PUBLIC_LIMITER?: GatewayRateLimiter;
-  PROFILE_AUTH_LIMITER?: GatewayRateLimiter;
 }
 
 export interface GatewayRequestOptions {
-  publicLimiter?: GatewayRateLimiter;
-  authLimiter?: GatewayRateLimiter;
+  rateLimiter: GatewayRateLimiter;
 }
 
 const MAX_BODY_BYTES = 512 * 1024;
@@ -112,8 +109,8 @@ export function classify(pathname: string, method: string): { kind: "health" | "
   return { kind: "invalid" };
 }
 
-async function checkRateLimit(limiter: GatewayRateLimiter | undefined, key: string): Promise<Response | null> {
-  if (!limiter) return null;
+async function checkRateLimit(limiter: GatewayRateLimiter | undefined, key?: string): Promise<Response | null> {
+  if (!limiter) return jsonError(503, "rate_limiter_unavailable", "The profile service is temporarily unavailable.");
   try {
     const result = await limiter.limit({ key });
     if (result.success) return null;
@@ -174,7 +171,7 @@ async function proxy(request: Request, env: Env): Promise<Response> {
 export async function handleGatewayRequest(
   request: Request,
   env: Env,
-  options: GatewayRequestOptions = {},
+  options: GatewayRequestOptions,
 ): Promise<Response> {
   if (!validConfiguration(env)) return jsonError(503, "gateway_not_configured", "The profile gateway is not configured.");
   const url = new URL(request.url);
@@ -182,10 +179,7 @@ export async function handleGatewayRequest(
   if (route.kind === "invalid") return jsonError(404, "not_found", "Not found.");
   if (route.kind === "health") return proxy(request, env);
   if (route.kind === "public") {
-    const limited = await checkRateLimit(
-      options.publicLimiter || env.PROFILE_PUBLIC_LIMITER,
-      request.headers.get("cf-connecting-ip") || "anonymous",
-    );
+    const limited = await checkRateLimit(options.rateLimiter);
     return limited || proxy(request, env);
   }
   let identity: AuthenticatedRequest;
@@ -194,12 +188,6 @@ export async function handleGatewayRequest(
   } catch {
     return jsonError(401, "unauthorized", "A valid central login is required.");
   }
-  const limited = await checkRateLimit(options.authLimiter || env.PROFILE_AUTH_LIMITER, `subject:${identity.subject}`);
+  const limited = await checkRateLimit(options.rateLimiter, `subject:${identity.subject}`);
   return limited || proxy(request, env);
 }
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    return handleGatewayRequest(request, env);
-  },
-};
