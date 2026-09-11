@@ -61,6 +61,7 @@ ALLOWED_CONVEX_FIXTURE_HOSTS = {
     "scheme-less.convex.site",
     "test-deployment.eu-west-1.convex.site",
     "test.convex.site",
+    "your-central-deployment.convex.site",
     "your-central-deployment.eu-west-1.convex.site",
     "your-profile-service.convex.site",
     "your-project.convex.site",
