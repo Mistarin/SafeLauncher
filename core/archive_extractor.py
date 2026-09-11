@@ -144,6 +144,8 @@ def extract_archive_sandboxed(archive_path: str, dest_dir: str, cancel_callback=
         # a line per file) otherwise fill the pipe buffer (~64 KB) and block
         # forever while this loop waits on poll().
         stderr_lines: List[str] = []
+        process = None
+        drainer = None
 
         def _drain_stderr(pipe) -> None:
             try:
@@ -179,17 +181,25 @@ def extract_archive_sandboxed(archive_path: str, dest_dir: str, cancel_callback=
                     progress_callback(-1)
                 time.sleep(0.25)
         finally:
-            # Closing the pipe guarantees readline() wakes after the child
-            # exits, including cancellation and exceptional paths.
-            if process.stderr:
+            # The extractor is owned by this call. Even an exception from a
+            # progress callback must not leave a child or pipe reader behind.
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=3)
+            if process is not None and process.stderr:
                 try:
                     process.stderr.close()
                 except (OSError, ValueError):
                     pass
-            drainer.join(timeout=5)
-            if drainer.is_alive():
-                logger_note = "Archive stderr reader did not stop within 5 seconds"
-                print(logger_note)
+            if drainer is not None:
+                # stderr is closed and the child is gone, so readline() must
+                # reach EOF. Joining without a timeout makes the ownership
+                # guarantee explicit and avoids leaking a non-daemon thread.
+                drainer.join()
         # Treat only a zero exit status as success. Exit code 1 means the
         # extractor reported an error or warning and must not be silently
         # accepted as a complete installation.

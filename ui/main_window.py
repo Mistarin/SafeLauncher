@@ -108,6 +108,7 @@ from core.operation_registry import OperationRegistry
 from core.secret_store import get_secret
 from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
+from core.central_auth import CentralAuthSession
 from core.profile_service import ProfileServiceClient, get_profile_service_url
 from core.profile_models import HANDLE_RE
 
@@ -203,7 +204,6 @@ class MainWindow(QMainWindow):
         self.game_sessions.session_state_changed.connect(self._on_game_session_state_changed)
         self._stopping_game_ids = set()  # game IDs transitioning from running to stopped
         self._background_workers = []  # authoritative registry for shutdown (see _register_worker)
-        self._retiring_workers = []  # retain retiring threads until completely stopped to avoid GC destroying running QThread
         self.worker_supervisor = WorkerSupervisor(self)
         self.worker_supervisor.worker_finished.connect(self._on_supervised_worker_finished)
         # running_game_ids is derived from the session supervisor, not from
@@ -256,6 +256,9 @@ class MainWindow(QMainWindow):
 
         self.search_query = ""
         self.settings = QSettings("SafeLauncher", "SafeLauncher")
+        # Central public-profile identity is deliberately separate from the
+        # per-user private SafeLauncherCloud credential.
+        self.central_auth = CentralAuthSession()
         self.date_format = self.settings.value("date_format", get_date_format_key(), type=str)
         # CI/UI smoke tests must not depend on DNS or third-party response
         # timing.  This only disables *automatic* background network work;
@@ -1136,6 +1139,7 @@ class MainWindow(QMainWindow):
         self.profile_page = ProfilePageWidget(
             self.db, self.settings, self.right_panel,
             worker_registry=self.worker_supervisor,
+            auth_session=self.central_auth,
         )
         self.profile_page.hide()
         self.profile_page.back_requested.connect(self._close_profile_page)
@@ -1493,6 +1497,7 @@ class MainWindow(QMainWindow):
         self._dl_worker.progress.connect(self._on_banner_download_progress)
         self._dl_worker.finished.connect(self._on_banner_download_finished)
         self._dl_worker.failed.connect(self._on_banner_download_failed)
+        self._register_worker(self._dl_worker)
         self._dl_worker.start()
 
     def _on_banner_download_progress(self, downloaded: int, total: int):
@@ -2392,9 +2397,9 @@ class MainWindow(QMainWindow):
                     fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
                     fetcher.finished.connect(lambda f=fetcher: self._cleanup_auto_fetcher(f))
                     if len(self.auto_fetchers) < self.max_concurrent_auto_fetchers:
-                        fetcher.start()
                         self.auto_fetchers.append(fetcher)
                         self._register_worker(fetcher)
+                        fetcher.start()
                     else:
                         self._pending_auto_fetchers.append(fetcher)
 
@@ -2448,9 +2453,9 @@ class MainWindow(QMainWindow):
                     fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
                     fetcher.finished.connect(lambda f=fetcher: self._cleanup_auto_fetcher(f))
                     if len(self.auto_fetchers) < self.max_concurrent_auto_fetchers:
-                        fetcher.start()
                         self.auto_fetchers.append(fetcher)
                         self._register_worker(fetcher)
+                        fetcher.start()
                     else:
                         self._pending_auto_fetchers.append(fetcher)
                 
@@ -2606,9 +2611,6 @@ class MainWindow(QMainWindow):
             self.auto_fetchers.remove(fetcher)
         if fetcher in self._background_workers:
             self._background_workers.remove(fetcher)
-        self._retiring_workers.append(fetcher)
-        if len(self._retiring_workers) > 80:
-            self._retiring_workers = [w for w in self._retiring_workers if w.isRunning()]
         self._start_next_pending_fetcher()
 
     def _start_next_pending_fetcher(self):
@@ -2619,9 +2621,9 @@ class MainWindow(QMainWindow):
             fetcher = self._pending_auto_fetchers.pop(0)
             if fetcher.isInterruptionRequested():
                 continue
-            fetcher.start()
             self.auto_fetchers.append(fetcher)
             self._register_worker(fetcher)
+            fetcher.start()
             return
 
     def _cancel_metadata_fetchers(self):
@@ -2641,13 +2643,9 @@ class MainWindow(QMainWindow):
             self._background_workers.append(worker)
 
     def _on_supervised_worker_finished(self, worker):
-        """Retain finished QThreads briefly, then let Qt reclaim them safely."""
+        """Release the feature index after the supervisor has reaped a worker."""
         if worker in self._background_workers:
             self._background_workers.remove(worker)
-        if worker not in self._retiring_workers:
-            self._retiring_workers.append(worker)
-        if len(self._retiring_workers) > 80:
-            self._retiring_workers = [w for w in self._retiring_workers if w.isRunning()]
 
     def _start_managed_task(self, name: str, work, on_complete=None):
         """Start a one-shot task owned by this window and shut it down safely."""
@@ -2677,7 +2675,6 @@ class MainWindow(QMainWindow):
                 self.operation_registry.finish(operation.operation_id, state="cancelled")
             if w in self._background_workers:
                 self._background_workers.remove(w)
-            self._retiring_workers.append(w)
 
         worker.finished.connect(_retire)
         self._register_worker(worker)
@@ -2737,9 +2734,6 @@ class MainWindow(QMainWindow):
             self.metadata_fetchers.remove(fetcher)
         if fetcher in self._background_workers:
             self._background_workers.remove(fetcher)
-        self._retiring_workers.append(fetcher)
-        if len(self._retiring_workers) > 80:
-            self._retiring_workers = [w for w in self._retiring_workers if w.isRunning()]
 
     def _schedule_size_fetches(self, paths):
         """Compute missing directory sizes on worker threads, never on the GUI."""
@@ -4943,18 +4937,24 @@ class MainWindow(QMainWindow):
             return
         service_url = get_profile_service_url()
         client = ProfileServiceClient(service_url)
-        if not client.configured:
+        configured = client.configured
+        client.close()
+        if not configured:
             QMessageBox.information(
                 self,
                 "Public Profile Service",
-                "Configure the central profile service URL in My Profile → Edit profile before opening public profiles.",
+                "The central profile gateway is not configured for this build. Set SAFELAUNCHER_PROFILE_SERVICE_URL only for an explicit development gateway.",
             )
             return
         self.profile_page.footer_status.setText("Loading public profile…")
+        def _fetch_public_profile():
+            with ProfileServiceClient(service_url) as client:
+                return client.fetch(value)
+
         worker = self._profile_remote_tasks.start(
             "SafeLauncher-OpenPublicProfile",
             # Create the requests session in the worker that uses it.
-            lambda: ProfileServiceClient(service_url).fetch(value),
+            _fetch_public_profile,
             lambda document: self._on_public_profile_loaded(document),
         )
         worker.error_occurred.connect(lambda error: self._on_public_profile_error(error))
@@ -6009,6 +6009,30 @@ class MainWindow(QMainWindow):
                 self._update_worker.stop()
             except Exception:
                 pass
+
+        # All workers have been reaped above. Close long-lived client pools
+        # explicitly so repeated embedded launches do not retain sockets or
+        # stale backend sessions until Python garbage collection.
+        try:
+            if getattr(self, "sgdb_client", None) is not None:
+                self.sgdb_client.close()
+        except Exception:
+            pass
+        try:
+            if getattr(self, "central_auth", None) is not None:
+                self.central_auth.close()
+        except Exception:
+            pass
+        try:
+            from core.cloud_save_sync import reset_cloud_backend
+            reset_cloud_backend()
+        except Exception:
+            pass
+        try:
+            from core.achievement_schema import close_achievement_http_session
+            close_achievement_http_session()
+        except Exception:
+            pass
 
         super().closeEvent(event)
 

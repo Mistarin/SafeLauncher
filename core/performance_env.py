@@ -12,6 +12,8 @@ import re
 import shutil
 from typing import Mapping
 
+from core.host_process import is_sensitive_env_name
+
 
 ENABLE_GAMEMODE = "SAFELAUNCHER_ENABLE_GAMEMODE"
 GAMEMODE_MODE = "SAFELAUNCHER_GAMEMODE_MODE"
@@ -78,6 +80,10 @@ def build_launch_env(raw_env: Mapping[str, object] | None) -> tuple[dict[str, st
     for key, value in source.items():
         key = str(key).strip()
         if key in (ENABLE_GAMEMODE, GAMEMODE_MODE, DXVK_MAX_DEVICE_MEMORY_MB):
+            continue
+        # Per-game variables are copied into a shell command and into the
+        # game process. Do not provide a second credential escape hatch.
+        if is_sensitive_env_name(key):
             continue
         if not key or value is None or str(value).strip() == "":
             continue

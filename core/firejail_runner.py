@@ -213,7 +213,6 @@ class FirejailSandboxRunner(ISandboxRunner):
         if enable_verbose:
             diagnostic_header = (
                 "echo '===== SAFELAUNCHER DIAGNOSTICS ====='; "
-                "echo '--- complete launch environment ---'; env | sort; "
                 "echo '--- graphics session preflight ---'; "
                 "printf 'DISPLAY=%s\\nWAYLAND_DISPLAY=%s\\nXDG_SESSION_TYPE=%s\\n' "
                 "\"$DISPLAY\" \"$WAYLAND_DISPLAY\" \"$XDG_SESSION_TYPE\"; "
@@ -319,7 +318,14 @@ class FirejailSandboxRunner(ISandboxRunner):
             else:
                 cmd = f"cd {q_work_dir} && {diagnostic_header}{debug_exports}{custom_env_exports}export WINEPREFIX={prefix_path} && {trace_prefix}{runner_cmd}"
 
-        logger.info(f"Spawning process in mode '{mode}' (Firejail: {has_firejail}, Proton: '{active_proton}'): {cmd}")
+        # The generated shell command contains custom environment values and
+        # must never be copied into persistent logs or crash diagnostics.
+        logger.info(
+            "Spawning process in mode '%s' (Firejail: %s, Proton: '%s')",
+            mode,
+            has_firejail,
+            active_proton or "system/default",
+        )
 
         process_log_path = None
         log_handle = None
@@ -355,7 +361,7 @@ class FirejailSandboxRunner(ISandboxRunner):
                 game_path=game_path,
                 executable=executable,
                 mode=mode,
-                command=cmd,
+                command="Generated launch command omitted from diagnostics (may contain private environment values)",
                 proton_path=active_proton or "system/default",
                 prefix_path=os.path.join(game_path, "prefix"),
                 dependencies=deps,

@@ -138,7 +138,7 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 
 ### 5. Public Profile (optional)
 * **Owner profile**: Open `View → Profile` or the user icon in the title bar to edit your display name, avatar, and profile background.
-* **Public view**: Publish a privacy-filtered profile through the separately deployable `services/profile_cloud` Convex service, then share its generated handle. Other SafeLauncher users can open that handle read-only.
+* **Public view**: Publish a privacy-filtered profile through the developer-operated `services/profile_cloud` Convex service behind the production Vercel gateway at `https://profilegateway.vercel.app`, then share its generated handle. Other SafeLauncher users can open that handle read-only. Profile ownership uses the separate Auth0 central account; private save-cloud credentials never cross into this service.
 * **Friends**: From a public profile or the private Friends section, paste a handle to send a mutual friend request. The recipient must accept; requests can also be declined or blocked, and the friend list is never public.
 * **Privacy boundary**: Public profiles contain curated stats, favorite game names, recent achievements, and aggregate playtime. Installation paths, executable names, device details, private cloud state, and owner credentials never enter the public projection.
 * **Media**: Avatars are normalized and compressed locally into bounded JPEG data. Backgrounds are colors, gradients, or presets; no background image files are uploaded.

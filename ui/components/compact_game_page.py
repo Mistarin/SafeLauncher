@@ -1495,7 +1495,7 @@ class CompactGamePageWidget(QWidget):
 
         # System & Build Specs Card
         self.specs_card = QFrame(content_widget)
-        self.specs_card.setMaximumHeight(260)
+        self.specs_card.setMaximumHeight(160)
         self.specs_card.setStyleSheet("""
             QFrame {
                 background-color: #18181B;

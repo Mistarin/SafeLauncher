@@ -368,6 +368,8 @@ class GpuRecorderService:
             time.sleep(0.3)
             if self.process.poll() is not None:
                 logger.error(f"Recording process failed to start (exit code {self.process.returncode})")
+                if self.process.stdin:
+                    self.process.stdin.close()
                 self.process = None
                 return False
 
@@ -375,6 +377,17 @@ class GpuRecorderService:
             return True
         except Exception as e:
             logger.error(f"Failed to start recording process: {e}")
+            if self.process is not None:
+                try:
+                    self.process.kill()
+                    self.process.wait(timeout=5)
+                except Exception:
+                    pass
+                try:
+                    if self.process.stdin:
+                        self.process.stdin.close()
+                except Exception:
+                    pass
             self.process = None
             return False
 
@@ -418,9 +431,15 @@ class GpuRecorderService:
             logger.warning(f"Error while stopping recorder: {e}")
             try:
                 self.process.kill()
+                self.process.wait(timeout=5)
             except Exception:
                 pass
 
+        try:
+            if self.process.stdin:
+                self.process.stdin.close()
+        except Exception:
+            pass
         self.process = None
         out = self.active_output_path
         self.active_output_path = None

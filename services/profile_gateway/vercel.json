@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/api/gateway?__safelauncher_path=:path*"
+    }
+  ],
+  "functions": {
+    "api/gateway.ts": {
+      "maxDuration": 15
+    }
+  }
+}

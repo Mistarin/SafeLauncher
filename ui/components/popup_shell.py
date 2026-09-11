@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QAbstractScrollArea,
@@ -252,6 +252,11 @@ class PopupDialog(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        # Some popups start a TaskSupervisor worker during construction. Since
+        # QDialog.accept()/reject() call done() directly, a closeEvent-only
+        # guard would let WA_DeleteOnClose destroy a live QThread.
+        self._popup_done_pending = False
+        self._popup_done_result = 0
         self.setStyleSheet(POPUP_STYLE)
         self._popup_root = QVBoxLayout(self)
         self._popup_root.setContentsMargins(0, 0, 0, 0)
@@ -260,6 +265,59 @@ class PopupDialog(QDialog):
         self._popup_root.addWidget(self.title_bar)
         self._popup_widgets_normalized = False
         self._popup_width_hint: Optional[int] = None
+
+    def _popup_tasks_running(self) -> bool:
+        """Return whether this popup owns a TaskSupervisor worker still running."""
+        supervisor = getattr(self, "_task_supervisor", None) or getattr(self, "_tasks", None)
+        if supervisor is None or not hasattr(supervisor, "has_running_tasks"):
+            return False
+        try:
+            return bool(supervisor.has_running_tasks())
+        except RuntimeError:
+            return False
+
+    def _defer_popup_done(self, result: int) -> bool:
+        """Cancel and defer dialog destruction until supervised tasks finish."""
+        if not self._popup_tasks_running():
+            return False
+
+        self._popup_done_result = result
+        if not self._popup_done_pending:
+            self._popup_done_pending = True
+            supervisor = getattr(self, "_task_supervisor", None) or getattr(self, "_tasks", None)
+            if supervisor is not None:
+                try:
+                    supervisor.cancel_all(100)
+                except RuntimeError:
+                    pass
+            self.hide()
+        QTimer.singleShot(50, self._finish_popup_done)
+        return True
+
+    def _finish_popup_done(self) -> None:
+        """Complete a deferred accept/reject once no worker can emit anymore."""
+        if not self._popup_done_pending:
+            return
+        if self._popup_tasks_running():
+            QTimer.singleShot(50, self._finish_popup_done)
+            return
+        result = self._popup_done_result
+        self._popup_done_pending = False
+        self._popup_done_result = 0
+        QDialog.done(self, result)
+
+    def done(self, result: int) -> None:
+        """Protect all TaskSupervisor-backed popups, including modal accept()."""
+        if self._defer_popup_done(result):
+            return
+        QDialog.done(self, result)
+
+    def closeEvent(self, event) -> None:
+        """Apply the same worker guard to popups without a custom closeEvent."""
+        if self._defer_popup_done(0):
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def setFixedSize(self, width: int, height: int):
         """Treat legacy fixed dialog geometry as a content-width hint.

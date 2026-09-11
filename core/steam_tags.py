@@ -22,6 +22,8 @@ class SteamTagsFetcher(SafeQThread):
             self.tags_found.emit(self.game_id, tags, app_id)
 
     def safe_run(self):
+        resp = None
+        resp_detail = None
         try:
             if self.isInterruptionRequested():
                 return
@@ -32,6 +34,8 @@ class SteamTagsFetcher(SafeQThread):
                 self._emit_if_active([], "")
                 return
             search_data = resp.json()
+            resp.close()
+            resp = None
 
             if self.isInterruptionRequested():
                 return
@@ -48,6 +52,8 @@ class SteamTagsFetcher(SafeQThread):
                 self._emit_if_active([], str(app_id))
                 return
             detail_data = resp_detail.json()
+            resp_detail.close()
+            resp_detail = None
 
             if self.isInterruptionRequested():
                 return
@@ -70,3 +76,10 @@ class SteamTagsFetcher(SafeQThread):
         except Exception as e:
             logger.warning(f"Failed to fetch Steam tags for '{self.game_name}': {e}")
             self._emit_if_active([], "")
+        finally:
+            for response in (resp, resp_detail):
+                if response is not None:
+                    try:
+                        response.close()
+                    except Exception:
+                        pass

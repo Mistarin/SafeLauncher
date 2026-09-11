@@ -124,33 +124,39 @@ def _download_ludusavi(managed_path: str) -> str:
     os.makedirs(dest_dir, mode=0o700, exist_ok=True)
 
     resp = requests.get(url, timeout=_DOWNLOAD_TIMEOUT, stream=True)
-    resp.raise_for_status()
-
-    fd, tmp_archive = tempfile.mkstemp(prefix=".ludusavi-", suffix=".tmp", dir=dest_dir)
-    os.close(fd)
-    staged_binary = None
     try:
-        total = 0
-        max_bytes = 64 * 1024 * 1024
-        with open(tmp_archive, "wb") as out:
-            for chunk in resp.iter_content(chunk_size=65536):
-                total += len(chunk)
-                if total > max_bytes:
-                    raise ValueError("Release archive exceeds expected size cap")
-                out.write(chunk)
-        staged_binary = _extract_binary(tmp_archive, dest_dir)
-        final = managed_path + (".exe" if sys.platform == "win32" else "")
-        if os.path.exists(final):
-            os.unlink(final)
-        os.rename(staged_binary, final)
+        resp.raise_for_status()
+
+        fd, tmp_archive = tempfile.mkstemp(prefix=".ludusavi-", suffix=".tmp", dir=dest_dir)
+        os.close(fd)
         staged_binary = None
-        os.chmod(final, os.stat(final).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        logger.info(f"Ludusavi {LUDUSAVI_VERSION} installed at {final}")
-        return final
+        try:
+            total = 0
+            max_bytes = 64 * 1024 * 1024
+            with open(tmp_archive, "wb") as out:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ValueError("Release archive exceeds expected size cap")
+                    out.write(chunk)
+            staged_binary = _extract_binary(tmp_archive, dest_dir)
+            final = managed_path + (".exe" if sys.platform == "win32" else "")
+            if os.path.exists(final):
+                os.unlink(final)
+            os.rename(staged_binary, final)
+            staged_binary = None
+            os.chmod(final, os.stat(final).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            logger.info(f"Ludusavi {LUDUSAVI_VERSION} installed at {final}")
+            return final
+        finally:
+            for leftover in (tmp_archive, staged_binary):
+                if leftover and os.path.exists(leftover):
+                    try:
+                        os.unlink(leftover)
+                    except OSError:
+                        pass
     finally:
-        for leftover in (tmp_archive, staged_binary):
-            if leftover and os.path.exists(leftover):
-                try:
-                    os.unlink(leftover)
-                except OSError:
-                    pass
+        try:
+            resp.close()
+        except Exception:
+            pass

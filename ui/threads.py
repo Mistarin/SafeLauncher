@@ -8,7 +8,7 @@ from core.steamgriddb_client import SteamGridDBClient
 from core.archive_extractor import extract_archive_sandboxed
 from core.proton_manager import fetch_online_ge_proton_releases
 from database import _APP_DATA_DIR
-from core.disk_utils import get_dir_size, format_size, store_dir_size, peek_dir_size
+from core.disk_utils import get_dir_size, format_size, peek_dir_size
 from core.logger import get_logger
 
 logger = get_logger("UIThreads")
@@ -18,8 +18,8 @@ class BannerFetcher(SafeQThread):
     """Background thread for searching game banners - thread-safe"""
     results_found = pyqtSignal(list)
     
-    def __init__(self, game_name: str, sgdb_client: SteamGridDBClient):
-        super().__init__()
+    def __init__(self, game_name: str, sgdb_client: SteamGridDBClient, parent=None):
+        super().__init__(parent)
         self.game_name = game_name
         self.sgdb_client = sgdb_client
     
@@ -39,8 +39,8 @@ class BannerDownloader(SafeQThread):
     download_complete = pyqtSignal(str)
     download_failed = pyqtSignal(str)
     
-    def __init__(self, banner_url: str, sgdb_client: SteamGridDBClient):
-        super().__init__()
+    def __init__(self, banner_url: str, sgdb_client: SteamGridDBClient, parent=None):
+        super().__init__(parent)
         self.banner_url = banner_url
         self.sgdb_client = sgdb_client
         
@@ -141,6 +141,7 @@ class UmuBootstrapWorker(SafeQThread):
 
     def stop(self):
         """Stop the child process before allowing the QThread to be destroyed."""
+        self.request_cancel()
         if self.process and self.process.poll() is None:
             self.process.terminate()
             try:
@@ -167,7 +168,8 @@ class UmuBootstrapWorker(SafeQThread):
             )
             for line in iter(self.process.stdout.readline, ""):
                 if self.isInterruptionRequested():
-                    self.stop()
+                    self.request_cancel()
+                    self._terminate_process()
                     break
                 stripped = line.rstrip()
                 if stripped:
@@ -179,6 +181,30 @@ class UmuBootstrapWorker(SafeQThread):
             logger.error(f"UMU bootstrap failed: {e}")
             if not self.isInterruptionRequested():
                 self.completed.emit(False, -1)
+        finally:
+            stdout = getattr(self.process, "stdout", None) if self.process else None
+            if stdout is not None:
+                try:
+                    stdout.close()
+                except (OSError, ValueError):
+                    pass
+            if self.process and self.process.poll() is None:
+                self._terminate_process()
+            self.process = None
+
+    def _terminate_process(self) -> None:
+        """Terminate and reap the bootstrap child without waiting on this QThread."""
+        process = self.process
+        if process is None or process.poll() is not None:
+            return
+        try:
+            process.terminate()
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        except OSError:
+            pass
 
 
 class SafeLaunchLogReader(SafeQThread):
@@ -233,8 +259,13 @@ class DiskSizeFetcherThread(SafeQThread):
         if cached is not None:
             size = cached
         else:
-            size = get_dir_size(self.path, use_cache=False)
-            store_dir_size(self.path, size)
+            size = get_dir_size(
+                self.path,
+                use_cache=False,
+                cancel_callback=self.isInterruptionRequested,
+            )
+            if self.isInterruptionRequested():
+                return
         logger.debug(f"Calculated disk size for game {self.game_id}: {size} bytes ({format_size(size)})")
         if not self.isInterruptionRequested():
             self.disk_size_calculated.emit(self.game_id, size)

@@ -824,8 +824,15 @@ class AchievementsDialog(PopupDialog):
         )
         self.fetch_worker.resolution_ready.connect(self._on_resolution_ready)
         self.fetch_worker.failed.connect(self._on_schema_failed)
-        self.fetch_worker.finished.connect(lambda: setattr(self, "fetch_worker", None))
+        worker = self.fetch_worker
+        worker.finished.connect(lambda w=worker: self._release_fetch_worker(w))
+        worker.finished.connect(worker.deleteLater)
         self.fetch_worker.start()
+
+    def _release_fetch_worker(self, worker) -> None:
+        """Release completed resolver workers so refreshes do not accumulate children."""
+        if self.fetch_worker is worker:
+            self.fetch_worker = None
 
     def _on_resolution_ready(self, game_id: int, app_id: str, resolution):
         if game_id != self.game_id or self._close_requested:

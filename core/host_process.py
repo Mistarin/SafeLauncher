@@ -1,6 +1,7 @@
 """Environment handling for host tools started by the packaged launcher."""
 
 import os
+import re
 from typing import Mapping, Optional
 
 
@@ -10,6 +11,45 @@ _PYTHON_OVERRIDES = (
     "PYTHONEXECUTABLE",
     "PYTHONUSERBASE",
 )
+
+_SENSITIVE_ENV_NAMES = frozenset(
+    {
+        "AUTH0_CLIENT_SECRET",
+        "CONVEX_DEPLOY_KEY",
+        "CONVEX_GATEWAY_KEY",
+        "RAWG_API_KEY",
+        "SAFELAUNCHER_GATEWAY_KEY",
+        "SAFELAUNCHER_SECRET_KEY",
+        "STEAMGRIDDB_API_KEY",
+        "STEAM_WEB_API_KEY",
+    }
+)
+_SENSITIVE_ENV_FRAGMENTS = (
+    "API_KEY",
+    "ACCESS_TOKEN",
+    "CLIENT_SECRET",
+    "DEPLOY_KEY",
+    "GATEWAY_KEY",
+    "PASSWORD",
+    "PRIVATE_KEY",
+    "REFRESH_TOKEN",
+    "SECRET",
+    "TOKEN",
+)
+
+
+def is_sensitive_env_name(name: str) -> bool:
+    """Return whether an environment variable should not enter host tools.
+
+    SafeLauncher starts third-party tools and game binaries. They must not
+    inherit launcher, cloud, provider, or shell credentials merely because
+    those credentials happen to be present in the desktop process environment.
+    """
+    normalized = str(name or "").strip().upper()
+    return bool(normalized) and (
+        normalized in _SENSITIVE_ENV_NAMES
+        or any(fragment in normalized for fragment in _SENSITIVE_ENV_FRAGMENTS)
+    )
 
 
 def host_process_env(base_env: Optional[Mapping[str, str]] = None) -> dict[str, str]:
@@ -34,4 +74,7 @@ def host_process_env(base_env: Optional[Mapping[str, str]] = None) -> dict[str, 
     env.pop("LD_AUDIT", None)
     for variable in _PYTHON_OVERRIDES:
         env.pop(variable, None)
+    for variable in list(env):
+        if is_sensitive_env_name(variable):
+            env.pop(variable, None)
     return env

@@ -14,7 +14,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QSize, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
 from PyQt6.QtWidgets import QKeySequenceEdit
 
-from core.disk_utils import get_dir_size, get_disk_usage, format_size, store_dir_size
+from core.disk_utils import get_dir_size, get_disk_usage, format_size
 from core.host_process import host_process_env
 from database import _APP_DATA_DIR
 from core.desktop_integration import install_safelauncher_desktop_entry, is_desktop_entry_installed
@@ -571,12 +571,22 @@ class UserSettingsDialog(PopupDialog):
         # A queued signal marshals the result onto the GUI thread — QTimer must never
         # be started from a foreign thread.
         self._sandbox_size_ready.connect(self._on_sandbox_size_ready)
+        size_worker = [None]
         def _calc_sandbox():
             try:
-                return get_dir_size(sandbox_dir)
+                return get_dir_size(
+                    sandbox_dir,
+                    cancel_callback=(
+                        size_worker[0].isInterruptionRequested
+                        if size_worker[0] is not None
+                        else None
+                    ),
+                )
             except Exception:
                 return 0
-        self._task_supervisor.start("SafeLauncher-StorageCalc", _calc_sandbox, self._on_sandbox_size_ready)
+        size_worker[0] = self._task_supervisor.start(
+            "SafeLauncher-StorageCalc", _calc_sandbox, self._on_sandbox_size_ready
+        )
 
         self.combo_screenshot_screen = QComboBox()
         screens = get_available_screens()
@@ -2327,23 +2337,39 @@ class DiskManagerDialog(PopupDialog):
         # One worker computes the sandbox total and every game size, then hands
         # the ranked results back through a queued signal (thread-safe emit).
         self._sizes_ready.connect(self._on_sizes_ready)
+        size_worker = [None]
         def _compute_sizes():
             results = []
             for g in games:
+                if size_worker[0] is not None and size_worker[0].isInterruptionRequested():
+                    return []
                 if hasattr(g, 'id'):
                     game_id, name, path = g.id, g.name, g.path
                 else:
                     game_id, name, path = g[0], g[1], g[2]
                 try:
-                    sz = get_dir_size(path) if path and os.path.exists(path) else 0
+                    sz = (
+                        get_dir_size(
+                            path,
+                            cancel_callback=(
+                                size_worker[0].isInterruptionRequested
+                                if size_worker[0] is not None
+                                else None
+                            ),
+                        )
+                        if path and os.path.exists(path) else 0
+                    )
                 except Exception:
                     sz = 0
-                store_dir_size(path, sz)  # feed shared cache for list view/sorting
+                if size_worker[0] is not None and size_worker[0].isInterruptionRequested():
+                    return []
                 results.append((name, path, sz))
             results.sort(key=lambda x: x[2], reverse=True)
             return results
         self._task_supervisor = TaskSupervisor(self, logger)
-        self._task_supervisor.start("SafeLauncher-DiskSizes", _compute_sizes, self._on_sizes_ready)
+        size_worker[0] = self._task_supervisor.start(
+            "SafeLauncher-DiskSizes", _compute_sizes, self._on_sizes_ready
+        )
 
         scroll.setWidget(list_widget)
         body_layout.addWidget(scroll)

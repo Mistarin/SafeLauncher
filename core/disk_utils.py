@@ -5,7 +5,7 @@ import time
 
 
 from collections import OrderedDict
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 
 class DirectorySizeLRUCache:
@@ -109,16 +109,34 @@ def dir_size_display(dir_path: str) -> str:
     return format_size(size)
 
 
-def get_dir_size(dir_path: str, use_cache: bool = True) -> int:
+def get_dir_size(
+    dir_path: str,
+    use_cache: bool = True,
+    cancel_callback: Optional[Callable[[], bool]] = None,
+) -> int:
     """Recursively calculate regular-file size without escaping via symlinks.
 
     Always updates the size cache with the computed result so that background
     threads and on-demand callers share the same cached value.  The result is
     only cached when the traversal completes without an outer exception — a
     partial traversal due to an error would otherwise cache ``0`` for a valid
-    non-empty directory.
+    non-empty directory. ``cancel_callback`` allows a worker to stop a large
+    traversal promptly; cancelled/partial results are never cached.
     """
+    def cancelled() -> bool:
+        if cancel_callback is None:
+            return False
+        try:
+            return bool(cancel_callback())
+        except Exception:
+            # Cancellation must never turn a valid size request into an
+            # unexpected worker failure because a caller's status callback
+            # disappeared during teardown.
+            return False
+
     if not dir_path or not os.path.exists(dir_path):
+        return 0
+    if cancelled():
         return 0
     if use_cache:
         cached = peek_dir_size(dir_path)
@@ -129,6 +147,8 @@ def get_dir_size(dir_path: str, use_cache: bool = True) -> int:
     traversal_ok = False
     try:
         if os.path.isfile(dir_path):
+            if cancelled():
+                return 0
             total_size = os.path.getsize(dir_path)
             store_dir_size(dir_path, total_size)
             return total_size
@@ -136,6 +156,8 @@ def get_dir_size(dir_path: str, use_cache: bool = True) -> int:
         seen_inodes = set()
         pending = [os.path.realpath(dir_path)]
         while pending:
+            if cancelled():
+                return 0
             current = pending.pop()
             try:
                 current_stat = os.stat(current, follow_symlinks=False)
@@ -145,6 +167,8 @@ def get_dir_size(dir_path: str, use_cache: bool = True) -> int:
                 seen_inodes.add(current_key)
                 with os.scandir(current) as entries:
                     for entry in entries:
+                        if cancelled():
+                            return 0
                         try:
                             # Never descend through directory symlinks. Game
                             # prefixes commonly contain a self-link (pfx -> .).
@@ -169,8 +193,12 @@ def get_dir_size(dir_path: str, use_cache: bool = True) -> int:
     # Only cache when the traversal actually completed — a mid-traversal
     # exception leaves total_size at 0 or partial, which must not be cached
     # as the authoritative size for the directory.
-    if traversal_ok:
-        store_dir_size(dir_path, total_size)
+    if not traversal_ok:
+        # A failure outside the per-entry permission/race guards means the
+        # total is incomplete. Never publish or return a plausible-looking
+        # partial size to a caller that may cache it.
+        return 0
+    store_dir_size(dir_path, total_size)
     return total_size
 
 

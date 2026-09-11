@@ -166,6 +166,20 @@ class ConvexSaveBackend:
         self._lock = threading.Lock()
         self._data_key_cache: Optional[str] = None
 
+    def close(self) -> None:
+        """Close the pooled HTTP transport after in-flight work has finished."""
+        with self._lock:
+            try:
+                self.session.close()
+            except Exception:
+                pass
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
     @property
     def site_url(self) -> str:
         if self._site_url is not None:
@@ -213,26 +227,34 @@ class ConvexSaveBackend:
     @staticmethod
     def _check(resp: requests.Response, context: str) -> dict:
         try:
-            payload = resp.json()
-        except ValueError:
-            payload = {}
+            try:
+                payload = resp.json()
+            except ValueError:
+                payload = {}
 
-        if resp.status_code in (401, 403):
-            raise CloudBackendError(
-                str(payload.get("error") or f"{context}: Authentication failed (check Secret Key)."),
-                "auth",
-                resp.status_code,
-                payload,
-            )
+            if resp.status_code in (401, 403):
+                raise CloudBackendError(
+                    str(payload.get("error") or f"{context}: Authentication failed (check Secret Key)."),
+                    "auth",
+                    resp.status_code,
+                    payload,
+                )
 
-        if resp.status_code >= 400:
-            raise CloudBackendError(
-                str(payload.get("error") or f"{context} failed ({resp.status_code})"),
-                str(payload.get("code") or "http_error"),
-                resp.status_code,
-                {k: v for k, v in payload.items() if k not in ("error", "code")},
-            )
-        return payload
+            if resp.status_code >= 400:
+                raise CloudBackendError(
+                    str(payload.get("error") or f"{context} failed ({resp.status_code})"),
+                    str(payload.get("code") or "http_error"),
+                    resp.status_code,
+                    {k: v for k, v in payload.items() if k not in ("error", "code")},
+                )
+            return payload
+        finally:
+            # JSON endpoints are fully consumed here. Close at the transport
+            # boundary so pooled connections are not retained per operation.
+            try:
+                resp.close()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ #
     # Account / metadata                                                 #
@@ -409,6 +431,11 @@ class ConvexSaveBackend:
             storage_id = post.json().get("storageId")
         except (ValueError, AttributeError):
             storage_id = None
+        finally:
+            try:
+                post.close()
+            except Exception:
+                pass
         if not storage_id:
             raise CloudBackendError("Upload succeeded but no valid id was returned.",
                                     "upload_failed", 502)
@@ -552,6 +579,8 @@ def check_backend_health(
         headers["X-SafeLauncher-Key"] = key
 
     t0 = time.monotonic()
+    resp = None
+    version_response = None
     try:
         resp = requests.get(f"{endpoint}/api/health", headers=headers, timeout=timeout)
         latency_ms = max(1, int((time.monotonic() - t0) * 1000))
@@ -566,6 +595,7 @@ def check_backend_health(
             if not ver:
                 try:
                     vresp = requests.get(f"{endpoint}/api/version", headers=headers, timeout=2.0)
+                    version_response = vresp
                     if vresp.status_code == 200:
                         ver = str(vresp.json().get("version") or "").strip()
                 except Exception:
@@ -624,6 +654,13 @@ def check_backend_health(
             "min_version": MIN_CONVEX_BACKEND_VERSION,
             "error": str(e),
         }
+    finally:
+        for response in (resp, version_response):
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
 
 
 __all__ = [

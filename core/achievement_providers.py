@@ -100,6 +100,7 @@ def _authenticated_steam_player_state(app_id: str) -> Dict[str, float]:
     steam_user_id = os.environ.get("STEAM_USER_ID", "").strip()
     if not _APP_ID_RE.fullmatch(str(app_id or "")) or str(app_id) == "0" or not api_key or not steam_user_id:
         return {}
+    response = None
     try:
         import requests
         response = requests.get(
@@ -124,6 +125,12 @@ def _authenticated_steam_player_state(app_id: str) -> Dict[str, float]:
     except Exception as exc:
         logger.debug("Authenticated Steam achievement state unavailable for %s: %s", app_id, exc)
         return {}
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
 
 class AchievementProviderRegistry:

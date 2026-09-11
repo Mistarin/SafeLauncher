@@ -120,6 +120,7 @@ def check_for_updates(
         "error": None,
     }
 
+    resp = None
     try:
         resp = requests.get(url, headers=headers, timeout=timeout)
         if resp.status_code == 404:
@@ -164,6 +165,12 @@ def check_for_updates(
     except Exception as e:
         logger.debug(f"GitHub release update check failed: {e}")
         result["error"] = str(e)
+    finally:
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
 
     return result
 
@@ -172,6 +179,7 @@ def download_and_apply_appimage_update(
     asset_url: str,
     target_appimage_path: Optional[str] = None,
     progress_callback: Optional[Callable[[int, int], None]] = None,
+    cancel_callback: Optional[Callable[[], bool]] = None,
     min_size_bytes: int = MIN_APPIMAGE_SIZE_BYTES,
 ) -> str:
     """Stream download new AppImage to temporary file, validate header, and atomically replace."""
@@ -185,8 +193,10 @@ def download_and_apply_appimage_update(
 
     temp_path = dest_path + ".download"
 
+    response = None
     try:
         resp = requests.get(asset_url, stream=True, timeout=30)
+        response = resp
         resp.raise_for_status()
 
         total_bytes = int(resp.headers.get("content-length", 0))
@@ -194,6 +204,8 @@ def download_and_apply_appimage_update(
 
         with open(temp_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=65536):
+                if cancel_callback and cancel_callback():
+                    raise RuntimeError("Update download cancelled")
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
@@ -240,6 +252,12 @@ def download_and_apply_appimage_update(
             except OSError:
                 pass
         raise
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
 
 def restart_application() -> None:
@@ -287,6 +305,7 @@ class UpdateDownloadWorker(SafeQThread):
                 self.asset_url,
                 target_appimage_path=self.target_path,
                 progress_callback=lambda d, t: self.progress.emit(d, t),
+                cancel_callback=self.isInterruptionRequested,
             )
             if not self.isInterruptionRequested():
                 self.finished.emit(target)

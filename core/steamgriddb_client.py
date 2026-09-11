@@ -14,6 +14,15 @@ _DEFAULT_CACHE_DIR = os.path.join(_XDG_CACHE_HOME, "safelauncher", "banners")
 _LEGACY_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".banner_cache")
 
 
+def _close_response(response) -> None:
+    """Close an optional requests response without masking the real result."""
+    if response is not None:
+        try:
+            response.close()
+        except Exception:
+            pass
+
+
 class SteamGridDBClient:
     """Fetches game banners using Steam Store API (primary) and optional API keys if provided."""
 
@@ -41,6 +50,16 @@ class SteamGridDBClient:
         self.session.headers.update({
             'User-Agent': 'SafeLauncher/1.0 (Game Launcher)'
         })
+
+    def close(self) -> None:
+        """Release the shared artwork HTTP pool during application shutdown."""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        self.close()
 
     def _migrate_legacy_cache(self) -> None:
         """Move any .jpg files from old project-dir .banner_cache/ to the XDG cache dir."""
@@ -70,6 +89,7 @@ class SteamGridDBClient:
             return {'found': False, 'results': [], 'primary': None}
         
         # 1. Primary: Steam Store Search API (No API key needed, returns 231x87 capsule images)
+        response = None
         try:
             params = {
                 'term': game_name.strip(),
@@ -107,10 +127,13 @@ class SteamGridDBClient:
                             'primary': game_results[0]
                         }
         except Exception as e:
-            print(f"Error querying Steam Store API for '{game_name}': {e}")
+            print(f"Error querying Steam Store API for '{game_name}': {type(e).__name__}")
+        finally:
+            _close_response(response)
         
         # 2. Fallback: RAWG API if key is provided
         if self.rawg_api_key:
+            response = None
             try:
                 params = {
                     'search': game_name.strip(),
@@ -140,7 +163,9 @@ class SteamGridDBClient:
                             'primary': game_results[0]
                         }
             except Exception as e:
-                print(f"Error querying RAWG API for '{game_name}': {e}")
+                print(f"Error querying RAWG API for '{game_name}': {type(e).__name__}")
+            finally:
+                _close_response(response)
         
         return {
             'found': False,
@@ -162,6 +187,7 @@ class SteamGridDBClient:
         if not url:
             return None
         
+        response = None
         try:
             url_hash = hashlib.md5(url.encode('utf-8')).hexdigest()[:12]
             if game_id and game_id > 0:
@@ -183,7 +209,7 @@ class SteamGridDBClient:
             # [H1 FIX] Validate Content-Type is an image before writing anything to disk.
             content_type = response.headers.get('Content-Type', '')
             if not content_type.startswith('image/'):
-                print(f"Refusing banner download: unexpected Content-Type '{content_type}' from {url}")
+                print(f"Refusing banner download: unexpected Content-Type '{content_type}'")
                 return None
 
             # [H1 FIX] Enforce 10 MB size cap while streaming.
@@ -192,7 +218,7 @@ class SteamGridDBClient:
             for chunk in response.iter_content(chunk_size=65536):
                 total += len(chunk)
                 if total > self._MAX_BANNER_BYTES:
-                    print(f"Refusing banner download: response exceeds {self._MAX_BANNER_BYTES // (1024*1024)} MB from {url}")
+                    print(f"Refusing banner download: response exceeds {self._MAX_BANNER_BYTES // (1024*1024)} MB")
                     return None
                 chunks.append(chunk)
 
@@ -206,7 +232,13 @@ class SteamGridDBClient:
                 pass
             return str(cache_file.resolve())
         except Exception as e:
-            print(f"Error downloading banner from {url}: {e}")
+            print(f"Error downloading banner: {type(e).__name__}")
+        finally:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
         
         return None
     
@@ -372,6 +404,7 @@ class SteamGridDBClient:
 
             # Priority 2: Query Steam Store App Details API for 1920x1080 Screenshots
             if resolved_appid and str(resolved_appid).isdigit() and int(resolved_appid) > 0:
+                app_resp = None
                 try:
                     app_url = f"https://store.steampowered.com/api/appdetails?appids={resolved_appid}"
                     app_resp = self.session.get(app_url, timeout=6)
@@ -383,10 +416,13 @@ class SteamGridDBClient:
                             if ss_url:
                                 urls_to_try.append(ss_url)
                 except Exception as e:
-                    print(f"Steam appdetails query notice: {e}")
+                    print(f"Steam appdetails query notice: {type(e).__name__}")
+                finally:
+                    _close_response(app_resp)
 
             # Priority 3: Query RAWG API for background_image if available
             if self.rawg_api_key and game_name:
+                rawg_res = None
                 try:
                     rawg_res = self.session.get(f"{self.RAWG_API}/games", params={'search': game_name, 'key': self.rawg_api_key}, timeout=6)
                     if rawg_res.status_code == 200:
@@ -395,8 +431,11 @@ class SteamGridDBClient:
                             urls_to_try.append(results[0]['background_image'])
                 except Exception:
                     pass
+                finally:
+                    _close_response(rawg_res)
 
             for url in urls_to_try:
+                response = None
                 try:
                     response = self.session.get(url, timeout=6, stream=True)
                     if response.status_code == 200 and response.headers.get('Content-Type', '').startswith('image/'):
@@ -405,7 +444,7 @@ class SteamGridDBClient:
                         for chunk in response.iter_content(chunk_size=65536):
                             total += len(chunk)
                             if total > self._MAX_BANNER_BYTES:
-                                print(f"Refusing hero download: response exceeds {self._MAX_BANNER_BYTES // (1024*1024)} MB from {url}")
+                                print(f"Refusing hero download: response exceeds {self._MAX_BANNER_BYTES // (1024*1024)} MB")
                                 break
                             chunks.append(chunk)
                         else:
@@ -435,6 +474,12 @@ class SteamGridDBClient:
                                     return str(canonical_file.resolve())
                 except Exception:
                     continue
+                finally:
+                    if response is not None:
+                        try:
+                            response.close()
+                        except Exception:
+                            pass
 
         except Exception as e:
             print(f"Error fetching hero banner: {e}")
@@ -510,6 +555,7 @@ class SteamGridDBClient:
 
         # 1. Try SteamGridDB Icons endpoint if API key exists
         if self.api_key and resolved_appid:
+            sgdb_resp = None
             try:
                 sgdb_resp = self.session.get(
                     f"{self.BASE_URL}/icons/steam/{resolved_appid}",
@@ -524,6 +570,8 @@ class SteamGridDBClient:
                             urls_to_try.append(u)
             except Exception:
                 pass
+            finally:
+                _close_response(sgdb_resp)
 
         if resolved_appid and str(resolved_appid).isdigit() and int(resolved_appid) > 0:
             urls_to_try.append(f"https://cdn.cloudflare.steamstatic.com/steam/apps/{resolved_appid}/logo.png")
@@ -532,6 +580,7 @@ class SteamGridDBClient:
 
         max_icon_bytes = 5 * 1024 * 1024  # 5 MB cap; icons are tiny in practice
         for url in urls_to_try:
+            resp = None
             try:
                 resp = self.session.get(url, timeout=6, stream=True)
                 if resp.status_code == 200 and resp.headers.get('Content-Type', '').startswith('image/'):
@@ -540,7 +589,7 @@ class SteamGridDBClient:
                     for chunk in resp.iter_content(chunk_size=32768):
                         total += len(chunk)
                         if total > max_icon_bytes:
-                            print(f"Refusing icon download: response exceeds {max_icon_bytes // (1024*1024)} MB from {url}")
+                            print(f"Refusing icon download: response exceeds {max_icon_bytes // (1024*1024)} MB")
                             break
                         chunks.append(chunk)
                     else:
@@ -553,5 +602,11 @@ class SteamGridDBClient:
                         return str(cache_file.resolve())
             except Exception:
                 continue
+            finally:
+                if resp is not None:
+                    try:
+                        resp.close()
+                    except Exception:
+                        pass
 
         return None

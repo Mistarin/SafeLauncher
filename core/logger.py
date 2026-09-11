@@ -7,6 +7,7 @@ stdout and a rotating log file in ~/.local/state/safelauncher/safelauncher.log.
 import os
 import sys
 import logging
+import re
 import tempfile
 from logging.handlers import RotatingFileHandler
 
@@ -16,6 +17,46 @@ LOG_FILE = os.path.join(LOG_DIR, "safelauncher.log")
 CRASH_FILE = os.path.join(LOG_DIR, "crash.log")
 
 _initialized = False
+
+
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?im)(\b(?:AUTH0_CLIENT_SECRET|CONVEX_DEPLOY_KEY|CONVEX_GATEWAY_KEY|"
+    r"RAWG_API_KEY|SAFELAUNCHER_GATEWAY_KEY|SAFELAUNCHER_SECRET_KEY|"
+    r"STEAMGRIDDB_API_KEY|STEAM_WEB_API_KEY|[A-Z0-9_]*(?:API_KEY|ACCESS_TOKEN|"
+    r"CLIENT_SECRET|DEPLOY_KEY|GATEWAY_KEY|PASSWORD|PRIVATE_KEY|REFRESH_TOKEN|"
+    r"SECRET|TOKEN))\s*[=:]\s*)"
+    r"(?:\"[^\r\n\"]*\"|'[^\r\n']*'|[^\r\n\s&#]+)",
+)
+_AUTHORIZATION_RE = re.compile(r"(?i)(\bAuthorization\s*:\s*Bearer\s+)[^\s\r\n]+")
+_SAFE_LAUNCHER_HEADER_RE = re.compile(
+    r"(?i)(\bX-SafeLauncher-(?:Gateway-Key|Key)\s*[:=]\s*)[^\s\r\n]+"
+)
+_QUERY_SECRET_RE = re.compile(
+    r"(?i)([?&](?:api[_-]?key|access[_-]?token|client[_-]?secret|deploy[_-]?key|"
+    r"gateway[_-]?key|password|refresh[_-]?token|secret|token|key)=)[^&#\s]+"
+)
+
+
+def redact_sensitive_text(value: object) -> str:
+    """Remove common credential forms from logs, crash reports, and diagnostics."""
+    text = str(value or "")
+    text = _SENSITIVE_ASSIGNMENT_RE.sub(r"\1[redacted]", text)
+    text = _AUTHORIZATION_RE.sub(r"\1[redacted]", text)
+    text = _SAFE_LAUNCHER_HEADER_RE.sub(r"\1[redacted]", text)
+    text = _QUERY_SECRET_RE.sub(r"\1[redacted]", text)
+    # Convex deployment keys contain a pipe separator and should not be
+    # preserved even when an exception prints them without a variable name.
+    text = re.sub(r"(?<![\w])[A-Za-z0-9_.:-]+\|[^\s\"']+", "[deploy-key redacted]", text)
+    return text
+
+
+class SensitiveDataFilter(logging.Filter):
+    """Redact credential-shaped content before any handler formats a record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = redact_sensitive_text(record.getMessage())
+        record.args = ()
+        return True
 
 
 def setup_logging() -> logging.Logger:
@@ -40,6 +81,7 @@ def setup_logging() -> logging.Logger:
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(SensitiveDataFilter())
     logger.addHandler(console_handler)
 
     # Rotating file log handler (max 5 MB per file, up to 3 backups)
@@ -67,6 +109,7 @@ def setup_logging() -> logging.Logger:
             )
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(formatter)
+            file_handler.addFilter(SensitiveDataFilter())
             logger.addHandler(file_handler)
             sys.stderr.write(f"[SafeLauncher] Primary log unavailable; using {fallback_file}: {e}\n")
         except Exception as fallback_error:
@@ -97,7 +140,7 @@ def log_crash(traceback_str: str, context_info: str = "") -> None:
     import time
     t_stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     context_line = f"CONTEXT: {context_info}\n" if context_info else ""
-    report = (
+    report = redact_sensitive_text(
         f"\n{'='*70}\nCRASH REPORT - {t_stamp}\n"
         f"{context_line}"
         f"{'='*70}\n{traceback_str}\n"

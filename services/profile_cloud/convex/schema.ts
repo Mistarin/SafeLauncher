@@ -4,14 +4,18 @@ import { v } from "convex/values";
 export default defineSchema({
   publicProfiles: defineTable({
     handle: v.string(),
-    /** SHA-256 of the bearer owner token. The raw token is never persisted. */
-    ownerTokenHash: v.string(),
+    /** SHA-256 of the legacy bearer token; removed after identity claim. */
+    ownerTokenHash: v.optional(v.string()),
+    /** SHA-256 of Auth0 issuer/subject; the raw identity is never persisted. */
+    ownerIdentityHash: v.optional(v.string()),
     /** Sanitized JSON projection; private launcher metadata is never accepted. */
     profile: v.string(),
     revision: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_handle", ["handle"]),
+  })
+    .index("by_handle", ["handle"])
+    .index("by_owner_identity", ["ownerIdentityHash"]),
   friendRequests: defineTable({
     requesterHandle: v.string(),
     recipientHandle: v.string(),
@@ -39,4 +43,10 @@ export default defineSchema({
     .index("by_blocker", ["blockerHandle"])
     .index("by_blocked", ["blockedHandle"])
     .index("by_pair", ["blockerHandle", "blockedHandle"]),
+  profileRateLimits: defineTable({
+    bucketKey: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+    expiresAt: v.number(),
+  }).index("by_bucket", ["bucketKey"]),
 });

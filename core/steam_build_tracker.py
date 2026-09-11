@@ -107,6 +107,7 @@ class SteamBuildFetcher(SafeQThread):
             self._fail("No Steam AppID is configured")
             return
 
+        resp = None
         try:
             url = f"https://api.steamcmd.net/v1/info/{self.steam_id}"
             headers = {"User-Agent": "SafeLauncher/1.0 (Linux Game Sandbox Manager)"}
@@ -158,6 +159,12 @@ class SteamBuildFetcher(SafeQThread):
         except Exception as e:
             logger.warning(f"Failed to check Steam build for AppID {self.steam_id}: {e}")
             self._fail(f"Steam check failed: {e}")
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
     def _fail(self, reason: str):
         if not self.isInterruptionRequested():

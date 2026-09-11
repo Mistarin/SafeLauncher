@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import secrets
 from typing import Any
 
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QTimer
@@ -19,8 +18,9 @@ from core.profile_models import (
     HANDLE_RE, load_profile_settings, normalize_background,
     normalize_public_document, save_profile_settings,
 )
-from core.profile_service import ProfileServiceClient, ProfileServiceError, get_profile_service_url
-from core.secret_store import get_secret, set_secret
+from core.profile_service import ProfileServiceClient, ProfileServiceError, get_profile_service_url, is_local_service_url
+from core.central_auth import CentralAuthError, CentralAuthSession
+from core.secret_store import delete_secret, get_secret
 from core.safe_thread import TaskSupervisor
 from ui.icons import get_icon
 from ui.theme import (
@@ -38,11 +38,13 @@ class ProfilePageWidget(QWidget):
     open_profile_handle_requested = pyqtSignal(str)
     profile_changed = pyqtSignal()
     private_profile_changed = pyqtSignal()
+    auth_progress = pyqtSignal(str)
 
-    def __init__(self, db, settings: QSettings | None = None, parent=None, worker_registry=None):
+    def __init__(self, db, settings: QSettings | None = None, parent=None, worker_registry=None, auth_session=None):
         super().__init__(parent)
         self.db = db
         self.settings = settings or QSettings("SafeLauncher", "SafeLauncher")
+        self.central_auth = auth_session or CentralAuthSession()
         self._tasks = TaskSupervisor(self, worker_registry=worker_registry)
         self._mode = "owner"
         self._profile_settings: dict[str, Any] = {}
@@ -61,10 +63,12 @@ class ProfilePageWidget(QWidget):
         self._social_handle = ""
         self._social_loading = False
         self._social_mutating = False
+        self._auth_in_flight = False
         self._publish_timer = QTimer(self)
         self._publish_timer.setSingleShot(True)
         self._publish_timer.setInterval(1500)
         self._publish_timer.timeout.connect(self._publish_current_document)
+        self.auth_progress.connect(self._on_auth_progress)
         self._build_ui()
         self.show_owner()
 
@@ -217,7 +221,9 @@ class ProfilePageWidget(QWidget):
         service_row.addWidget(QLabel("Profile service"))
         self.service_url_edit = QLineEdit()
         self.service_url_edit.setObjectName("profileEditorInput")
-        self.service_url_edit.setPlaceholderText("https://your-profile-service.convex.site")
+        self.service_url_edit.setPlaceholderText("https://profilegateway.vercel.app")
+        self.service_url_edit.setReadOnly(True)
+        self.service_url_edit.setToolTip("The official SafeLauncher profile gateway is used for public profiles.")
         service_row.addWidget(self.service_url_edit, 1)
         editor_layout.addLayout(service_row)
         self.editor_hint = QLabel("The profile service stores only this public projection. Private save data stays on your configured cloud.")
@@ -328,6 +334,13 @@ class ProfilePageWidget(QWidget):
         self.column_layout.addWidget(self.achievement_section)
 
         bottom = QHBoxLayout()
+        self.btn_sign_in = QPushButton("Sign in")
+        self.btn_sign_in.setIcon(get_icon("ph.sign-in-bold", color="#FFFFFF"))
+        self.btn_sign_in.clicked.connect(self._sign_in)
+        bottom.addWidget(self.btn_sign_in)
+        self.btn_sign_out = QPushButton("Sign out")
+        self.btn_sign_out.clicked.connect(self._sign_out)
+        bottom.addWidget(self.btn_sign_out)
         self.btn_edit = QPushButton("Edit profile")
         self.btn_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#FFFFFF"))
         self.btn_edit.clicked.connect(self._start_edit)
@@ -344,9 +357,6 @@ class ProfilePageWidget(QWidget):
         self.btn_resync.clicked.connect(self._resync_private)
         bottom.addWidget(self.btn_resync)
         bottom.addStretch()
-        self.btn_rotate = QPushButton("Rotate owner token")
-        self.btn_rotate.clicked.connect(self._rotate_token)
-        bottom.addWidget(self.btn_rotate)
         self.column_layout.addLayout(bottom)
         self.footer_status = QLabel()
         self.footer_status.setObjectName("profileMuted")
@@ -381,13 +391,13 @@ class ProfilePageWidget(QWidget):
 
     def mark_local_data_changed(self) -> None:
         """Refresh local stats and coalesce a public update after game events."""
-        if self._mode != "owner" or self._editing:
+        if self._editing:
             return
         self._profile_settings = load_profile_settings(self.settings, fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"))
-        if self.isVisible():
+        if self._mode == "owner" and self.isVisible():
             self._document = build_public_projection(self.db, self._profile_settings)
             self._render(self._document)
-        if self._profile_settings.get("published") and get_secret("profile_owner_token"):
+        if self._profile_settings.get("published") and self.central_auth.signed_in:
             if self._publishing:
                 self._publish_dirty = True
             else:
@@ -426,26 +436,29 @@ class ProfilePageWidget(QWidget):
         )
         return (
             str(settings.get("public_handle", "") or "").strip().lower(),
-            str(get_secret("profile_owner_token") or "").strip(),
+            "",
             get_profile_service_url(),
         )
 
     def _set_admin_controls(self, enabled: bool) -> None:
-        has_owner_token = bool(get_secret("profile_owner_token"))
+        signed_in = self.central_auth.signed_in
         published = bool(self._profile_settings.get("published"))
+        self.btn_sign_in.setVisible(enabled)
+        self.btn_sign_in.setEnabled(enabled and not signed_in and not self._auth_in_flight)
+        self.btn_sign_out.setVisible(enabled and signed_in)
+        self.btn_sign_out.setEnabled(not self._auth_in_flight)
         self.btn_edit.setVisible(enabled and not self._editing)
         self.btn_publish.setVisible(enabled)
-        self.btn_publish.setEnabled(not published or has_owner_token)
+        self.btn_publish.setEnabled(signed_in and not self._auth_in_flight)
         self.btn_publish.setToolTip(
-            "This profile is managed on another device; its owner token is not synced."
-            if published and not has_owner_token else ""
+            "Sign in to manage the public profile."
+            if not signed_in else ""
         )
         self.btn_resync.setVisible(enabled)
-        self.btn_rotate.setVisible(enabled and bool(self._profile_settings.get("public_handle")) and has_owner_token)
         self.btn_copy_handle.setVisible(enabled and published)
         self.btn_open_public.setVisible(enabled)
         self.btn_settings.setVisible(True)
-        self._update_social_controls(enabled, published, has_owner_token)
+        self._update_social_controls(enabled, published, signed_in)
 
     def _background_style(self, background: dict[str, Any]) -> str:
         background = normalize_background(background)
@@ -476,12 +489,12 @@ class ProfilePageWidget(QWidget):
         self._set_avatar(document.get("avatar"))
         if self._mode == "owner":
             published = bool(self._profile_settings.get("published"))
-            has_owner_token = bool(get_secret("profile_owner_token"))
+            signed_in = self.central_auth.signed_in
             self.public_badge.setText("PUBLIC PROFILE" if published else "LOCAL PROFILE")
-            if published and has_owner_token:
+            if published and signed_in:
                 self.status_label.setText("Published and visible by handle.")
             elif published:
-                self.status_label.setText("Published from another device; public management is unavailable here.")
+                self.status_label.setText("Published profile; sign in to manage it from this device.")
             else:
                 self.status_label.setText("Only you can see this profile until it is published.")
             self.btn_publish.setText("Unpublish profile" if published else "Publish profile")
@@ -496,11 +509,11 @@ class ProfilePageWidget(QWidget):
         self._fill_list(self.achievement_list, document.get("recent_achievements"), lambda item: f"★  {item.get('name', 'Achievement')}  ·  {item.get('game', 'Game')}")
         self._render_social()
 
-    def _update_social_controls(self, owner_enabled: bool, published: bool, has_owner_token: bool) -> None:
+    def _update_social_controls(self, owner_enabled: bool, published: bool, authenticated: bool) -> None:
         """Keep social controls aligned with the owner/public view boundary."""
-        owner_ready = owner_enabled and published and has_owner_token
+        owner_ready = owner_enabled and published and authenticated
         public_target = self._mode == "public" and bool(self._document.get("handle"))
-        local_handle, local_token, local_service_url = self._local_owner_identity()
+        local_handle, _, local_service_url = self._local_owner_identity()
         local_settings = load_profile_settings(
             self.settings,
             fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
@@ -509,7 +522,7 @@ class ProfilePageWidget(QWidget):
             public_target
             and bool(local_settings.get("published"))
             and bool(local_handle)
-            and bool(local_token)
+            and authenticated
             and local_service_url.startswith(("http://", "https://"))
             and local_handle != str(self._document.get("handle", "") or "").lower()
         )
@@ -569,12 +582,12 @@ class ProfilePageWidget(QWidget):
             self.friends_section.setVisible(True)
             return
 
-        handle, token, service_url = self._local_owner_identity()
+        handle, _, service_url = self._local_owner_identity()
         self.friends_section.setVisible(True)
         if not bool(self._profile_settings.get("published")):
             self.friends_hint.setText("Publish your profile to add friends and receive requests. Your friend list is private.")
-        elif not token or not service_url.startswith(("http://", "https://")):
-            self.friends_hint.setText("Configure the public profile service and keep your owner token available to use friends.")
+        elif not self.central_auth.signed_in or not service_url.startswith(("http://", "https://")):
+            self.friends_hint.setText("Sign in to use friends. Your friend list is private.")
         else:
             self.friends_hint.setText("Your friend list is private. Share your handle or paste someone else’s handle to send a request.")
 
@@ -636,12 +649,12 @@ class ProfilePageWidget(QWidget):
     def _refresh_social(self) -> None:
         if self._mode != "owner" or self._social_loading or self._social_mutating:
             return
-        handle, token, service_url = self._local_owner_identity()
+        handle, _, service_url = self._local_owner_identity()
         local_settings = load_profile_settings(
             self.settings,
             fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
         )
-        if not bool(local_settings.get("published")) or not handle or not token:
+        if not bool(local_settings.get("published")) or not handle or not self.central_auth.signed_in:
             self._social_snapshot = self._empty_social_snapshot()
             self._social_handle = ""
             self._render_social()
@@ -655,9 +668,12 @@ class ProfilePageWidget(QWidget):
         self._social_handle = handle
         self._update_social_controls(True, True, True)
         self.friends_status.setText("Loading friends…")
+        def _fetch_social():
+            with ProfileServiceClient(service_url, auth_session=self.central_auth) as client:
+                return client.get_social(handle)
         worker = self._tasks.start(
             "SafeLauncher-RefreshFriends",
-            lambda: ProfileServiceClient(service_url, token).get_social(handle),
+            _fetch_social,
             lambda result, expected_handle=handle: self._social_refresh_done(result, expected_handle),
         )
         worker.error_occurred.connect(
@@ -670,10 +686,10 @@ class ProfilePageWidget(QWidget):
         self._social_loading = False
         if self._mode != "owner":
             return
-        handle, token, _ = self._local_owner_identity()
+        handle, _, _ = self._local_owner_identity()
         if expected_handle and (handle != expected_handle or self._social_handle != expected_handle):
             return
-        self._update_social_controls(True, bool(self._profile_settings.get("published")), bool(token))
+        self._update_social_controls(True, bool(self._profile_settings.get("published")), self.central_auth.signed_in)
         if isinstance(result, Exception):
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.friends_status.setText(f"Friends could not be refreshed: {result}")
@@ -691,26 +707,29 @@ class ProfilePageWidget(QWidget):
     def _start_social_mutation(self, operation, success_message: str) -> None:
         if self._social_mutating:
             return
-        owner_handle, token, service_url = self._local_owner_identity()
+        owner_handle, _, service_url = self._local_owner_identity()
         local_settings = load_profile_settings(
             self.settings,
             fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
         )
-        if not bool(local_settings.get("published")) or not owner_handle or not token:
+        if not bool(local_settings.get("published")) or not owner_handle or not self.central_auth.signed_in:
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.friends_status.setText("Publish your profile and keep its owner token available before managing friends.")
+            self.friends_status.setText("Sign in and publish your profile before managing friends.")
             return
         if not service_url.startswith(("http://", "https://")):
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.friends_status.setText("Configure the public profile service before managing friends.")
+            self.friends_status.setText("The central profile gateway is not configured for this build.")
             return
         self._social_mutating = True
         self._update_social_controls(self._mode == "owner", True, True)
         self.friends_status.setStyleSheet("")
         self.friends_status.setText("Updating friends…")
+        def _run_mutation():
+            with ProfileServiceClient(service_url, auth_session=self.central_auth) as client:
+                return operation(client, owner_handle)
         worker = self._tasks.start(
             "SafeLauncher-FriendOperation",
-            lambda: operation(ProfileServiceClient(service_url, token), owner_handle),
+            _run_mutation,
             lambda result: self._social_mutation_done(result, success_message),
         )
         worker.error_occurred.connect(
@@ -779,7 +798,7 @@ class ProfilePageWidget(QWidget):
         if isinstance(result, Exception):
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.friends_status.setText(str(result))
-            self._update_social_controls(self._mode == "owner", bool(self._profile_settings.get("published")), bool(get_secret("profile_owner_token")))
+            self._update_social_controls(self._mode == "owner", bool(self._profile_settings.get("published")), self.central_auth.signed_in)
             return
         self.friends_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
         self.friends_status.setText(success_message)
@@ -841,6 +860,107 @@ class ProfilePageWidget(QWidget):
         if not found:
             self.background_combo.setCurrentIndex(self.background_combo.findData("custom"))
 
+    def _on_auth_progress(self, message: str) -> None:
+        """Render device-login progress emitted by the worker thread."""
+        self.footer_status.setStyleSheet("")
+        self.footer_status.setText(str(message or "Waiting for central sign-in…"))
+
+    def _central_profile_client(self) -> ProfileServiceClient:
+        return ProfileServiceClient(get_profile_service_url(), auth_session=self.central_auth)
+
+    def _reconcile_authenticated_profile(self) -> dict[str, Any] | None:
+        """Find or migrate the profile belonging to the current Auth0 identity.
+
+        The legacy token is read only for this one migration call. It is
+        deleted only after Convex confirms the identity claim, so an
+        interrupted migration cannot strand an existing profile.
+        """
+        with self._central_profile_client() as client:
+            remote = client.current_profile()
+            if remote is not None:
+                return remote
+
+            local = load_profile_settings(
+                self.settings,
+                fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+            )
+            handle = str(local.get("public_handle", "") or "").strip().lower()
+            legacy_token = str(get_secret("profile_owner_token") or "").strip()
+            if not handle or not legacy_token:
+                return None
+            try:
+                client.claim_legacy_profile(handle, legacy_token)
+            except ProfileServiceError as exc:
+                # An invalid/missing old token is recoverable: the user is
+                # still signed in and may create a new profile. Other
+                # failures should remain visible to the caller.
+                if exc.code not in {"not_found", "unauthorized", "claimed", "identity_has_profile"}:
+                    raise
+                return None
+            if not delete_secret("profile_owner_token"):
+                # The server-side claim is complete. The old token cannot
+                # authorize the claimed identity after its hash is removed.
+                self.auth_progress.emit("Signed in; the old migration token could not be removed locally.")
+            return client.current_profile()
+
+    def _sign_in(self) -> None:
+        if self._auth_in_flight or self._mode != "owner":
+            return
+        self._auth_in_flight = True
+        self._set_admin_controls(True)
+        self.footer_status.setStyleSheet("")
+        self.footer_status.setText("Opening central sign-in…")
+
+        def work():
+            self.central_auth.device_login(
+                progress=lambda message: self.auth_progress.emit(message),
+            )
+            return self._reconcile_authenticated_profile()
+
+        worker = self._tasks.start("SafeLauncher-CentralSignIn", work, self._sign_in_done)
+        worker.error_occurred.connect(self._sign_in_error)
+
+    def _sign_in_error(self, error: str) -> None:
+        self._sign_in_done(CentralAuthError(str(error), "sign_in_failed"))
+
+    def _sign_in_done(self, result: Any) -> None:
+        self._auth_in_flight = False
+        if isinstance(result, Exception):
+            self._set_admin_controls(self._mode == "owner")
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.footer_status.setText(f"Central sign-in failed: {result}")
+            return
+        remote = result if isinstance(result, dict) else None
+        if remote is not None:
+            remote_settings = {
+                **self._profile_settings,
+                "display_name": remote.get("display_name", self._profile_settings.get("display_name", "Player")),
+                "avatar": remote.get("avatar"),
+                "background": remote.get("background"),
+                "public_handle": remote.get("handle", self._profile_settings.get("public_handle", "")),
+                "published": True,
+            }
+            self._profile_settings = save_profile_settings(self.settings, remote_settings, mark_changed=False)
+            self._public_revision = int(remote.get("revision", 0) or 0)
+            self.settings.setValue("profile_public_revision", self._public_revision)
+            self.settings.sync()
+            status_message = "Signed in and connected to your public profile."
+        else:
+            status_message = "Signed in. Publish this profile to make it public."
+        self.show_owner()
+        self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
+        self.footer_status.setText(status_message)
+
+    def _sign_out(self) -> None:
+        if self._auth_in_flight:
+            return
+        self._publish_timer.stop()
+        self.central_auth.clear()
+        self._publish_dirty = False
+        self.show_owner()
+        self.footer_status.setStyleSheet("")
+        self.footer_status.setText("Signed out. Your existing public profile remains visible.")
+
     def _start_edit(self) -> None:
         if self._mode != "owner":
             return
@@ -872,9 +992,6 @@ class ProfilePageWidget(QWidget):
             "background": background,
         })
         normalized = save_profile_settings(self.settings, value)
-        service_url = self.service_url_edit.text().strip().rstrip("/")
-        self.settings.setValue("profile_service_url", service_url)
-        self.settings.sync()
         self._profile_settings = normalized
         self._editing = False
         self._draft_avatar = None
@@ -903,7 +1020,6 @@ class ProfilePageWidget(QWidget):
         color = QColorDialog.getColor(initial, self, "Choose profile background")
         if color.isValid():
             draft_name = self.name_edit.text()
-            draft_service_url = self.service_url_edit.text()
             self.background_combo.setCurrentIndex(self.background_combo.findData("custom"))
             self._profile_settings["background"] = {"kind": "solid", "color": color.name().upper()}
             self._render(build_public_projection(self.db, {
@@ -915,30 +1031,25 @@ class ProfilePageWidget(QWidget):
             # Rendering also refreshes the owner editor. Restore the in-flight
             # draft so choosing a color does not discard typed fields.
             self.name_edit.setText(draft_name)
-            self.service_url_edit.setText(draft_service_url)
 
     def _publish(self) -> None:
         if self._mode != "owner":
             return
+        if not self.central_auth.signed_in:
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.footer_status.setText("Sign in to manage your public profile.")
+            self._sign_in()
+            return
         published = bool(self._profile_settings.get("published"))
         if published:
-            if not get_secret("profile_owner_token"):
-                self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-                self.footer_status.setText("This profile is managed on another device; its owner token is not available here.")
-                return
             self._unpublish()
             return
         service_url = get_profile_service_url()
         if not service_url.startswith(("http://", "https://")):
             self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Set a Profile service URL in Edit profile before publishing.")
+            self.footer_status.setText("The central profile gateway is not configured for this build.")
             return
         handle = self._profile_settings.get("public_handle") or generate_profile_handle()
-        token = get_secret("profile_owner_token") or secrets.token_urlsafe(32)
-        if not set_secret("profile_owner_token", token):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("SafeLauncher could not securely store the profile owner token.")
-            return
         self._profile_settings = save_profile_settings(self.settings, {**self._profile_settings, "public_handle": handle}, mark_changed=False)
         self._publish_current_document()
 
@@ -953,21 +1064,25 @@ class ProfilePageWidget(QWidget):
             self.footer_status.setText("Public profile handle copied to the clipboard.")
 
     def _publish_current_document(self) -> None:
-        if self._mode != "owner" or self._publishing:
+        if self._publishing:
             return
         service_url = get_profile_service_url()
-        handle = str(self._profile_settings.get("public_handle", "") or "")
-        token = get_secret("profile_owner_token")
-        if not service_url.startswith(("http://", "https://")) or not handle or not token:
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Public profile publishing is not configured.")
+        profile_settings = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        handle = str(profile_settings.get("public_handle", "") or "")
+        if not service_url.startswith(("http://", "https://")) or not handle or not self.central_auth.signed_in:
+            if self._mode == "owner":
+                self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+                self.footer_status.setText("Sign in before publishing the public profile.")
             return
-        profile_settings = dict(self._profile_settings)
         db_path = getattr(self.db, "db_path", None)
         self._publishing = True
         self._publish_dirty = False
         self.btn_publish.setEnabled(False)
-        self.footer_status.setText("Publishing public profile…")
+        if self._mode == "owner":
+            self.footer_status.setText("Publishing public profile…")
 
         def work():
             from database import GameDatabase
@@ -986,21 +1101,52 @@ class ProfilePageWidget(QWidget):
             finally:
                 if worker_db is not None:
                     worker_db.close()
-            client = ProfileServiceClient(service_url, token)
-            try:
-                if self._public_revision:
-                    response = client.update(handle, document, self._public_revision)
+            with ProfileServiceClient(service_url, auth_session=self.central_auth) as client:
+                remote = client.current_profile()
+                if remote is None:
+                    legacy_token = str(get_secret("profile_owner_token") or "").strip()
+                    if legacy_token:
+                        try:
+                            client.claim_legacy_profile(handle, legacy_token)
+                        except ProfileServiceError as exc:
+                            if exc.code not in {"not_found", "unauthorized", "claimed", "identity_has_profile"}:
+                                raise
+                        else:
+                            # Delete only after the atomic server-side claim.
+                            delete_secret("profile_owner_token")
+                        remote = client.current_profile()
+
+                if remote is None:
+                    try:
+                        response = client.create_profile(document)
+                    except ProfileServiceError as exc:
+                        if exc.code not in {"exists", "profile_exists_for_identity"}:
+                            raise
+                        remote = client.current_profile()
+                        if remote is None:
+                            raise
+                        document["handle"] = remote["handle"]
+                        response = client.update_profile(document, int(remote.get("revision", 0) or 0))
                 else:
-                    response = client.create(handle, document)
-            except ProfileServiceError as exc:
-                if exc.code not in {"profile_exists", "revision_conflict"}:
-                    raise
-                remote = client.fetch(handle)
-                response = client.update(handle, document, int(remote.get("revision", 0) or 0))
-            return {"response": response, "document": document}
+                    document["handle"] = remote["handle"]
+                    revision = int(remote.get("revision", 0) or 0)
+                    try:
+                        response = client.update_profile(document, revision)
+                    except ProfileServiceError as exc:
+                        if exc.code != "conflict":
+                            raise
+                        fresh = client.current_profile()
+                        if fresh is None:
+                            raise
+                        document["handle"] = fresh["handle"]
+                        response = client.update_profile(document, int(fresh.get("revision", 0) or 0))
+                return {"response": response, "document": document}
 
         worker = self._tasks.start("SafeLauncher-PublishProfile", work, self._publish_done)
-        worker.error_occurred.connect(lambda error: self._publish_done(ProfileServiceError(error, "publish_failed")))
+        worker.error_occurred.connect(self._publish_error)
+
+    def _publish_error(self, error: str) -> None:
+        self._publish_done(ProfileServiceError(str(error), "publish_failed"))
 
     def _publish_done(self, result: Any) -> None:
         self._publishing = False
@@ -1015,11 +1161,20 @@ class ProfilePageWidget(QWidget):
         self._public_revision = int(response.get("revision", self._public_revision or 1))
         self.settings.setValue("profile_public_revision", self._public_revision)
         self.settings.sync()
-        self._profile_settings = save_profile_settings(self.settings, {**self._profile_settings, "published": True}, mark_changed=False)
-        if document is not None:
-            self._document = document
-        if self.isVisible():
-            self._render(self._document or build_public_projection(self.db, self._profile_settings))
+        local_settings = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        published_handle = str(document.get("handle", "") or local_settings.get("public_handle", "")) if document else local_settings.get("public_handle", "")
+        self._profile_settings = save_profile_settings(self.settings, {**local_settings, "public_handle": published_handle, "published": True}, mark_changed=False)
+        # A background sync may finish while the user is viewing someone
+        # else's public page. Never replace that page with the owner's local
+        # projection as a side effect of a statistics update.
+        if self._mode == "owner":
+            if document is not None:
+                self._document = document
+            if self.isVisible():
+                self._render(self._document or build_public_projection(self.db, self._profile_settings))
         self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
         self.footer_status.setText(f"Published. Share profile handle @{self._profile_settings.get('public_handle')}.")
         self.private_profile_changed.emit()
@@ -1029,20 +1184,31 @@ class ProfilePageWidget(QWidget):
     def _unpublish(self) -> None:
         self._publish_timer.stop()
         service_url = get_profile_service_url()
-        handle = str(self._profile_settings.get("public_handle", "") or "")
-        token = get_secret("profile_owner_token")
-        if not service_url or not handle or not token:
-            self._profile_settings = save_profile_settings(self.settings, {**self._profile_settings, "published": False}, mark_changed=False)
-            self._public_revision = 0
-            self.settings.setValue("profile_public_revision", 0)
-            self.settings.sync()
-            self.show_owner()
-            self.private_profile_changed.emit()
+        if not service_url.startswith(("http://", "https://")) or not self.central_auth.signed_in:
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.footer_status.setText("Sign in to manage your public profile.")
             return
         self.btn_publish.setEnabled(False)
         self.footer_status.setText("Unpublishing public profile…")
-        worker = self._tasks.start("SafeLauncher-UnpublishProfile", lambda: ProfileServiceClient(service_url, token).delete(handle), self._unpublish_done)
-        worker.error_occurred.connect(lambda error: self._unpublish_done(ProfileServiceError(error, "unpublish_failed")))
+        def work():
+            with ProfileServiceClient(service_url, auth_session=self.central_auth) as client:
+                if client.current_profile() is None:
+                    legacy_token = str(get_secret("profile_owner_token") or "").strip()
+                    handle = str(self._profile_settings.get("public_handle", "") or "")
+                    if legacy_token and handle:
+                        try:
+                            client.claim_legacy_profile(handle, legacy_token)
+                        except ProfileServiceError as exc:
+                            if exc.code not in {"not_found", "unauthorized", "claimed", "identity_has_profile"}:
+                                raise
+                        else:
+                            delete_secret("profile_owner_token")
+                return client.delete_profile()
+        worker = self._tasks.start("SafeLauncher-UnpublishProfile", work, self._unpublish_done)
+        worker.error_occurred.connect(self._unpublish_error)
+
+    def _unpublish_error(self, error: str) -> None:
+        self._unpublish_done(ProfileServiceError(str(error), "unpublish_failed"))
 
     def _unpublish_done(self, result: Any) -> None:
         self.btn_publish.setEnabled(True)
@@ -1055,42 +1221,8 @@ class ProfilePageWidget(QWidget):
         self.settings.setValue("profile_public_revision", 0)
         self.settings.sync()
         self.show_owner()
-        self.footer_status.setText("Profile unpublished. The owner token remains available for publishing again.")
+        self.footer_status.setText("Profile unpublished. Your central sign-in remains available for publishing again.")
         self.private_profile_changed.emit()
-
-    def _rotate_token(self) -> None:
-        handle = str(self._profile_settings.get("public_handle", "") or "")
-        old = get_secret("profile_owner_token")
-        if not handle or not old:
-            return
-        if QMessageBox.question(self, "Rotate owner token", "The old token will stop working immediately. Continue?") != QMessageBox.StandardButton.Yes:
-            return
-        new = secrets.token_urlsafe(32)
-        service_url = get_profile_service_url()
-        if not service_url.startswith(("http://", "https://")):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Set a Profile service URL before rotating the owner token.")
-            return
-        self.btn_rotate.setEnabled(False)
-        worker = self._tasks.start(
-            "SafeLauncher-RotateProfileToken",
-            lambda: ProfileServiceClient(service_url, old).rotate_token(handle, new),
-            lambda result: self._rotate_done(result, new),
-        )
-        worker.error_occurred.connect(lambda error: self._rotate_done(ProfileServiceError(error, "rotate_failed"), new))
-
-    def _rotate_done(self, result: Any, new_token: str) -> None:
-        self.btn_rotate.setEnabled(True)
-        if isinstance(result, Exception):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText(str(result))
-            return
-        if set_secret("profile_owner_token", new_token):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
-            self.footer_status.setText("Owner token rotated and securely stored.")
-        else:
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("The service rotated the token, but local secure storage failed. Save the new token before closing.")
 
     def _resync_private(self) -> None:
         self.btn_resync.setEnabled(False)
@@ -1118,7 +1250,12 @@ class ProfilePageWidget(QWidget):
         self.footer_status.setText("Private profile resynchronized.")
 
     def set_public_service_url(self, url: str) -> None:
-        self.settings.setValue("profile_service_url", str(url or "").strip().rstrip("/"))
+        """Keep a localhost-only override for development and UI tests."""
+        value = str(url or "").strip().rstrip("/")
+        if is_local_service_url(value):
+            self.settings.setValue("profile_service_url", value)
+        else:
+            self.settings.remove("profile_service_url")
         self.settings.sync()
 
     def closeEvent(self, event) -> None:

@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QDialogButtonBox, QListWidget, QListWidgetItem, QFrame,
     QProgressBar, QPlainTextEdit, QWidget
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from core.proton_manager import (
@@ -81,6 +81,8 @@ class ProtonManagerDialog(PopupDialog):
         self.selected_game_name = selected_game_name
         self.downloader_thread = None
         self.fetcher_thread = None
+        self._close_requested = False
+        self._pending_result = 0
 
         self.setMinimumSize(680, 480)
         self.resize(720, 560)
@@ -192,14 +194,24 @@ class ProtonManagerDialog(PopupDialog):
         self._fetch_releases()
 
     def _fetch_releases(self):
+        if self.fetcher_thread and self.fetcher_thread.isRunning():
+            self.status_label.setText("A release lookup is already running…")
+            return
         self.status_label.setText("Querying GitHub API for GE-Proton releases...")
         self.releases_list.clear()
 
         fetcher = GitHubReleasesFetcherThread(parent=self)
         fetcher.releases_fetched.connect(self._on_releases_fetched)
         fetcher.fetch_failed.connect(self._on_fetch_failed)
-        fetcher.start()
+        fetcher.finished.connect(lambda f=fetcher: self._release_fetcher(f))
+        fetcher.finished.connect(fetcher.deleteLater)
         self.fetcher_thread = fetcher
+        fetcher.start()
+
+    def _release_fetcher(self, fetcher) -> None:
+        """Drop completed lookup workers so repeated refreshes do not retain them."""
+        if self.fetcher_thread is fetcher:
+            self.fetcher_thread = None
 
     def _on_releases_fetched(self, releases: list):
         self.releases_list.clear()
@@ -282,8 +294,15 @@ class ProtonManagerDialog(PopupDialog):
         downloader.status_text.connect(self.download_title_lbl.setText)
         downloader.download_complete.connect(self._on_download_complete)
         downloader.download_failed.connect(self._on_download_failed)
-        downloader.start()
+        downloader.finished.connect(lambda f=downloader: self._release_downloader(f))
+        downloader.finished.connect(downloader.deleteLater)
         self.downloader_thread = downloader
+        downloader.start()
+
+    def _release_downloader(self, downloader) -> None:
+        """Drop a completed download worker before the next release refresh."""
+        if self.downloader_thread is downloader:
+            self.downloader_thread = None
 
     def _on_progress_details(self, tag: str, downloaded_mb: float, total_mb: float, percentage: int):
         self.progress_bar.setValue(percentage)
@@ -320,13 +339,65 @@ class ProtonManagerDialog(PopupDialog):
         self._fetch_releases()
 
     def closeEvent(self, event):
-        if self.downloader_thread and self.downloader_thread.isRunning():
-            self.downloader_thread.requestInterruption()
-            self.downloader_thread.wait(3000)
-        if self.fetcher_thread and self.fetcher_thread.isRunning():
-            self.fetcher_thread.requestInterruption()
-            self.fetcher_thread.wait(3000)
+        active = [
+            thread for thread in (self.downloader_thread, self.fetcher_thread)
+            if thread is not None and thread.isRunning()
+        ]
+        if active:
+            self._close_requested = True
+            for thread in active:
+                thread.requestInterruption()
+                try:
+                    thread.finished.disconnect(self._finish_deferred_close)
+                except (TypeError, RuntimeError):
+                    pass
+                try:
+                    thread.finished.connect(self._finish_deferred_close)
+                except RuntimeError:
+                    pass
+            self.hide()
+            if not any(thread.isRunning() for thread in active):
+                QTimer.singleShot(0, self._finish_deferred_close)
+            event.ignore()
+            return
         super().closeEvent(event)
+
+    def done(self, result: int) -> None:
+        active = [
+            thread for thread in (self.downloader_thread, self.fetcher_thread)
+            if thread is not None and thread.isRunning()
+        ]
+        if active:
+            self._pending_result = result
+            self._close_requested = True
+            for thread in active:
+                thread.requestInterruption()
+                try:
+                    thread.finished.disconnect(self._finish_deferred_close)
+                except (TypeError, RuntimeError):
+                    pass
+                try:
+                    thread.finished.connect(self._finish_deferred_close)
+                except RuntimeError:
+                    pass
+            self.hide()
+            if not any(thread.isRunning() for thread in active):
+                QTimer.singleShot(0, self._finish_deferred_close)
+            return
+        super().done(result)
+
+    def _finish_deferred_close(self):
+        if not self._close_requested:
+            return
+        if any(
+            thread is not None and thread.isRunning()
+            for thread in (self.downloader_thread, self.fetcher_thread)
+        ):
+            return
+        self._close_requested = False
+        result = self._pending_result
+        self._pending_result = 0
+        super().done(result)
 
 
 class UmuRuntimeManagerDialog(PopupDialog):
@@ -336,6 +407,8 @@ class UmuRuntimeManagerDialog(PopupDialog):
     def __init__(self, proton_path: str = "", parent=None):
         super().__init__("UMU Runtime Manager", parent)
         self.worker = None
+        self._close_requested = False
+        self._pending_result = 0
         self.setMinimumSize(700, 500)
         self.setSizeGripEnabled(True)
         self.setStyleSheet("""
@@ -428,7 +501,14 @@ class UmuRuntimeManagerDialog(PopupDialog):
         self.worker = UmuBootstrapWorker(path, self)
         self.worker.output_line.connect(self.output.appendPlainText)
         self.worker.completed.connect(self._finished)
+        self.worker.finished.connect(lambda w=self.worker: self._release_worker(w))
+        self.worker.finished.connect(self.worker.deleteLater)
         self.worker.start()
+
+    def _release_worker(self, worker) -> None:
+        """Release a completed runtime worker before another repair starts."""
+        if self.worker is worker:
+            self.worker = None
 
     def _finished(self, success: bool, return_code: int):
         self.install_button.setEnabled(True)
@@ -441,8 +521,47 @@ class UmuRuntimeManagerDialog(PopupDialog):
 
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
+            self._close_requested = True
             self.worker.requestInterruption()
             self.worker.stop()
-            self.worker.quit()
-            self.worker.wait(5000)
+            try:
+                self.worker.finished.disconnect(self._finish_deferred_close)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self.worker.finished.connect(self._finish_deferred_close)
+            except RuntimeError:
+                pass
+            self.hide()
+            if not self.worker.isRunning():
+                QTimer.singleShot(0, self._finish_deferred_close)
+            event.ignore()
+            return
         super().closeEvent(event)
+
+    def done(self, result: int) -> None:
+        if self.worker and self.worker.isRunning():
+            self._pending_result = result
+            self._close_requested = True
+            self.worker.requestInterruption()
+            self.worker.stop()
+            try:
+                self.worker.finished.disconnect(self._finish_deferred_close)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self.worker.finished.connect(self._finish_deferred_close)
+            except RuntimeError:
+                pass
+            self.hide()
+            if not self.worker.isRunning():
+                QTimer.singleShot(0, self._finish_deferred_close)
+            return
+        super().done(result)
+
+    def _finish_deferred_close(self):
+        if self._close_requested and (self.worker is None or not self.worker.isRunning()):
+            self._close_requested = False
+            result = self._pending_result
+            self._pending_result = 0
+            super().done(result)

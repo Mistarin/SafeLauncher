@@ -20,6 +20,7 @@ import requests
 from PyQt6.QtCore import QSettings
 
 from core.host_process import host_process_env
+from core.host_process import is_sensitive_env_name
 from core.cloud_detector import (
     discover_local_cloud_backend,
     detect_local_cloud_installation,
@@ -27,6 +28,48 @@ from core.cloud_detector import (
 )
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 from core.secret_store import get_secret, set_secret, delete_secret
+
+
+_SENSITIVE_ENV_KEY_FRAGMENTS = (
+    "API_KEY",
+    "CLIENT_SECRET",
+    "PASSWORD",
+    "PRIVATE_KEY",
+    "SECRET",
+    "TOKEN",
+)
+_SENSITIVE_ENV_KEYS = frozenset(
+    {
+        "CONVEX_DEPLOY_KEY",
+        "CONVEX_GATEWAY_KEY",
+        "SAFELAUNCHER_GATEWAY_KEY",
+    }
+)
+
+
+def _close_response(response) -> None:
+    """Close a one-shot requests response even when parsing/validation fails."""
+    if response is None:
+        return
+    try:
+        response.close()
+    except Exception:
+        pass
+
+
+def _is_sensitive_env_key(name: str) -> bool:
+    """Return whether a dotenv/process variable must not cross into a CLI.
+
+    The backend checkout is source code, not a credential vault. Only the
+    non-secret Convex project selectors are read from its dotenv files. A
+    deploy key is reintroduced below from the OS credential store when the
+    caller actually needs one.
+    """
+    normalized = str(name or "").strip().upper()
+    return bool(normalized) and (
+        normalized in _SENSITIVE_ENV_KEYS
+        or any(fragment in normalized for fragment in _SENSITIVE_ENV_KEY_FRAGMENTS)
+    )
 
 
 def _convex_cli_env(server_dir: Path) -> dict[str, str]:
@@ -38,6 +81,12 @@ def _convex_cli_env(server_dir: Path) -> dict[str, str]:
     variables remain authoritative over dotenv values.
     """
     env = host_process_env()
+    # Never inherit credentials from the desktop process or a shell session.
+    # Callers that intentionally need a deploy key add it explicitly after
+    # this boundary (validate_deploy_key/deploy_convex_backend).
+    for key in list(env):
+        if _is_sensitive_env_key(key) or is_sensitive_env_name(key):
+            env.pop(key, None)
     # Load the highest-priority files first.  Explicit shell variables already
     # present in ``env`` always win through setdefault().
     for filename in (".env.production.local", ".env.production", ".env.local", ".env"):
@@ -58,6 +107,8 @@ def _convex_cli_env(server_dir: Path) -> dict[str, str]:
                 value = value.strip()
                 if not key or not all(ch.isalnum() or ch == "_" for ch in key) or key[0].isdigit():
                     continue
+                if _is_sensitive_env_key(key) or is_sensitive_env_name(key):
+                    continue
                 # dotenv permits an inline comment after an unquoted value.
                 if value and value[0] not in ('"', "'") and " #" in value:
                     value = value.split(" #", 1)[0].rstrip()
@@ -75,6 +126,9 @@ def _convex_cli_env(server_dir: Path) -> dict[str, str]:
         env["CONVEX_DEPLOYMENT"] = f"{scope.strip()}:{name.strip()}"
     elif deployment:
         env["CONVEX_DEPLOYMENT"] = deployment
+    saved_deploy_key = get_secret("convex_deploy_key", legacy_name="convex_deploy_key")
+    if saved_deploy_key:
+        env["CONVEX_DEPLOY_KEY"] = saved_deploy_key
     return env
 
 
@@ -223,7 +277,23 @@ def _redact_deploy_output(output: str, secrets_to_redact: tuple[str, ...] = ()) 
     for secret in secrets_to_redact:
         if secret:
             text = text.replace(secret, "[secret redacted]")
-    text = re.sub(r"(?i)(CONVEX_DEPLOY_KEY\s*[=:]\s*)[^\s\"']+", r"\1[redacted]", text)
+    text = re.sub(
+        r"(?im)(\b(?:CONVEX_DEPLOY_KEY|CONVEX_GATEWAY_KEY|SAFELAUNCHER_GATEWAY_KEY|"
+        r"SAFELAUNCHER_SECRET_KEY|AUTH0_CLIENT_SECRET)\s*[=:]\s*)"
+        r"(?:\"[^\r\n\"]*\"|'[^\r\n']*'|[^\r\n\s]+)",
+        r"\1[redacted]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)(\bAuthorization\s*:\s*Bearer\s+)[^\s\r\n]+",
+        r"\1[redacted]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)(\bX-SafeLauncher-(?:Gateway-Key|Key)\s*[:=]\s*)[^\s\r\n]+",
+        r"\1[redacted]",
+        text,
+    )
     # Convex keys may identify a team/project before the deployment prefix;
     # anything containing the token separator is credential-shaped output.
     text = re.sub(r"(?<![\w])[^\s\"']+\|[^\s\"']+", "[deploy-key redacted]", text)
@@ -482,7 +552,6 @@ def ensure_cloud_secret(
             "configured": True,
             "verified": True,
             "source": "existing",
-            "secret": remote_secret,
             "message": "Existing Cloud Save Secret Access Key detected and saved locally.",
         }
 
@@ -500,7 +569,6 @@ def ensure_cloud_secret(
                 "configured": True,
                 "verified": False,
                 "source": "provided-local" if entered_secret else "local",
-                "secret": fallback_secret,
                 "message": (
                     "Cloud Save Secret Access Key saved locally, but Convex could not be inspected; "
                     "confirm the same value is configured on the production deployment."
@@ -561,7 +629,6 @@ def ensure_cloud_secret(
         "configured": True,
         "verified": True,
         "source": source,
-        "secret": secret,
         "message": "Cloud Save Secret Access Key configured on Convex and saved locally.",
     }
 
@@ -577,19 +644,19 @@ def _site_url_from_backend_checkout(server_dir: Path) -> str:
         if not env_file.is_file():
             continue
         try:
-            values = {}
             for raw_line in env_file.read_text(encoding="utf-8").splitlines():
                 line = raw_line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 key, value = line.split("=", 1)
-                values[key.strip()] = value.strip().strip('"').strip("'")
-            site_url = values.get("CONVEX_SITE_URL", "").strip()
-            if site_url:
-                return site_url.rstrip("/")
-            convex_url = values.get("CONVEX_URL", "").strip()
-            if convex_url:
-                return convex_url.replace(".convex.cloud", ".convex.site").rstrip("/")
+                key = key.strip()
+                if key not in {"CONVEX_SITE_URL", "CONVEX_URL"}:
+                    continue
+                value = value.strip().strip('"').strip("'")
+                if key == "CONVEX_SITE_URL" and value:
+                    return value.rstrip("/")
+                if key == "CONVEX_URL" and value:
+                    return value.replace(".convex.cloud", ".convex.site").rstrip("/")
         except OSError:
             continue
     return ""
@@ -641,6 +708,8 @@ def download_server_repository(
             pass
 
     # Method 2: HTTP ZIP download fallback
+    tmp_zip = None
+    resp = None
     try:
         zip_url = "https://github.com/Mistarin/SafeLauncherCloud/archive/refs/heads/main.zip"
         resp = requests.get(zip_url, timeout=30)
@@ -668,7 +737,6 @@ def download_server_repository(
                         with zf.open(member) as src, open(dest_file, "wb") as dst:
                             dst.write(src.read())
 
-        Path(tmp_zip).unlink(missing_ok=True)
         marker = target / "ImHereJustToExist.txt"
         if not marker.exists():
             marker.touch()
@@ -676,6 +744,10 @@ def download_server_repository(
     except Exception as e:
         print(f"  [✖] Download failed: {e}")
         return None
+    finally:
+        _close_response(resp)
+        if tmp_zip:
+            Path(tmp_zip).unlink(missing_ok=True)
 
 
 def deploy_convex_backend(
@@ -865,6 +937,7 @@ def deploy_convex_backend(
         headers = {"Authorization": f"Bearer {verify_key}", "X-SafeLauncher-Key": verify_key} if verify_key else {}
         deployed_version = ""
         for attempt in range(3):
+            probe = None
             try:
                 probe = requests.get(f"{site_url}/api/health", headers=headers, timeout=6)
                 if probe.status_code == 200:
@@ -873,6 +946,8 @@ def deploy_convex_backend(
                         break
             except (requests.RequestException, ValueError, AttributeError):
                 pass
+            finally:
+                _close_response(probe)
             if attempt < 2:
                 time.sleep(1)
         if not deployed_version or is_version_outdated(deployed_version, MIN_CONVEX_BACKEND_VERSION):
@@ -980,28 +1055,41 @@ def run_cloud_setup_wizard() -> int:
                 headers["Authorization"] = f"Bearer {current_key}"
                 headers["X-SafeLauncher-Key"] = current_key
 
-            resp_health = requests.get(f"{active_url}/api/health", headers=headers, timeout=3)
-            if resp_health.status_code == 200:
+            resp_health = None
+            try:
+                resp_health = requests.get(f"{active_url}/api/health", headers=headers, timeout=3)
+                health_status = resp_health.status_code
+                health_data = resp_health.json() if health_status == 200 else {}
+            finally:
+                _close_response(resp_health)
+            if health_status == 200:
                 try:
-                    health_data = resp_health.json()
                     active_backend_version = str(health_data.get("version") or "").strip()
                     if not active_backend_version:
-                        resp_version = requests.get(f"{active_url}/api/version", headers=headers, timeout=3)
-                        if resp_version.status_code == 200:
-                            active_backend_version = str(resp_version.json().get("version") or "").strip()
+                        resp_version = None
+                        try:
+                            resp_version = requests.get(f"{active_url}/api/version", headers=headers, timeout=3)
+                            if resp_version.status_code == 200:
+                                active_backend_version = str(resp_version.json().get("version") or "").strip()
+                        finally:
+                            _close_response(resp_version)
                     active_backend_outdated = bool(active_backend_version) and is_version_outdated(
                         active_backend_version, MIN_CONVEX_BACKEND_VERSION
                     )
                 except (ValueError, AttributeError, requests.RequestException):
                     pass
-                resp_me = requests.get(f"{active_url}/api/me", headers=headers, timeout=3)
+                resp_me = None
                 quota_info = ""
-                if resp_me.status_code == 200:
-                    data = resp_me.json()
-                    used_mb = data.get("bytesUsed", 0) / (1024 * 1024)
-                    quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
-                    game_count = len(data.get("games", []))
-                    quota_info = f"{used_mb:.1f} MB used of {quota_mb:.0f} MB · {game_count} game(s) synced"
+                try:
+                    resp_me = requests.get(f"{active_url}/api/me", headers=headers, timeout=3)
+                    if resp_me.status_code == 200:
+                        data = resp_me.json()
+                        used_mb = data.get("bytesUsed", 0) / (1024 * 1024)
+                        quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
+                        game_count = len(data.get("games", []))
+                        quota_info = f"{used_mb:.1f} MB used of {quota_mb:.0f} MB · {game_count} game(s) synced"
+                finally:
+                    _close_response(resp_me)
 
                 banner("Active Cloud Save Backend", GREEN)
                 print(f"  {GREEN}{BOLD}✔ Status:{RESET}     Connected & Synchronizing")
@@ -1154,7 +1242,7 @@ def run_cloud_setup_wizard() -> int:
                 provided_secret=secret_key if is_new_setup else "",
             )
             if secret_result.get("ok"):
-                secret_key = str(secret_result.get("secret") or secret_key).strip()
+                secret_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key") or secret_key
                 print(f"  {GREEN}✔ {secret_result.get('message', 'SafeLauncher Secret Access Key is ready.')} {RESET}")
             else:
                 print(f"  {YELLOW}[!] Could not finish automatic secret setup: {secret_result.get('error', 'unknown error')}{RESET}")
@@ -1174,9 +1262,12 @@ def run_cloud_setup_wizard() -> int:
 
         # 1. Health probe
         resp = requests.get(f"{site_url}/api/health", headers=headers, timeout=6)
-        if resp.status_code != 200:
-            print(f"\n  {RED}✖ Health probe failed (HTTP {resp.status_code}). Check your Convex deployment.{RESET}\n")
-            return 1
+        try:
+            if resp.status_code != 200:
+                print(f"\n  {RED}✖ Health probe failed (HTTP {resp.status_code}). Check your Convex deployment.{RESET}\n")
+                return 1
+        finally:
+            _close_response(resp)
         print(f"  {GREEN}✔ Backend health probe passed.{RESET}")
 
         # 2. Account overview probe
@@ -1189,30 +1280,39 @@ def run_cloud_setup_wizard() -> int:
             return f"{n:.1f} GB"
 
         resp_me = requests.get(f"{site_url}/api/me", headers=headers, timeout=6)
-        if resp_me.status_code in (401, 403):
-            print(f"\n  {RED}✖ Quota verification failed: the backend rejected the credentials "
-                  f"(HTTP {resp_me.status_code}). The Secret Key is missing or wrong — "
-                  f"cloud sync will not work until it matches.{RESET}\n")
-            return 1
-        if resp_me.status_code == 200:
-            data = resp_me.json()
-            print(f"  {GREEN}✔ Quota verification:{RESET} "
-                  f"{_fmt_bytes(data.get('bytesUsed', 0))} used of {_fmt_bytes(data.get('quotaBytes', 0))} · "
-                  f"max {_fmt_bytes(data.get('maxSaveBytes', 0))} per save · "
-                  f"keeping last {data.get('keepVersions', '?')} generations")
+        me_ok = False
+        try:
+            if resp_me.status_code in (401, 403):
+                print(f"\n  {RED}✖ Quota verification failed: the backend rejected the credentials "
+                      f"(HTTP {resp_me.status_code}). The Secret Key is missing or wrong — "
+                      f"cloud sync will not work until it matches.{RESET}\n")
+                return 1
+            if resp_me.status_code == 200:
+                me_ok = True
+                data = resp_me.json()
+                print(f"  {GREEN}✔ Quota verification:{RESET} "
+                      f"{_fmt_bytes(data.get('bytesUsed', 0))} used of {_fmt_bytes(data.get('quotaBytes', 0))} · "
+                      f"max {_fmt_bytes(data.get('maxSaveBytes', 0))} per save · "
+                      f"keeping last {data.get('keepVersions', '?')} generations")
+            else:
+                print(f"  {YELLOW}● Warning: /api/me returned HTTP {resp_me.status_code}. (Check secret key if configured).{RESET}")
+        finally:
+            _close_response(resp_me)
 
-            # 3. Data key probe — save payloads are encrypted client-side with it.
+        # 3. Data key probe — save payloads are encrypted client-side with it.
+        if me_ok:
             try:
                 resp_key = requests.get(f"{site_url}/api/key", headers=headers, timeout=6)
-                if resp_key.status_code == 200 and resp_key.json().get("dataKeyB64"):
-                    print(f"  {GREEN}✔ Data encryption key available.{RESET}")
-                else:
-                    print(f"  {YELLOW}● Warning: /api/key returned HTTP {resp_key.status_code}; "
-                          f"save uploads will fail until it succeeds.{RESET}")
+                try:
+                    if resp_key.status_code == 200 and resp_key.json().get("dataKeyB64"):
+                        print(f"  {GREEN}✔ Data encryption key available.{RESET}")
+                    else:
+                        print(f"  {YELLOW}● Warning: /api/key returned HTTP {resp_key.status_code}; "
+                              f"save uploads will fail until it succeeds.{RESET}")
+                finally:
+                    _close_response(resp_key)
             except requests.RequestException as key_err:
                 print(f"  {YELLOW}● Warning: data key probe failed ({key_err}).{RESET}")
-        else:
-            print(f"  {YELLOW}● Warning: /api/me returned HTTP {resp_me.status_code}. (Check secret key if configured).{RESET}")
 
         # Save to local configuration
         settings.setValue("cloud_mode", "convex")

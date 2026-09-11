@@ -98,6 +98,19 @@ _MAX_SCHEMA_BYTES = 8 * 1024 * 1024
 _MAX_SCHEMA_RECORDS = 20_000
 
 
+def close_achievement_http_session() -> None:
+    """Release the process-wide schema/icon HTTP pool."""
+    global _HTTP_SESSION
+    session = _HTTP_SESSION
+    _HTTP_SESSION = None
+    if session is not None:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+
+
 def _validated_schema(records: Any) -> List[Dict[str, Any]]:
     """Keep only bounded, renderable achievement definitions."""
     clean: List[Dict[str, Any]] = []
@@ -163,6 +176,7 @@ def _download_icon(url: str, target_path: Path, timeout: float = 6.0) -> Optiona
         return ""
     if target_path.is_file() and target_path.stat().st_size > 0:
         return str(target_path)
+    resp = None
     try:
         session = _get_http_session()
         headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
@@ -172,6 +186,12 @@ def _download_icon(url: str, target_path: Path, timeout: float = 6.0) -> Optiona
             return str(target_path)
     except Exception as e:
         logger.debug(f"Failed to download achievement icon {url}: {e}")
+    finally:
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
     return ""
 
 
@@ -196,12 +216,19 @@ def download_achievement_icons_batch(
         if icon_url and icon_url.startswith("http"):
             target = app_icon_dir / f"{clean_name}_unlocked.png"
             if not target.is_file() or target.stat().st_size == 0:
+                resp = None
                 try:
                     resp = session.get(icon_url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}, timeout=timeout)
                     if resp.status_code == 200 and resp.content:
                         target.write_bytes(resp.content)
                 except Exception:
                     pass
+                finally:
+                    if resp is not None:
+                        try:
+                            resp.close()
+                        except Exception:
+                            pass
             if target.is_file() and target.stat().st_size > 0:
                 item["icon_path"] = str(target)
 
@@ -209,12 +236,19 @@ def download_achievement_icons_batch(
         if gray_url and gray_url.startswith("http"):
             target_gray = app_icon_dir / f"{clean_name}_locked.png"
             if not target_gray.is_file() or target_gray.stat().st_size == 0:
+                resp = None
                 try:
                     resp = session.get(gray_url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}, timeout=timeout)
                     if resp.status_code == 200 and resp.content:
                         target_gray.write_bytes(resp.content)
                 except Exception:
                     pass
+                finally:
+                    if resp is not None:
+                        try:
+                            resp.close()
+                        except Exception:
+                            pass
             if target_gray.is_file() and target_gray.stat().st_size > 0:
                 item["icongray_path"] = str(target_gray)
 
@@ -313,6 +347,7 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     session = _get_http_session()
+    resp = None
     try:
         resp = session.get(url, headers=headers, timeout=timeout)
         if resp.status_code == 429:
@@ -321,16 +356,27 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
             return []
         if resp.status_code != 200 or not resp.content:
             return []
+        # requests releases a non-streamed response after consuming it, but
+        # explicitly close it before CPU-heavy parsing so the shared session
+        # does not retain a connection while BeautifulSoup/regex work runs.
+        response_content = resp.content
+        response_text = resp.text
     except Exception as e:
         logger.debug(f"Steam Community HTML request failed for AppID {app_id}: {e}")
         return []
+    finally:
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
 
     achievements: List[Dict[str, Any]] = []
 
     # 1. Try BeautifulSoup if available
     if _HAS_BS4 and BeautifulSoup:
         try:
-            soup = BeautifulSoup(resp.content, "html.parser")
+            soup = BeautifulSoup(response_content, "html.parser")
             rows = soup.find_all("div", class_="achieveRow")
             for i, row in enumerate(rows):
                 img = row.find("img")
@@ -366,7 +412,7 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
         try:
             matches = re.findall(
                 r'<div class="achieveImgHolder">\s*<img[^>]*src="([^"]+)"[^>]*>\s*</div>\s*<div class="achieveTxtHolder">.*?<div class="achieveTxt">\s*<h3>(.*?)</h3>\s*<h5>(.*?)</h5>',
-                resp.text,
+                response_text,
                 re.DOTALL
             )
             for i, (icon_url, d_name, d_desc) in enumerate(matches):
@@ -448,6 +494,7 @@ def fetch_steam_achievements_schema(
 
     # 3. Try official Steam Web API (if API key available)
     if api_key and str(api_key).strip():
+        resp = None
         try:
             web_url = f"https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key={api_key.strip()}&appid={app_id}"
             headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
@@ -477,7 +524,20 @@ def fetch_steam_achievements_schema(
                         "unlock_time": 0.0,
                     })
         except Exception as e:
-            logger.debug(f"Steam Web API achievement fetch failed for AppID {app_id}: {e}")
+            # Never include the request URL in diagnostics: older Steam API
+            # callers supplied the Web API key as a query parameter and some
+            # requests exceptions echo the prepared URL.
+            logger.debug(
+                "Steam Web API achievement fetch failed for AppID %s: %s",
+                app_id,
+                type(e).__name__,
+            )
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
     # 4. Try public Steam Community HTML scraper (100% keyless, public, 1 single HTTP request)
     if not achievements:
@@ -485,6 +545,7 @@ def fetch_steam_achievements_schema(
 
     # 5. Try Steam Community XML stats endpoint
     if not achievements:
+        resp = None
         try:
             if _COMMUNITY_RATE_LIMITER.acquire(1.0, timeout=timeout):
                 xml_url = f"https://steamcommunity.com/stats/{app_id}/achievements/?xml=1"
@@ -519,6 +580,12 @@ def fetch_steam_achievements_schema(
                         })
         except Exception as e:
             logger.debug(f"Steam Community XML achievement fetch failed for AppID {app_id}: {e}")
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
     # If icons were explicitly requested, download in parallel
     achievements = _validated_schema(achievements)

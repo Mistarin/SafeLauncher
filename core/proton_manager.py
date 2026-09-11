@@ -146,6 +146,7 @@ def fetch_online_ge_proton_releases(max_results: int = 12) -> list[dict]:
         "Accept": "application/vnd.github.v3+json"
     }
     releases = []
+    response = None
     try:
         response = requests.get(GITHUB_RELEASES_API, headers=headers, timeout=10)
         if response.status_code == 200:
@@ -181,6 +182,12 @@ def fetch_online_ge_proton_releases(max_results: int = 12) -> list[dict]:
                     })
     except Exception as e:
         logger.error(f"Failed to fetch GE-Proton releases from GitHub: {e}")
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
     logger.info(f"Retrieved {len(releases)} GE-Proton releases from GitHub.")
     return releases
@@ -199,6 +206,30 @@ class GEProtonDownloader(SafeQThread):
         self.release_url = release_url
         self.tag_name = tag_name
         self.dest_dir = dest_dir or get_default_install_dir()
+        self._curl_process = None
+
+    @staticmethod
+    def _terminate_process(process) -> None:
+        """Terminate a downloader child and always reap it."""
+        if process is None or process.poll() is not None:
+            return
+        try:
+            process.terminate()
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+                process.wait(timeout=3)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        except OSError:
+            pass
+
+    def stop(self, timeout_ms: int = 3000):
+        """Cancel the worker and wake a curl fallback before waiting."""
+        self.request_cancel()
+        self._terminate_process(self._curl_process)
+        super().stop(timeout_ms)
 
     def safe_run(self):
         logger.info(f"Starting download of {self.tag_name} from {self.release_url}")
@@ -209,6 +240,8 @@ class GEProtonDownloader(SafeQThread):
         tar_filepath = os.path.join(self.dest_dir, tar_filename)
 
         success = False
+        session = None
+        resp = None
         try:
             session = requests.Session()
             session.headers.update({
@@ -257,19 +290,34 @@ class GEProtonDownloader(SafeQThread):
                     self.status_text.emit(f"Downloading {self.tag_name} via curl…")
                     cmd = ["curl", "-L", "--retry", "3", "-o", tar_filepath, self.release_url]
                     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._curl_process = proc
                     while proc.poll() is None:
                         if self.isInterruptionRequested():
-                            proc.terminate()
+                            self._terminate_process(proc)
                             if os.path.exists(tar_filepath):
                                 os.remove(tar_filepath)
                             self.download_failed.emit("Download cancelled by user.")
                             return
-                        self.sleep(1)
+                        self.msleep(100)
 
                     if proc.returncode == 0 and os.path.exists(tar_filepath):
                         success = True
                 except Exception as curl_err:
                     logger.error(f"Curl fallback failed: {curl_err}")
+                finally:
+                    self._terminate_process(self._curl_process)
+                    self._curl_process = None
+        finally:
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+            if session is not None:
+                try:
+                    session.close()
+                except Exception:
+                    pass
 
         if not success or not os.path.exists(tar_filepath):
             self.download_failed.emit("Network connection dropped during download. Please retry.")
@@ -287,6 +335,8 @@ class GEProtonDownloader(SafeQThread):
             with tarfile.open(tar_filepath, "r:*") as tar:
                 dest_root = os.path.realpath(self.dest_dir)
                 for member in tar.getmembers():
+                    if self.isInterruptionRequested():
+                        raise RuntimeError("Download cancelled by user.")
                     # Proton packages legitimately contain internal symlinks
                     # and hardlinks. Allow them only when their resolved target
                     # remains inside the destination; reject device nodes.

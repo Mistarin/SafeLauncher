@@ -20,6 +20,16 @@ from core.secret_store import get_secret, set_secret, delete_secret
 from ui.components.popup_shell import PopupDialog
 
 
+def _close_response(response) -> None:
+    """Close a short-lived wizard probe response on every path."""
+    if response is None:
+        return
+    try:
+        response.close()
+    except Exception:
+        pass
+
+
 class CloudWizardDialog(PopupDialog):
     """Interactive wizard to guide users through choosing setup mode, deploying, and connecting Convex cloud saves."""
 
@@ -775,10 +785,10 @@ class CloudWizardDialog(PopupDialog):
                             return False, (
                                 "Cloud Save Secret Access Key setup could not complete: "
                                 f"{secret_result.get('error', 'unknown error')}"
-                            ), None, ""
-                        test_key = str(secret_result.get("secret") or "").strip()
+                            ), None
+                        test_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
                         if not test_key:
-                            return False, "Cloud Save secret setup returned no usable local key.", None, ""
+                            return False, "Cloud Save secret setup returned no usable local key.", None
 
                 headers = {}
                 if test_key:
@@ -786,39 +796,42 @@ class CloudWizardDialog(PopupDialog):
                     headers["X-SafeLauncher-Key"] = test_key
 
                 resp = requests.get(f"{url}/api/health", headers=headers, timeout=6)
-                if resp.status_code == 404:
-                    return False, (
-                        "This is a legacy backend: /api/health is missing. "
-                        "Redeploy the backend with npm install and npx convex deploy --yes first."
-                    ), None, test_key
-                if resp.status_code != 200:
-                    return False, f"Health check failed with HTTP {resp.status_code}", None, test_key
-
-                health_data = resp.json() if resp.content else {}
+                try:
+                    if resp.status_code == 404:
+                        return False, (
+                            "This is a legacy backend: /api/health is missing. "
+                            "Redeploy the backend with npm install and npx convex deploy --yes first."
+                        ), None
+                    if resp.status_code != 200:
+                        return False, f"Health check failed with HTTP {resp.status_code}", None
+                    health_data = resp.json() if resp.content else {}
+                finally:
+                    _close_response(resp)
                 backend_version = str(health_data.get("version") or "1.0.0").strip()
                 if is_version_outdated(backend_version, MIN_CONVEX_BACKEND_VERSION):
                     return False, (
                         f"Backend v{backend_version} is outdated; SafeLauncher requires "
                         f"v{MIN_CONVEX_BACKEND_VERSION}. Redeploy it with npm install and npx convex deploy --yes."
-                    ), backend_version, test_key
+                    ), backend_version
 
                 resp_me = requests.get(f"{url}/api/me", headers=headers, timeout=6)
-                if resp_me.status_code in (401, 403):
-                    return False, "The backend requires a valid Secret Access Key. Enter the key configured in Convex.", None, test_key
-                if resp_me.status_code == 200:
-                    data = resp_me.json()
-                    quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
-                    return True, f"Connected! Available quota: {quota_mb:.0f} MB", None, test_key
-                return False, f"Backend is reachable, but account verification failed with HTTP {resp_me.status_code}.", None, test_key
+                try:
+                    if resp_me.status_code in (401, 403):
+                        return False, "The backend requires a valid Secret Access Key. Enter the key configured in Convex.", None
+                    if resp_me.status_code == 200:
+                        data = resp_me.json()
+                        quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
+                        return True, f"Connected! Available quota: {quota_mb:.0f} MB", None
+                    return False, f"Backend is reachable, but account verification failed with HTTP {resp_me.status_code}.", None
+                finally:
+                    _close_response(resp_me)
             except Exception as e:
-                return False, str(e), None, test_key
+                return False, str(e), None
 
         def _deliver(result, expected_generation=generation):
             if expected_generation != self._test_generation:
                 return
-            success, message, outdated_version, detected_key = result
-            if detected_key and not self.edit_key.text().strip():
-                self.edit_key.setText(detected_key)
+            success, message, outdated_version = result
             if outdated_version:
                 self.backend_upgrade_found.emit(outdated_version)
             self.test_completed.emit(success, message)
@@ -830,7 +843,7 @@ class CloudWizardDialog(PopupDialog):
         self.btn_back.setEnabled(True)
         if success:
             url = self.edit_url.text().strip().rstrip("/")
-            key = self.edit_key.text().strip()
+            key = self.edit_key.text().strip() or get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
             settings = QSettings("SafeLauncher", "SafeLauncher")
             settings.setValue("cloud_mode", "convex")
             settings.setValue("convex_site_url", url)

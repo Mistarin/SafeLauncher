@@ -198,6 +198,8 @@ def _backend():
     with _LISTING_LOCK:
         if _backend_singleton is None or _backend_context != context:
             from core.cloud_backend import ConvexSaveBackend
+            if _backend_singleton is not None:
+                _backend_singleton.close()
             _backend_singleton = ConvexSaveBackend()
             _backend_context = context
         return _backend_singleton
@@ -260,6 +262,8 @@ def reset_cloud_backend() -> None:
     global _backend_singleton, _LISTING_CACHE, _backend_context
     with _LISTING_LOCK:
         _LISTING_CACHE = {"ts": 0.0, "data": None, "context": ""}
+        if _backend_singleton is not None:
+            _backend_singleton.close()
     _backend_singleton = None
     _backend_context = ""
 

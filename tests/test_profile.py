@@ -6,6 +6,7 @@ import io
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -22,11 +23,31 @@ from core.profile_models import (
     save_profile_settings,
 )
 from database import GameDatabase
-from core.profile_service import ProfileServiceClient
+from core.profile_service import ProfileServiceClient, ProfileServiceError
+from core.central_auth import (
+    CentralAuthConfig,
+    CentralAuthSession,
+    OFFICIAL_AUTH0_AUDIENCE,
+    OFFICIAL_AUTH0_CLIENT_ID,
+    OFFICIAL_AUTH0_ISSUER,
+    get_central_auth_config,
+)
 from ui.components.profile_page import ProfilePageWidget
 
 
 class ProfileModelTests(unittest.TestCase):
+    def test_official_central_auth_defaults_are_configured(self):
+        with patch.dict("os.environ", {
+            "SAFELAUNCHER_AUTH0_ISSUER": "",
+            "SAFELAUNCHER_AUTH0_CLIENT_ID": "",
+            "SAFELAUNCHER_AUTH0_AUDIENCE": "",
+        }, clear=False):
+            config = get_central_auth_config()
+        self.assertEqual(config.issuer, OFFICIAL_AUTH0_ISSUER)
+        self.assertEqual(config.client_id, OFFICIAL_AUTH0_CLIENT_ID)
+        self.assertEqual(config.audience, OFFICIAL_AUTH0_AUDIENCE)
+        self.assertTrue(config.configured)
+
     def test_avatar_is_normalized_without_source_metadata(self):
         source = io.BytesIO()
         Image.new("RGBA", (1200, 600), (240, 40, 70, 128)).save(source, format="PNG")
@@ -147,6 +168,90 @@ class ProfileModelTests(unittest.TestCase):
 
         client.remove_friend(handle, target)
         self.assertEqual(session.request.call_args.args[:2], ("DELETE", "https://profiles.example/api/profile/v1/01234567890123456789/friends/abcdefabcdefabcdefabcd"))
+
+    def test_v2_client_uses_central_bearer_and_never_sends_legacy_token(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "profile": {
+                "schema_version": 1,
+                "handle": "01234567890123456789",
+                "display_name": "Central Player",
+                "avatar": None,
+                "background": DEFAULT_BACKGROUND,
+                "stats": {},
+                "favorite_games": [],
+                "recent_achievements": [],
+            },
+            "revision": 3,
+        }
+        http = Mock()
+        http.request.return_value = response
+        auth = Mock()
+        auth.authorization_header.return_value = "Bearer central-access-token"
+        client = ProfileServiceClient("https://profiles.example", "l" * 43, auth_session=auth)
+        client.session = http
+
+        profile = client.current_profile()
+
+        self.assertEqual(profile["handle"], "01234567890123456789")
+        request = http.request.call_args
+        self.assertEqual(request.args[:2], ("GET", "https://profiles.example/api/profile/v2/me"))
+        self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer central-access-token")
+        auth.authorization_header.assert_called_once_with()
+
+    def test_client_rejects_mixing_legacy_routes_with_central_auth(self):
+        auth = Mock()
+        client = ProfileServiceClient("https://profiles.example", "l" * 43, auth_session=auth)
+        with self.assertRaisesRegex(ProfileServiceError, "Legacy owner-token"):
+            client.delete("01234567890123456789")
+
+    def test_v2_client_refreshes_once_after_expired_access_token(self):
+        unauthorized = Mock(status_code=401)
+        unauthorized.json.return_value = {"code": "unauthorized", "error": "expired"}
+        accepted = Mock(status_code=200)
+        accepted.json.return_value = {"profile": None}
+        http = Mock()
+        http.request.side_effect = [unauthorized, accepted]
+        auth = Mock()
+        auth.authorization_header.side_effect = ["Bearer expired", "Bearer refreshed"]
+        client = ProfileServiceClient("https://profiles.example", auth_session=auth)
+        client.session = http
+
+        self.assertIsNone(client.current_profile())
+        self.assertEqual(http.request.call_count, 2)
+        self.assertEqual(http.request.call_args_list[1].kwargs["headers"]["Authorization"], "Bearer refreshed")
+        auth.authorization_header.assert_any_call(force_refresh=True)
+
+    def test_device_login_persists_refresh_token_and_requests_expected_audience(self):
+        device = Mock(status_code=200)
+        device.json.return_value = {
+            "device_code": "device-code",
+            "user_code": "ABCD-EFGH",
+            "verification_uri": "https://login.example/activate",
+            "expires_in": 600,
+            "interval": 5,
+        }
+        token = Mock(status_code=200)
+        token.json.return_value = {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "expires_in": 3600,
+        }
+        http = Mock()
+        http.post.side_effect = [device, token]
+        session = CentralAuthSession(
+            CentralAuthConfig("https://login.example", "client-id", "https://profiles.example"),
+            session=http,
+        )
+        with patch("core.central_auth.set_secret", return_value=True) as save_secret, \
+             patch("core.central_auth.webbrowser.open") as open_browser, \
+             patch("core.central_auth.time.sleep"), \
+             patch("core.central_auth.time.monotonic", side_effect=[0, 0, 0]):
+            self.assertEqual(session.device_login(open_browser=True), "access-token")
+
+        self.assertEqual(save_secret.call_args.args, ("central_profile_refresh_token", "refresh-token"))
+        open_browser.assert_called_once_with("https://login.example/activate", new=2)
+        self.assertEqual(http.post.call_args_list[0].kwargs["data"]["audience"], "https://profiles.example")
 
 
 class ProfilePageTests(unittest.TestCase):

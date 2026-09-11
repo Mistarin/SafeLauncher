@@ -116,6 +116,8 @@ class AddGameDialog(PopupDialog):
         self.fetcher_thread = None
         self.downloader_thread = None
         self.extractor_thread = None
+        self._close_requested = False
+        self._pending_result = 0
         self.search_results = []
         self.selected_steam_id = ""
         
@@ -374,15 +376,66 @@ class AddGameDialog(PopupDialog):
         """)
 
     def closeEvent(self, event):
-        """Clean up background threads on dialog close"""
-        for thread in [self.fetcher_thread, self.downloader_thread, self.extractor_thread]:
-            if thread and thread.isRunning():
-                thread.requestInterruption()
-                thread.quit()
-                thread.wait(7000)
-                if thread.isRunning():
-                    thread.wait()
+        """Defer dialog destruction until banner/archive workers have stopped."""
+        if self._defer_thread_close(0):
+            event.ignore()
+            return
         super().closeEvent(event)
+
+    def done(self, result: int) -> None:
+        """Protect modal accept/reject paths as well as the window close path."""
+        if self._defer_thread_close(result):
+            return
+        super().done(result)
+
+    def _defer_thread_close(self, result: int) -> bool:
+        active = [
+            thread for thread in (
+                self.fetcher_thread,
+                self.downloader_thread,
+                self.extractor_thread,
+            )
+            if thread is not None and thread.isRunning()
+        ]
+        if not active:
+            return False
+
+        self._close_requested = True
+        self._pending_result = result
+        for thread in active:
+            try:
+                thread.requestInterruption()
+            except RuntimeError:
+                continue
+            try:
+                thread.finished.disconnect(self._finish_deferred_thread_close)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                thread.finished.connect(self._finish_deferred_thread_close)
+            except RuntimeError:
+                pass
+        self.hide()
+        if not any(thread.isRunning() for thread in active):
+            QTimer.singleShot(0, self._finish_deferred_thread_close)
+        return True
+
+    def _finish_deferred_thread_close(self) -> None:
+        if not self._close_requested:
+            return
+        if any(
+            thread is not None and thread.isRunning()
+            for thread in (
+                self.fetcher_thread,
+                self.downloader_thread,
+                self.extractor_thread,
+            )
+        ):
+            return
+        result = self._pending_result
+        self._close_requested = False
+        self._pending_result = 0
+        super().done(result)
     
     def _scan_and_populate_exes(self, path: str):
         """Scan directory for executables and populate dropdown"""
@@ -461,11 +514,19 @@ class AddGameDialog(PopupDialog):
         self.fetch_btn.setEnabled(False)
         self.fetch_btn.setText("Searching...")
         
-        self.fetcher_thread = BannerFetcher(game_name, self.sgdb_client)
+        self.fetcher_thread = BannerFetcher(game_name, self.sgdb_client, parent=self)
         self.fetcher_thread.results_found.connect(self._on_results_found)
         self.fetcher_thread.error_occurred.connect(self._on_search_error)
         self.fetcher_thread.finished.connect(self._reset_fetch_button)
+        fetcher = self.fetcher_thread
+        fetcher.finished.connect(lambda thread=fetcher: self._release_fetcher(thread))
+        fetcher.finished.connect(fetcher.deleteLater)
         self.fetcher_thread.start()
+
+    def _release_fetcher(self, thread) -> None:
+        """Release a completed artwork lookup before the next search."""
+        if self.fetcher_thread is thread:
+            self.fetcher_thread = None
     
     def _on_results_found(self, results: list):
         """Display search results in a floating overlay popup menu right below the search button"""
@@ -518,11 +579,21 @@ class AddGameDialog(PopupDialog):
             banner_url = result.get('banner_url')
             if banner_url and self.sgdb_client:
                 if self.downloader_thread and self.downloader_thread.isRunning():
-                    self.downloader_thread.quit()
-                    self.downloader_thread.wait(500)
-                self.downloader_thread = BannerDownloader(banner_url, self.sgdb_client)
-                self.downloader_thread.download_complete.connect(self._on_banner_downloaded)
-                self.downloader_thread.start()
+                    self.downloader_thread.requestInterruption()
+                    if not self.downloader_thread.wait(3000):
+                        self._on_search_error("The previous cover download is still stopping; please try again.")
+                        return
+                self.downloader_thread = BannerDownloader(banner_url, self.sgdb_client, parent=self)
+                downloader = self.downloader_thread
+                downloader.download_complete.connect(self._on_banner_downloaded)
+                downloader.finished.connect(lambda thread=downloader: self._release_downloader(thread))
+                downloader.finished.connect(downloader.deleteLater)
+                downloader.start()
+
+    def _release_downloader(self, thread) -> None:
+        """Release a completed artwork download before another selection."""
+        if self.downloader_thread is thread:
+            self.downloader_thread = None
     
     def _on_banner_downloaded(self, image_path: str):
         """Update preview image when background download completes with smooth scaling"""
@@ -1163,6 +1234,7 @@ class SafeLaunchDialog(PopupDialog):
         elif self.process and getattr(self.process, 'stdout', None):
             self.reader_thread = SafeLaunchLogReader(self.process, self)
             self.reader_thread.log_line.connect(self.append_log)
+            self.reader_thread.finished.connect(self.reader_thread.deleteLater)
             self.reader_thread.start()
 
         self.process_timer = None

@@ -1,0 +1,26 @@
+name = "safelauncher-profile-gateway"
+main = "src/index.ts"
+compatibility_date = "2026-09-10"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+CONVEX_ORIGIN = "https://redacted.invalid"
+AUTH0_ISSUER = "https://dev-712dm7e8q0c2tie3.us.auth0.com/"
+AUTH0_AUDIENCE = "https://profiles.safelauncher.app"
+
+[[ratelimits]]
+name = "PROFILE_PUBLIC_LIMITER"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
+
+[[ratelimits]]
+name = "PROFILE_AUTH_LIMITER"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
+[[routes]]
+pattern = "profiles.safelauncher.app"
+custom_domain = true
+
+# Bind profiles.safelauncher.app to this Worker in the Cloudflare dashboard.
+# The gateway secret is deliberately configured with `wrangler secret put`.

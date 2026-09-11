@@ -32,6 +32,7 @@ def _get_anonymous_client_id() -> str:
 
 def send_central_telemetry(app_version: str) -> bool:
     """Send one bounded anonymous heartbeat in the caller's managed worker."""
+    resp = None
     try:
         settings = QSettings("SafeLauncher", "SafeLauncher")
         if not settings.value("telemetry_enabled", True, type=bool):
@@ -53,4 +54,10 @@ def send_central_telemetry(app_version: str) -> bool:
             return True
     except Exception as e:
         logger.debug(f"Telemetry heartbeat note: {e}")
+    finally:
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
     return False

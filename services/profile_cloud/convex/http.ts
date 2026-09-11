@@ -5,6 +5,8 @@ import {
   ApiError,
   jsonResponse,
   ownerToken,
+  requireCentralIdentity,
+  requireGateway,
   readJsonBody,
   sha256,
   validHandle,
@@ -13,7 +15,68 @@ import {
 } from "./lib/api";
 
 const http = httpRouter();
-const SERVICE_VERSION = "1.1.0";
+const SERVICE_VERSION = "2.0.0";
+
+function generatedHandle(): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function profilePayload(profile: any): Record<string, unknown> {
+  return {
+    profile: JSON.parse(profile.profile),
+    revision: profile.revision,
+    updatedAt: profile.updatedAt,
+  };
+}
+
+function throwProfileError(result: any): void {
+  const error = result?.error;
+  if (!error) return;
+  const statuses: Record<string, number> = {
+    not_found: 404,
+    unauthorized: 401,
+    claimed: 409,
+    identity_has_profile: 409,
+    profile_exists_for_identity: 409,
+    exists: 409,
+    conflict: 409,
+  };
+  const messages: Record<string, string> = {
+    not_found: "Profile not found.",
+    unauthorized: "The central login is not authorized for this profile.",
+    claimed: "This profile is already linked to another account.",
+    identity_has_profile: "This central account already owns a profile.",
+    profile_exists_for_identity: "This central account already owns a profile.",
+    exists: "Profile handle is already in use.",
+    conflict: "The profile changed on another device.",
+  };
+  throw new ApiError(
+    statuses[error] || 400,
+    error,
+    messages[error] || "The profile operation could not be completed.",
+    error === "conflict" ? { revision: result.revision } : undefined,
+  );
+}
+
+async function enforceWriteLimit(
+  ctx: any,
+  ownerIdentityHash: string,
+  operation: string,
+  limit: number,
+  windowSeconds: number,
+): Promise<void> {
+  const result = await ctx.runMutation(internal.rate_limits.consume, {
+    bucketKey: `${ownerIdentityHash}:${operation}`,
+    limit,
+    windowSeconds,
+  });
+  if (!result.allowed)
+    throw new ApiError(429, "rate_limited", "Too many profile operations; try again later.", {
+      retryAfter: result.retryAfter,
+    });
+}
 
 function throwSocialError(result: any): void {
   const error = result?.error;
@@ -33,7 +96,7 @@ function throwSocialError(result: any): void {
     block_limit: 409,
   };
   const messages: Record<string, string> = {
-    unauthorized: "The profile owner token is invalid.",
+    unauthorized: "The central login is not authorized for this profile.",
     not_found: "Profile not found.",
     target_not_found: "The target profile was not found.",
     request_not_found: "The friend request is no longer pending.",
@@ -58,6 +121,7 @@ async function dispatch(
   req: Request,
 ): Promise<Response> {
   try {
+    requireGateway(req);
     const url = new URL(req.url);
     const match = url.pathname.match(
       /^\/api\/profile\/v1\/([^/]+)(\/rotate-token)?$/,
@@ -69,6 +133,181 @@ async function dispatch(
         version: SERVICE_VERSION,
       });
     }
+
+    const v2SocialMatch = url.pathname.match(
+      /^\/api\/profile\/v2\/me\/(friends|friend-requests|blocks)(?:\/([^/]+)(?:\/(accept|decline|cancel))?)?$/,
+    );
+    if (url.pathname === "/api/profile/v2/me" || v2SocialMatch) {
+      const { ownerIdentityHash } = await requireCentralIdentity(ctx, req);
+      const owner = await ctx.runQuery(internal.profiles.getByIdentity, {
+        ownerIdentityHash,
+      });
+
+      if (!v2SocialMatch) {
+        if (method === "GET") {
+          return jsonResponse(owner ? profilePayload(owner) : { profile: null });
+        }
+        if (method === "POST") {
+          await enforceWriteLimit(ctx, ownerIdentityHash, "profile-write", 30, 600);
+          const body = await readJsonBody(req);
+          const raw = body.profile;
+          if (!raw || typeof raw !== "object" || Array.isArray(raw))
+            throw new ApiError(400, "invalid_profile", "Profile must be an object.");
+          const candidate = { ...(raw as Record<string, unknown>) };
+          const handle = validHandle(candidate.handle)
+            ? candidate.handle
+            : generatedHandle();
+          candidate.handle = handle;
+          const serialized = validatePublicProfile(candidate);
+          if (owner)
+            throw new ApiError(409, "profile_exists_for_identity", "This central account already owns a profile.");
+          const result = await ctx.runMutation(internal.profiles.createForIdentity, {
+            handle,
+            ownerIdentityHash,
+            profile: serialized,
+          });
+          throwProfileError(result);
+          return jsonResponse(result);
+        }
+        if (method === "PUT") {
+          await enforceWriteLimit(ctx, ownerIdentityHash, "profile-write", 30, 600);
+          if (!owner) throw new ApiError(404, "not_found", "Profile not found.");
+          const body = await readJsonBody(req);
+          const revision = body.revision;
+          if (typeof revision !== "number" || !Number.isSafeInteger(revision))
+            throw new ApiError(400, "invalid_revision", "A numeric revision is required.");
+          const profile = body.profile as Record<string, unknown>;
+          const serialized = validatePublicProfile(profile);
+          if (profile.handle !== owner.handle)
+            throw new ApiError(400, "handle_mismatch", "The profile handle cannot be changed.");
+          const result = await ctx.runMutation(internal.profiles.update, {
+            handle: owner.handle,
+            ownerTokenHash: "",
+            ownerIdentityHash,
+            profile: serialized,
+            revision,
+          });
+          throwProfileError(result);
+          return jsonResponse(result);
+        }
+        if (method === "DELETE") {
+          await enforceWriteLimit(ctx, ownerIdentityHash, "profile-write", 10, 600);
+          if (!owner) return jsonResponse({ deleted: false });
+          const result = await ctx.runMutation(internal.profiles.remove, {
+            handle: owner.handle,
+            ownerTokenHash: "",
+            ownerIdentityHash,
+          });
+          throwProfileError(result);
+          return jsonResponse({ deleted: true });
+        }
+        throw new ApiError(405, "method_not_allowed", "Method not allowed.");
+      }
+
+      if (!owner)
+        throw new ApiError(404, "profile_required", "Create a public profile first.");
+      const resource = v2SocialMatch[1];
+      const identifier = v2SocialMatch[2];
+      const action = v2SocialMatch[3];
+      const handle = owner.handle;
+      if (method === "GET" && resource === "friends" && !identifier && !action) {
+        const result = await ctx.runQuery(internal.profiles.getSocial, {
+          handle,
+          ownerTokenHash: "",
+          ownerIdentityHash,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+      if (resource === "friend-requests" && method === "POST" && !identifier) {
+        await enforceWriteLimit(ctx, ownerIdentityHash, "friend-request", 20, 3600);
+        const body = await readJsonBody(req);
+        if (!validHandle(body.targetHandle))
+          throw new ApiError(400, "invalid_handle", "A valid target handle is required.");
+        const result = await ctx.runMutation(internal.profiles.createFriendRequest, {
+          requesterHandle: handle,
+          ownerTokenHash: "",
+          ownerIdentityHash,
+          recipientHandle: body.targetHandle,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+      if (resource === "friend-requests" && method === "POST" && identifier && action) {
+        await enforceWriteLimit(ctx, ownerIdentityHash, "friend-response", 60, 600);
+        if (!validRequestId(identifier))
+          throw new ApiError(400, "invalid_request", "The friend request identifier is invalid.");
+        const result = await ctx.runMutation(internal.profiles.respondFriendRequest, {
+          requestId: identifier as any,
+          handle,
+          ownerTokenHash: "",
+          ownerIdentityHash,
+          action,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+      if (resource === "friends" && method === "DELETE" && identifier && !action) {
+        await enforceWriteLimit(ctx, ownerIdentityHash, "relationship-write", 60, 600);
+        if (!validHandle(identifier))
+          throw new ApiError(400, "invalid_handle", "A valid friend handle is required.");
+        const result = await ctx.runMutation(internal.profiles.removeFriend, {
+          handle,
+          ownerTokenHash: "",
+          ownerIdentityHash,
+          friendHandle: identifier,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+      if (resource === "blocks" && method === "POST" && !identifier) {
+        await enforceWriteLimit(ctx, ownerIdentityHash, "relationship-write", 60, 600);
+        const body = await readJsonBody(req);
+        if (!validHandle(body.targetHandle))
+          throw new ApiError(400, "invalid_handle", "A valid target handle is required.");
+        const result = await ctx.runMutation(internal.profiles.blockUser, {
+          handle,
+          ownerTokenHash: "",
+          ownerIdentityHash,
+          blockedHandle: body.targetHandle,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+      if (resource === "blocks" && method === "DELETE" && identifier && !action) {
+        await enforceWriteLimit(ctx, ownerIdentityHash, "relationship-write", 60, 600);
+        if (!validHandle(identifier))
+          throw new ApiError(400, "invalid_handle", "A valid blocked handle is required.");
+        const result = await ctx.runMutation(internal.profiles.unblockUser, {
+          handle,
+          ownerTokenHash: "",
+          ownerIdentityHash,
+          blockedHandle: identifier,
+        });
+        throwSocialError(result);
+        return jsonResponse(result);
+      }
+      throw new ApiError(405, "method_not_allowed", "Method not allowed.");
+    }
+
+    if (url.pathname === "/api/profile/v2/me/claim" && method === "POST") {
+      const { ownerIdentityHash } = await requireCentralIdentity(ctx, req);
+      await enforceWriteLimit(ctx, ownerIdentityHash, "profile-claim", 5, 3600);
+      const body = await readJsonBody(req);
+      if (!validHandle(body.handle))
+        throw new ApiError(400, "invalid_handle", "A valid profile handle is required.");
+      const token = body.ownerToken;
+      if (typeof token !== "string" || token.length < 32 || token.length > 256)
+        throw new ApiError(400, "invalid_token", "A valid legacy profile token is required.");
+      const result = await ctx.runMutation(internal.profiles.claimLegacy, {
+        handle: body.handle,
+        ownerTokenHash: await sha256(token),
+        ownerIdentityHash,
+      });
+      throwProfileError(result);
+      return jsonResponse(result);
+    }
+
     if (url.pathname === "/api/profile/v1" && method === "POST") {
       const body = await readJsonBody(req);
       const handle = body.handle;

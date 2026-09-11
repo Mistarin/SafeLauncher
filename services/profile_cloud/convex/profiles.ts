@@ -25,11 +25,16 @@ async function getProfile(ctx: any, handle: string): Promise<any | null> {
 async function authorize(
   ctx: any,
   handle: string,
-  ownerTokenHash: string,
+  ownerTokenHash = "",
+  ownerIdentityHash = "",
 ): Promise<any> {
   const profile = await getProfile(ctx, handle);
   if (!profile) return { error: "not_found" };
-  if (!constantTimeEqual(profile.ownerTokenHash, ownerTokenHash))
+  const stored = ownerIdentityHash
+    ? profile.ownerIdentityHash
+    : profile.ownerTokenHash;
+  const supplied = ownerIdentityHash || ownerTokenHash;
+  if (typeof stored !== "string" || !constantTimeEqual(stored, supplied))
     return { error: "unauthorized" };
   return profile;
 }
@@ -124,10 +129,24 @@ export const get = internalQuery({
   },
 });
 
-export const getSocial = internalQuery({
-  args: { handle: v.string(), ownerTokenHash: v.string() },
+export const getByIdentity = internalQuery({
+  args: { ownerIdentityHash: v.string() },
   handler: async (ctx, args) => {
-    const owner = await authorize(ctx, args.handle, args.ownerTokenHash);
+    return await ctx.db
+      .query("publicProfiles")
+      .withIndex("by_owner_identity", (q) => q.eq("ownerIdentityHash", args.ownerIdentityHash))
+      .unique();
+  },
+});
+
+export const getSocial = internalQuery({
+  args: {
+    handle: v.string(),
+    ownerTokenHash: v.string(),
+    ownerIdentityHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const owner = await authorize(ctx, args.handle, args.ownerTokenHash, args.ownerIdentityHash);
     if (owner.error) return owner;
 
     const [memberA, memberB, incoming, outgoing, blocked] = await Promise.all([
@@ -232,10 +251,71 @@ export const create = internalMutation({
   },
 });
 
+export const createForIdentity = internalMutation({
+  args: {
+    handle: v.string(),
+    ownerIdentityHash: v.string(),
+    profile: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existingOwner = await ctx.db
+      .query("publicProfiles")
+      .withIndex("by_owner_identity", (q) => q.eq("ownerIdentityHash", args.ownerIdentityHash))
+      .unique();
+    if (existingOwner) return { error: "profile_exists_for_identity", profile: existingOwner };
+    const existingHandle = await getProfile(ctx, args.handle);
+    if (existingHandle) return { error: "exists" };
+    const now = Date.now();
+    await ctx.db.insert("publicProfiles", {
+      handle: args.handle,
+      ownerIdentityHash: args.ownerIdentityHash,
+      profile: args.profile,
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { revision: 1, updatedAt: now };
+  },
+});
+
+export const claimLegacy = internalMutation({
+  args: {
+    handle: v.string(),
+    ownerTokenHash: v.string(),
+    ownerIdentityHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await getProfile(ctx, args.handle);
+    if (!existing) return { error: "not_found" };
+    const alreadyOwned = existing.ownerIdentityHash;
+    if (typeof alreadyOwned === "string") {
+      return constantTimeEqual(alreadyOwned, args.ownerIdentityHash)
+        ? { claimed: true, revision: existing.revision }
+        : { error: "claimed" };
+    }
+    if (typeof existing.ownerTokenHash !== "string" ||
+        !constantTimeEqual(existing.ownerTokenHash, args.ownerTokenHash))
+      return { error: "unauthorized" };
+    const identityOwner = await ctx.db
+      .query("publicProfiles")
+      .withIndex("by_owner_identity", (q) => q.eq("ownerIdentityHash", args.ownerIdentityHash))
+      .unique();
+    if (identityOwner && identityOwner._id !== existing._id)
+      return { error: "identity_has_profile" };
+    await ctx.db.patch(existing._id, {
+      ownerIdentityHash: args.ownerIdentityHash,
+      ownerTokenHash: undefined,
+      updatedAt: Date.now(),
+    });
+    return { claimed: true, revision: existing.revision };
+  },
+});
+
 export const createFriendRequest = internalMutation({
   args: {
     requesterHandle: v.string(),
     ownerTokenHash: v.string(),
+    ownerIdentityHash: v.optional(v.string()),
     recipientHandle: v.string(),
   },
   handler: async (ctx, args) => {
@@ -243,6 +323,7 @@ export const createFriendRequest = internalMutation({
       ctx,
       args.requesterHandle,
       args.ownerTokenHash,
+      args.ownerIdentityHash,
     );
     if (requester.error) return requester;
     if (args.requesterHandle === args.recipientHandle)
@@ -316,10 +397,11 @@ export const respondFriendRequest = internalMutation({
     requestId: v.id("friendRequests"),
     handle: v.string(),
     ownerTokenHash: v.string(),
+    ownerIdentityHash: v.optional(v.string()),
     action: v.string(),
   },
   handler: async (ctx, args) => {
-    const owner = await authorize(ctx, args.handle, args.ownerTokenHash);
+    const owner = await authorize(ctx, args.handle, args.ownerTokenHash, args.ownerIdentityHash);
     if (owner.error) return owner;
     if (!["accept", "decline", "cancel"].includes(args.action))
       return { error: "invalid_action" };
@@ -378,10 +460,11 @@ export const removeFriend = internalMutation({
   args: {
     handle: v.string(),
     ownerTokenHash: v.string(),
+    ownerIdentityHash: v.optional(v.string()),
     friendHandle: v.string(),
   },
   handler: async (ctx, args) => {
-    const owner = await authorize(ctx, args.handle, args.ownerTokenHash);
+    const owner = await authorize(ctx, args.handle, args.ownerTokenHash, args.ownerIdentityHash);
     if (owner.error) return owner;
     const friendship = await findFriendship(
       ctx,
@@ -398,10 +481,11 @@ export const blockUser = internalMutation({
   args: {
     handle: v.string(),
     ownerTokenHash: v.string(),
+    ownerIdentityHash: v.optional(v.string()),
     blockedHandle: v.string(),
   },
   handler: async (ctx, args) => {
-    const owner = await authorize(ctx, args.handle, args.ownerTokenHash);
+    const owner = await authorize(ctx, args.handle, args.ownerTokenHash, args.ownerIdentityHash);
     if (owner.error) return owner;
     if (args.handle === args.blockedHandle) return { error: "self_block" };
     if (!(await getProfile(ctx, args.blockedHandle)))
@@ -467,10 +551,11 @@ export const unblockUser = internalMutation({
   args: {
     handle: v.string(),
     ownerTokenHash: v.string(),
+    ownerIdentityHash: v.optional(v.string()),
     blockedHandle: v.string(),
   },
   handler: async (ctx, args) => {
-    const owner = await authorize(ctx, args.handle, args.ownerTokenHash);
+    const owner = await authorize(ctx, args.handle, args.ownerTokenHash, args.ownerIdentityHash);
     if (owner.error) return owner;
     const existing = await ctx.db
       .query("profileBlocks")
@@ -489,6 +574,7 @@ export const update = internalMutation({
   args: {
     handle: v.string(),
     ownerTokenHash: v.string(),
+    ownerIdentityHash: v.optional(v.string()),
     profile: v.string(),
     revision: v.number(),
   },
@@ -498,7 +584,9 @@ export const update = internalMutation({
       .withIndex("by_handle", (q) => q.eq("handle", args.handle))
       .unique();
     if (!existing) return { error: "not_found" };
-    if (!constantTimeEqual(existing.ownerTokenHash, args.ownerTokenHash))
+    const stored = args.ownerIdentityHash ? existing.ownerIdentityHash : existing.ownerTokenHash;
+    const supplied = args.ownerIdentityHash || args.ownerTokenHash;
+    if (typeof stored !== "string" || !constantTimeEqual(stored, supplied))
       return { error: "unauthorized" };
     if (existing.revision !== args.revision)
       return { error: "conflict", revision: existing.revision };
@@ -514,14 +602,20 @@ export const update = internalMutation({
 });
 
 export const remove = internalMutation({
-  args: { handle: v.string(), ownerTokenHash: v.string() },
+  args: {
+    handle: v.string(),
+    ownerTokenHash: v.string(),
+    ownerIdentityHash: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("publicProfiles")
       .withIndex("by_handle", (q) => q.eq("handle", args.handle))
       .unique();
     if (!existing) return { error: "not_found" };
-    if (!constantTimeEqual(existing.ownerTokenHash, args.ownerTokenHash))
+    const stored = args.ownerIdentityHash ? existing.ownerIdentityHash : existing.ownerTokenHash;
+    const supplied = args.ownerIdentityHash || args.ownerTokenHash;
+    if (typeof stored !== "string" || !constantTimeEqual(stored, supplied))
       return { error: "unauthorized" };
 
     const [outgoing, incoming, memberA, memberB, blocked, blockedBy] =
@@ -579,6 +673,7 @@ export const rotateToken = internalMutation({
   args: {
     handle: v.string(),
     ownerTokenHash: v.string(),
+    ownerIdentityHash: v.optional(v.string()),
     newOwnerTokenHash: v.string(),
   },
   handler: async (ctx, args) => {
@@ -587,7 +682,8 @@ export const rotateToken = internalMutation({
       .withIndex("by_handle", (q) => q.eq("handle", args.handle))
       .unique();
     if (!existing) return { error: "not_found" };
-    if (!constantTimeEqual(existing.ownerTokenHash, args.ownerTokenHash))
+    if (typeof existing.ownerTokenHash !== "string" ||
+        !constantTimeEqual(existing.ownerTokenHash, args.ownerTokenHash))
       return { error: "unauthorized" };
     await ctx.db.patch(existing._id, {
       ownerTokenHash: args.newOwnerTokenHash,

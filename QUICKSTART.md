@@ -33,11 +33,11 @@ Each save upload is AES-256-GCM encrypted on your PC (up to the 1 GB free storag
 
 ## Public profiles (optional)
 
-The profile page is available from `View → Profile` or the user icon in the title bar. Configure the central profile-service URL under `Edit profile`, choose an avatar/background, and publish. SafeLauncher generates a public handle and stores the owner token in the OS credential store. Other users can open the handle from `Open Public Profile…`; they receive a read-only view.
+The profile page is available from `View → Profile` or the user icon in the title bar. Sign in with the central Auth0 account, choose an avatar/background, and publish. SafeLauncher generates a public handle and stores only the rotating Auth0 refresh token in the OS credential store. Other users can open the handle from `Open Public Profile…`; they receive a read-only view.
 
-The public profile is derived from the local account profile and never includes game paths, executable names, devices, cloud credentials, or private save state. Deploy the independent Convex service in `services/profile_cloud` as its own Convex project; do not deploy it into a personal save backend.
+The public profile is derived from the local account profile and never includes game paths, executable names, devices, cloud credentials, or private save state. The developer-operated Convex service in `services/profile_cloud` is reached through the production Vercel gateway at `https://profilegateway.vercel.app`; the raw Convex URL and gateway secret stay server-side. Do not deploy the profile service into a personal save backend.
 
-Friends use the same public-profile service: share the generated handle, open the other profile, and choose `Add friend`. Requests require acceptance and friend lists remain private to each owner. SafeLauncher clients do not connect Convex deployments directly to one another.
+Friends use the same public-profile service: share the generated handle, open the other profile, and choose `Add friend`. Requests require acceptance and friend lists remain private to each owner. SafeLauncher clients do not connect Convex deployments directly to one another; authenticated social writes use the central Auth0 session.
 
 
 ## What's Included
