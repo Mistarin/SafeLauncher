@@ -10,7 +10,7 @@ from unittest.mock import patch
 from pathlib import Path
 from unittest.mock import Mock
 
-from PyQt6.QtCore import QSettings
+from PyQt6.QtCore import QSettings, QTimer, Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from core.profile_avatar_catalog import (
@@ -529,11 +529,20 @@ class ProfilePageTests(unittest.TestCase):
         }]
         dialog = ProfileAvatarCatalogDialog(catalog, "r-1-1")
         try:
-            self.assertEqual(dialog.table.rowCount(), 2)
+            self.assertEqual(dialog.objectName(), "safeLauncherPopup")
+            self.assertTrue(dialog.windowFlags() & Qt.WindowType.FramelessWindowHint)
+            self.assertEqual(dialog.windowTitle(), "Choose profile picture")
+            self.assertEqual(dialog.btn_select.text(), "Select")
+            self.assertEqual(dialog.table.columnCount(), 6)
+            self.assertEqual(dialog.table.rowCount(), 1)
             self.assertEqual(dialog.selected_avatar_id, "r-1-1")
             dialog.search.setText("standard")
             self.assertFalse(dialog.table.isRowHidden(0))
-            self.assertTrue(dialog.table.isRowHidden(1))
+            self.assertFalse(dialog._tiles_by_id["1-1"].isHidden())
+            self.assertTrue(dialog._tiles_by_id["r-1-1"].isHidden())
+            QTimer.singleShot(0, dialog.accept)
+            self.assertEqual(dialog.exec(), dialog.DialogCode.Accepted)
+            self.assertEqual(dialog.selected_avatar_id, "r-1-1")
         finally:
             dialog.close()
             dialog.deleteLater()
@@ -569,6 +578,44 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertFalse(page.friends_section.isHidden())
                 page.show_owner()
                 self.assertEqual(page._mode, "owner")
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
+    def test_profile_owner_actions_are_unified_and_public_view_is_read_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            db = GameDatabase(":memory:")
+            auth = Mock()
+            auth.signed_in = False
+            page = ProfilePageWidget(db, settings, auth_session=auth)
+            try:
+                self.assertIs(page.btn_auth, page.btn_sign_in)
+                self.assertIs(page.btn_auth, page.btn_sign_out)
+                self.assertIs(page.btn_banner_edit, page.btn_edit)
+                self.assertEqual(page.btn_auth.text(), "Sign in")
+                self.assertFalse(page.profile_action_strip.isHidden())
+                self.assertFalse(page.btn_banner_edit.isHidden())
+
+                auth.signed_in = True
+                page._set_admin_controls(True)
+                self.assertEqual(page.btn_auth.text(), "Sign out")
+
+                page._start_edit()
+                self.assertTrue(page.btn_banner_edit.isHidden())
+                page._cancel_edit()
+                self.assertFalse(page.btn_banner_edit.isHidden())
+
+                public = build_public_projection(db, {
+                    "display_name": "Public Player",
+                    "public_handle": "01234567890123456789",
+                    "background": DEFAULT_BACKGROUND,
+                })
+                self.assertTrue(page.show_public(public))
+                self.assertTrue(page.profile_action_strip.isHidden())
+                self.assertTrue(page.btn_banner_edit.isHidden())
             finally:
                 page.close()
                 page.deleteLater()

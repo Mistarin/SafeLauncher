@@ -6,7 +6,7 @@ import hashlib
 import os
 from typing import Any
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
+from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
 from PyQt6.QtGui import QColor, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QColorDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
@@ -326,6 +326,12 @@ class ProfilePageWidget(QWidget):
             QScrollArea#profileScroll > QWidget > QWidget {{ background: transparent; }}
             QWidget#profileCanvas {{ background: transparent; }}
             QFrame#profileSection {{ background: {SURFACE}; border: none; }}
+            QFrame#profileActionStrip {{ background: {SURFACE}; border: none; }}
+            QPushButton#profileActionButton {{ border: none; border-radius: 6px; padding: 7px 11px; }}
+            QPushButton#profileActionButton:hover {{ background: {SURFACE_ELEVATED}; }}
+            QPushButton#profileActionButton:disabled {{ color: {TEXT_MUTED}; }}
+            QPushButton#profileBannerEdit {{ background: transparent; border: none; border-radius: 6px; }}
+            QPushButton#profileBannerEdit:hover {{ background: rgba(255, 255, 255, 0.10); }}
             QFrame#profileGameCard {{ background: {SURFACE_ELEVATED}; border: none; border-radius: 8px; }}
             QFrame#profileGameCard:hover {{ background: #252A34; }}
             QFrame#profileSeeMoreCard {{ background: {SURFACE}; border: 1px dashed {BORDER}; border-radius: 8px; }}
@@ -391,7 +397,10 @@ class ProfilePageWidget(QWidget):
         self.column.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.column_layout = QVBoxLayout(self.column)
         self.column_layout.setContentsMargins(0, 0, 0, 0)
-        self.column_layout.setSpacing(14)
+        # The hero, action strip, and stats form one continuous profile header.
+        # Section spacing is added explicitly below so that only this boundary
+        # is closed up; the rest of the page keeps its visual separation.
+        self.column_layout.setSpacing(0)
         content_layout.addWidget(self.column, 10)
         content_layout.addStretch(1)
         self.scroll.setWidget(content)
@@ -433,7 +442,58 @@ class ProfilePageWidget(QWidget):
         identity.addWidget(self.status_label)
         identity.addStretch()
         hero_layout.addLayout(identity, 1)
+        self.btn_banner_edit = QPushButton()
+        self.btn_banner_edit.setObjectName("profileBannerEdit")
+        self.btn_banner_edit.setAccessibleName("Edit profile")
+        self.btn_banner_edit.setToolTip("Edit profile")
+        self.btn_banner_edit.setIcon(get_icon("ph.gear-six-bold", color=TEXT_SECONDARY))
+        self.btn_banner_edit.setIconSize(QSize(18, 18))
+        self.btn_banner_edit.setFixedSize(36, 36)
+        self.btn_banner_edit.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_banner_edit.clicked.connect(self._start_edit)
+        hero_layout.addWidget(self.btn_banner_edit, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        # Compatibility alias for integrations that used the old bottom edit
+        # button. The actual control now lives in the banner.
+        self.btn_edit = self.btn_banner_edit
         self.column_layout.addWidget(self.hero)
+
+        self.profile_action_strip = QFrame()
+        self.profile_action_strip.setObjectName("profileActionStrip")
+        action_layout = QHBoxLayout(self.profile_action_strip)
+        action_layout.setContentsMargins(18, 9, 18, 9)
+        action_layout.setSpacing(6)
+
+        self.btn_auth = QPushButton("Sign in")
+        self.btn_auth.setObjectName("profileActionButton")
+        self.btn_auth.setAccessibleName("Profile sign in or sign out")
+        self.btn_auth.setIcon(get_icon("ph.sign-in-bold", color="#FFFFFF"))
+        self.btn_auth.setIconSize(QSize(16, 16))
+        self.btn_auth.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_auth.clicked.connect(self._auth_button_clicked)
+        action_layout.addWidget(self.btn_auth)
+        # Compatibility aliases; there is intentionally only one auth widget.
+        self.btn_sign_in = self.btn_auth
+        self.btn_sign_out = self.btn_auth
+
+        self.btn_publish = QPushButton("Publish profile")
+        self.btn_publish.setObjectName("profileActionButton")
+        self.btn_publish.setIcon(get_icon("ph.upload-simple-bold", color="#FFFFFF"))
+        self.btn_publish.setIconSize(QSize(16, 16))
+        self.btn_publish.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_publish.clicked.connect(self._publish)
+        action_layout.addWidget(self.btn_publish)
+
+        self.btn_resync = QPushButton("Resync")
+        self.btn_resync.setObjectName("profileActionButton")
+        self.btn_resync.setAccessibleName("Resync private profile data")
+        self.btn_resync.setToolTip("Resync private profile data")
+        self.btn_resync.setIcon(get_icon("ph.arrows-clockwise-bold", color=TEXT_SECONDARY))
+        self.btn_resync.setIconSize(QSize(16, 16))
+        self.btn_resync.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_resync.clicked.connect(self._resync_private)
+        action_layout.addWidget(self.btn_resync)
+        action_layout.addStretch()
+        self.column_layout.addWidget(self.profile_action_strip)
 
         self.editor = QFrame()
         self.editor.setObjectName("profileSection")
@@ -563,6 +623,7 @@ class ProfilePageWidget(QWidget):
             self.stats_grid.setColumnStretch(index, 1)
             self.stat_labels[key] = value
         self.column_layout.addWidget(self.stats_section)
+        self.column_layout.addSpacing(14)
 
         self.games_section = self._section("Games library")
         games_layout = self.games_section.layout()
@@ -656,6 +717,7 @@ class ProfilePageWidget(QWidget):
         self.games_stack.addWidget(self.game_detail)
         games_layout.addWidget(self.games_stack)
         self.column_layout.addWidget(self.games_section)
+        self.column_layout.addSpacing(14)
 
         self.favorite_section = self._section("Favorite games")
         favorite_layout = self.favorite_section.layout()
@@ -666,6 +728,7 @@ class ProfilePageWidget(QWidget):
         self.favorite_list.setMaximumHeight(210)
         favorite_layout.addWidget(self.favorite_list)
         self.column_layout.addWidget(self.favorite_section)
+        self.column_layout.addSpacing(14)
 
         self.friends_section = self._section("Friends")
         friends_layout = self.friends_section.layout()
@@ -718,6 +781,7 @@ class ProfilePageWidget(QWidget):
         self.friends_status.setWordWrap(True)
         friends_layout.addWidget(self.friends_status)
         self.column_layout.addWidget(self.friends_section)
+        self.column_layout.addSpacing(14)
 
         self.achievement_section = self._section("Recent achievements")
         achievement_layout = self.achievement_section.layout()
@@ -728,29 +792,7 @@ class ProfilePageWidget(QWidget):
         self.achievement_list.setMaximumHeight(250)
         achievement_layout.addWidget(self.achievement_list)
         self.column_layout.addWidget(self.achievement_section)
-
-        bottom = QHBoxLayout()
-        self.btn_sign_in = QPushButton("Sign in")
-        self.btn_sign_in.setIcon(get_icon("ph.sign-in-bold", color="#FFFFFF"))
-        self.btn_sign_in.clicked.connect(self._sign_in)
-        bottom.addWidget(self.btn_sign_in)
-        self.btn_sign_out = QPushButton("Sign out")
-        self.btn_sign_out.clicked.connect(self._sign_out)
-        bottom.addWidget(self.btn_sign_out)
-        self.btn_edit = QPushButton("Edit profile")
-        self.btn_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#FFFFFF"))
-        self.btn_edit.clicked.connect(self._start_edit)
-        bottom.addWidget(self.btn_edit)
-        self.btn_publish = QPushButton("Publish profile")
-        self.btn_publish.setIcon(get_icon("ph.upload-simple-bold", color="#FFFFFF"))
-        self.btn_publish.clicked.connect(self._publish)
-        bottom.addWidget(self.btn_publish)
-        self.btn_resync = QPushButton("Resync private data")
-        self.btn_resync.setIcon(get_icon("ph.arrows-clockwise-bold", color=TEXT_SECONDARY))
-        self.btn_resync.clicked.connect(self._resync_private)
-        bottom.addWidget(self.btn_resync)
-        bottom.addStretch()
-        self.column_layout.addLayout(bottom)
+        self.column_layout.addSpacing(14)
         self.footer_status = QLabel()
         self.footer_status.setObjectName("profileMuted")
         self.footer_status.setWordWrap(True)
@@ -860,21 +902,45 @@ class ProfilePageWidget(QWidget):
     def _set_admin_controls(self, enabled: bool) -> None:
         signed_in = self.central_auth.signed_in
         published = bool(self._profile_settings.get("published"))
-        self.btn_sign_in.setVisible(enabled)
-        self.btn_sign_in.setEnabled(enabled and not signed_in and not self._auth_in_flight)
-        self.btn_sign_out.setVisible(enabled and signed_in)
-        self.btn_sign_out.setEnabled(not self._auth_in_flight)
-        self.btn_edit.setVisible(enabled and not self._editing)
+        self.profile_action_strip.setVisible(enabled)
+        self.btn_auth.setVisible(enabled)
+        self.btn_auth.setEnabled(enabled and not self._auth_in_flight)
+        self.btn_auth.setText("Sign out" if signed_in else "Sign in")
+        self.btn_auth.setIcon(get_icon(
+            "ph.sign-out-bold" if signed_in else "ph.sign-in-bold",
+            color="#FFFFFF",
+        ))
+        self.btn_auth.setToolTip(
+            "Sign out of the central profile service."
+            if signed_in else "Sign in to manage and publish your public profile."
+        )
+        self.btn_banner_edit.setVisible(enabled and not self._editing)
         self.btn_publish.setVisible(enabled)
         self.btn_publish.setEnabled(signed_in and not self._auth_in_flight)
+        self.btn_publish.setText("Unpublish profile" if published else "Publish profile")
+        self.btn_publish.setIcon(get_icon(
+            "ph.eye-slash-bold" if published else "ph.upload-simple-bold",
+            color="#FFFFFF",
+        ))
         self.btn_publish.setToolTip(
             "Sign in to manage the public profile."
-            if not signed_in else ""
+            if not signed_in else (
+                "Remove this profile from the public service."
+                if published else "Publish this profile to the central service."
+            )
         )
         self.btn_resync.setVisible(enabled)
+        self.btn_resync.setEnabled(enabled and not self._auth_in_flight)
         self.btn_open_public.setVisible(enabled)
         self.btn_settings.setVisible(True)
         self._update_social_controls(enabled, published, signed_in)
+
+    def _auth_button_clicked(self) -> None:
+        """Toggle the central profile session from the single profile action."""
+        if self.central_auth.signed_in:
+            self._sign_out()
+        else:
+            self._sign_in()
 
     def _background_style(self, background: dict[str, Any]) -> str:
         background = normalize_background(background)
@@ -1125,6 +1191,10 @@ class ProfilePageWidget(QWidget):
             else:
                 self.status_label.setText("Only you can see this profile until it is published.")
             self.btn_publish.setText("Unpublish profile" if published else "Publish profile")
+            self.btn_publish.setIcon(get_icon(
+                "ph.eye-slash-bold" if published else "ph.upload-simple-bold",
+                color="#FFFFFF",
+            ))
             self.footer_status.setText("Public publishing is separate from private game-save cloud synchronization.")
             self._populate_editor()
         else:
