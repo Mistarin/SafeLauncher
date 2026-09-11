@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { classify, handleGatewayRequest, type Env } from "../src/index";
 
 const env: Env = {
-  CONVEX_ORIGIN: "https://redacted.invalid",
+  CONVEX_ORIGIN: "https://central-profile.convex.site",
   AUTH0_ISSUER: "https://tenant.example.auth0.com/",
   AUTH0_AUDIENCE: "https://profiles.safelauncher.app",
   CONVEX_GATEWAY_KEY: "test-gateway-key",
@@ -21,6 +21,8 @@ function fetchThroughGateway(request: Request, requestEnv: Env = env) {
 describe("profile gateway", () => {
   it("allows only the public profile read and exact authenticated routes", () => {
     expect(classify("/api/profile/v1/01234567890123456789", "GET").kind).toBe("public");
+    expect(classify("/api/telemetry/ping", "POST").kind).toBe("public");
+    expect(classify("/api/telemetry/ping", "GET").kind).toBe("invalid");
     expect(classify("/api/profile/v1/01234567890123456789", "POST").kind).toBe("invalid");
     expect(classify("/api/profile/v2/me", "PUT").kind).toBe("auth");
     expect(classify("/api/profile/v2/me/claim", "POST").kind).toBe("auth");

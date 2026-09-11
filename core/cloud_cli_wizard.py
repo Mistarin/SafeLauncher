@@ -1200,7 +1200,7 @@ def run_cloud_setup_wizard() -> int:
 
     # Step 2: Connection settings
     banner("[2/3] Connection Configuration", CYAN)
-    prompt = f"  {CYAN}{BOLD}➜{RESET} Convex Site URL [{default_url}]: " if default_url else f"  {CYAN}{BOLD}➜{RESET} Convex Site URL (e.g. https://my-saves.convex.site): "
+    prompt = f"  {CYAN}{BOLD}➜{RESET} Convex Site URL [{default_url}]: " if default_url else f"  {CYAN}{BOLD}➜{RESET} Convex Site URL (enter your deployment URL): "
     entered_url = input(prompt).strip()
     site_url = entered_url if entered_url else default_url
 

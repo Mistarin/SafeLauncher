@@ -134,6 +134,31 @@ async function dispatch(
       });
     }
 
+    if (url.pathname === "/api/telemetry/ping" && method === "POST") {
+      const body = await readJsonBody(req);
+      const clientId = body.clientId;
+      const appVersion = body.appVersion;
+      const platform = body.platform;
+      if (
+        typeof clientId !== "string" ||
+        !/^[A-Za-z0-9_-]{16,128}$/.test(clientId) ||
+        typeof appVersion !== "string" ||
+        !/^[A-Za-z0-9._-]{1,32}$/.test(appVersion.trim()) ||
+        typeof platform !== "string" ||
+        !/^[A-Za-z0-9._-]{1,16}$/.test(platform.trim())
+      ) {
+        throw new ApiError(400, "invalid_telemetry", "Telemetry payload is invalid.");
+      }
+      const clientHash = await sha256(`safelauncher-telemetry:${clientId}`);
+      await enforceWriteLimit(ctx, clientHash, "telemetry", 24, 86400);
+      await ctx.runMutation(internal.telemetry.record, {
+        clientHash,
+        appVersion: appVersion.trim(),
+        platform: platform.trim().toLowerCase(),
+      });
+      return jsonResponse({ accepted: true });
+    }
+
     const v2SocialMatch = url.pathname.match(
       /^\/api\/profile\/v2\/me\/(friends|friend-requests|blocks)(?:\/([^/]+)(?:\/(accept|decline|cancel))?)?$/,
     );

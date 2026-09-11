@@ -39,6 +39,9 @@ jobs:
           mkdir -p "$XDG_DATA_HOME"
           mkdir -p "$RUNNER_TEMP/safelauncher-smoke"
 
+      - name: Run security boundary audit
+        run: python ci/security_audit.py
+
       - name: Run core smoke phase
         timeout-minutes: 6
         run: |
@@ -70,6 +73,27 @@ jobs:
           name: safelauncher-smoke-logs-${{ github.run_id }}
           path: ${{ runner.temp }}/safelauncher-smoke
           if-no-files-found: warn
+
+  profile-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/profile_gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: services/profile_gateway/package-lock.json
+
+      - name: Install gateway dependencies
+        run: npm ci
+
+      - name: Test gateway route and authentication boundary
+        run: npm test
 
   # Warm the Docker layer cache (the expensive pip install layer) on master so
   # tag release builds start from it. Uses type=local + actions/cache because

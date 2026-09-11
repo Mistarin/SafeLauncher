@@ -49,4 +49,13 @@ export default defineSchema({
     count: v.number(),
     expiresAt: v.number(),
   }).index("by_bucket", ["bucketKey"]),
+  /** Anonymous installation heartbeat; raw client identifiers are never stored. */
+  telemetryClients: defineTable({
+    clientHash: v.string(),
+    appVersion: v.string(),
+    platform: v.string(),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    pingCount: v.number(),
+  }).index("by_client_hash", ["clientHash"]),
 });

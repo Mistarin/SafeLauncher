@@ -8,3 +8,7 @@ __pycache__
 *.db
 .banner_cache
 .pytest_cache
+services
+tests
+.zcode
+steamcmd

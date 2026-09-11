@@ -609,7 +609,7 @@ class CloudWizardDialog(PopupDialog):
         existing_url = settings.value("convex_site_url", "", type=str) or get_site_url()
 
         self.edit_url = QLineEdit(existing_url)
-        self.edit_url.setPlaceholderText("https://your-project.convex.site")
+        self.edit_url.setPlaceholderText("Your Convex deployment URL")
         layout.addWidget(self.edit_url)
 
         # Secret Access Key explanation & field
@@ -749,7 +749,7 @@ class CloudWizardDialog(PopupDialog):
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             self.status_lbl.setText(
                 "<font color='#EF4444'>Enter a valid Convex Site URL, for example "
-                "https://my-project.convex.site.</font>"
+                "your Convex deployment URL.</font>"
             )
             return
         if parsed.username or parsed.password or parsed.query or parsed.fragment:

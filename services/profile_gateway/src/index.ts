@@ -19,6 +19,7 @@ const MAX_BODY_BYTES = 512 * 1024;
 const HANDLE_PATTERN = "[a-f0-9]{20,40}";
 const REQUEST_ID_PATTERN = "[A-Za-z0-9_-]{8,128}";
 const PUBLIC_PROFILE_RE = new RegExp(`^/api/profile/v1/(${HANDLE_PATTERN})$`);
+const TELEMETRY_RE = /^\/api\/telemetry\/ping$/;
 const V2_PROFILE_RE = /^\/api\/profile\/v2\/me$/;
 const V2_CLAIM_RE = /^\/api\/profile\/v2\/me\/claim$/;
 const V2_SOCIAL_RE = new RegExp(
@@ -103,6 +104,7 @@ async function authenticate(request: Request, env: Env): Promise<AuthenticatedRe
 export function classify(pathname: string, method: string): { kind: "health" | "public" | "auth" | "invalid" } {
   if (pathname === "/api/health" && method === "GET") return { kind: "health" };
   if (method === "GET" && PUBLIC_PROFILE_RE.test(pathname)) return { kind: "public" };
+  if (method === "POST" && TELEMETRY_RE.test(pathname)) return { kind: "public" };
   const v2Path = V2_PROFILE_RE.test(pathname) || V2_CLAIM_RE.test(pathname) || V2_SOCIAL_RE.test(pathname);
   if (v2Path && ["GET", "POST", "PUT", "DELETE"].includes(method))
     return { kind: "auth" };

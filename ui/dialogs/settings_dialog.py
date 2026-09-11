@@ -699,7 +699,7 @@ class UserSettingsDialog(PopupDialog):
 
         # Convex Site URL
         self.edit_convex_url = QLineEdit(get_site_url())
-        self.edit_convex_url.setPlaceholderText("https://your-project.convex.site")
+        self.edit_convex_url.setPlaceholderText("Your Convex deployment URL")
         form_mode.addRow("Convex Site URL:", self.edit_convex_url)
 
         # Secret Access Key

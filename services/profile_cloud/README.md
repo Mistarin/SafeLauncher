@@ -49,6 +49,11 @@ opaque profile handle, and the recipient must accept it before a friendship is
 created. The service does not call any user's private SafeLauncherCloud
 deployment.
 
+Anonymous startup telemetry is accepted through the gateway at
+`/api/telemetry/ping`. The server hashes the client identifier before storage
+and keeps only bounded version/platform and heartbeat counters; the desktop
+client never contacts the Convex origin directly.
+
 For the official desktop build, deploy this project once as the developer's
 central public-profile service and set the fixed regional `CONVEX_ORIGIN` in
 the gateway to its `.convex.site` URL. The desktop client only knows the Vercel

@@ -1006,7 +1006,7 @@ try:
     def fake_generate_run(command, **kwargs):
         assert command[:5] == ["npx", "convex", "deployment", "token", "create"]
         assert command[5] == "safelauncher-test"
-        assert command[6:8] == ["--deployment", "redacted-legacy-deployment"]
+        assert command[6:8] == ["--deployment", "test-deployment"]
         assert command[8] == "--save-env"
         generated_paths.append(command[-1])
         assert "CONVEX_DEPLOY_KEY" not in kwargs["env"]
@@ -1016,7 +1016,7 @@ try:
     with tempfile.TemporaryDirectory() as backend_tmp, \
             patch("core.cloud_cli_wizard.shutil.which", return_value="/usr/bin/npx"), \
             patch("core.cloud_cli_wizard._convex_cli_env", return_value={"CONVEX_DEPLOY_KEY": "old-key"}), \
-            patch("core.cloud_cli_wizard._configured_site_url", return_value="https://redacted.invalid"), \
+            patch("core.cloud_cli_wizard._configured_site_url", return_value="https://test-deployment.eu-west-1.convex.site"), \
             patch("core.cloud_cli_wizard.subprocess.run", side_effect=fake_generate_run):
         generated = generate_deploy_key(Path(backend_tmp), "safelauncher-test")
     assert generated["ok"] is True and generated["key"].endswith("generated-secret")
@@ -1057,7 +1057,7 @@ try:
                 patch("core.cloud_cli_wizard.set_secret", return_value=True) as save_cloud_secret:
             detected = inspect_cloud_secret(
                 secret_backend,
-                site_url="https://redacted.invalid",
+                site_url="https://test-deployment.eu-west-1.convex.site",
             )
             assert detected["ok"] is True and detected["exists"] is True
             assert detected["secret"] == "remote-api-secret"
@@ -1066,7 +1066,7 @@ try:
 
             reconciled = ensure_cloud_secret(
                 secret_backend,
-                site_url="https://redacted.invalid",
+                site_url="https://test-deployment.eu-west-1.convex.site",
             )
             assert reconciled["ok"] is True and reconciled["source"] == "existing"
             save_cloud_secret.assert_called_with("cloud_secret_key", "remote-api-secret")
@@ -1086,16 +1086,16 @@ try:
             patch("core.cloud_cli_wizard.set_secret", return_value=True):
         configured = ensure_cloud_secret(
             Path(secret_backend_tmp),
-            site_url="https://redacted.invalid",
+            site_url="https://test-deployment.eu-west-1.convex.site",
         )
     assert configured["ok"] is True and configured["source"] == "generated"
     assert secret_commands[0][0] == [
         "npx", "convex", "env", "get", "SAFELAUNCHER_SECRET_KEY",
-        "--deployment", "redacted-legacy-deployment",
+        "--deployment", "test-deployment",
     ]
     assert secret_commands[1][0] == [
         "npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY",
-        "--deployment", "redacted-legacy-deployment",
+        "--deployment", "test-deployment",
     ]
     assert secret_commands[1][1]["input"]
     assert "CONVEX_DEPLOY_KEY" not in secret_commands[1][1]["env"]
@@ -2299,9 +2299,10 @@ try:
     ach_widget.set_achievements_data(0, 12, 0.0, [], sample_12)
     assert ach_widget.thumbs_row.count() == 12
 
-    # Test max height on activity card and runner specs card
+    # Test max height on activity card. Runner specs must stay unconstrained so
+    # separate build/version rows cannot overlap on narrow windows.
     assert mw_compact.compact_container.game_page.activity_card.maximumHeight() == 260
-    assert mw_compact.compact_container.game_page.specs_card.maximumHeight() == 160
+    assert mw_compact.compact_container.game_page.specs_card.maximumHeight() > 160
 
     # Test tray menu pure text structure and direct recent games (no dropdown)
     mw_compact._update_tray_menu()

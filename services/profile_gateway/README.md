@@ -17,7 +17,7 @@ actions verify that header and independently validate Auth0 JWTs.
 4. Configure the Vercel project `profile_gateway` with these **Production** variables:
 
    ```text
-   CONVEX_ORIGIN=https://redacted.invalid
+   CONVEX_ORIGIN=https://your-central-deployment.eu-west-1.convex.site
    AUTH0_ISSUER=https://dev-712dm7e8q0c2tie3.us.auth0.com/
    AUTH0_AUDIENCE=https://profiles.safelauncher.app
    CONVEX_GATEWAY_KEY=<same random value configured in Convex>
@@ -35,8 +35,8 @@ actions verify that header and independently validate Auth0 JWTs.
    npx vercel env add CONVEX_GATEWAY_KEY production --sensitive
    ```
 
-6. Deploy the central Convex service to the `redacted-central-deployment` production
-   deployment, then deploy this Vercel project with `npx vercel --prod`.
+6. Deploy the central Convex service to your production deployment, then deploy
+   this Vercel project with `npx vercel --prod`.
 
 The Convex origin and gateway secret are never included in SafeLauncher. The
 desktop application uses only `https://profilegateway.vercel.app` and Auth0's
@@ -69,8 +69,8 @@ offline access.
 
 ## Vercel rate limiting
 
-The Vercel adapter calls `@vercel/firewall` for every public profile read and
-authenticated profile/social request. Configure this Firewall custom rule in
+The Vercel adapter calls `@vercel/firewall` for every public profile read,
+anonymous telemetry heartbeat, and authenticated profile/social request. Configure this Firewall custom rule in
 the Vercel dashboard before deploying:
 
 1. Open the project, select **Firewall → Configure → New Rule**.

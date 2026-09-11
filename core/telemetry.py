@@ -10,13 +10,15 @@ import requests
 from PyQt6.QtCore import QSettings
 
 from core.logger import get_logger
+from core.profile_service import OFFICIAL_PROFILE_GATEWAY_URL
 
 logger = get_logger("Telemetry")
 
-# Default central analytics endpoint
+# The desktop client talks to the public gateway only. The Convex origin is a
+# server-side Vercel setting and must never be shipped in the application.
 _CENTRAL_TELEMETRY_URL = os.environ.get(
     "SAFELAUNCHER_TELEMETRY_URL",
-    "https://redacted.invalid/api/telemetry/ping"
+    f"{OFFICIAL_PROFILE_GATEWAY_URL}/api/telemetry/ping",
 )
 
 
