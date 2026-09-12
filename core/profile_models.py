@@ -59,6 +59,7 @@ PANEL_THEME_IDS = {
     "aurora": 2,
     "sunset": 3,
     "bubble": 4,
+    "glassmorphism": 5,
 }
 PANEL_THEME_KEYS = {value: key for key, value in PANEL_THEME_IDS.items()}
 BACKGROUND_PRESET_IDS = {

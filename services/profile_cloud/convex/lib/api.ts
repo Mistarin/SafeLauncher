@@ -124,7 +124,7 @@ export function validAvatarAssetId(value: unknown): value is number {
 }
 
 export function validPanelThemeId(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 4;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 5;
 }
 
 export function validBackgroundPresetId(value: unknown): value is number {
@@ -260,7 +260,7 @@ export function validatePublicProfile(value: unknown): string {
   }
   const rawPanelTheme = profile.panel_theme_id;
   const panelThemeId = rawPanelTheme === undefined || rawPanelTheme === null
-    ? ({ grey: 1, aurora: 2, sunset: 3, bubble: 4 } as Record<string, number>)[String(profile.profile_theme || "").toLowerCase()] || 1
+    ? ({ grey: 1, aurora: 2, sunset: 3, bubble: 4, glassmorphism: 5 } as Record<string, number>)[String(profile.profile_theme || "").toLowerCase()] || 1
     : rawPanelTheme;
   if (!validPanelThemeId(panelThemeId)) {
     throw new ApiError(400, "invalid_panel_theme", "Panel theme reference is invalid.");

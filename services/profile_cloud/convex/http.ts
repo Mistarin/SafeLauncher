@@ -20,7 +20,7 @@ import {
 } from "./lib/api";
 
 const http = httpRouter();
-const SERVICE_VERSION = "0.3.0";
+const SERVICE_VERSION = "0.3.1";
 
 function generatedHandle(): string {
   const bytes = new Uint8Array(12);

@@ -25,24 +25,29 @@ class ProfileTheme:
     panel_alpha: int
     border_alpha: int
     accent: str
+    is_glass: bool = False
 
 
 PROFILE_THEMES: tuple[ProfileTheme, ...] = (
     ProfileTheme(
-        1, "grey", "Grey glass", ("#17181D", "#242731", "#111216"),
-        ("#6B7280", "#475569", "#94A3B8"), (37, 39, 46), 214, 178, 42, "#7EB6FF",
+        1, "grey", "Grey", ("#17181D", "#242731", "#111216"),
+        ("#6B7280", "#475569", "#94A3B8"), (37, 39, 46), 255, 255, 42, "#7EB6FF",
     ),
     ProfileTheme(
-        2, "aurora", "Aurora glass", ("#0D1B25", "#153B3A", "#15172B"),
-        ("#42D6B4", "#5D8CFF", "#B57CFF"), (24, 42, 48), 214, 168, 48, "#71E2C2",
+        2, "aurora", "Aurora", ("#0D1B25", "#153B3A", "#15172B"),
+        ("#42D6B4", "#5D8CFF", "#B57CFF"), (24, 42, 48), 255, 255, 48, "#71E2C2",
     ),
     ProfileTheme(
-        3, "sunset", "Sunset glass", ("#21151D", "#4A2630", "#17151E"),
-        ("#FF8C69", "#FFB86B", "#D46BBA"), (55, 29, 37), 218, 172, 48, "#FF9E83",
+        3, "sunset", "Sunset", ("#21151D", "#4A2630", "#17151E"),
+        ("#FF8C69", "#FFB86B", "#D46BBA"), (55, 29, 37), 255, 255, 48, "#FF9E83",
     ),
     ProfileTheme(
-        4, "bubble", "Bubble glass", ("#131D36", "#30204C", "#121522"),
-        ("#6EA8FF", "#C084FC", "#67E8F9", "#F0ABFC"), (31, 35, 66), 216, 170, 50, "#A7C7FF",
+        4, "bubble", "Bubble", ("#131D36", "#30204C", "#121522"),
+        ("#6EA8FF", "#C084FC", "#67E8F9", "#F0ABFC"), (31, 35, 66), 255, 255, 50, "#A7C7FF",
+    ),
+    ProfileTheme(
+        5, "glassmorphism", "Glassmorphism", ("#121316", "#202329", "#101114"),
+        ("#FFFFFF", "#D4D4D8", "#A1A1AA"), (28, 28, 34), 214, 178, 48, "#B9C2D0", True,
     ),
 )
 

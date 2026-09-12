@@ -325,27 +325,60 @@ class ProfilePageWidget(QWidget):
     def _profile_theme_style(self) -> str:
         """Build one surface vocabulary for the entire profile page.
 
-        The backdrop is painted once by the page.  Surfaces only use dark
-        translucency and a shared border token, so cards remain inexpensive
-        even on large libraries and the glass effect reads as one composition.
+        Normal themes use opaque dark-tinted surfaces. The dedicated
+        Glassmorphism theme uses the same translucent dark gradient and white
+        highlight borders as the compact game page.
         """
         theme = get_profile_theme(self._profile_theme_key)
-        panel = theme_rgba("#%02X%02X%02X" % theme.panel_rgb, theme.panel_alpha)
-        panel_soft = theme_rgba("#%02X%02X%02X" % theme.panel_rgb, max(110, theme.panel_alpha - 24))
-        hero = theme_rgba("#%02X%02X%02X" % theme.panel_rgb, theme.hero_alpha)
-        border = theme_rgba(theme.bubbles[0], theme.border_alpha)
+        def shifted_rgb(delta: int) -> str:
+            return "#%02X%02X%02X" % tuple(
+                max(0, min(255, channel + delta)) for channel in theme.panel_rgb
+            )
+
+        if theme.is_glass:
+            # Match CompactActionBar's intentionally translucent dark glass
+            # recipe. The page background remains underneath these surfaces.
+            panel = (
+                "qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                "stop:0 rgba(28, 28, 34, 0.70), "
+                "stop:0.04 rgba(22, 22, 26, 0.60), "
+                "stop:0.65 rgba(18, 18, 22, 0.72), "
+                "stop:1 rgba(14, 14, 18, 0.85))"
+            )
+            hero = panel
+            panel_soft = "rgba(18, 18, 22, 0.72)"
+            game_card = "rgba(20, 23, 29, 0.72)"
+            see_more = "rgba(20, 20, 24, 0.72)"
+            list_surface = "rgba(0, 0, 0, 0.23)"
+            editor_surface = "rgba(0, 0, 0, 0.45)"
+            progress_surface = "rgba(0, 0, 0, 0.35)"
+            border = "rgba(255, 255, 255, 0.14)"
+            card_border = "rgba(255, 255, 255, 0.08)"
+            hover_surface = "rgba(255, 255, 255, 0.08)"
+        else:
+            panel = shifted_rgb(0)
+            panel_soft = shifted_rgb(-5)
+            hero = shifted_rgb(8)
+            game_card = shifted_rgb(-10)
+            see_more = shifted_rgb(-5)
+            list_surface = "#121418"
+            editor_surface = "#16191F"
+            progress_surface = "#0F1116"
+            border = theme_rgba(theme.bubbles[0], theme.border_alpha)
+            card_border = theme_rgba(theme.bubbles[0], max(22, theme.border_alpha - 18))
+            hover_surface = shifted_rgb(10)
         return f"""
             QFrame#profileHero {{ background: {hero}; border: 1px solid {border}; border-radius: 20px; }}
             QFrame#profileActionStrip {{ background: {panel}; border: 1px solid {border}; border-top: none; border-radius: 0 0 16px 16px; }}
             QFrame#profileSection {{ background: {panel_soft}; border: 1px solid {border}; border-radius: 16px; }}
-            QFrame#profileGameCard {{ background: {theme_rgba("#%02X%02X%02X" % theme.panel_rgb, max(95, theme.panel_alpha - 54))}; border: 1px solid {theme_rgba(theme.bubbles[0], max(22, theme.border_alpha - 18))}; border-radius: 12px; }}
-            QFrame#profileGameCard:hover {{ background: {panel}; border-color: {theme_rgba(theme.accent, 105)}; }}
-            QFrame#profileSeeMoreCard {{ background: {theme_rgba("#%02X%02X%02X" % theme.panel_rgb, max(90, theme.panel_alpha - 42))}; border: 1px dashed {border}; border-radius: 12px; }}
-            QFrame#profileSeeMoreCard:hover {{ background: {panel}; border-color: {theme.accent}; }}
-            QListWidget#profileList {{ background: {theme_rgba("#000000", 62)}; border: none; }}
-            QLineEdit#profileEditorInput, QComboBox#profileEditorInput, QPlainTextEdit#profileEditorInput {{ background: {theme_rgba("#000000", 82)}; border-color: {theme_rgba(theme.bubbles[0], 70)}; }}
-            QPushButton#profileActionButton:hover {{ background: {theme_rgba(theme.bubbles[0], 48)}; }}
-            QProgressBar {{ background: {theme_rgba("#000000", 95)}; }}
+            QFrame#profileGameCard {{ background: {game_card}; border: 1px solid {card_border}; border-radius: 12px; }}
+            QFrame#profileGameCard:hover {{ background: {hover_surface}; border-color: {theme.accent}; }}
+            QFrame#profileSeeMoreCard {{ background: {see_more}; border: 1px dashed {border}; border-radius: 12px; }}
+            QFrame#profileSeeMoreCard:hover {{ background: {hover_surface}; border-color: {theme.accent}; }}
+            QListWidget#profileList {{ background: {list_surface}; border: none; }}
+            QLineEdit#profileEditorInput, QComboBox#profileEditorInput, QPlainTextEdit#profileEditorInput {{ background: {editor_surface}; border-color: {border}; }}
+            QPushButton#profileActionButton:hover {{ background: {hover_surface}; }}
+            QProgressBar {{ background: {progress_surface}; }}
             QProgressBar::chunk {{ background: {theme.accent}; }}
         """
 
@@ -356,8 +389,20 @@ class ProfilePageWidget(QWidget):
             return
         self._profile_theme_key = key
         if hasattr(self, "_base_style"):
-            self.setStyleSheet(self._base_style + self._profile_theme_style() + self._background_style(self._document.get("background", {})))
+            self._apply_profile_styles(self._document.get("background", {}))
             self.update()
+
+    def _apply_profile_styles(self, background: Any = None) -> None:
+        """Apply root styles and themed panel styles at their actual owner.
+
+        Qt style-sheet rules attached to this custom QWidget do not reliably
+        reach frames nested inside the scroll area's content widget. The
+        column owns all profile panels, so applying the shared surface sheet
+        there makes the opaque/glass distinction effective in real rendering.
+        """
+        self.setStyleSheet(self._base_style + self._background_style(background or {}))
+        if hasattr(self, "column"):
+            self.column.setStyleSheet(self._base_style + self._profile_theme_style())
 
     def commit_profile_theme(self, value: object) -> None:
         """Persist the owner theme and queue a public update when published."""
@@ -416,7 +461,7 @@ class ProfilePageWidget(QWidget):
             }}
             QLineEdit#profileEditorInput:focus, QComboBox#profileEditorInput:focus, QPlainTextEdit#profileEditorInput:focus {{ border-color: {ACCENT_PRIMARY}; }}
         """
-        self.setStyleSheet(self._base_style + self._profile_theme_style())
+        self.setStyleSheet(self._base_style)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -1318,7 +1363,7 @@ class ProfilePageWidget(QWidget):
         # This is important for async hero downloads and editor previews.
         self._document = dict(document) if isinstance(document, dict) else {}
         document = self._document
-        self.setStyleSheet(self._base_style + self._profile_theme_style() + self._background_style(document.get("background", {})))
+        self._apply_profile_styles(document.get("background", {}))
         self._set_profile_background(document.get("background", {}))
         self.name_label.setText(str(document.get("display_name", "Player")))
         handle = str(document.get("handle", "") or "")

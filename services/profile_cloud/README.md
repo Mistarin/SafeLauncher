@@ -1,6 +1,6 @@
 # SafeLauncher public profile service
 
-Current central service release: **0.3.0** (public profile schema 3).
+Current central service release: **0.3.1** (public profile schema 3).
 
 This is a separate Convex project from the private per-user save backend.
 Personal save deployments do not communicate with one another. SafeLauncher

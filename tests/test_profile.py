@@ -44,17 +44,23 @@ from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
 from ui.dialogs.friends_dialog import FriendsDialog
 from ui.dialogs.settings_dialog import UserSettingsDialog
 from ui.components.sidebar import HeaderBar
-from ui.profile_theme import normalize_profile_theme, profile_theme_choices
+from ui.profile_theme import get_profile_theme, normalize_profile_theme, profile_theme_choices
 
 
 class ProfileModelTests(unittest.TestCase):
     def test_profile_panel_themes_are_bounded(self):
         self.assertEqual(normalize_profile_theme("sunset"), "sunset")
         self.assertEqual(normalize_profile_theme("unsupported"), "grey")
-        self.assertEqual([key for _label, key in profile_theme_choices()], ["grey", "aurora", "sunset", "bubble"])
+        self.assertEqual(
+            [key for _label, key in profile_theme_choices()],
+            ["grey", "aurora", "sunset", "bubble", "glassmorphism"],
+        )
         self.assertEqual(normalize_panel_theme_id("sunset"), 3)
+        self.assertEqual(normalize_panel_theme_id("glassmorphism"), 5)
         self.assertEqual(normalize_panel_theme_id(999), 1)
         self.assertEqual(normalize_background_preset_id("ember"), 2)
+        self.assertFalse(get_profile_theme("grey").is_glass)
+        self.assertTrue(get_profile_theme("glassmorphism").is_glass)
 
     def test_numeric_appearance_references_round_trip(self):
         self.assertEqual(normalize_avatar_asset_id("0042"), 42)
@@ -881,6 +887,38 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertEqual(page._document["background"]["app_id"], "1321440")
                 self.assertEqual(load_profile_settings(settings)["background"], normalize_background(DEFAULT_BACKGROUND))
                 self.assertIn("background: transparent", page._background_style(page._document["background"]))
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
+    def test_nested_profile_panels_apply_opaque_and_glass_surface_modes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            db = GameDatabase(":memory:")
+            page = ProfilePageWidget(db, settings)
+            try:
+                page.show_public(build_public_projection(db, {
+                    "display_name": "Player",
+                    "public_handle": "profile-player",
+                    "background": {"kind": "solid", "color": "#FF0000"},
+                }))
+                page.resize(1000, 800)
+                page.show()
+                self.app.processEvents()
+                for key in ("grey", "aurora", "sunset", "bubble"):
+                    page.set_profile_theme(key)
+                    self.app.processEvents()
+                    color = page.stats_section.grab().toImage().pixelColor(10, 10)
+                    self.assertEqual(color.alpha(), 255)
+                    self.assertNotEqual(color.getRgb()[:3], (255, 0, 0))
+
+                page.set_profile_theme("glassmorphism")
+                self.app.processEvents()
+                glass_color = page.stats_section.grab().toImage().pixelColor(10, 10)
+                self.assertLess(glass_color.red(), 255)
+                self.assertNotEqual(glass_color.getRgb()[:3], (255, 0, 0))
             finally:
                 page.close()
                 page.deleteLater()

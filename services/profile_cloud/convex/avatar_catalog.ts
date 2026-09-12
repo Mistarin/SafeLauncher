@@ -287,9 +287,9 @@ export const migrateAppearance = internalMutation({
       profile.avatar_asset_id = assetNumber;
       delete profile.avatar_id;
       const theme = profile.panel_theme_id;
-      profile.panel_theme_id = validCatalogNumber(Number(theme), 1, 4)
+      profile.panel_theme_id = validCatalogNumber(Number(theme), 1, 5)
         ? Number(theme)
-        : ({ grey: 1, aurora: 2, sunset: 3, bubble: 4 } as Record<string, number>)[String(profile.profile_theme || "").toLowerCase()] || 1;
+        : ({ grey: 1, aurora: 2, sunset: 3, bubble: 4, glassmorphism: 5 } as Record<string, number>)[String(profile.profile_theme || "").toLowerCase()] || 1;
       delete profile.profile_theme;
       if (!Object.prototype.hasOwnProperty.call(profile, "background_preset_id")) {
         profile.background_preset_id = backgroundPresetIdFor(profile.background);
