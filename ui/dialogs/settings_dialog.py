@@ -71,6 +71,9 @@ class UserSettingsDialog(PopupDialog):
     appDownloadFinished = pyqtSignal(str)      # target path
     appDownloadFailed = pyqtSignal(str)        # error message
     profile_theme_preview_changed = pyqtSignal(str)
+    profile_auth_requested = pyqtSignal()
+    profile_publish_requested = pyqtSignal()
+    profile_resync_requested = pyqtSignal()
 
     def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", profile_theme: str = "grey"):
         super().__init__("Settings", parent)
@@ -88,6 +91,7 @@ class UserSettingsDialog(PopupDialog):
         self._task_supervisor = TaskSupervisor(self, logger)
         self._account_probe_generation = 0
         self._health_probe_generation = 0
+        self._profile_action_status_custom = False
 
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
         self.setMinimumSize(820, 600)
@@ -266,6 +270,68 @@ class UserSettingsDialog(PopupDialog):
         if hasattr(self, "profile_theme_preview"):
             self.profile_theme_preview.setStyleSheet(profile_theme_preview_style(self.profile_theme))
 
+    def set_profile_action_state(
+        self,
+        available: bool,
+        signed_in: bool,
+        published: bool,
+        busy: bool,
+    ) -> None:
+        """Update the Settings account controls from the profile owner."""
+        available = bool(available)
+        signed_in = bool(signed_in)
+        published = bool(published)
+        busy = bool(busy)
+
+        self.btn_profile_auth.setEnabled(available and not busy)
+        self.btn_profile_auth.setText("Sign out" if signed_in else "Sign in")
+        self.btn_profile_auth.setIcon(get_icon(
+            "ph.sign-out-bold" if signed_in else "ph.sign-in-bold",
+            color="#FFFFFF",
+        ))
+        self.btn_profile_auth.setToolTip(
+            "Sign out of the central profile service."
+            if signed_in else "Sign in to manage and publish your public profile."
+        )
+
+        self.btn_profile_publish.setEnabled(available and signed_in and not busy)
+        self.btn_profile_publish.setText("Unpublish profile" if published else "Publish profile")
+        self.btn_profile_publish.setIcon(get_icon(
+            "ph.eye-slash-bold" if published else "ph.upload-simple-bold",
+            color="#FFFFFF",
+        ))
+        self.btn_profile_publish.setToolTip(
+            "Remove this profile from the public service."
+            if published else "Publish this profile to the central service."
+        )
+
+        self.btn_profile_resync.setEnabled(available and not busy)
+        if busy:
+            self._profile_action_status_custom = False
+            self.lbl_profile_action_status.setStyleSheet("color: #A1A1AA; font-size: 12px;")
+            self.lbl_profile_action_status.setText("Working with the central profile service…")
+        elif not available:
+            self._profile_action_status_custom = False
+            self.lbl_profile_action_status.setStyleSheet("color: #A1A1AA; font-size: 12px;")
+            self.lbl_profile_action_status.setText("Profile account controls are unavailable in this context.")
+        elif not self._profile_action_status_custom:
+            self.lbl_profile_action_status.setStyleSheet("color: #A1A1AA; font-size: 12px;")
+            self.lbl_profile_action_status.setText(
+                "Connected · public profile is published."
+                if signed_in and published else
+                "Connected · profile is private until you publish it."
+                if signed_in else
+                "Not signed in · publishing and resync are unavailable."
+            )
+
+    def set_profile_action_status(self, message: str, error: bool = False) -> None:
+        """Show the latest account operation result while Settings is open."""
+        self._profile_action_status_custom = True
+        self.lbl_profile_action_status.setStyleSheet(
+            f"color: {'#F87171' if error else '#A1A1AA'}; font-size: 12px;"
+        )
+        self.lbl_profile_action_status.setText(str(message or ""))
+
     # -------------------------------------------------------------
     # TAB 1: General & Profile
     # -------------------------------------------------------------
@@ -357,6 +423,54 @@ class UserSettingsDialog(PopupDialog):
             preview_layout.addWidget(panel, 1)
         layout.addWidget(self.profile_theme_preview)
         self._update_profile_theme_preview()
+
+        sec_profile_account = QLabel("Public Profile Account")
+        sec_profile_account.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        sec_profile_account.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
+        layout.addWidget(sec_profile_account)
+
+        profile_account_hint = QLabel(
+            "Manage central sign-in, public visibility, and private profile metadata resync here. "
+            "These actions affect the profile other people can view; they are separate from game-save cloud sync."
+        )
+        profile_account_hint.setWordWrap(True)
+        profile_account_hint.setStyleSheet("color: #A1A1AA; font-size: 12px;")
+        layout.addWidget(profile_account_hint)
+
+        profile_actions = QHBoxLayout()
+        profile_actions.setSpacing(8)
+        self.btn_profile_auth = QPushButton("Sign in")
+        self.btn_profile_auth.setObjectName("settingsProfileAction")
+        self.btn_profile_auth.setAccessibleName("Profile sign in or sign out")
+        self.btn_profile_auth.setIcon(get_icon("ph.sign-in-bold", color="#FFFFFF"))
+        self.btn_profile_auth.setIconSize(QSize(16, 16))
+        self.btn_profile_auth.clicked.connect(self.profile_auth_requested.emit)
+        profile_actions.addWidget(self.btn_profile_auth)
+
+        self.btn_profile_publish = QPushButton("Publish profile")
+        self.btn_profile_publish.setObjectName("settingsProfileAction")
+        self.btn_profile_publish.setIcon(get_icon("ph.upload-simple-bold", color="#FFFFFF"))
+        self.btn_profile_publish.setIconSize(QSize(16, 16))
+        self.btn_profile_publish.clicked.connect(self.profile_publish_requested.emit)
+        profile_actions.addWidget(self.btn_profile_publish)
+
+        self.btn_profile_resync = QPushButton("Resync")
+        self.btn_profile_resync.setObjectName("settingsProfileAction")
+        self.btn_profile_resync.setAccessibleName("Resync private profile data")
+        self.btn_profile_resync.setToolTip("Resync private profile data")
+        self.btn_profile_resync.setIcon(get_icon("ph.arrows-clockwise-bold", color="#A1A1AA"))
+        self.btn_profile_resync.setIconSize(QSize(16, 16))
+        self.btn_profile_resync.clicked.connect(self.profile_resync_requested.emit)
+        profile_actions.addWidget(self.btn_profile_resync)
+        profile_actions.addStretch()
+        layout.addLayout(profile_actions)
+
+        self.lbl_profile_action_status = QLabel("Profile account controls are loading…")
+        self.lbl_profile_action_status.setObjectName("profileActionStatus")
+        self.lbl_profile_action_status.setWordWrap(True)
+        self.lbl_profile_action_status.setStyleSheet("color: #A1A1AA; font-size: 12px;")
+        layout.addWidget(self.lbl_profile_action_status)
+        self.set_profile_action_state(False, False, False, False)
 
         date_form = QFormLayout()
         date_form.setSpacing(10)

@@ -1708,6 +1708,12 @@ class MainWindow(QMainWindow):
         dialog.runtime_manager_requested.connect(self._open_runtime_manager)
         dialog.proton_manager_requested.connect(self._open_proton_manager)
         dialog.profile_theme_preview_changed.connect(self.profile_page.set_profile_theme)
+        dialog.profile_auth_requested.connect(self.profile_page.toggle_profile_auth)
+        dialog.profile_publish_requested.connect(self.profile_page.publish_profile)
+        dialog.profile_resync_requested.connect(self.profile_page.resync_profile)
+        self.profile_page.profile_action_state_changed.connect(dialog.set_profile_action_state)
+        self.profile_page.profile_action_status_changed.connect(dialog.set_profile_action_status)
+        dialog.set_profile_action_state(*self.profile_page.profile_action_state())
         cloud_before = (
             self.settings.value("cloud_mode", "local", type=str),
             self.settings.value("convex_site_url", "", type=str),

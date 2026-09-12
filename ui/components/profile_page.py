@@ -257,6 +257,11 @@ class ProfilePageWidget(QWidget):
     profile_changed = pyqtSignal()
     private_profile_changed = pyqtSignal()
     auth_progress = pyqtSignal(str)
+    # Settings owns the visible account controls.  Keep the state and the
+    # operations on the profile page so authentication/publish/resync cannot
+    # drift into separate implementations.
+    profile_action_state_changed = pyqtSignal(bool, bool, bool, bool)
+    profile_action_status_changed = pyqtSignal(str, bool)
 
     def __init__(self, db, settings: QSettings | None = None, parent=None, worker_registry=None, auth_session=None):
         super().__init__(parent)
@@ -274,6 +279,7 @@ class ProfilePageWidget(QWidget):
         self._draft_panel_theme_id = 1
         self._public_revision = int(self.settings.value("profile_public_revision", 0, type=int) or 0)
         self._publishing = False
+        self._resyncing_private = False
         self._publish_dirty = False
         self._social_snapshot: dict[str, Any] = {
             "friends": [],
@@ -369,7 +375,6 @@ class ProfilePageWidget(QWidget):
             hover_surface = shifted_rgb(10)
         return f"""
             QFrame#profileHero {{ background: {hero}; border: 1px solid {border}; border-radius: 20px; }}
-            QFrame#profileActionStrip {{ background: {panel}; border: 1px solid {border}; border-top: none; border-radius: 0 0 16px 16px; }}
             QFrame#profileSection {{ background: {panel_soft}; border: 1px solid {border}; border-radius: 16px; }}
             QFrame#profileGameCard {{ background: {game_card}; border: 1px solid {card_border}; border-radius: 12px; }}
             QFrame#profileGameCard:hover {{ background: {hover_surface}; border-color: {theme.accent}; }}
@@ -377,7 +382,6 @@ class ProfilePageWidget(QWidget):
             QFrame#profileSeeMoreCard:hover {{ background: {hover_surface}; border-color: {theme.accent}; }}
             QListWidget#profileList {{ background: {list_surface}; border: none; }}
             QLineEdit#profileEditorInput, QComboBox#profileEditorInput, QPlainTextEdit#profileEditorInput {{ background: {editor_surface}; border-color: {border}; }}
-            QPushButton#profileActionButton:hover {{ background: {hover_surface}; }}
             QProgressBar {{ background: {progress_surface}; }}
             QProgressBar::chunk {{ background: {theme.accent}; }}
         """
@@ -434,10 +438,6 @@ class ProfilePageWidget(QWidget):
             QScrollArea#profileScroll > QWidget > QWidget {{ background: transparent; }}
             QWidget#profileCanvas, QWidget#profileColumn, QWidget#profileGamesLibrary, QWidget#profileGamesAllPage {{ background: transparent; }}
             QFrame#profileSection {{ background: {SURFACE}; border: none; }}
-            QFrame#profileActionStrip {{ background: {SURFACE}; border: none; }}
-            QPushButton#profileActionButton {{ border: none; border-radius: 6px; padding: 7px 11px; }}
-            QPushButton#profileActionButton:hover {{ background: {SURFACE_ELEVATED}; }}
-            QPushButton#profileActionButton:disabled {{ color: {TEXT_MUTED}; }}
             QPushButton#profileBannerEdit {{ background: transparent; border: none; border-radius: 6px; }}
             QPushButton#profileBannerEdit:hover {{ background: rgba(255, 255, 255, 0.10); }}
             QFrame#profileGameCard {{ background: {SURFACE_ELEVATED}; border: none; border-radius: 8px; }}
@@ -561,45 +561,6 @@ class ProfilePageWidget(QWidget):
         # button. The actual control now lives in the banner.
         self.btn_edit = self.btn_banner_edit
         self.column_layout.addWidget(self.hero)
-
-        self.profile_action_strip = QFrame()
-        self.profile_action_strip.setObjectName("profileActionStrip")
-        action_layout = QHBoxLayout(self.profile_action_strip)
-        action_layout.setContentsMargins(18, 9, 18, 9)
-        action_layout.setSpacing(6)
-        action_layout.addStretch(1)
-
-        self.btn_auth = QPushButton("Sign in")
-        self.btn_auth.setObjectName("profileActionButton")
-        self.btn_auth.setAccessibleName("Profile sign in or sign out")
-        self.btn_auth.setIcon(get_icon("ph.sign-in-bold", color="#FFFFFF"))
-        self.btn_auth.setIconSize(QSize(16, 16))
-        self.btn_auth.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_auth.clicked.connect(self._auth_button_clicked)
-        action_layout.addWidget(self.btn_auth)
-        # Compatibility aliases; there is intentionally only one auth widget.
-        self.btn_sign_in = self.btn_auth
-        self.btn_sign_out = self.btn_auth
-
-        self.btn_publish = QPushButton("Publish profile")
-        self.btn_publish.setObjectName("profileActionButton")
-        self.btn_publish.setIcon(get_icon("ph.upload-simple-bold", color="#FFFFFF"))
-        self.btn_publish.setIconSize(QSize(16, 16))
-        self.btn_publish.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_publish.clicked.connect(self._publish)
-        action_layout.addWidget(self.btn_publish)
-
-        self.btn_resync = QPushButton("Resync")
-        self.btn_resync.setObjectName("profileActionButton")
-        self.btn_resync.setAccessibleName("Resync private profile data")
-        self.btn_resync.setToolTip("Resync private profile data")
-        self.btn_resync.setIcon(get_icon("ph.arrows-clockwise-bold", color=TEXT_SECONDARY))
-        self.btn_resync.setIconSize(QSize(16, 16))
-        self.btn_resync.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_resync.clicked.connect(self._resync_private)
-        action_layout.addWidget(self.btn_resync)
-        action_layout.addStretch(1)
-        self.column_layout.addWidget(self.profile_action_strip)
 
         self.editor = QFrame()
         self.editor.setObjectName("profileSection")
@@ -1026,46 +987,59 @@ class ProfilePageWidget(QWidget):
             get_profile_service_url(),
         )
 
-    def _set_admin_controls(self, enabled: bool) -> None:
-        signed_in = self.central_auth.signed_in
-        published = bool(self._profile_settings.get("published"))
-        self.profile_action_strip.setVisible(enabled)
-        self.btn_auth.setVisible(enabled)
-        self.btn_auth.setEnabled(enabled and not self._auth_in_flight)
-        self.btn_auth.setText("Sign out" if signed_in else "Sign in")
-        self.btn_auth.setIcon(get_icon(
-            "ph.sign-out-bold" if signed_in else "ph.sign-in-bold",
-            color="#FFFFFF",
-        ))
-        self.btn_auth.setToolTip(
-            "Sign out of the central profile service."
-            if signed_in else "Sign in to manage and publish your public profile."
-        )
-        self.btn_banner_edit.setVisible(enabled and not self._editing)
-        self.btn_publish.setVisible(enabled)
-        self.btn_publish.setEnabled(signed_in and not self._auth_in_flight)
-        self.btn_publish.setText("Unpublish profile" if published else "Publish profile")
-        self.btn_publish.setIcon(get_icon(
-            "ph.eye-slash-bold" if published else "ph.upload-simple-bold",
-            color="#FFFFFF",
-        ))
-        self.btn_publish.setToolTip(
-            "Sign in to manage the public profile."
-            if not signed_in else (
-                "Remove this profile from the public service."
-                if published else "Publish this profile to the central service."
-            )
-        )
-        self.btn_resync.setVisible(enabled)
-        self.btn_resync.setEnabled(enabled and not self._auth_in_flight)
-        self._update_social_controls(enabled, published, signed_in)
+    def profile_action_state(self) -> tuple[bool, bool, bool, bool]:
+        """Return the account-management state consumed by Settings.
 
-    def _auth_button_clicked(self) -> None:
-        """Toggle the central profile session from the single profile action."""
+        Account actions are available independently of whether the profile
+        page is currently displaying the owner or somebody else's public
+        profile.  The local settings are deliberately reloaded in public
+        mode, because ``_profile_settings`` then represents the displayed
+        document rather than the signed-in owner's local profile.
+        """
+        local = self._profile_settings
+        if self._mode != "owner":
+            local = load_profile_settings(
+                self.settings,
+                fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+            )
+        return (
+            True,
+            bool(self.central_auth.signed_in),
+            bool(local.get("published")),
+            bool(self._auth_in_flight or self._publishing or self._resyncing_private),
+        )
+
+    def _emit_profile_action_state(self) -> None:
+        self.profile_action_state_changed.emit(*self.profile_action_state())
+
+    def _set_profile_action_status(self, message: str, error: bool = False) -> None:
+        """Publish action feedback to Settings and retain it in owner footer."""
+        if self._mode == "owner":
+            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};" if error else "")
+            self.footer_status.setText(str(message or ""))
+        self.profile_action_status_changed.emit(str(message or ""), bool(error))
+
+    def toggle_profile_auth(self) -> None:
+        """Sign in or out from the Settings account controls."""
         if self.central_auth.signed_in:
             self._sign_out()
         else:
             self._sign_in()
+
+    def publish_profile(self) -> None:
+        """Publish or unpublish the owner's public profile."""
+        self._publish()
+
+    def resync_profile(self) -> None:
+        """Force a private profile metadata resynchronization."""
+        self._resync_private()
+
+    def _set_admin_controls(self, enabled: bool) -> None:
+        signed_in = self.central_auth.signed_in
+        published = bool(self._profile_settings.get("published"))
+        self.btn_banner_edit.setVisible(enabled and not self._editing)
+        self._update_social_controls(enabled, published, signed_in)
+        self._emit_profile_action_state()
 
     def _background_style(self, background: dict[str, Any]) -> str:
         # The shared backdrop is painted once by ProfilePageWidget. Keeping
@@ -1389,11 +1363,6 @@ class ProfilePageWidget(QWidget):
                 else "Published · Public" if published
                 else "Unpublished · Private"
             )
-            self.btn_publish.setText("Unpublish profile" if published else "Publish profile")
-            self.btn_publish.setIcon(get_icon(
-                "ph.eye-slash-bold" if published else "ph.upload-simple-bold",
-                color="#FFFFFF",
-            ))
             self.footer_status.setText("Public publishing is separate from private game-save cloud synchronization.")
             if not self._editing:
                 self._populate_editor()
@@ -2355,16 +2324,14 @@ class ProfilePageWidget(QWidget):
             return True
 
     def _sign_in(self) -> None:
-        if self._auth_in_flight or self._mode != "owner":
+        if self._auth_in_flight:
             return
         if not automatic_network_allowed(self.settings):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Offline mode — central sign-in is unavailable.")
+            self._set_profile_action_status("Offline mode — central sign-in is unavailable.", True)
             return
         self._auth_in_flight = True
-        self._set_admin_controls(True)
-        self.footer_status.setStyleSheet("")
-        self.footer_status.setText("Opening central sign-in…")
+        self._emit_profile_action_state()
+        self._set_profile_action_status("Opening central sign-in…")
 
         def work():
             self.central_auth.device_login(
@@ -2389,8 +2356,7 @@ class ProfilePageWidget(QWidget):
         self._auth_in_flight = False
         if isinstance(result, Exception):
             self._set_admin_controls(self._mode == "owner")
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText(f"Central sign-in failed: {result}")
+            self._set_profile_action_status(f"Central sign-in failed: {result}", True)
             return
         payload = result if isinstance(result, dict) else {}
         remote = payload.get("remote") if isinstance(payload.get("remote"), dict) else None
@@ -2417,10 +2383,16 @@ class ProfilePageWidget(QWidget):
                 status_message = f"Signed in as @{self._profile_settings.get('public_handle')}. Publish this profile to make it public."
             else:
                 status_message = "Signed in. Choose a profile handle before publishing."
-        self.show_owner()
+        if self._mode == "owner":
+            self.show_owner()
+        else:
+            self._profile_settings = load_profile_settings(
+                self.settings,
+                fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+            )
+            self._emit_profile_action_state()
         self.private_profile_changed.emit()
-        self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
-        self.footer_status.setText(status_message)
+        self._set_profile_action_status(status_message)
 
     def _sign_out(self) -> None:
         if self._auth_in_flight:
@@ -2428,9 +2400,11 @@ class ProfilePageWidget(QWidget):
         self._publish_timer.stop()
         self.central_auth.clear()
         self._publish_dirty = False
-        self.show_owner()
-        self.footer_status.setStyleSheet("")
-        self.footer_status.setText("Signed out. Your existing public profile remains visible.")
+        if self._mode == "owner":
+            self.show_owner()
+        else:
+            self._emit_profile_action_state()
+        self._set_profile_action_status("Signed out. Your existing public profile remains visible.")
 
     def _start_edit(self) -> None:
         if self._mode != "owner":
@@ -2573,11 +2547,15 @@ class ProfilePageWidget(QWidget):
             self._preview_editor_background({"kind": "solid", "color": color.name().upper()})
 
     def _publish(self) -> None:
-        if self._mode != "owner":
-            return
+        # Settings can be opened while a public profile is being viewed. The
+        # operation always uses the local owner profile, never the document
+        # currently displayed in the page.
+        self._profile_settings = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
         if not self.central_auth.signed_in:
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Sign in to manage your public profile.")
+            self._set_profile_action_status("Sign in to manage your public profile.", True)
             self._sign_in()
             return
         published = bool(self._profile_settings.get("published"))
@@ -2586,8 +2564,10 @@ class ProfilePageWidget(QWidget):
             return
         service_url = get_profile_service_url()
         if not service_url.startswith(("http://", "https://")):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("The central profile gateway is not configured for this build.")
+            self._set_profile_action_status(
+                "The central profile gateway is not configured for this build.",
+                True,
+            )
             return
         handle = self._profile_settings.get("public_handle")
         if not handle:
@@ -2601,8 +2581,7 @@ class ProfilePageWidget(QWidget):
         if self._publishing:
             return
         if not automatic_network_allowed(self.settings):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Offline mode — public profile publishing is paused.")
+            self._set_profile_action_status("Offline mode — public profile publishing is paused.", True)
             return
         service_url = get_profile_service_url()
         profile_settings = load_profile_settings(
@@ -2611,16 +2590,13 @@ class ProfilePageWidget(QWidget):
         )
         handle = str(profile_settings.get("public_handle", "") or "")
         if not service_url.startswith(("http://", "https://")) or not handle or not self.central_auth.signed_in:
-            if self._mode == "owner":
-                self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-                self.footer_status.setText("Sign in before publishing the public profile.")
+            self._set_profile_action_status("Sign in before publishing the public profile.", True)
             return
         db_path = getattr(self.db, "db_path", None)
         self._publishing = True
         self._publish_dirty = False
-        self.btn_publish.setEnabled(False)
-        if self._mode == "owner":
-            self.footer_status.setText("Publishing public profile…")
+        self._emit_profile_action_state()
+        self._set_profile_action_status("Publishing public profile…")
 
         def work():
             from database import GameDatabase
@@ -2688,10 +2664,9 @@ class ProfilePageWidget(QWidget):
 
     def _publish_done(self, result: Any) -> None:
         self._publishing = False
-        self.btn_publish.setEnabled(True)
+        self._emit_profile_action_state()
         if isinstance(result, Exception):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText(str(result))
+            self._set_profile_action_status(str(result), True)
             return
         result = result if isinstance(result, dict) else {}
         response = result.get("response") if isinstance(result.get("response"), dict) else result
@@ -2705,6 +2680,7 @@ class ProfilePageWidget(QWidget):
         )
         published_handle = str(document.get("handle", "") or local_settings.get("public_handle", "")) if document else local_settings.get("public_handle", "")
         self._profile_settings = save_profile_settings(self.settings, {**local_settings, "public_handle": published_handle, "published": True}, mark_changed=False)
+        self._emit_profile_action_state()
         # A background sync may finish while the user is viewing someone
         # else's public page. Never replace that page with the owner's local
         # projection as a side effect of a statistics update.
@@ -2713,8 +2689,9 @@ class ProfilePageWidget(QWidget):
                 self._document = document
             if self.isVisible():
                 self._render(self._document or build_public_projection(self.db, self._profile_settings))
-        self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
-        self.footer_status.setText(f"Published. Share profile handle @{self._profile_settings.get('public_handle')}.")
+        self._set_profile_action_status(
+            f"Published. Share profile handle @{self._profile_settings.get('public_handle')}.",
+        )
         self.private_profile_changed.emit()
         if self._publish_dirty:
             self._publish_timer.start()
@@ -2722,16 +2699,15 @@ class ProfilePageWidget(QWidget):
     def _unpublish(self) -> None:
         self._publish_timer.stop()
         if not automatic_network_allowed(self.settings):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Offline mode — public profile changes are unavailable.")
+            self._set_profile_action_status("Offline mode — public profile changes are unavailable.", True)
             return
         service_url = get_profile_service_url()
         if not service_url.startswith(("http://", "https://")) or not self.central_auth.signed_in:
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Sign in to manage your public profile.")
+            self._set_profile_action_status("Sign in to manage your public profile.", True)
             return
-        self.btn_publish.setEnabled(False)
-        self.footer_status.setText("Unpublishing public profile…")
+        self._publishing = True
+        self._emit_profile_action_state()
+        self._set_profile_action_status("Unpublishing public profile…")
         def work():
             with ProfileServiceClient(service_url, auth_session=self.central_auth) as client:
                 if client.current_profile() is None:
@@ -2753,25 +2729,32 @@ class ProfilePageWidget(QWidget):
         self._unpublish_done(ProfileServiceError(str(error), "unpublish_failed"))
 
     def _unpublish_done(self, result: Any) -> None:
-        self.btn_publish.setEnabled(True)
+        self._publishing = False
         if isinstance(result, Exception):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText(str(result))
+            self._emit_profile_action_state()
+            self._set_profile_action_status(str(result), True)
             return
         self._profile_settings = save_profile_settings(self.settings, {**self._profile_settings, "published": False}, mark_changed=False)
         self._public_revision = 0
         self.settings.setValue("profile_public_revision", 0)
         self.settings.sync()
-        self.show_owner()
-        self.footer_status.setText("Profile unpublished. Your central sign-in remains available for publishing again.")
+        if self._mode == "owner":
+            self.show_owner()
+        else:
+            self._emit_profile_action_state()
+        self._set_profile_action_status(
+            "Profile unpublished. Your central sign-in remains available for publishing again."
+        )
         self.private_profile_changed.emit()
 
     def _resync_private(self) -> None:
         if not automatic_network_allowed(self.settings):
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Offline mode — private profile resync is paused.")
+            self._set_profile_action_status("Offline mode — private profile resync is paused.", True)
             return
-        self.btn_resync.setEnabled(False)
+        if self._resyncing_private:
+            return
+        self._resyncing_private = True
+        self._emit_profile_action_state()
         db_path = getattr(self.db, "db_path", None)
         def work():
             from database import GameDatabase
@@ -2781,19 +2764,22 @@ class ProfilePageWidget(QWidget):
                 return CloudMetadataSync.sync_profile(worker_db, force=True)
             finally:
                 worker_db.close()
-        self.footer_status.setText("Resyncing private profile data…")
+        self._set_profile_action_status("Resyncing private profile data…")
         worker = self._tasks.start("SafeLauncher-ProfileResync", work, self._resync_done)
         worker.error_occurred.connect(lambda error: self._resync_done(False))
 
     def _resync_done(self, result: Any) -> None:
-        self.btn_resync.setEnabled(True)
+        self._resyncing_private = False
+        self._emit_profile_action_state()
         if isinstance(result, Exception) or not result:
-            self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.footer_status.setText("Private profile resync failed; local data was preserved.")
+            self._set_profile_action_status(
+                "Private profile resync failed; local data was preserved.",
+                True,
+            )
             return
-        self.show_owner()
-        self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
-        self.footer_status.setText("Private profile resynchronized.")
+        if self._mode == "owner":
+            self.show_owner()
+        self._set_profile_action_status("Private profile resynchronized.")
 
     def set_public_service_url(self, url: str) -> None:
         """Keep a localhost-only override for development and UI tests."""

@@ -647,20 +647,16 @@ class ProfilePageTests(unittest.TestCase):
             auth.signed_in = False
             page = ProfilePageWidget(db, settings, auth_session=auth)
             try:
-                self.assertIs(page.btn_auth, page.btn_sign_in)
-                self.assertIs(page.btn_auth, page.btn_sign_out)
                 self.assertIs(page.btn_banner_edit, page.btn_edit)
                 self.assertFalse(hasattr(page, "btn_open_public"))
                 self.assertFalse(hasattr(page, "btn_settings"))
-                self.assertEqual(page.btn_auth.text(), "Sign in")
-                self.assertFalse(page.profile_action_strip.isHidden())
                 self.assertFalse(page.btn_banner_edit.isHidden())
                 self.assertEqual(page.status_label.text(), "Unpublished · Private")
                 self.assertTrue(hasattr(page, "panel_theme_combo"))
 
                 auth.signed_in = True
                 page._set_admin_controls(True)
-                self.assertEqual(page.btn_auth.text(), "Sign out")
+                self.assertEqual(page.profile_action_state(), (True, True, False, False))
 
                 page._start_edit()
                 self.assertTrue(page.btn_banner_edit.isHidden())
@@ -676,7 +672,6 @@ class ProfilePageTests(unittest.TestCase):
                     "background": DEFAULT_BACKGROUND,
                 })
                 self.assertTrue(page.show_public(public))
-                self.assertTrue(page.profile_action_strip.isHidden())
                 self.assertTrue(page.btn_banner_edit.isHidden())
                 self.assertIn("Published · Public · @", page.status_label.text())
             finally:
@@ -765,6 +760,13 @@ class ProfilePageTests(unittest.TestCase):
                 )
                 self.assertEqual(settings_dialog.get_profile_theme(), "aurora")
                 self.assertTrue(settings_dialog.profile_theme_preview.styleSheet())
+                settings_dialog.set_profile_action_state(True, True, False, False)
+                self.assertEqual(settings_dialog.btn_profile_auth.text(), "Sign out")
+                self.assertEqual(settings_dialog.btn_profile_publish.text(), "Publish profile")
+                self.assertTrue(settings_dialog.btn_profile_publish.isEnabled())
+                settings_dialog.set_profile_action_state(True, True, True, True)
+                self.assertEqual(settings_dialog.btn_profile_publish.text(), "Unpublish profile")
+                self.assertFalse(settings_dialog.btn_profile_publish.isEnabled())
                 self.assertTrue(friends_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint)
                 self.assertEqual(friends_dialog.tabs.count(), 3)
                 self.assertEqual(friends_dialog.tabs.tabText(2), "Find Friends")
