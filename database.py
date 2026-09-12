@@ -803,18 +803,25 @@ class GameDatabase:
             logger.error(f"Failed to fetch collections: {e}")
             return []
 
-    def archive_game(self, game_id: int, is_archived: bool = True) -> None:
-        """Mark a game as archived (or unarchived) preserving its playtime, config, and save data."""
+    def archive_game(self, game_id: int, is_archived: bool = True) -> bool:
+        """Mark a game as archived (or unarchived) without losing its data."""
         try:
             with self.conn:
-                self.conn.execute("UPDATE games SET is_archived = ? WHERE id = ?", (1 if is_archived else 0, game_id))
+                cursor = self.conn.execute(
+                    "UPDATE games SET is_archived = ? WHERE id = ?",
+                    (1 if is_archived else 0, game_id),
+                )
+                if cursor.rowcount != 1:
+                    return False
                 logger.info(f"{'Archived' if is_archived else 'Restored'} game ID {game_id}")
+                return True
         except Exception as e:
             logger.error(f"Failed to set archived status for game {game_id}: {e}")
+            return False
 
-    def restore_game(self, game_id: int) -> None:
+    def restore_game(self, game_id: int) -> bool:
         """Restore an archived game back to the active library."""
-        self.archive_game(game_id, is_archived=False)
+        return self.archive_game(game_id, is_archived=False)
 
     def update_game_icon(self, game_id: int, icon_url: str) -> None:
         try:
@@ -869,14 +876,19 @@ class GameDatabase:
             logger.error(f"Failed to fetch games list: {e}")
             return []
 
-    def remove_game(self, game_id: int):
+    def remove_game(self, game_id: int) -> bool:
+        """Remove a launcher game row while retaining append-only profile history."""
         try:
             with self.conn:
-                self.conn.execute('DELETE FROM games WHERE id = ?', (game_id,))
+                cursor = self.conn.execute('DELETE FROM games WHERE id = ?', (game_id,))
+                if cursor.rowcount != 1:
+                    return False
                 self.conn.execute('DELETE FROM achievements WHERE game_id = ?', (game_id,))
                 logger.info(f"Removed game {game_id} and its achievements from database.")
+                return True
         except Exception as e:
             logger.error(f"Failed to remove game {game_id}: {e}")
+            return False
 
     def save_achievement_schema(self, game_id: int, app_id: str, achievements: List[dict]) -> int:
         """Insert or update achievement schema definitions for a game, preserving existing unlocked state."""

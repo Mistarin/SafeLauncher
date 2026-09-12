@@ -29,6 +29,7 @@ from core.profile_models import (
     save_profile_settings,
 )
 from database import GameDatabase
+from core.library_controller import LibraryController, LibraryQuery
 from core.profile_service import ProfileServiceClient, ProfileServiceError
 from core.central_auth import (
     CentralAuthConfig,
@@ -42,6 +43,7 @@ from core.central_auth import (
 from ui.components.profile_page import ProfilePageWidget
 from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
 from ui.dialogs.friends_dialog import FriendsDialog
+from ui.dialogs.game_dialogs import CustomRemoveDialog, EditGameDialog
 from ui.dialogs.settings_dialog import UserSettingsDialog
 from ui.components.sidebar import HeaderBar
 from ui.profile_theme import get_profile_theme, normalize_profile_theme, profile_theme_choices
@@ -169,6 +171,96 @@ class ProfileModelTests(unittest.TestCase):
             self.assertEqual(document["games"][0]["achievements"]["unlocked_count"], 0)
         finally:
             db.close()
+
+    def test_archived_games_remain_in_library_archive_and_public_projection(self):
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game(
+                "Archived Game",
+                "/private/archived/path",
+                "game.exe",
+                "umu",
+                steam_id="45678",
+            )
+            db.toggle_favorite(game_id)
+            db.add_playtime(game_id, 7200)
+            db.save_achievement_schema(game_id, "45678", [
+                {"api_name": "ARCHIVE_ONE", "display_name": "Archive complete"},
+                {"api_name": "ARCHIVE_TWO", "display_name": "Another milestone"},
+            ])
+            db.record_achievement_state(game_id, "45678", {"ARCHIVE_ONE": 1_700_000_000})
+            self.assertTrue(db.archive_game(game_id))
+
+            all_games = db.get_all_games()
+            active = LibraryController().build_snapshot(
+                all_games,
+                LibraryQuery(filter_mode="all"),
+            )
+            archived = LibraryController().build_snapshot(
+                all_games,
+                LibraryQuery(filter_mode="archived"),
+            )
+            self.assertEqual(active.items, ())
+            self.assertEqual([item.game_id for item in archived.items], [game_id])
+            self.assertTrue(archived.items[0].is_archived)
+
+            document = build_public_projection(db, {
+                "display_name": "Player",
+                "public_handle": "archive-player",
+                "background": DEFAULT_BACKGROUND,
+            })
+            self.assertEqual(document["stats"]["games_count"], 1)
+            self.assertEqual(document["stats"]["favorite_count"], 1)
+            self.assertEqual(document["stats"]["playtime_seconds"], 7200)
+            self.assertNotIn("is_archived", json.dumps(document))
+            public_game = document["games"][0]
+            self.assertEqual(public_game["app_id"], "45678")
+            self.assertEqual(public_game["playtime_seconds"], 7200)
+            self.assertTrue(public_game["favorite"])
+            self.assertEqual(public_game["achievements"]["unlocked_count"], 1)
+            self.assertEqual(public_game["achievements"]["total_count"], 2)
+            self.assertEqual(public_game["achievements"]["recent"][0]["name"], "Archive complete")
+        finally:
+            db.close()
+
+    def test_remove_game_keeps_append_only_profile_history(self):
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game("Removed Game", "/private/removed/path", "game.exe", "umu", steam_id="56789")
+            db.add_playtime(game_id, 1800)
+            db.toggle_favorite(game_id)
+            db.save_achievement_schema(game_id, "56789", [{"api_name": "KEEP_ME", "display_name": "Keep me"}])
+            db.record_achievement_state(game_id, "56789", {"KEEP_ME": 1_700_000_001})
+            self.assertTrue(db.remove_game(game_id))
+            self.assertEqual(db.get_all_games(), [])
+            records = db.get_profile_unlock_records(include_pending=False)
+            self.assertIn("KEEP_ME", records["56789"])
+            historical = db.get_profile_games()
+            self.assertEqual(len(historical), 1)
+            self.assertEqual(historical[0]["app_id"], "56789")
+        finally:
+            db.close()
+
+    def test_disk_removal_guard_rejects_root_symlink_and_deletes_only_target(self):
+        from ui.main_window import MainWindow
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            game_path = root / "game"
+            game_path.mkdir()
+            (game_path / "save.dat").write_text("save", encoding="utf-8")
+            removed, error = MainWindow._remove_game_files_from_disk(str(game_path))
+            self.assertTrue(removed, error)
+            self.assertFalse(game_path.exists())
+
+            protected_target = root / "protected"
+            protected_target.mkdir()
+            link_path = root / "game-link"
+            link_path.symlink_to(protected_target, target_is_directory=True)
+            removed, error = MainWindow._remove_game_files_from_disk(str(link_path))
+            self.assertFalse(removed)
+            self.assertIn("symlink", error.lower())
+            self.assertTrue(protected_target.exists())
 
     def test_projection_groups_account_achievements_by_steam_app(self):
         db = GameDatabase(":memory:")
@@ -777,6 +869,30 @@ class ProfilePageTests(unittest.TestCase):
                 friends_dialog.close()
                 settings_dialog.deleteLater()
                 friends_dialog.deleteLater()
+                self.app.processEvents()
+
+    def test_edit_game_exposes_safe_lifecycle_action_without_form_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db = GameDatabase(":memory:")
+            game_path = Path(directory) / "game"
+            game_path.mkdir()
+            game_id = db.add_game("Lifecycle Game", str(game_path), "game.exe", "umu", steam_id="67890")
+            game = db.get_all_games()[0]
+            edit_dialog = EditGameDialog(game, parent=None)
+            chooser = CustomRemoveDialog("Lifecycle Game", parent=None)
+            try:
+                self.assertEqual(edit_dialog.game_id, game_id)
+                self.assertEqual(edit_dialog.lifecycle_action, "")
+                self.assertFalse(edit_dialog.btn_lifecycle.isHidden())
+                self.assertEqual(edit_dialog.LIFECYCLE_RESULT, 2)
+                chooser._select_remove_library()
+                self.assertEqual(chooser.choice, "remove_library")
+            finally:
+                edit_dialog.close()
+                chooser.close()
+                edit_dialog.deleteLater()
+                chooser.deleteLater()
+                db.close()
                 self.app.processEvents()
 
     def test_profile_editor_shows_username_but_hides_service_details(self):

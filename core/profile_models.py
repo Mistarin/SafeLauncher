@@ -382,6 +382,9 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
     # Read the game table once. This function runs during profile navigation
     # and before publishing; repeated full-table reads made the UI scale
     # poorly as the local library grew.
+    # ``get_all_games`` intentionally includes archived rows. Archive is a
+    # local library visibility state, not a statement that the user's public
+    # playtime, favorites, or achievements should be forgotten.
     all_games = db.get_all_games()
     game_names = {
         db.profile_identity(game.name, game.steam_id): str(game.name)

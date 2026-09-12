@@ -855,8 +855,8 @@ class MainWindow(QMainWindow):
         self.detail_ach_card.setVisible(False)
         detail_layout.addWidget(self.detail_ach_card)
 
-        # Destructive Remove Game Button
-        self.btn_detail_remove = QPushButton("Remove Game")
+        # Game lifecycle button: opens the shared remove/archive chooser.
+        self.btn_detail_remove = QPushButton("Remove / Archive")
         self.btn_detail_remove.setIcon(get_icon("ph.trash-bold", color="#FF453A"))
         self.btn_detail_remove.setIconSize(QSize(13, 13))
         self.btn_detail_remove.setFixedHeight(28)
@@ -4390,10 +4390,12 @@ class MainWindow(QMainWindow):
                     border-color: #55ACED;
                 }
             """)
-            self.btn_detail_remove.setText("Permanently Delete")
+            self.btn_detail_remove.setText("Manage Archive")
+            self.btn_detail_remove.setToolTip("Restore, remove from the library, or delete this archived game.")
             return
 
-        self.btn_detail_remove.setText("Remove Game")
+        self.btn_detail_remove.setText("Remove / Archive")
+        self.btn_detail_remove.setToolTip("Remove from the library, delete files, or move this game to the archive.")
         if game_id in self.running_game_ids:
             self.btn_detail_launch.setText("Stop Game")
             self.btn_detail_launch.setIcon(get_icon("ph.stop-circle-bold", color="#FFFFFF"))
@@ -5337,7 +5339,9 @@ class MainWindow(QMainWindow):
         if not game:
             return
         game_id = game[0]
-        self.db.restore_game(game_id)
+        if not self.db.restore_game(game_id):
+            self._show_toast(f"Could not restore '{game[1]}' to the library.", is_error=True)
+            return
         self._show_toast(f"Restored '{game[1]}' to library.")
         self._refresh_library()
         self._select_game_by_id(game_id)
@@ -6356,46 +6360,60 @@ class MainWindow(QMainWindow):
             return
 
         dialog = EditGameDialog(game, self, self.sgdb_client)
+        # Read the dialog's already-snapshotted result before allowing Qt to
+        # destroy its child widgets.  Lifecycle actions use a distinct result
+        # and must never fall through to the normal edit-save path.
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         dialog.mark_current_requested.connect(self._mark_build_current_from_config)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            name, path, exe, mode, banner_path = dialog.get_values()
-            version_override, patch_notes_url = dialog.get_version_metadata()
-            manual_build_id = dialog.get_build_id()
-            manual_build_date = dialog.get_build_date()
-            manual_steam_id = dialog.get_steam_id()
-            if not name or not path or not exe:
-                QMessageBox.warning(self, "Error", "All fields are required.")
-                return
-            if not os.path.isdir(path):
-                QMessageBox.warning(self, "Error", "Invalid game path.")
-                return
+        result = dialog.exec()
+        lifecycle_action = str(getattr(dialog, "lifecycle_action", "") or "")
+        if lifecycle_action:
+            dialog.deleteLater()
+            self._apply_game_lifecycle_action(game, lifecycle_action)
+            return
+        if result != QDialog.DialogCode.Accepted:
+            dialog.deleteLater()
+            return
 
-            game_id = game[0]
-            path = os.path.abspath(os.path.expanduser(path))
-            if mode not in ("umu", "umu_net", "wine", "linux"):
-                logger.warning(f"Invalid runner mode '{mode}' for game {game_id}; keeping existing mode.")
-                mode = game[4] if game[4] in ("umu", "umu_net", "wine", "linux") else "umu"
-            save_sandbox_config(path, exe)
-            self.db.update_game(game_id, name, path, exe, mode, banner_path)
-            self.db.update_game_mode(game_id, mode)
-            self.db.update_game_steam_id(game_id, manual_steam_id)
-            logger.info(f"Saved game settings for {game_id}: executable='{exe}', mode='{mode}'")
-            self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
-            if manual_build_id is not None:
-                self.db.update_build_id(game_id, manual_build_id)
-                self.db.update_build_date(game_id, manual_build_date)
-                self.local_version_by_game_id[game_id] = (manual_build_id, manual_build_date)
-                # Clear cached update status so it re-checks against new manual build
-                self.metadata_attempted_builds.discard(game_id)
-                self.steam_check_results.pop(game_id, None)
-                self._capture_initial_steam_build(
-                    game_id, manual_steam_id, manual_build_id, manual_build_date
-                )
-            self._refresh_library()
-            self._sync_launcher_metadata_async(game_id)
-            if hasattr(self, "profile_page"):
-                self.profile_page.mark_local_data_changed()
-            self._show_toast(f"Updated settings for '{name}'.")
+        name, path, exe, mode, banner_path = dialog.get_values()
+        version_override, patch_notes_url = dialog.get_version_metadata()
+        manual_build_id = dialog.get_build_id()
+        manual_build_date = dialog.get_build_date()
+        manual_steam_id = dialog.get_steam_id()
+        dialog.deleteLater()
+        if not name or not path or not exe:
+            QMessageBox.warning(self, "Error", "All fields are required.")
+            return
+        if not os.path.isdir(path):
+            QMessageBox.warning(self, "Error", "Invalid game path.")
+            return
+
+        game_id = game[0]
+        path = os.path.abspath(os.path.expanduser(path))
+        if mode not in ("umu", "umu_net", "wine", "linux"):
+            logger.warning(f"Invalid runner mode '{mode}' for game {game_id}; keeping existing mode.")
+            mode = game[4] if game[4] in ("umu", "umu_net", "wine", "linux") else "umu"
+        save_sandbox_config(path, exe)
+        self.db.update_game(game_id, name, path, exe, mode, banner_path)
+        self.db.update_game_mode(game_id, mode)
+        self.db.update_game_steam_id(game_id, manual_steam_id)
+        logger.info(f"Saved game settings for {game_id}: executable='{exe}', mode='{mode}'")
+        self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
+        if manual_build_id is not None:
+            self.db.update_build_id(game_id, manual_build_id)
+            self.db.update_build_date(game_id, manual_build_date)
+            self.local_version_by_game_id[game_id] = (manual_build_id, manual_build_date)
+            # Clear cached update status so it re-checks against new manual build
+            self.metadata_attempted_builds.discard(game_id)
+            self.steam_check_results.pop(game_id, None)
+            self._capture_initial_steam_build(
+                game_id, manual_steam_id, manual_build_id, manual_build_date
+            )
+        self._refresh_library()
+        self._sync_launcher_metadata_async(game_id)
+        if hasattr(self, "profile_page"):
+            self.profile_page.mark_local_data_changed()
+        self._show_toast(f"Updated settings for '{name}'.")
     
 
     def _on_sync_sandbox(self, quiet: bool = False):
@@ -6432,97 +6450,132 @@ class MainWindow(QMainWindow):
             if not quiet:
                 self._show_toast("Sandbox synced (no new games found).")
 
+    @staticmethod
+    def _remove_game_files_from_disk(game_path: str) -> tuple[bool, str]:
+        """Delete one registered game directory without following its root symlink."""
+        raw_value = os.path.expanduser(str(game_path or "").strip())
+        if not raw_value:
+            return False, "The game has no directory recorded."
+        raw_path = os.path.abspath(raw_value)
+        if os.path.islink(raw_path):
+            return False, "Refusing to delete a symlinked game directory. Remove the library record instead."
+
+        target_path = os.path.realpath(raw_path)
+        protected_paths = {
+            os.path.realpath(os.path.abspath(os.sep)),
+            os.path.realpath(os.path.expanduser("~")),
+            os.path.realpath(os.path.expanduser(DEFAULT_SANDBOX_DIR)),
+        }
+        if target_path in protected_paths:
+            return False, "Refusing to delete a protected system, home, or sandbox directory."
+        if not os.path.lexists(target_path):
+            return True, ""
+
+        failures: list[str] = []
+
+        def _handle_readonly(func, subpath, exc_info):
+            try:
+                os.chmod(subpath, 0o700)
+                func(subpath)
+            except Exception as exc:
+                failures.append(f"{subpath}: {exc}")
+
+        try:
+            if os.path.isdir(target_path):
+                try:
+                    shutil.rmtree(target_path, onexc=_handle_readonly)
+                except TypeError:
+                    shutil.rmtree(target_path, onerror=_handle_readonly)
+            else:
+                os.chmod(target_path, 0o700)
+                os.unlink(target_path)
+        except Exception as exc:
+            failures.append(str(exc))
+
+        if failures or os.path.lexists(target_path):
+            detail = failures[0] if failures else "the directory still exists"
+            logger.warning(f"Could not remove game files at '{target_path}': {detail}")
+            return False, f"Could not remove the game files: {detail}"
+        logger.info(f"Removed game files from disk: {target_path}")
+        return True, ""
+
+    def _finish_game_lifecycle_change(self, game_id: int) -> None:
+        """Drop stale UI/runtime state after a game row changes lifecycle."""
+        self.selected_game = None
+        self.library_selection.replace(self.library_selection.ids - {game_id})
+        for mapping_name in (
+            "game_status_by_id",
+            "update_status_by_game_id",
+            "cloud_save_status_cache",
+            "steam_check_results",
+            "local_version_by_game_id",
+        ):
+            mapping = getattr(self, mapping_name, None)
+            if mapping is not None:
+                mapping.pop(game_id, None)
+        achievement_cache = getattr(self, "achievement_status_cache", None)
+        if achievement_cache is not None:
+            achievement_cache.pop(game_id, None)
+        self._refresh_library()
+        if hasattr(self, "profile_page"):
+            # Archive changes and removals can change the public projection;
+            # the profile publisher handles coalescing and append-only history.
+            self.profile_page.mark_local_data_changed()
+        if self.library_view_mode in ("compact", "steam"):
+            self._update_compact_game_page()
+
+    def _apply_game_lifecycle_action(self, game, action: str) -> bool:
+        """Apply one explicit library/archive action and refresh all consumers."""
+        if not game:
+            return False
+        action = str(action or "").strip().lower()
+        if action not in {"remove_library", "remove_disk", "archive"}:
+            logger.warning(f"Ignoring unknown game lifecycle action: {action!r}")
+            return False
+
+        game_id = int(game[0])
+        game_name = str(game[1] or "Game")
+        if action == "archive":
+            if not self.db.archive_game(game_id, True):
+                self._show_toast(f"Could not archive '{game_name}'.", is_error=True)
+                return False
+            self._show_toast(f"Moved '{game_name}' to the archive. Files and statistics were preserved.")
+        elif action == "remove_library":
+            if not self.db.remove_game(game_id):
+                self._show_toast(f"Could not remove '{game_name}' from the library.", is_error=True)
+                return False
+            self._show_toast(f"Removed '{game_name}' from the library. Files were kept on disk.")
+        else:
+            deleted, error = self._remove_game_files_from_disk(game[2] if len(game) > 2 else "")
+            if not deleted:
+                self._show_toast(error, is_error=True)
+                return False
+            if not self.db.remove_game(game_id):
+                # This is rare, but the user must know that the filesystem
+                # action completed while the database action did not.
+                logger.error(f"Game files removed but database row {game_id} could not be removed")
+                self._show_toast(
+                    f"Files for '{game_name}' were removed, but its SafeLauncher record could not be cleared.",
+                    is_error=True,
+                )
+                return False
+            self._show_toast(f"Removed '{game_name}' and deleted its files from disk.")
+
+        self._finish_game_lifecycle_change(game_id)
+        return True
+
     def _on_remove(self):
         game = self._get_selected_game()
         if not game:
             self._show_toast("Please select a game to remove.", is_error=True)
             return
-        
-        game_id = game[0]
-        is_archived = bool(game[17]) if len(game) > 17 and game[17] else False
-
-        def _force_delete_game_path(target_path: str):
-            if not target_path or not os.path.exists(target_path):
-                return
-            try:
-                def _handle_readonly(func, subpath, exc_info):
-                    try:
-                        os.chmod(subpath, 0o777)
-                        func(subpath)
-                    except Exception:
-                        pass
-
-                if os.path.isfile(target_path) or os.path.islink(target_path):
-                    try:
-                        os.chmod(target_path, 0o777)
-                    except Exception:
-                        pass
-                    os.unlink(target_path)
-                elif os.path.isdir(target_path):
-                    try:
-                        shutil.rmtree(target_path, on_exc=_handle_readonly)
-                    except TypeError:
-                        shutil.rmtree(target_path, onerror=_handle_readonly)
-                logger.info(f"Force deleted game files at: {target_path}")
-            except Exception as e:
-                logger.warning(f"Could not force delete game files at '{target_path}': {e}")
-
-        if is_archived:
-            reply = QMessageBox.question(
-                self,
-                "Permanently Delete",
-                f"Permanently delete '{game[1]}' and all its recorded history and files from SafeLauncher?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                game_path = game[2]
-                resolved_path = os.path.realpath(os.path.expanduser(game_path)) if game_path else ""
-                _force_delete_game_path(resolved_path)
-                self.db.remove_game(game_id)
-                self._show_toast(f"Permanently removed '{game[1]}'.")
-                self.selected_game = None
-                self._refresh_library()
-                if hasattr(self, "profile_page"):
-                    self.profile_page.mark_local_data_changed()
-            return
-
-        dialog = CustomRemoveDialog(game[1], self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            game_path = game[2]
-            resolved_path = os.path.realpath(os.path.expanduser(game_path)) if game_path else ""
-
-            if dialog.choice == 'archive_delete_disk':
-                sandbox_root = os.path.realpath(os.path.expanduser(DEFAULT_SANDBOX_DIR))
-                try:
-                    inside_sandbox = os.path.commonpath([sandbox_root, resolved_path]) == sandbox_root
-                except ValueError:
-                    inside_sandbox = False
-                if inside_sandbox and resolved_path != sandbox_root:
-                    _force_delete_game_path(resolved_path)
-                elif resolved_path and os.path.exists(resolved_path):
-                    _force_delete_game_path(resolved_path)
-
-                self.db.archive_game(game_id, True)
-                self._show_toast(f"Archived '{game[1]}' and force deleted files from disk.")
-            elif dialog.choice == 'archive_keep':
-                self.db.archive_game(game_id, True)
-                self._show_toast(f"Archived '{game[1]}' (files preserved on disk).")
-            elif dialog.choice == 'purge_permanently':
-                # Force delete all game files from disk without going to trash
-                _force_delete_game_path(resolved_path)
-                self.db.remove_game(game_id)
-                self._show_toast(f"Permanently removed '{game[1]}' and force deleted files.")
-
-            # Clear selection before rebuilding compact view. Otherwise the
-            # page can keep rendering the archived/deleted record even though
-            # it has disappeared from the sidebar.
-            self.selected_game = None
-            self.library_selection.replace(self.library_selection.ids - {game_id})
-            self._refresh_library()
-            if hasattr(self, "profile_page"):
-                self.profile_page.mark_local_data_changed()
-            if self.library_view_mode in ("compact", "steam"):
-                self._update_compact_game_page()
+        dialog = CustomRemoveDialog(
+            game[1],
+            self,
+            is_archived=bool(game[17]) if len(game) > 17 and game[17] else False,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.choice:
+            self._apply_game_lifecycle_action(game, dialog.choice)
 
     def _on_export(self):
         game = self._get_selected_game()
