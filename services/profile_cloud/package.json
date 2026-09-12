@@ -1,13 +1,14 @@
 {
   "name": "safelauncher-profile-cloud",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Central public-profile service for SafeLauncher",
   "scripts": {
     "dev": "convex dev",
     "deploy": "convex deploy",
-    "import-avatars": "node scripts/import_profile_avatars.mjs"
+    "import-avatars": "node scripts/import_profile_avatars.mjs",
+    "migrate-appearance": "node scripts/import_profile_avatars.mjs --migrate-appearance"
   },
   "dependencies": {
     "convex": "^1.25.4"

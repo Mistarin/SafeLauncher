@@ -3,20 +3,24 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
   ApiError,
+  backgroundPresetIdFor,
   jsonResponse,
   ownerToken,
   requireCentralIdentity,
   requireGateway,
   readJsonBody,
   sha256,
+  validAvatarAssetId,
   validAvatarId,
+  validBackgroundPresetId,
   validHandle,
   validRequestId,
+  validPanelThemeId,
   validatePublicProfile,
 } from "./lib/api";
 
 const http = httpRouter();
-const SERVICE_VERSION = "0.2.0";
+const SERVICE_VERSION = "0.3.0";
 
 function generatedHandle(): string {
   const bytes = new Uint8Array(12);
@@ -24,7 +28,7 @@ function generatedHandle(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function profilePayload(profile: any): Record<string, unknown> {
+async function profilePayload(ctx: any, profile: any): Promise<Record<string, unknown>> {
   let value: Record<string, unknown>;
   try {
     value = JSON.parse(profile.profile) as Record<string, unknown>;
@@ -35,8 +39,26 @@ function profilePayload(profile: any): Record<string, unknown> {
   // Re-validating also removes any fields that were never part of the public
   // projection and upgrades old documents to the ID-only avatar shape.
   delete value.avatar;
-  value.schema_version = 2;
+  value.schema_version = 3;
   value.avatar_id = validAvatarId(value.avatar_id) ? value.avatar_id : null;
+  value.avatar_asset_id = validAvatarAssetId(value.avatar_asset_id) ? value.avatar_asset_id : null;
+  if (value.avatar_asset_id !== null) {
+    const avatar = await ctx.runQuery(internal.avatar_catalog.get, { avatarId: String(value.avatar_asset_id) });
+    if (!avatar) value.avatar_asset_id = null;
+    else delete value.avatar_id;
+  }
+  if (value.avatar_asset_id === null && validAvatarId(value.avatar_id)) {
+    const legacyAvatar = await ctx.runQuery(internal.avatar_catalog.get, { avatarId: value.avatar_id });
+    if (!legacyAvatar) value.avatar_id = null;
+    else if (legacyAvatar.assetNumber !== undefined) {
+      value.avatar_asset_id = legacyAvatar.assetNumber;
+      delete value.avatar_id;
+    }
+  }
+  value.panel_theme_id = validPanelThemeId(value.panel_theme_id) ? value.panel_theme_id : 1;
+  value.background_preset_id = validBackgroundPresetId(value.background_preset_id)
+    ? value.background_preset_id
+    : backgroundPresetIdFor(value.background);
   return {
     profile: JSON.parse(validatePublicProfile(value)),
     revision: profile.revision,
@@ -44,20 +66,45 @@ function profilePayload(profile: any): Record<string, unknown> {
   };
 }
 
-async function validateAvatarReference(ctx: any, serialized: string): Promise<void> {
+async function validateAvatarReference(ctx: any, serialized: string): Promise<string> {
   let profile: Record<string, unknown>;
   try {
     profile = JSON.parse(serialized) as Record<string, unknown>;
   } catch {
     throw new ApiError(400, "invalid_profile", "Profile is invalid.");
   }
+  const assetId = profile.avatar_asset_id;
   const avatarId = profile.avatar_id;
-  if (avatarId === null || avatarId === undefined || avatarId === "") return;
-  if (!validAvatarId(avatarId)) {
+  if ((assetId === null || assetId === undefined) && (avatarId === null || avatarId === undefined || avatarId === "")) {
+    return serialized;
+  }
+  if (assetId !== null && assetId !== undefined && !validAvatarAssetId(assetId)) {
+    throw new ApiError(400, "invalid_avatar", "Avatar asset number is invalid.");
+  }
+  if (assetId !== null && assetId !== undefined && avatarId !== null && avatarId !== undefined && avatarId !== "") {
+    throw new ApiError(400, "legacy_avatar_reference", "Only the numeric avatar asset reference may be stored.");
+  }
+  const lookupId = assetId !== null && assetId !== undefined
+    ? String(assetId)
+    : avatarId;
+  if (!validAvatarId(lookupId)) {
     throw new ApiError(400, "invalid_avatar", "Avatar identifier is invalid.");
   }
-  const avatar = await ctx.runQuery(internal.avatar_catalog.get, { avatarId });
+  const avatar = await ctx.runQuery(internal.avatar_catalog.get, { avatarId: lookupId });
   if (!avatar) throw new ApiError(400, "invalid_avatar", "That avatar is no longer available.");
+  if (assetId !== null && assetId !== undefined) {
+    if (avatar.assetNumber !== assetId) throw new ApiError(400, "invalid_avatar", "That avatar asset is no longer available.");
+    return serialized;
+  }
+  // Compatibility migration: old clients may still send a slug. Convert it
+  // to the immutable catalog number at the ownership boundary.
+  if (avatar.assetNumber !== undefined) {
+    profile.avatar_asset_id = avatar.assetNumber;
+    delete profile.avatar_id;
+    profile.schema_version = 3;
+    return JSON.stringify(profile);
+  }
+  return serialized;
 }
 
 function throwProfileError(result: any): void {
@@ -247,7 +294,7 @@ async function dispatch(
 
       if (!v2SocialMatch) {
         if (method === "GET") {
-          return jsonResponse(owner ? profilePayload(owner) : { profile: null });
+          return jsonResponse(owner ? await profilePayload(ctx, owner) : { profile: null });
         }
         if (method === "POST") {
           await enforceWriteLimit(ctx, ownerIdentityHash, "profile-write", 30, 600);
@@ -260,8 +307,8 @@ async function dispatch(
             ? candidate.handle
             : generatedHandle();
           candidate.handle = handle;
-          const serialized = validatePublicProfile(candidate);
-          await validateAvatarReference(ctx, serialized);
+          let serialized = validatePublicProfile(candidate);
+          serialized = await validateAvatarReference(ctx, serialized);
           if (owner)
             throw new ApiError(409, "profile_exists_for_identity", "This central account already owns a profile.");
           const result = await ctx.runMutation(internal.profiles.createForIdentity, {
@@ -280,8 +327,8 @@ async function dispatch(
           if (typeof revision !== "number" || !Number.isSafeInteger(revision))
             throw new ApiError(400, "invalid_revision", "A numeric revision is required.");
           const profile = body.profile as Record<string, unknown>;
-          const serialized = validatePublicProfile(profile);
-          await validateAvatarReference(ctx, serialized);
+          let serialized = validatePublicProfile(profile);
+          serialized = await validateAvatarReference(ctx, serialized);
           if (profile.handle !== owner.handle)
             throw new ApiError(400, "handle_mismatch", "The profile handle cannot be changed.");
           const result = await ctx.runMutation(internal.profiles.update, {
@@ -429,8 +476,8 @@ async function dispatch(
         );
       }
       const profile = body.profile as Record<string, unknown>;
-      const serialized = validatePublicProfile(profile);
-      await validateAvatarReference(ctx, serialized);
+      let serialized = validatePublicProfile(profile);
+      serialized = await validateAvatarReference(ctx, serialized);
       if (profile.handle !== handle)
         throw new ApiError(
           400,
@@ -594,7 +641,7 @@ async function dispatch(
     if (method === "GET") {
       const profile = await ctx.runQuery(internal.profiles.get, { handle });
       if (!profile) throw new ApiError(404, "not_found", "Profile not found.");
-      return jsonResponse(profilePayload(profile), 200, true);
+      return jsonResponse(await profilePayload(ctx, profile), 200, true);
     }
     const token = ownerToken(req);
     const tokenHash = await sha256(token);
@@ -628,8 +675,8 @@ async function dispatch(
           "A numeric revision is required.",
         );
       const profile = body.profile as Record<string, unknown>;
-      const serialized = validatePublicProfile(profile);
-      await validateAvatarReference(ctx, serialized);
+      let serialized = validatePublicProfile(profile);
+      serialized = await validateAvatarReference(ctx, serialized);
       if (profile.handle !== handle)
         throw new ApiError(
           400,

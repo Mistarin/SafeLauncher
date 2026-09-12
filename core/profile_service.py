@@ -18,6 +18,7 @@ from PyQt6.QtCore import QSettings
 from core.central_auth import CentralAuthError, CentralAuthSession
 from core.profile_models import (
     HANDLE_RE,
+    normalize_avatar_asset_id,
     normalize_avatar_id,
     normalize_public_document,
     normalize_social_snapshot,
@@ -235,7 +236,8 @@ class ProfileServiceClient:
         return catalog
 
     def avatar_url(self, avatar_id: str) -> str:
-        normalized = normalize_avatar_id(avatar_id)
+        asset_id = normalize_avatar_asset_id(avatar_id)
+        normalized = str(asset_id) if asset_id is not None else normalize_avatar_id(avatar_id)
         if not normalized:
             raise ProfileServiceError("The avatar identifier is invalid.", "invalid_avatar", 400)
         return f"{self.site_url}/api/profile/v2/avatars/{quote(normalized, safe='')}"

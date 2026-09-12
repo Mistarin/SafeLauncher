@@ -1,14 +1,25 @@
 import { action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { constantTimeEqual } from "./lib/api";
+import { backgroundPresetIdFor, constantTimeEqual } from "./lib/api";
 
 const MAX_ASSET_BYTES = 512 * 1024;
 const MAX_ASSET_PIXELS = 4_000_000;
 const AVATAR_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+const MAX_ASSET_NUMBER = 1_000_000;
 
 function validAvatarId(value: string): boolean {
   return AVATAR_ID_RE.test(value);
+}
+
+function validAssetNumber(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 1 && value <= MAX_ASSET_NUMBER;
+}
+
+function parseAssetNumber(value: string): number | null {
+  if (!/^[0-9]+$/.test(value)) return null;
+  const number = Number(value);
+  return validAssetNumber(number) ? number : null;
 }
 
 function validCatalogText(value: string, maxLength: number): boolean {
@@ -40,6 +51,8 @@ export const list = internalQuery({
       .sort((left, right) => left.order - right.order || left.avatarId.localeCompare(right.avatarId))
       .map((row) => ({
         id: row.avatarId,
+        asset_id: row.assetNumber ?? null,
+        legacy_id: row.avatarId,
         label: row.label,
         category: row.category,
         order: row.order,
@@ -54,11 +67,20 @@ export const list = internalQuery({
 export const get = internalQuery({
   args: { avatarId: v.string() },
   handler: async (ctx, args) => {
-    if (!validAvatarId(args.avatarId)) return null;
-    const row = await ctx.db
-      .query("profileAvatars")
-      .withIndex("by_avatar_id", (query) => query.eq("avatarId", args.avatarId))
-      .unique();
+    let row;
+    const requestedAssetNumber = parseAssetNumber(args.avatarId);
+    if (requestedAssetNumber !== null) {
+      row = await ctx.db
+        .query("profileAvatars")
+        .withIndex("by_asset_number", (query) => query.eq("assetNumber", requestedAssetNumber))
+        .unique();
+    } else {
+      if (!validAvatarId(args.avatarId)) return null;
+      row = await ctx.db
+        .query("profileAvatars")
+        .withIndex("by_avatar_id", (query) => query.eq("avatarId", args.avatarId))
+        .unique();
+    }
     return row && row.enabled ? row : null;
   },
 });
@@ -66,6 +88,7 @@ export const get = internalQuery({
 export const upsert = internalMutation({
   args: {
     avatarId: v.string(),
+    assetNumber: v.optional(v.number()),
     label: v.string(),
     category: v.string(),
     order: v.number(),
@@ -78,6 +101,7 @@ export const upsert = internalMutation({
   handler: async (ctx, args) => {
     if (
       !validAvatarId(args.avatarId) ||
+      (args.assetNumber !== undefined && !validAssetNumber(args.assetNumber)) ||
       !validCatalogText(args.label, 80) ||
       !validCatalogText(args.category, 32) ||
       !validCatalogNumber(args.order, 0, 10_000) ||
@@ -92,8 +116,30 @@ export const upsert = internalMutation({
       .query("profileAvatars")
       .withIndex("by_avatar_id", (query) => query.eq("avatarId", args.avatarId))
       .unique();
+    let assetNumber = existing?.assetNumber;
+    if (assetNumber === undefined) {
+      const rows = await ctx.db.query("profileAvatars").collect();
+      const used = new Set(
+        rows
+          .map((row) => row.assetNumber)
+          .filter((value): value is number => value !== undefined && validAssetNumber(value)),
+      );
+      if (args.assetNumber !== undefined) {
+        if (used.has(args.assetNumber) && (!existing || existing.assetNumber !== args.assetNumber)) {
+          return { error: "asset_number_taken" };
+        }
+        assetNumber = args.assetNumber;
+      } else {
+        assetNumber = 1;
+        while (used.has(assetNumber) && assetNumber < MAX_ASSET_NUMBER) assetNumber += 1;
+        if (!validAssetNumber(assetNumber)) return { error: "asset_number_exhausted" };
+      }
+    } else if (args.assetNumber !== undefined && args.assetNumber !== assetNumber) {
+      return { error: "asset_number_immutable" };
+    }
     const value = {
       avatarId: args.avatarId,
+      assetNumber,
       label: args.label,
       category: args.category,
       order: args.order,
@@ -107,10 +153,10 @@ export const upsert = internalMutation({
     };
     if (existing) {
       await ctx.db.patch(existing._id, value);
-      return { updated: true, id: String(existing._id) };
+      return { updated: true, id: String(existing._id), assetNumber };
     }
     const id = await ctx.db.insert("profileAvatars", value);
-    return { updated: false, id: String(id) };
+    return { updated: false, id: String(id), assetNumber };
   },
 });
 
@@ -127,7 +173,7 @@ export const importAsset = action({
     width: v.number(),
     height: v.number(),
   },
-  handler: async (ctx, args): Promise<{ updated: boolean; id: string }> => {
+  handler: async (ctx, args): Promise<{ updated: boolean; id: string; assetNumber?: number }> => {
     if (!(await importKeyAllowed(args.importKey))) throw new Error("avatar_import_unauthorized");
     if (!validAvatarId(args.avatarId) || args.dataBase64.length > 700_000 ||
         !/^[A-Za-z0-9+/]+={0,2}$/.test(args.dataBase64) || args.dataBase64.length % 4 !== 0 ||
@@ -158,7 +204,7 @@ export const importAsset = action({
     if (digest !== args.sha256) throw new Error("avatar_import_hash_mismatch");
     const existing = await ctx.runQuery(internal.avatar_catalog.get, { avatarId: args.avatarId });
     if (existing && existing.sha256 === digest) {
-      return { updated: true, id: String(existing._id) };
+      return { updated: true, id: String(existing._id), assetNumber: existing.assetNumber };
     }
     const storageId = await ctx.storage.store(new Blob([bytes], { type: "image/png" }));
     const result = await ctx.runMutation(internal.avatar_catalog.upsert, {
@@ -172,18 +218,47 @@ export const importAsset = action({
       height: Math.min(2048, Math.trunc(args.height)),
       bytes: bytes.byteLength,
     });
+    if ("error" in result && result.error) {
+      await ctx.storage.delete(storageId);
+      throw new Error(String(result.error));
+    }
     if (existing && existing.storageId !== storageId) {
       await ctx.storage.delete(existing.storageId);
     }
-    return { updated: Boolean(result.updated), id: String(result.id) };
+    return { updated: Boolean(result.updated), id: String(result.id), assetNumber: result.assetNumber };
   },
 });
 
-export const migrateLegacyProfiles = internalMutation({
+export const migrateAppearance = internalMutation({
   args: {},
   handler: async (ctx) => {
+    const avatarRows = await ctx.db.query("profileAvatars").collect();
+    avatarRows.sort((left, right) => left.order - right.order || left.avatarId.localeCompare(right.avatarId));
+    const used = new Set<number>();
+    let nextAssetNumber = 1;
+    let assignedAssets = 0;
+    const avatarByLegacyId = new Map<string, number>();
+    const avatarByNumber = new Map<number, number>();
+    for (const row of avatarRows) {
+      let assetNumber = row.assetNumber;
+      if (!validAssetNumber(assetNumber ?? 0) || (assetNumber !== undefined && used.has(assetNumber))) {
+        while (used.has(nextAssetNumber)) nextAssetNumber += 1;
+        if (!validAssetNumber(nextAssetNumber)) continue;
+        assetNumber = nextAssetNumber;
+        assignedAssets += 1;
+      }
+      const assigned = assetNumber;
+      if (assigned === undefined) continue;
+      used.add(assigned);
+      nextAssetNumber = Math.max(nextAssetNumber, assigned + 1);
+      avatarByLegacyId.set(row.avatarId, assigned);
+      avatarByNumber.set(assigned, assigned);
+      if (row.assetNumber !== assigned) await ctx.db.patch(row._id, { assetNumber: assigned });
+    }
+
     const profiles = await ctx.db.query("publicProfiles").collect();
     let migrated = 0;
+    let unmappedAvatars = 0;
     for (const row of profiles) {
       let profile: Record<string, unknown>;
       try {
@@ -191,24 +266,51 @@ export const migrateLegacyProfiles = internalMutation({
       } catch {
         continue;
       }
-      if (!profile || typeof profile !== "object" ||
-          (profile.schema_version === 2 && !Object.prototype.hasOwnProperty.call(profile, "avatar")))
+      if (!profile || typeof profile !== "object")
         continue;
       delete profile.avatar;
-      profile.avatar_id = null;
-      profile.schema_version = 2;
+      let assetNumber: number | null = null;
+      if (validAssetNumber(Number(profile.avatar_asset_id))) {
+        assetNumber = avatarByNumber.get(Number(profile.avatar_asset_id)) ?? null;
+      }
+      if (assetNumber === null && typeof profile.avatar_id === "string") {
+        const legacyId = profile.avatar_id.trim().toLowerCase();
+        assetNumber = avatarByLegacyId.get(legacyId) ?? null;
+        const legacyAssetNumber = parseAssetNumber(legacyId);
+        if (assetNumber === null && legacyAssetNumber !== null) {
+          assetNumber = avatarByNumber.get(legacyAssetNumber) ?? null;
+        }
+      }
+      if ((profile.avatar_id !== undefined || profile.avatar_asset_id !== undefined) && assetNumber === null) {
+        unmappedAvatars += 1;
+      }
+      profile.avatar_asset_id = assetNumber;
+      delete profile.avatar_id;
+      const theme = profile.panel_theme_id;
+      profile.panel_theme_id = validCatalogNumber(Number(theme), 1, 4)
+        ? Number(theme)
+        : ({ grey: 1, aurora: 2, sunset: 3, bubble: 4 } as Record<string, number>)[String(profile.profile_theme || "").toLowerCase()] || 1;
+      delete profile.profile_theme;
+      if (!Object.prototype.hasOwnProperty.call(profile, "background_preset_id")) {
+        profile.background_preset_id = backgroundPresetIdFor(profile.background);
+      }
+      profile.schema_version = 3;
       await ctx.db.patch(row._id, { profile: JSON.stringify(profile), updatedAt: Date.now() });
       migrated += 1;
     }
-    return { migrated };
+    return { migrated, assignedAssets, unmappedAvatars };
   },
 });
 
-export const runLegacyMigration = action({
+export const runAppearanceMigration = action({
   args: { importKey: v.string() },
-  handler: async (ctx, args): Promise<{ migrated: number }> => {
+  handler: async (ctx, args): Promise<{ migrated: number; assignedAssets: number; unmappedAvatars: number }> => {
     if (!(await importKeyAllowed(args.importKey))) throw new Error("avatar_import_unauthorized");
-    const result = await ctx.runMutation(internal.avatar_catalog.migrateLegacyProfiles, {});
-    return { migrated: Number(result.migrated || 0) };
+    const result = await ctx.runMutation(internal.avatar_catalog.migrateAppearance, {});
+    return {
+      migrated: Number(result.migrated || 0),
+      assignedAssets: Number(result.assignedAssets || 0),
+      unmappedAvatars: Number(result.unmappedAvatars || 0),
+    };
   },
 });

@@ -19,8 +19,8 @@ from urllib.parse import urlsplit
 
 from PyQt6.QtCore import QSettings
 
-PRIVATE_PROFILE_VERSION = 6
-PUBLIC_PROFILE_VERSION = 2
+PRIVATE_PROFILE_VERSION = 7
+PUBLIC_PROFILE_VERSION = 3
 LEGACY_HANDLE_RE = re.compile(r"^[a-f0-9]{20,40}$")
 USERNAME_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?$")
 HANDLE_RE = re.compile(r"^(?:[a-f0-9]{20,40}|[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?)$")
@@ -49,6 +49,26 @@ MAX_PUBLIC_ACHIEVEMENTS = 20
 MAX_PUBLIC_GAME_ACHIEVEMENTS = 20
 MAX_PUBLIC_FRIENDS = 100
 MAX_PUBLIC_FRIEND_REQUESTS = 50
+MAX_AVATAR_ASSET_NUMBER = 1_000_000
+
+# These numbers are part of the public profile contract. Never reorder or
+# reuse them; labels and artwork can change, but a published reference must
+# continue to identify the same developer-owned asset.
+PANEL_THEME_IDS = {
+    "grey": 1,
+    "aurora": 2,
+    "sunset": 3,
+    "bubble": 4,
+}
+PANEL_THEME_KEYS = {value: key for key, value in PANEL_THEME_IDS.items()}
+BACKGROUND_PRESET_IDS = {
+    "midnight": 1,
+    "ember": 2,
+    "forest": 3,
+    "violet": 4,
+    "slate": 5,
+}
+BACKGROUND_PRESET_KEYS = {value: key for key, value in BACKGROUND_PRESET_IDS.items()}
 
 DEFAULT_BACKGROUND = {
     "kind": "gradient",
@@ -91,9 +111,64 @@ def profile_username_suggestion(identity: Any) -> str:
 
 
 def normalize_avatar_id(value: Any) -> str:
-    """Normalize the opaque ID of a developer-provided cloud avatar."""
+    """Normalize a legacy/catalog avatar slug or numeric compatibility ID."""
     candidate = str(value or "").strip().casefold()
     return candidate if AVATAR_ID_RE.fullmatch(candidate) else ""
+
+
+def normalize_avatar_asset_id(value: Any) -> int | None:
+    """Normalize the immutable numeric ID of a developer-owned avatar."""
+    if isinstance(value, bool):
+        return None
+    raw = str(value or "").strip()
+    if not raw.isdigit():
+        return None
+    try:
+        number = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if 1 <= number <= MAX_AVATAR_ASSET_NUMBER else None
+
+
+def normalize_panel_theme_id(value: Any) -> int:
+    """Normalize a public panel theme reference; unknown reads use Grey."""
+    if isinstance(value, str):
+        key = value.strip().casefold()
+        if key in PANEL_THEME_IDS:
+            return PANEL_THEME_IDS[key]
+    if not isinstance(value, bool):
+        try:
+            number = int(value)
+        except (TypeError, ValueError, OverflowError):
+            number = 0
+        if number in PANEL_THEME_KEYS:
+            return number
+    return PANEL_THEME_IDS["grey"]
+
+
+def panel_theme_key(value: Any) -> str:
+    return PANEL_THEME_KEYS.get(normalize_panel_theme_id(value), "grey")
+
+
+def normalize_background_preset_id(value: Any, background: Any = None) -> int | None:
+    """Return the stable ID for a built-in background, if applicable."""
+    if isinstance(value, str):
+        key = value.strip().casefold()
+        if key in BACKGROUND_PRESET_IDS:
+            return BACKGROUND_PRESET_IDS[key]
+    if not isinstance(value, bool):
+        try:
+            number = int(value)
+        except (TypeError, ValueError, OverflowError):
+            number = 0
+        if number in BACKGROUND_PRESET_KEYS:
+            return number
+    normalized = normalize_background(background) if background is not None else None
+    if normalized is not None:
+        for key, candidate in BACKGROUND_PRESETS.items():
+            if normalized == normalize_background(candidate):
+                return BACKGROUND_PRESET_IDS[key]
+    return None
 
 
 def steam_app_id(value: Any) -> str:
@@ -199,15 +274,23 @@ def normalize_profile_settings(value: Any, fallback_name: str = "Player") -> dic
     handle = str(value.get("public_handle", "") or "").strip().lower()
     if not HANDLE_RE.fullmatch(handle):
         handle = ""
+    legacy_avatar_id = normalize_avatar_id(value.get("avatar_id"))
+    avatar_asset_id = normalize_avatar_asset_id(value.get("avatar_asset_id"))
+    if avatar_asset_id is None and legacy_avatar_id:
+        avatar_asset_id = normalize_avatar_asset_id(legacy_avatar_id)
+    avatar_id = str(avatar_asset_id) if avatar_asset_id is not None else legacy_avatar_id
+    panel_theme_id = normalize_panel_theme_id(value.get("panel_theme_id", value.get("profile_theme")))
     try:
         changed_at = max(0.0, float(value.get("changed_at", 0) or 0))
     except (TypeError, ValueError, OverflowError):
         changed_at = 0.0
-    avatar_id = normalize_avatar_id(value.get("avatar_id"))
     return {
         "display_name": _clean_name(value.get("display_name"), fallback_name),
         "bio": _clean_bio(value.get("bio")),
         "avatar_id": avatar_id,
+        "avatar_asset_id": avatar_asset_id,
+        "panel_theme_id": panel_theme_id,
+        "profile_theme": panel_theme_key(panel_theme_id),
         "background": normalize_background(value.get("background")),
         "public_handle": handle,
         "published": bool(value.get("published", False)),
@@ -233,6 +316,13 @@ def load_profile_settings(settings: QSettings | None = None, fallback_name: str 
         "display_name": settings.value("profile_display_name", fallback_name, type=str),
         "bio": settings.value("profile_bio", "", type=str),
         "avatar_id": settings.value("profile_avatar_id", "", type=str),
+        # Do not request type=int here: older QSettings backends represent a
+        # missing value as an invalid QVariant that PyQt cannot convert.
+        "avatar_asset_id": settings.value("profile_avatar_asset_id", ""),
+        "panel_theme_id": settings.value(
+            "profile_panel_theme_id",
+            settings.value("profile_theme", "grey", type=str),
+        ),
         "background": background,
         "public_handle": settings.value("profile_public_handle", "", type=str),
         "published": settings.value("profile_published", False, type=bool),
@@ -249,6 +339,11 @@ def save_profile_settings(settings: QSettings, value: dict[str, Any], *, mark_ch
     settings.setValue("profile_display_name", normalized["display_name"])
     settings.setValue("profile_bio", normalized["bio"])
     settings.setValue("profile_avatar_id", normalized["avatar_id"])
+    settings.setValue("profile_avatar_asset_id", normalized["avatar_asset_id"] or "")
+    settings.setValue("profile_panel_theme_id", normalized["panel_theme_id"])
+    # Retain the readable key for older desktop builds. The public wire
+    # format uses the numeric panel_theme_id.
+    settings.setValue("profile_theme", normalized["profile_theme"])
     settings.remove("profile_avatar")
     settings.setValue("profile_background", json.dumps(normalized["background"], sort_keys=True))
     settings.setValue("profile_public_handle", normalized["public_handle"])
@@ -421,7 +516,13 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
         "handle": profile["public_handle"],
         "display_name": profile["display_name"],
         "bio": profile["bio"],
-        "avatar_id": profile["avatar_id"] or None,
+        "avatar_asset_id": profile["avatar_asset_id"],
+        # Keep the legacy slug only while a local profile has not yet been
+        # mapped to the central numeric catalog. The compatibility deployment
+        # can migrate this field server-side without losing the selection.
+        "avatar_id": profile["avatar_id"] if profile["avatar_asset_id"] is None else None,
+        "panel_theme_id": profile["panel_theme_id"],
+        "background_preset_id": normalize_background_preset_id(None, profile["background"]),
         "background": profile["background"],
         "stats": {
             "games_count": len(games),
@@ -445,8 +546,15 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
     if not HANDLE_RE.fullmatch(handle):
         return None
     name = _clean_name(value.get("display_name"))
+    avatar_asset_id = normalize_avatar_asset_id(value.get("avatar_asset_id"))
     avatar_id = normalize_avatar_id(value.get("avatar_id"))
+    if avatar_asset_id is None:
+        avatar_asset_id = normalize_avatar_asset_id(avatar_id)
+    if avatar_asset_id is not None:
+        avatar_id = str(avatar_asset_id)
+    panel_theme_id = normalize_panel_theme_id(value.get("panel_theme_id", value.get("profile_theme")))
     background = normalize_background(value.get("background"))
+    background_preset_id = normalize_background_preset_id(value.get("background_preset_id"), background)
     raw_stats = value.get("stats") if isinstance(value.get("stats"), dict) else {}
     stats = {}
     for key in ("games_count", "favorite_count", "playtime_seconds", "achievements_unlocked", "achievements_known"):
@@ -571,7 +679,11 @@ def normalize_public_document(value: Any) -> dict[str, Any] | None:
         "handle": handle,
         "display_name": name,
         "bio": _clean_bio(value.get("bio")),
+        "avatar_asset_id": avatar_asset_id,
         "avatar_id": avatar_id or None,
+        "panel_theme_id": panel_theme_id,
+        "profile_theme": panel_theme_key(panel_theme_id),
+        "background_preset_id": background_preset_id,
         "background": background,
         "stats": stats,
         "games": games,

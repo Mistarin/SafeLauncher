@@ -25,6 +25,7 @@ describe("profile gateway", () => {
     expect(classify("/api/profile/v1/handles/martin-player/availability", "GET").kind).toBe("public");
     expect(classify("/api/profile/v2/avatars", "GET").kind).toBe("public");
     expect(classify("/api/profile/v2/avatars/1-1", "GET").kind).toBe("public");
+    expect(classify("/api/profile/v2/avatars/42", "GET").kind).toBe("public");
     expect(classify("/api/telemetry/ping", "POST").kind).toBe("public");
     expect(classify("/api/telemetry/ping", "GET").kind).toBe("invalid");
     expect(classify("/api/profile/v1/01234567890123456789", "POST").kind).toBe("invalid");

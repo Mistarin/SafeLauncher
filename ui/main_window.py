@@ -112,7 +112,7 @@ from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
 from core.central_auth import CentralAuthSession
 from core.profile_service import ProfileServiceClient, get_profile_service_url
-from core.profile_models import HANDLE_RE, load_profile_settings
+from core.profile_models import HANDLE_RE, load_profile_settings, panel_theme_key
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -1696,7 +1696,10 @@ class MainWindow(QMainWindow):
             cloud_saves_dir=cloud_dir,
             parent=self,
             date_format=self.date_format,
-            profile_theme=normalize_profile_theme(self.settings.value("profile_theme", "grey", type=str)),
+            profile_theme=panel_theme_key(load_profile_settings(
+                self.settings,
+                fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+            ).get("panel_theme_id")),
         )
         # PopupDialog uses WA_DeleteOnClose, but this handler reads the form
         # values after exec() returns. Keep the dialog alive until those reads
@@ -1728,7 +1731,7 @@ class MainWindow(QMainWindow):
             if hasattr(dialog, "get_profile_theme"):
                 selected_theme = normalize_profile_theme(dialog.get_profile_theme())
                 self.settings.setValue("profile_theme", selected_theme)
-                self.profile_page.set_profile_theme(selected_theme)
+                self.profile_page.commit_profile_theme(selected_theme)
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(self.proton_path)
 

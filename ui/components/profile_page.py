@@ -18,7 +18,8 @@ from PyQt6.QtWidgets import (
 
 from core.profile_models import (
     BACKGROUND_PRESETS, MAX_BIO_LENGTH, build_public_projection,
-    HANDLE_RE, load_profile_settings, normalize_avatar_id, normalize_background, normalize_username_handle,
+    HANDLE_RE, load_profile_settings, normalize_avatar_asset_id, normalize_avatar_id,
+    normalize_background, normalize_panel_theme_id, normalize_username_handle, panel_theme_key,
     normalize_public_document, profile_username_suggestion, save_profile_settings,
     steam_app_id, steam_hero_url, steam_hero_urls,
 )
@@ -354,6 +355,25 @@ class ProfilePageWidget(QWidget):
         if hasattr(self, "_base_style"):
             self.setStyleSheet(self._base_style + self._profile_theme_style() + self._background_style(self._document.get("background", {})))
             self.update()
+
+    def commit_profile_theme(self, value: object) -> None:
+        """Persist the owner theme and queue a public update when published."""
+        was_owner_view = self._mode == "owner"
+        theme_id = normalize_panel_theme_id(value)
+        key = panel_theme_key(theme_id)
+        current = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        self._profile_settings = save_profile_settings(
+            self.settings,
+            {**current, "panel_theme_id": theme_id, "profile_theme": key},
+        )
+        if was_owner_view:
+            self._profile_theme_key = key
+            self._document = build_public_projection(self.db, self._profile_settings)
+            self._render(self._document)
+        self.mark_local_data_changed()
 
     def profile_theme(self) -> str:
         return self._profile_theme_key
@@ -846,6 +866,7 @@ class ProfilePageWidget(QWidget):
         self._local_refresh_pending = False
         self.mode_label.setText("OWNER VIEW")
         self._profile_settings = load_profile_settings(self.settings, fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"))
+        self._profile_theme_key = panel_theme_key(self._profile_settings.get("panel_theme_id"))
         self._document = build_public_projection(self.db, self._profile_settings)
         if self._profile_settings.get("public_handle") != self._social_handle:
             self._social_snapshot = self._empty_social_snapshot()
@@ -888,6 +909,7 @@ class ProfilePageWidget(QWidget):
             self.settings,
             fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
         )
+        self._profile_theme_key = panel_theme_key(self._profile_settings.get("panel_theme_id"))
         self._document = build_public_projection(self.db, self._profile_settings)
         self._render(self._document)
 
@@ -902,6 +924,7 @@ class ProfilePageWidget(QWidget):
         self._local_refresh_pending = False
         self._editing = False
         self._document = normalized
+        self._profile_theme_key = panel_theme_key(normalized.get("panel_theme_id"))
         self._social_snapshot = self._empty_social_snapshot()
         self._social_handle = ""
         self.mode_label.setText("PUBLIC VIEW")
@@ -1233,7 +1256,7 @@ class ProfilePageWidget(QWidget):
         unlocked = int(stats.get("achievements_unlocked", 0) or 0)
         known = int(stats.get("achievements_known", 0) or 0)
         self.stat_labels["achievements_unlocked"].setText(f"{unlocked}/{known}" if known else str(unlocked))
-        self._set_avatar(document.get("avatar_id"))
+        self._set_avatar(document.get("avatar_asset_id") or document.get("avatar_id"))
         if self._mode == "owner":
             published = bool(self._profile_settings.get("published"))
             handle = str(document.get("handle", "") or "").strip()
@@ -1824,10 +1847,29 @@ class ProfilePageWidget(QWidget):
             self._avatar_pixmaps.pop(next(iter(self._avatar_pixmaps)), None)
 
     def _avatar_catalog_item(self, avatar_id: str) -> dict[str, Any] | None:
-        return next((item for item in self._avatar_catalog if item.get("id") == avatar_id), None)
+        normalized = normalize_avatar_id(avatar_id)
+        asset_id = normalize_avatar_asset_id(avatar_id)
+        return next(
+            (
+                item for item in self._avatar_catalog
+                if str(item.get("id", "")) == normalized
+                or str(item.get("legacy_id", "")) == normalized
+                or (asset_id is not None and normalize_avatar_asset_id(item.get("asset_id")) == asset_id)
+            ),
+            None,
+        )
+
+    def _avatar_reference(self, value: Any) -> str:
+        """Resolve legacy local/profile aliases to the canonical asset number."""
+        normalized = normalize_avatar_id(value)
+        if not normalized:
+            return ""
+        item = self._avatar_catalog_item(normalized)
+        asset_id = normalize_avatar_asset_id(item.get("asset_id")) if item else None
+        return str(asset_id) if asset_id is not None else normalized
 
     def _set_avatar(self, value: Any) -> None:
-        avatar_id = normalize_avatar_id(value)
+        avatar_id = self._avatar_reference(value)
         pixmap = self._avatar_pixmaps.get(avatar_id) if avatar_id else None
         if pixmap is not None and not pixmap.isNull():
             self.avatar.setPixmap(pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
@@ -1848,7 +1890,7 @@ class ProfilePageWidget(QWidget):
         requested: list[str] = []
         seen: set[str] = set()
         for value in list(avatar_ids or []):
-            avatar_id = normalize_avatar_id(value)
+            avatar_id = self._avatar_reference(value)
             if avatar_id and avatar_id not in seen:
                 requested.append(avatar_id)
                 seen.add(avatar_id)
@@ -1905,8 +1947,10 @@ class ProfilePageWidget(QWidget):
             save_cached_avatar(avatar_id, digest, data)
             if self._avatar_dialog is not None and self._avatar_dialog.isVisible():
                 self._avatar_dialog.set_thumbnail(avatar_id, pixmap)
-            current_avatar = self._draft_avatar_id if self._editing else self._document.get("avatar_id")
-            if normalize_avatar_id(current_avatar) == avatar_id:
+            current_avatar = self._draft_avatar_id if self._editing else (
+                self._document.get("avatar_asset_id") or self._document.get("avatar_id")
+            )
+            if self._avatar_reference(current_avatar) == avatar_id:
                 self._set_avatar(avatar_id)
 
     def _avatar_catalog_loaded(self, result: Any) -> None:
@@ -1922,12 +1966,22 @@ class ProfilePageWidget(QWidget):
             return
         self._avatar_catalog = result
         save_cached_avatar_catalog(result)
+        if self._mode == "owner" and not self._editing:
+            current = self._profile_settings.get("avatar_id")
+            item = self._avatar_catalog_item(current)
+            asset_id = normalize_avatar_asset_id(item.get("asset_id")) if item else None
+            if asset_id is not None and self._profile_settings.get("avatar_asset_id") != asset_id:
+                self._profile_settings = save_profile_settings(
+                    self.settings,
+                    {**self._profile_settings, "avatar_asset_id": asset_id, "avatar_id": str(asset_id)},
+                    mark_changed=False,
+                )
         self._show_avatar_catalog()
 
     def _show_avatar_catalog(self) -> None:
         if not self._avatar_catalog:
             return
-        dialog = ProfileAvatarCatalogDialog(self._avatar_catalog, self._draft_avatar_id, self)
+        dialog = ProfileAvatarCatalogDialog(self._avatar_catalog, self._avatar_reference(self._draft_avatar_id), self)
         self._avatar_dialog = dialog
         dialog.catalog_avatar_ids.connect(
             lambda ids, expected_dialog=dialog: self._load_avatar_thumbnails(expected_dialog, ids)
@@ -1937,7 +1991,7 @@ class ProfilePageWidget(QWidget):
         )
         try:
             if dialog.exec() == dialog.DialogCode.Accepted:
-                selected = normalize_avatar_id(dialog.selected_avatar_id)
+                selected = self._avatar_reference(dialog.selected_avatar_id)
                 if selected:
                     self._draft_avatar_id = selected
                     item = self._avatar_catalog_item(selected)
@@ -1968,8 +2022,10 @@ class ProfilePageWidget(QWidget):
         self._handle_check_inflight = False
         self._handle_availability = True if published and handle else None
         self._update_bio_count()
-        selected_avatar = normalize_avatar_id(
-            self._draft_avatar_id if self._editing else self._profile_settings.get("avatar_id")
+        selected_avatar = self._avatar_reference(
+            self._draft_avatar_id if self._editing else (
+                self._profile_settings.get("avatar_asset_id") or self._profile_settings.get("avatar_id")
+            )
         )
         avatar_item = self._avatar_catalog_item(selected_avatar) if selected_avatar else None
         self.avatar_selection_label.setText(
@@ -2213,6 +2269,8 @@ class ProfilePageWidget(QWidget):
                 "display_name": remote.get("display_name", self._profile_settings.get("display_name", "Player")),
                 "bio": remote.get("bio", self._profile_settings.get("bio", "")),
                 "avatar_id": remote.get("avatar_id"),
+                "avatar_asset_id": remote.get("avatar_asset_id"),
+                "panel_theme_id": remote.get("panel_theme_id"),
                 "background": remote.get("background"),
                 "public_handle": remote.get("handle", self._profile_settings.get("public_handle", "")),
                 "published": True,
@@ -2246,7 +2304,9 @@ class ProfilePageWidget(QWidget):
         if self._mode != "owner":
             return
         self._editing = True
-        self._draft_avatar_id = str(self._profile_settings.get("avatar_id", "") or "")
+        self._draft_avatar_id = self._avatar_reference(
+            self._profile_settings.get("avatar_asset_id") or self._profile_settings.get("avatar_id")
+        )
         self.editor.setVisible(True)
         self.btn_edit.setVisible(False)
         self._populate_editor()
@@ -2306,8 +2366,10 @@ class ProfilePageWidget(QWidget):
             "public_handle": handle,
             "bio": self.bio_edit.toPlainText(),
             "avatar_id": self._draft_avatar_id,
+            "avatar_asset_id": normalize_avatar_asset_id(self._draft_avatar_id),
             "background": background,
         })
+        was_published = bool(self._profile_settings.get("published"))
         normalized = save_profile_settings(self.settings, value)
         self._profile_settings = normalized
         self._editing = False
@@ -2315,7 +2377,11 @@ class ProfilePageWidget(QWidget):
         self.profile_changed.emit()
         self.show_owner()
         self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
-        self.footer_status.setText("Profile changes saved locally. Publish to update the public profile.")
+        if was_published and self.central_auth.signed_in and automatic_network_allowed(self.settings):
+            self.mark_local_data_changed()
+            self.footer_status.setText("Profile changes saved. Public profile update queued.")
+        else:
+            self.footer_status.setText("Profile changes saved locally. Publish to update the public profile.")
 
     def _choose_avatar(self) -> None:
         if self._mode != "owner" or not self._editing:

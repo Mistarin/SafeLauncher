@@ -24,6 +24,7 @@ from core.profile_models import (
     load_profile_settings,
     normalize_public_document, normalize_social_snapshot, normalize_username_handle,
     profile_username_suggestion, steam_hero_url, normalize_background, normalize_avatar_id,
+    normalize_avatar_asset_id, normalize_panel_theme_id, normalize_background_preset_id,
     save_profile_settings,
 )
 from database import GameDatabase
@@ -50,6 +51,30 @@ class ProfileModelTests(unittest.TestCase):
         self.assertEqual(normalize_profile_theme("sunset"), "sunset")
         self.assertEqual(normalize_profile_theme("unsupported"), "grey")
         self.assertEqual([key for _label, key in profile_theme_choices()], ["grey", "aurora", "sunset", "bubble"])
+        self.assertEqual(normalize_panel_theme_id("sunset"), 3)
+        self.assertEqual(normalize_panel_theme_id(999), 1)
+        self.assertEqual(normalize_background_preset_id("ember"), 2)
+
+    def test_numeric_appearance_references_round_trip(self):
+        self.assertEqual(normalize_avatar_asset_id("0042"), 42)
+        self.assertIsNone(normalize_avatar_asset_id(0))
+        self.assertIsNone(normalize_avatar_asset_id(True))
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            saved = save_profile_settings(settings, {
+                "avatar_asset_id": 42,
+                "panel_theme_id": 3,
+                "background": {"kind": "gradient", "stops": ["#5C2630", "#171417"], "angle": 135},
+            })
+            loaded = load_profile_settings(settings)
+            self.assertEqual(saved["avatar_asset_id"], 42)
+            self.assertEqual(loaded["avatar_asset_id"], 42)
+            self.assertEqual(loaded["panel_theme_id"], 3)
+            db = GameDatabase(":memory:")
+            try:
+                self.assertEqual(build_public_projection(db, loaded)["panel_theme_id"], 3)
+            finally:
+                db.close()
 
     def test_official_central_auth_defaults_are_configured(self):
         with patch.dict("os.environ", {
@@ -329,6 +354,21 @@ class ProfileModelTests(unittest.TestCase):
         self.assertNotIn("convex", client.avatar_url("1-1"))
         with self.assertRaises(ProfileServiceError):
             client.avatar_url("../storage-id")
+
+    def test_avatar_catalog_maps_legacy_slug_to_numeric_asset(self):
+        catalog = normalize_avatar_catalog([{
+            "id": "r-1-1",
+            "asset_id": 7,
+            "label": "R 1-1",
+            "category": "R",
+            "order": 0,
+            "sha256": "b" * 64,
+            "width": 512,
+            "height": 512,
+            "bytes": 1024,
+        }])
+        self.assertEqual(catalog[0]["id"], "7")
+        self.assertEqual(catalog[0]["legacy_id"], "r-1-1")
 
     def test_avatar_download_rejects_non_images_and_oversized_responses(self):
         response = Mock(status_code=200)

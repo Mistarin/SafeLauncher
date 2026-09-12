@@ -83,13 +83,13 @@ async function importCatalog() {
   }
 }
 
-async function migrateLegacyProfiles() {
+async function migrateAppearance() {
   const convexUrl = process.env.SAFELAUNCHER_CONVEX_URL || "";
   const importKey = process.env.SAFELAUNCHER_AVATAR_IMPORT_KEY || "";
   if (!convexUrl || !importKey) throw new Error("SAFELAUNCHER_CONVEX_URL and SAFELAUNCHER_AVATAR_IMPORT_KEY are required");
   const client = new ConvexHttpClient(convexUrl);
-  console.log(await client.action(api.avatar_catalog.runLegacyMigration, { importKey }));
+  console.log(await client.action(api.avatar_catalog.runAppearanceMigration, { importKey }));
 }
 
-if (process.argv.includes("--migrate-legacy")) migrateLegacyProfiles().catch((error) => { console.error(error.message); process.exitCode = 1; });
+if (process.argv.includes("--migrate-appearance") || process.argv.includes("--migrate-legacy")) migrateAppearance().catch((error) => { console.error(error.message); process.exitCode = 1; });
 else importCatalog().catch((error) => { console.error(error.message); process.exitCode = 1; });

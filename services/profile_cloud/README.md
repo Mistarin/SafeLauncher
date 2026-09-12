@@ -1,5 +1,7 @@
 # SafeLauncher public profile service
 
+Current central service release: **0.3.0** (public profile schema 3).
+
 This is a separate Convex project from the private per-user save backend.
 Personal save deployments do not communicate with one another. SafeLauncher
 clients publish a privacy-filtered profile projection directly to this service.
@@ -47,7 +49,11 @@ after the claim succeeds. New profiles have no bearer owner token at all.
 
 The service deliberately stores only bounded JSON profile documents. Profile
 pictures are not user uploads: the developer imports the approved PNG catalog
-into Convex File Storage, and profiles store only a validated `avatar_id`.
+into Convex File Storage, and profiles store only the immutable numeric
+`avatar_asset_id`. The catalog keeps the old filename slug as a migration alias
+but it is never the long-term public reference. Panel themes and built-in
+backgrounds use the same immutable numeric-reference rule; a Steam hero is
+represented by its validated AppID.
 Public images are served through the gateway-backed HTTP action, never through
 raw Convex storage URLs. Backgrounds remain theme data (colors, gradients,
 presets, or a Steam AppID), not uploaded files.
@@ -64,14 +70,18 @@ export SAFELAUNCHER_AVATAR_IMPORT_KEY='<private-random-value>'
 npx convex env set SAFELAUNCHER_AVATAR_IMPORT_KEY "$SAFELAUNCHER_AVATAR_IMPORT_KEY"
 npx convex deploy --yes
 npm run import-avatars -- --source-dir '/home/martin/Stažené/ProfilePictures/FINAL'
-npm run import-avatars -- --migrate-legacy
+npm run migrate-appearance
 ```
 
 The importer validates the PNG signature, dimensions, size, and SHA-256 hash;
-re-running it is safe. The migration removes legacy embedded avatar payloads
-from existing profiles and sets them to the default avatar. The Convex
-deployment must have `SAFELAUNCHER_AVATAR_IMPORT_KEY` set to the same private
-value. The normal gateway key remains separate.
+re-running it is safe. Run the appearance migration after importing: it assigns
+stable asset numbers in catalog order, converts existing slug-based profiles
+without changing their selected picture, and upgrades them to public schema
+3. It also migrates panel-theme references. The Convex deployment must have
+`SAFELAUNCHER_AVATAR_IMPORT_KEY` set to the same private value. The normal
+gateway key remains separate. Deploy once in compatibility mode, run the
+migration, verify the result, and only then set
+`SAFELAUNCHER_PROFILE_APPEARANCE_STRICT=1` for future writes.
 
 The public projection includes a bounded profile identity (`display_name`, an
 optional 160-character `bio`, and a stable `handle`) plus a bounded `games`

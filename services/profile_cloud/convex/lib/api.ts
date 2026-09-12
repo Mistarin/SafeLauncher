@@ -119,6 +119,18 @@ export function validAvatarId(value: unknown): value is string {
   return typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(value);
 }
 
+export function validAvatarAssetId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 1_000_000;
+}
+
+export function validPanelThemeId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 4;
+}
+
+export function validBackgroundPresetId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 5;
+}
+
 export function validRequestId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{8,128}$/.test(value);
 }
@@ -153,6 +165,31 @@ function steamHeroUrl(appId: string): string {
   return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`;
 }
 
+const BUILTIN_BACKGROUNDS: Record<number, Record<string, unknown>> = {
+  1: { kind: "gradient", stops: ["#1C3158", "#121214"], angle: 135 },
+  2: { kind: "gradient", stops: ["#5C2630", "#171417"], angle: 135 },
+  3: { kind: "gradient", stops: ["#17483F", "#101817"], angle: 135 },
+  4: { kind: "gradient", stops: ["#3D2A67", "#14131D"], angle: 135 },
+  5: { kind: "solid", color: "#20242C" },
+};
+
+function backgroundMatchesPreset(presetId: number, background: Record<string, unknown>): boolean {
+  const expected = BUILTIN_BACKGROUNDS[presetId];
+  if (!expected || expected.kind !== background.kind) return false;
+  if (expected.kind === "solid") return expected.color === background.color;
+  return expected.angle === background.angle &&
+    JSON.stringify(expected.stops) === JSON.stringify(background.stops);
+}
+
+export function backgroundPresetIdFor(background: unknown): number | null {
+  if (!background || typeof background !== "object" || Array.isArray(background)) return null;
+  const candidate = background as Record<string, unknown>;
+  for (const [rawId, preset] of Object.entries(BUILTIN_BACKGROUNDS)) {
+    if (backgroundMatchesPreset(Number(rawId), candidate)) return Number(rawId);
+  }
+  return null;
+}
+
 function validSteamArtwork(value: unknown, appId: string): boolean {
   return (
     typeof value === "string" &&
@@ -166,7 +203,7 @@ export function validatePublicProfile(value: unknown): string {
   }
   const profile = value as Record<string, unknown>;
   if (
-    (profile.schema_version !== 1 && profile.schema_version !== 2) ||
+    (profile.schema_version !== 1 && profile.schema_version !== 2 && profile.schema_version !== 3) ||
     typeof profile.handle !== "string" ||
     !validHandle(profile.handle)
   ) {
@@ -175,6 +212,10 @@ export function validatePublicProfile(value: unknown): string {
       "invalid_profile",
       "Profile schema or handle is invalid.",
     );
+  }
+  const strictAppearance = process.env.SAFELAUNCHER_PROFILE_APPEARANCE_STRICT === "1";
+  if (strictAppearance && profile.schema_version !== 3) {
+    throw new ApiError(400, "profile_upgrade_required", "This profile must be upgraded before it can be published.");
   }
   const displayName = boundedString(profile.display_name, 64);
   if (!displayName) {
@@ -199,6 +240,33 @@ export function validatePublicProfile(value: unknown): string {
     : profile.avatar_id;
   if (avatarId !== null && !validAvatarId(avatarId)) {
     throw new ApiError(400, "invalid_avatar", "Avatar identifier is invalid.");
+  }
+  const hasAssetId = Object.prototype.hasOwnProperty.call(profile, "avatar_asset_id");
+  const avatarAssetId = profile.avatar_asset_id === null || profile.avatar_asset_id === undefined
+    ? null
+    : profile.avatar_asset_id;
+  if (avatarAssetId !== null && !validAvatarAssetId(avatarAssetId)) {
+    throw new ApiError(400, "invalid_avatar", "Avatar asset number is invalid.");
+  }
+  // A valid legacy slug is still accepted as a migration alias. The write
+  // boundary resolves it through the catalog before persistence; this keeps
+  // older installed clients from becoming unable to publish after strict
+  // mode is enabled, while invalid or unknown aliases are still rejected.
+  if (strictAppearance && avatarId !== null && avatarAssetId !== null) {
+    throw new ApiError(400, "legacy_avatar_reference", "Only the numeric avatar asset reference may be stored.");
+  }
+  if (strictAppearance && !hasAssetId) {
+    throw new ApiError(400, "profile_upgrade_required", "The numeric avatar asset field is required.");
+  }
+  const rawPanelTheme = profile.panel_theme_id;
+  const panelThemeId = rawPanelTheme === undefined || rawPanelTheme === null
+    ? ({ grey: 1, aurora: 2, sunset: 3, bubble: 4 } as Record<string, number>)[String(profile.profile_theme || "").toLowerCase()] || 1
+    : rawPanelTheme;
+  if (!validPanelThemeId(panelThemeId)) {
+    throw new ApiError(400, "invalid_panel_theme", "Panel theme reference is invalid.");
+  }
+  if (strictAppearance && !Object.prototype.hasOwnProperty.call(profile, "panel_theme_id")) {
+    throw new ApiError(400, "profile_upgrade_required", "The numeric panel theme field is required.");
   }
   const inputBackground = profile.background;
   let background: Record<string, unknown>;
@@ -249,6 +317,19 @@ export function validatePublicProfile(value: unknown): string {
       "invalid_background",
       "Background theme is invalid.",
     );
+  }
+  const rawBackgroundPreset = profile.background_preset_id;
+  const backgroundPresetId = rawBackgroundPreset === undefined || rawBackgroundPreset === null
+    ? null
+    : rawBackgroundPreset;
+  if (backgroundPresetId !== null && !validBackgroundPresetId(backgroundPresetId)) {
+    throw new ApiError(400, "invalid_background", "Background preset reference is invalid.");
+  }
+  if (backgroundPresetId !== null && !backgroundMatchesPreset(backgroundPresetId, background)) {
+    throw new ApiError(400, "invalid_background", "Background does not match its preset reference.");
+  }
+  if (strictAppearance && !Object.prototype.hasOwnProperty.call(profile, "background_preset_id")) {
+    throw new ApiError(400, "profile_upgrade_required", "The numeric background preset field is required.");
   }
   const statsInput = profile.stats;
   const stats =
@@ -406,11 +487,16 @@ export function validatePublicProfile(value: unknown): string {
     });
   }
   const clean = {
-    schema_version: 2,
+    schema_version: 3,
     handle: profile.handle,
     display_name: displayName,
     bio,
-    avatar_id: avatarId,
+    avatar_asset_id: avatarAssetId,
+    // Kept only for the compatibility deployment. The HTTP write path maps
+    // this legacy alias to avatar_asset_id when the catalog is available.
+    ...(strictAppearance || avatarId === null ? {} : { avatar_id: avatarId }),
+    panel_theme_id: panelThemeId,
+    background_preset_id: backgroundPresetId,
     background,
     stats: {
       games_count: stat("games_count"),

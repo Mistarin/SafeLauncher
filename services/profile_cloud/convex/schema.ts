@@ -18,6 +18,8 @@ export default defineSchema({
     .index("by_owner_identity", ["ownerIdentityHash"]),
   profileAvatars: defineTable({
     avatarId: v.string(),
+    /** Immutable developer-owned public asset number. Optional during rollout. */
+    assetNumber: v.optional(v.number()),
     label: v.string(),
     category: v.string(),
     order: v.number(),
@@ -28,7 +30,9 @@ export default defineSchema({
     bytes: v.number(),
     enabled: v.boolean(),
     updatedAt: v.number(),
-  }).index("by_avatar_id", ["avatarId"]),
+  })
+    .index("by_avatar_id", ["avatarId"])
+    .index("by_asset_number", ["assetNumber"]),
   friendRequests: defineTable({
     requesterHandle: v.string(),
     recipientHandle: v.string(),

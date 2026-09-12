@@ -12,7 +12,7 @@ from typing import Any
 
 from PyQt6.QtCore import QStandardPaths
 
-from core.profile_models import normalize_avatar_id
+from core.profile_models import normalize_avatar_asset_id, normalize_avatar_id
 
 
 MAX_AVATAR_CATALOG_ITEMS = 128
@@ -31,11 +31,21 @@ def normalize_avatar_catalog(value: Any) -> list[dict[str, Any]] | None:
         return None
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
+    seen_asset_numbers: set[int] = set()
     for raw in value:
         if not isinstance(raw, dict):
             continue
-        avatar_id = normalize_avatar_id(raw.get("id"))
+        legacy_id = normalize_avatar_id(raw.get("legacy_id", raw.get("id")))
+        asset_id = normalize_avatar_asset_id(
+            raw.get("asset_id", raw.get("asset_number", raw.get("assetNumber")))
+        )
+        # A numeric legacy id is already a usable canonical reference.
+        if asset_id is None:
+            asset_id = normalize_avatar_asset_id(raw.get("id"))
+        avatar_id = str(asset_id) if asset_id is not None else legacy_id
         if not avatar_id or avatar_id in seen:
+            continue
+        if asset_id is not None and asset_id in seen_asset_numbers:
             continue
         label = " ".join(str(raw.get("label", avatar_id)).split())[:MAX_AVATAR_LABEL_LENGTH]
         category = " ".join(str(raw.get("category", "Standard")).split())[:MAX_AVATAR_CATEGORY_LENGTH]
@@ -61,6 +71,8 @@ def normalize_avatar_catalog(value: Any) -> list[dict[str, Any]] | None:
             continue
         normalized.append({
             "id": avatar_id,
+            "asset_id": asset_id,
+            "legacy_id": legacy_id if legacy_id != avatar_id else "",
             "label": label,
             "category": category,
             "order": order,
@@ -70,6 +82,8 @@ def normalize_avatar_catalog(value: Any) -> list[dict[str, Any]] | None:
             "bytes": size,
         })
         seen.add(avatar_id)
+        if asset_id is not None:
+            seen_asset_numbers.add(asset_id)
     normalized.sort(key=lambda item: (item["order"], item["id"]))
     return normalized
 

@@ -1311,6 +1311,11 @@ class UserSettingsDialog(PopupDialog):
             if hasattr(self, "combo_profile_theme"):
                 self.profile_theme = normalize_profile_theme(self.combo_profile_theme.currentData())
                 settings.setValue("profile_theme", self.profile_theme)
+                # Keep the local setting canonical as well; the profile page
+                # commits the same numeric ID to the public projection after
+                # the dialog is accepted.
+                from core.profile_models import normalize_panel_theme_id
+                settings.setValue("profile_panel_theme_id", normalize_panel_theme_id(self.profile_theme))
             if hasattr(self, "chk_achievement_notifications"):
                 settings.setValue("achievement_notifications_enabled", self.chk_achievement_notifications.isChecked())
             if hasattr(self, "chk_achievement_desktop"):
