@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from PyQt6.QtCore import QSettings, QTimer, Qt
+from PyQt6.QtGui import QColor, QImage, QPixmap
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from core.profile_avatar_catalog import (
@@ -19,7 +20,7 @@ from core.profile_avatar_catalog import (
     save_cached_avatar,
 )
 from core.profile_models import (
-    DEFAULT_BACKGROUND,
+    BACKGROUND_PRESETS, DEFAULT_BACKGROUND,
     build_public_projection,
     load_profile_settings,
     normalize_public_document, normalize_social_snapshot, normalize_username_handle,
@@ -649,6 +650,7 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertFalse(page.profile_action_strip.isHidden())
                 self.assertFalse(page.btn_banner_edit.isHidden())
                 self.assertEqual(page.status_label.text(), "Unpublished · Private")
+                self.assertTrue(hasattr(page, "panel_theme_combo"))
 
                 auth.signed_in = True
                 page._set_admin_controls(True)
@@ -656,8 +658,11 @@ class ProfilePageTests(unittest.TestCase):
 
                 page._start_edit()
                 self.assertTrue(page.btn_banner_edit.isHidden())
+                page.panel_theme_combo.setCurrentIndex(page.panel_theme_combo.findData("sunset"))
+                self.assertEqual(page.profile_theme(), "sunset")
                 page._cancel_edit()
                 self.assertFalse(page.btn_banner_edit.isHidden())
+                self.assertEqual(page.profile_theme(), "grey")
 
                 public = build_public_projection(db, {
                     "display_name": "Public Player",
@@ -818,6 +823,99 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertEqual(saved["background"]["kind"], "steam_hero")
                 self.assertEqual(saved["background"]["app_id"], "1321440")
                 self.assertEqual(saved["background"]["url"], steam_hero_url("1321440"))
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
+    def test_profile_editor_previews_backgrounds_without_mutating_saved_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            save_profile_settings(settings, {
+                "display_name": "Player",
+                "public_handle": "profile-player",
+                "published": False,
+                "background": DEFAULT_BACKGROUND,
+            })
+            db = GameDatabase(":memory:")
+            page = ProfilePageWidget(db, settings)
+            try:
+                page._start_edit()
+                page.background_combo.setCurrentIndex(page.background_combo.findData("ember"))
+                self.assertEqual(page._draft_background, normalize_background(BACKGROUND_PRESETS["ember"]))
+                self.assertEqual(page._document["background"], normalize_background(BACKGROUND_PRESETS["ember"]))
+                self.assertEqual(load_profile_settings(settings)["background"], normalize_background(DEFAULT_BACKGROUND))
+
+                page.panel_theme_combo.setCurrentIndex(page.panel_theme_combo.findData("aurora"))
+                self.assertEqual(page.profile_theme(), "aurora")
+                self.assertEqual(page._document["background"], normalize_background(BACKGROUND_PRESETS["ember"]))
+
+                page._cancel_edit()
+                self.assertEqual(page._document["background"], normalize_background(DEFAULT_BACKGROUND))
+                self.assertEqual(page.profile_theme(), "grey")
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
+    def test_profile_editor_previews_steam_hero_behind_panels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            save_profile_settings(settings, {
+                "display_name": "Player",
+                "public_handle": "profile-player",
+                "published": False,
+                "background": DEFAULT_BACKGROUND,
+            })
+            db = GameDatabase(":memory:")
+            page = ProfilePageWidget(db, settings)
+            try:
+                page._start_edit()
+                page.background_combo.setCurrentIndex(page.background_combo.findData("steam_hero"))
+                page.background_app_id_edit.setText("1321440")
+                with patch("ui.components.profile_page.automatic_network_allowed", return_value=False):
+                    page._use_steam_hero_background()
+                self.assertEqual(page._document["background"]["kind"], "steam_hero")
+                self.assertEqual(page._document["background"]["app_id"], "1321440")
+                self.assertEqual(load_profile_settings(settings)["background"], normalize_background(DEFAULT_BACKGROUND))
+                self.assertIn("background: transparent", page._background_style(page._document["background"]))
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
+    def test_steam_hero_is_painted_as_background_independent_of_panel_theme(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            db = GameDatabase(":memory:")
+            page = ProfilePageWidget(db, settings)
+            try:
+                document = build_public_projection(db, {
+                    "display_name": "Player",
+                    "public_handle": "profile-player",
+                    "background": {"kind": "steam_hero", "app_id": "1321440"},
+                })
+                page._document = document
+                page._profile_background_pixmap = QPixmap(32, 32)
+                page._profile_background_pixmap.fill(QColor("#D83B3B"))
+                page._profile_background_blur_size = (0, 0)
+                page.resize(500, 400)
+
+                first = QImage(page.size(), QImage.Format.Format_ARGB32)
+                first.fill(QColor(0, 0, 0, 0))
+                page.render(first)
+                page.set_profile_theme("sunset")
+                second = QImage(page.size(), QImage.Format.Format_ARGB32)
+                second.fill(QColor(0, 0, 0, 0))
+                page.render(second)
+
+                first_color = first.pixelColor(5, 5)
+                second_color = second.pixelColor(5, 5)
+                self.assertGreater(first_color.red(), first_color.green() + 20)
+                self.assertEqual(first_color, second_color)
             finally:
                 page.close()
                 page.deleteLater()

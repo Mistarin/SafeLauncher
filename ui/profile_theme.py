@@ -1,8 +1,9 @@
-"""Profile-page appearance tokens.
+"""Profile-page panel appearance tokens.
 
 The profile page deliberately owns its appearance independently from the
-launcher shell.  Themes describe one shared backdrop and translucent surface
-tokens; individual cards never create their own blur or decorative effects.
+launcher shell. Themes describe shared dark translucent surface tokens only;
+the profile background is a separate user-selected document value. Individual
+cards never create their own blur or decorative effects.
 """
 
 from __future__ import annotations
@@ -85,12 +86,12 @@ def theme_rgba(value: str, alpha: int) -> str:
 
 
 def profile_theme_preview_style(value: object = "grey") -> str:
-    """Return a compact shared-backdrop preview for Settings."""
+    """Return a compact panel preview on a neutral backdrop for Settings."""
     theme = get_profile_theme(value)
     return (
         "QFrame#profileThemePreview {"
         f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-        f"stop:0 {theme.backdrop[0]}, stop:0.52 {theme.backdrop[1]}, stop:1 {theme.backdrop[2]});"
+        "stop:0 #121316, stop:0.52 #202329, stop:1 #101114);"
         f"border: 1px solid {_rgba(_hex_rgb(theme.bubbles[0]), 75)};"
         "border-radius: 10px; }"
         "QFrame#profileThemePreview QFrame#themePreviewPanel {"

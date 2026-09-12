@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
-from PyQt6.QtGui import QColor, QPainter, QPixmap, QLinearGradient, QRadialGradient, QBrush
+from PyQt6.QtGui import QColor, QPainter, QPixmap, QLinearGradient
 from PyQt6.QtWidgets import (
     QColorDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
@@ -40,7 +41,7 @@ from ui.theme import (
     ACCENT_PRIMARY, BORDER, SEMANTIC_ERROR, SEMANTIC_SUCCESS,
     SURFACE, SURFACE_ELEVATED, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 )
-from ui.profile_theme import get_profile_theme, normalize_profile_theme, theme_rgba
+from ui.profile_theme import get_profile_theme, normalize_profile_theme, profile_theme_choices, theme_rgba
 
 PROFILE_CARD_HEIGHT = 196
 PROFILE_ARTWORK_HEIGHT = 104
@@ -269,6 +270,8 @@ class ProfilePageWidget(QWidget):
         self._profile_theme_key = normalize_profile_theme(self.settings.value("profile_theme", "grey", type=str))
         self._editing = False
         self._draft_avatar_id = ""
+        self._draft_background: dict[str, Any] | None = None
+        self._draft_panel_theme_id = 1
         self._public_revision = int(self.settings.value("profile_public_revision", 0, type=int) or 0)
         self._publishing = False
         self._publish_dirty = False
@@ -384,7 +387,7 @@ class ProfilePageWidget(QWidget):
             QWidget#profilePage {{ background: transparent; color: {TEXT_PRIMARY}; }}
             QScrollArea#profileScroll {{ background: transparent; border: none; }}
             QScrollArea#profileScroll > QWidget > QWidget {{ background: transparent; }}
-            QWidget#profileCanvas {{ background: transparent; }}
+            QWidget#profileCanvas, QWidget#profileColumn, QWidget#profileGamesLibrary, QWidget#profileGamesAllPage {{ background: transparent; }}
             QFrame#profileSection {{ background: {SURFACE}; border: none; }}
             QFrame#profileActionStrip {{ background: {SURFACE}; border: none; }}
             QPushButton#profileActionButton {{ border: none; border-radius: 6px; padding: 7px 11px; }}
@@ -437,12 +440,19 @@ class ProfilePageWidget(QWidget):
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.viewport().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.scroll.viewport().setAutoFillBackground(False)
+        self.scroll.viewport().setStyleSheet("background: transparent;")
         content = QWidget()
         content.setObjectName("profileCanvas")
+        content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        content.setAutoFillBackground(False)
         content_layout = QHBoxLayout(content)
         content_layout.setContentsMargins(22, 14, 22, 26)
         content_layout.addStretch(1)
         self.column = QWidget()
+        self.column.setObjectName("profileColumn")
+        self.column.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.column.setAutoFillBackground(False)
         self.column.setMaximumWidth(920)
         self.column.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.column_layout = QVBoxLayout(self.column)
@@ -620,6 +630,21 @@ class ProfilePageWidget(QWidget):
         self.btn_custom_color.clicked.connect(self._choose_color)
         background_row.addWidget(self.btn_custom_color)
         editor_layout.addLayout(background_row)
+
+        panel_theme_row = QHBoxLayout()
+        panel_theme_row.addWidget(QLabel("Panel visuals"))
+        self.panel_theme_combo = QComboBox()
+        self.panel_theme_combo.setObjectName("profileEditorInput")
+        for label, key in profile_theme_choices():
+            self.panel_theme_combo.addItem(label, key)
+        self.panel_theme_combo.currentIndexChanged.connect(self._on_panel_theme_changed)
+        panel_theme_row.addWidget(self.panel_theme_combo, 1)
+        panel_theme_hint = QLabel("Shared style for stats, library, social, and profile cards.")
+        panel_theme_hint.setObjectName("profileMuted")
+        panel_theme_hint.setWordWrap(True)
+        panel_theme_row.addWidget(panel_theme_hint, 2)
+        editor_layout.addLayout(panel_theme_row)
+
         self.background_hero_controls = QWidget()
         hero_background_row = QHBoxLayout(self.background_hero_controls)
         hero_background_row.setContentsMargins(0, 0, 0, 0)
@@ -630,6 +655,7 @@ class ProfilePageWidget(QWidget):
         self.background_app_id_edit.setPlaceholderText("e.g. 1321440")
         self.background_app_id_edit.setToolTip("Enter a Steam AppID to use its hero artwork as your profile background.")
         self.background_app_id_edit.returnPressed.connect(self._use_steam_hero_background)
+        self.background_app_id_edit.editingFinished.connect(self._preview_steam_hero_from_app_id)
         hero_background_row.addWidget(self.background_app_id_edit, 1)
         self.btn_use_hero_background = QPushButton("Use hero")
         self.btn_use_hero_background.clicked.connect(self._use_steam_hero_background)
@@ -682,6 +708,7 @@ class ProfilePageWidget(QWidget):
         self.games_stack = QStackedWidget()
 
         self.games_library = QWidget()
+        self.games_library.setObjectName("profileGamesLibrary")
         self.games_grid = QGridLayout(self.games_library)
         self.games_grid.setContentsMargins(0, 0, 0, 0)
         self.games_grid.setHorizontalSpacing(10)
@@ -689,6 +716,7 @@ class ProfilePageWidget(QWidget):
         self.games_stack.addWidget(self.games_library)
 
         self.games_all_page = QWidget()
+        self.games_all_page.setObjectName("profileGamesAllPage")
         all_layout = QVBoxLayout(self.games_all_page)
         all_layout.setContentsMargins(0, 0, 0, 0)
         all_toolbar = QHBoxLayout()
@@ -1133,9 +1161,71 @@ class ProfilePageWidget(QWidget):
         if current.get("kind") == "steam_hero" and current.get("app_id") == app_id:
             self._set_profile_background_pixmap(pixmap)
 
+    def _editor_background(self) -> dict[str, Any]:
+        """Return the background currently being edited, without mutating settings."""
+        if self._editing and self._draft_background is not None:
+            return normalize_background(self._draft_background)
+        return normalize_background(self._profile_settings.get("background"))
+
+    def _editor_preview_document(self) -> dict[str, Any]:
+        """Build a public-shaped preview from the in-flight editor values."""
+        value = dict(self._profile_settings)
+        value.update({
+            "display_name": self.name_edit.text() or self._profile_settings.get("display_name", "Player"),
+            "public_handle": self.handle_edit.text() or self._profile_settings.get("public_handle", ""),
+            "bio": self.bio_edit.toPlainText(),
+            "avatar_id": self._draft_avatar_id,
+            "avatar_asset_id": normalize_avatar_asset_id(self._draft_avatar_id),
+            "panel_theme_id": self._draft_panel_theme_id,
+            "background": self._editor_background(),
+        })
+        return build_public_projection(self.db, value)
+
+    def _preview_editor_background(self, value: Any) -> None:
+        """Preview a background while keeping the persisted profile untouched."""
+        if self._mode != "owner" or not self._editing:
+            return
+        self._draft_background = normalize_background(value)
+        self._render(self._editor_preview_document())
+
     def _on_background_mode_changed(self, _index: int = -1) -> None:
-        visible = self._editing and self.background_combo.currentData() == "steam_hero"
+        selected = self.background_combo.currentData()
+        visible = self._editing and selected == "steam_hero"
         self.background_hero_controls.setVisible(visible)
+        # _populate_editor calls this after restoring the combo under a signal
+        # blocker. Only a real combo change should replace the draft or trigger
+        # a repaint, preventing recursive render/populate cycles.
+        if not self._editing or _index < 0:
+            return
+        if selected in BACKGROUND_PRESETS:
+            self._preview_editor_background(BACKGROUND_PRESETS[selected])
+        elif selected == "custom":
+            current = self._editor_background()
+            if current.get("kind") != "solid":
+                stops = current.get("stops")
+                color = stops[0] if isinstance(stops, list) and stops else "#20242C"
+                current = {"kind": "solid", "color": color}
+            self._preview_editor_background(current)
+        elif selected == "steam_hero" and self._editor_background().get("kind") == "steam_hero":
+            self._preview_editor_background(self._editor_background())
+
+    def _preview_steam_hero_from_app_id(self) -> None:
+        """Preview a valid hero when the AppID field is submitted."""
+        if (
+            self._mode != "owner"
+            or not self._editing
+            or self.background_combo.currentData() != "steam_hero"
+        ):
+            return
+        app_id = steam_app_id(self.background_app_id_edit.text())
+        if app_id:
+            self._preview_editor_background({"kind": "steam_hero", "app_id": app_id})
+
+    def _on_panel_theme_changed(self, _index: int = -1) -> None:
+        if not self._editing:
+            return
+        self._draft_panel_theme_id = normalize_panel_theme_id(self.panel_theme_combo.currentData())
+        self.set_profile_theme(panel_theme_key(self._draft_panel_theme_id))
 
     def _use_steam_hero_background(self) -> None:
         if self._mode != "owner" or not self._editing:
@@ -1145,24 +1235,10 @@ class ProfilePageWidget(QWidget):
             QMessageBox.warning(self, "Profile background", "Enter a valid numeric Steam AppID.")
             return
         background = normalize_background({"kind": "steam_hero", "app_id": app_id})
-        self._profile_settings["background"] = background
-        self.background_combo.setCurrentIndex(self.background_combo.findData("steam_hero"))
-        draft_name = self.name_edit.text()
-        draft_handle = self.handle_edit.text()
-        draft_bio = self.bio_edit.toPlainText()
-        self._render(build_public_projection(self.db, {
-            **self._profile_settings,
-            "display_name": draft_name or self._profile_settings.get("display_name", "Player"),
-            "public_handle": draft_handle or self._profile_settings.get("public_handle", ""),
-            "bio": draft_bio,
-            "avatar_id": self._draft_avatar_id,
-            "background": background,
-        }))
-        with QSignalBlocker(self.name_edit), QSignalBlocker(self.handle_edit), QSignalBlocker(self.bio_edit):
-            self.name_edit.setText(draft_name)
-            self.handle_edit.setText(draft_handle)
-            self.bio_edit.setPlainText(draft_bio)
-        self._update_bio_count()
+        self._draft_background = background
+        with QSignalBlocker(self.background_combo):
+            self.background_combo.setCurrentIndex(self.background_combo.findData("steam_hero"))
+        self._preview_editor_background(background)
         self._on_background_mode_changed()
         self.footer_status.setText(
             "Steam hero selected. It will be downloaded when online and saved with your profile changes."
@@ -1170,27 +1246,42 @@ class ProfilePageWidget(QWidget):
 
     def paintEvent(self, event) -> None:
         background = normalize_background(self._document.get("background", {}))
-        theme = get_profile_theme(self._profile_theme_key)
         painter = QPainter(self)
         if not painter.isActive():
             return
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         width, height = self.width(), self.height()
-        # Draw one continuous backdrop behind the hero, stats, game library,
-        # and social sections. The profile background remains user-selectable;
-        # the panel theme controls the shared atmosphere layered above it.
+
+        # Backgrounds are the bottom-most layer. They intentionally do not
+        # read ProfileTheme: panel visuals must never replace a user's chosen
+        # background or make public profiles look different by viewer.
         if background.get("kind") == "solid":
-            stops = (str(background.get("color", theme.backdrop[0])), theme.backdrop[2])
-        elif background.get("kind") == "gradient":
-            values = background.get("stops", theme.backdrop)
-            stops = tuple(values[:3]) if isinstance(values, list) and len(values) >= 3 else theme.backdrop
+            painter.fillRect(self.rect(), QColor(str(background.get("color", "#121214"))))
         else:
-            stops = theme.backdrop
-        gradient = QLinearGradient(0, 0, max(1, width), max(1, height))
-        gradient.setColorAt(0.0, QColor(stops[0]))
-        gradient.setColorAt(0.52, QColor(stops[1]))
-        gradient.setColorAt(1.0, QColor(stops[-1]))
-        painter.fillRect(self.rect(), gradient)
+            values = background.get("stops")
+            stops = tuple(values[:3]) if isinstance(values, list) and len(values) >= 2 else ("#1C3158", "#121214")
+            try:
+                angle = max(0, min(360, int(background.get("angle", 135))))
+            except (TypeError, ValueError, OverflowError):
+                angle = 135
+            radians = math.radians(angle)
+            diagonal = max(1.0, math.hypot(width, height))
+            center_x, center_y = width / 2.0, height / 2.0
+            delta_x = math.cos(radians) * diagonal / 2.0
+            delta_y = math.sin(radians) * diagonal / 2.0
+            gradient = QLinearGradient(
+                center_x - delta_x,
+                center_y - delta_y,
+                center_x + delta_x,
+                center_y + delta_y,
+            )
+            gradient.setColorAt(0.0, QColor(stops[0]))
+            if len(stops) >= 3:
+                gradient.setColorAt(0.52, QColor(stops[1]))
+                gradient.setColorAt(1.0, QColor(stops[2]))
+            else:
+                gradient.setColorAt(1.0, QColor(stops[1]))
+            painter.fillRect(self.rect(), gradient)
 
         if background.get("kind") == "steam_hero" and not self._profile_background_pixmap.isNull() and width > 0 and height > 0:
             if self._profile_background_blur_size != (width, height):
@@ -1213,33 +1304,20 @@ class ProfilePageWidget(QWidget):
                     Qt.TransformationMode.SmoothTransformation,
                 )
                 self._profile_background_blur_size = (width, height)
-            painter.setOpacity(0.42)
+            # Keep the hero recognizable while retaining readable text and
+            # dark glass surfaces above it.
+            painter.setOpacity(0.78)
             painter.drawPixmap(0, 0, self._profile_background_blurred)
             painter.setOpacity(1.0)
-            painter.fillRect(self.rect(), QColor(0, 0, 0, 168))
-
-        # A few large, low-alpha radial washes are deliberately drawn at page
-        # level. They join the spaces between cards instead of repeating a
-        # costly decorative effect for each individual card.
-        positions = ((0.10, 0.10, 0.48), (0.86, 0.24, 0.42), (0.22, 0.84, 0.56), (0.90, 0.82, 0.48))
-        for index, (x_ratio, y_ratio, radius_ratio) in enumerate(positions):
-            color = QColor(theme.bubbles[index % len(theme.bubbles)])
-            color.setAlpha(44 if index < 2 else 30)
-            center = (int(width * x_ratio), int(height * y_ratio))
-            radius = max(1, int(max(width, height) * radius_ratio))
-            wash = QRadialGradient(center[0], center[1], radius)
-            wash.setColorAt(0.0, color)
-            color.setAlpha(0)
-            wash.setColorAt(1.0, color)
-            painter.setOpacity(1.0)
-            painter.setBrush(QBrush(wash))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(center[0] - radius, center[1] - radius, radius * 2, radius * 2)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 118))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.end()
 
     def _render(self, document: dict[str, Any]) -> None:
+        # Keep the document used by paintEvent in sync with the last render.
+        # This is important for async hero downloads and editor previews.
+        self._document = dict(document) if isinstance(document, dict) else {}
+        document = self._document
         self.setStyleSheet(self._base_style + self._profile_theme_style() + self._background_style(document.get("background", {})))
         self._set_profile_background(document.get("background", {}))
         self.name_label.setText(str(document.get("display_name", "Player")))
@@ -1272,7 +1350,8 @@ class ProfilePageWidget(QWidget):
                 color="#FFFFFF",
             ))
             self.footer_status.setText("Public publishing is separate from private game-save cloud synchronization.")
-            self._populate_editor()
+            if not self._editing:
+                self._populate_editor()
         else:
             self.public_badge.setText("PUBLIC PROFILE")
             handle = str(document.get("handle", "") or "").strip()
@@ -2022,6 +2101,14 @@ class ProfilePageWidget(QWidget):
         self._handle_check_inflight = False
         self._handle_availability = True if published and handle else None
         self._update_bio_count()
+        panel_theme_id = normalize_panel_theme_id(
+            self._draft_panel_theme_id if self._editing else self._profile_settings.get("panel_theme_id")
+        )
+        self._draft_panel_theme_id = panel_theme_id
+        with QSignalBlocker(self.panel_theme_combo):
+            self.panel_theme_combo.setCurrentIndex(
+                max(0, self.panel_theme_combo.findData(panel_theme_key(panel_theme_id)))
+            )
         selected_avatar = self._avatar_reference(
             self._draft_avatar_id if self._editing else (
                 self._profile_settings.get("avatar_asset_id") or self._profile_settings.get("avatar_id")
@@ -2036,7 +2123,7 @@ class ProfilePageWidget(QWidget):
             if published else
             "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens. Availability is checked before publishing."
         )
-        background = normalize_background(self._profile_settings.get("background"))
+        background = self._editor_background()
         background_kind = background.get("kind")
         with QSignalBlocker(self.background_combo), QSignalBlocker(self.background_app_id_edit):
             if background_kind == "steam_hero":
@@ -2307,6 +2394,9 @@ class ProfilePageWidget(QWidget):
         self._draft_avatar_id = self._avatar_reference(
             self._profile_settings.get("avatar_asset_id") or self._profile_settings.get("avatar_id")
         )
+        self._draft_background = normalize_background(self._profile_settings.get("background"))
+        self._draft_panel_theme_id = normalize_panel_theme_id(self._profile_settings.get("panel_theme_id"))
+        self.set_profile_theme(panel_theme_key(self._draft_panel_theme_id))
         self.editor.setVisible(True)
         self.btn_edit.setVisible(False)
         self._populate_editor()
@@ -2314,6 +2404,8 @@ class ProfilePageWidget(QWidget):
     def _cancel_edit(self) -> None:
         self._editing = False
         self._draft_avatar_id = ""
+        self._draft_background = None
+        self._draft_panel_theme_id = normalize_panel_theme_id(self._profile_settings.get("panel_theme_id"))
         self.show_owner()
 
     def _save_edit(self) -> None:
@@ -2357,7 +2449,13 @@ class ProfilePageWidget(QWidget):
                 return
             background = normalize_background({"kind": "steam_hero", "app_id": app_id})
         elif selected == "custom":
-            background = self._profile_settings.get("background", {})
+            background = self._editor_background()
+            if background.get("kind") != "solid":
+                stops = background.get("stops")
+                background = {
+                    "kind": "solid",
+                    "color": stops[0] if isinstance(stops, list) and stops else "#20242C",
+                }
         else:
             background = BACKGROUND_PRESETS.get(selected, BACKGROUND_PRESETS["midnight"])
         value = dict(self._profile_settings)
@@ -2367,6 +2465,7 @@ class ProfilePageWidget(QWidget):
             "bio": self.bio_edit.toPlainText(),
             "avatar_id": self._draft_avatar_id,
             "avatar_asset_id": normalize_avatar_asset_id(self._draft_avatar_id),
+            "panel_theme_id": self._draft_panel_theme_id,
             "background": background,
         })
         was_published = bool(self._profile_settings.get("published"))
@@ -2374,6 +2473,8 @@ class ProfilePageWidget(QWidget):
         self._profile_settings = normalized
         self._editing = False
         self._draft_avatar_id = ""
+        self._draft_background = None
+        self._draft_panel_theme_id = normalized.get("panel_theme_id", 1)
         self.profile_changed.emit()
         self.show_owner()
         self.footer_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
@@ -2418,30 +2519,13 @@ class ProfilePageWidget(QWidget):
         self._set_avatar(None)
 
     def _choose_color(self) -> None:
-        current = normalize_background(self._profile_settings.get("background"))
+        current = self._editor_background()
         initial = QColor(str(current.get("color") or current.get("stops", ["#20242C"])[0]))
         color = QColorDialog.getColor(initial, self, "Choose profile background")
         if color.isValid():
-            draft_name = self.name_edit.text()
-            draft_handle = self.handle_edit.text()
-            draft_bio = self.bio_edit.toPlainText()
-            self.background_combo.setCurrentIndex(self.background_combo.findData("custom"))
-            self._profile_settings["background"] = {"kind": "solid", "color": color.name().upper()}
-            self._render(build_public_projection(self.db, {
-                **self._profile_settings,
-                "display_name": draft_name or self._profile_settings.get("display_name", "Player"),
-                "public_handle": draft_handle or self._profile_settings.get("public_handle", ""),
-                "bio": draft_bio,
-                "avatar_id": self._draft_avatar_id,
-                "background": self._profile_settings["background"],
-            }))
-            # Rendering also refreshes the owner editor. Restore the in-flight
-            # draft so choosing a color does not discard typed fields.
-            with QSignalBlocker(self.name_edit), QSignalBlocker(self.handle_edit), QSignalBlocker(self.bio_edit):
-                self.name_edit.setText(draft_name)
-                self.handle_edit.setText(draft_handle)
-                self.bio_edit.setPlainText(draft_bio)
-            self._update_bio_count()
+            with QSignalBlocker(self.background_combo):
+                self.background_combo.setCurrentIndex(self.background_combo.findData("custom"))
+            self._preview_editor_background({"kind": "solid", "color": color.name().upper()})
 
     def _publish(self) -> None:
         if self._mode != "owner":
