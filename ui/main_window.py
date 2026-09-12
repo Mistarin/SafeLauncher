@@ -4395,7 +4395,9 @@ class MainWindow(QMainWindow):
             return
 
         self.btn_detail_remove.setText("Remove / Archive")
-        self.btn_detail_remove.setToolTip("Remove from the library, delete files, or move this game to the archive.")
+        self.btn_detail_remove.setToolTip(
+            "Remove the library record, remove files and the record, or archive while removing files and preserving stats."
+        )
         if game_id in self.running_game_ids:
             self.btn_detail_launch.setText("Stop Game")
             self.btn_detail_launch.setIcon(get_icon("ph.stop-circle-bold", color="#FFFFFF"))
@@ -6539,7 +6541,21 @@ class MainWindow(QMainWindow):
             if not self.db.archive_game(game_id, True):
                 self._show_toast(f"Could not archive '{game_name}'.", is_error=True)
                 return False
-            self._show_toast(f"Moved '{game_name}' to the archive. Files and statistics were preserved.")
+            deleted, error = self._remove_game_files_from_disk(game[2] if len(game) > 2 else "")
+            if not deleted:
+                # Keep the archived record even when the filesystem operation
+                # fails. The user can retry cleanup from the archive without
+                # losing playtime, favorites, or achievement history.
+                self._finish_game_lifecycle_change(game_id)
+                self._show_toast(
+                    f"Moved '{game_name}' to the archive, but could not remove its files: {error}",
+                    is_error=True,
+                )
+                return False
+            self._show_toast(
+                f"Moved '{game_name}' to the archive and removed its files. "
+                "The record and statistics were preserved."
+            )
         elif action == "remove_library":
             if not self.db.remove_game(game_id):
                 self._show_toast(f"Could not remove '{game_name}' from the library.", is_error=True)

@@ -262,6 +262,48 @@ class ProfileModelTests(unittest.TestCase):
             self.assertIn("symlink", error.lower())
             self.assertTrue(protected_target.exists())
 
+    def test_archive_action_removes_files_but_keeps_record_and_stats(self):
+        from ui.main_window import MainWindow
+
+        class LifecycleHost:
+            def __init__(self, db):
+                self.db = db
+                self.finished = []
+                self.toasts = []
+
+            @staticmethod
+            def _remove_game_files_from_disk(path):
+                return MainWindow._remove_game_files_from_disk(path)
+
+            def _finish_game_lifecycle_change(self, game_id):
+                self.finished.append(game_id)
+
+            def _show_toast(self, message, is_error=False):
+                self.toasts.append((message, is_error))
+
+        db = GameDatabase(":memory:")
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                game_path = Path(directory) / "archivable-game"
+                game_path.mkdir()
+                (game_path / "save.dat").write_text("save", encoding="utf-8")
+                game_id = db.add_game("Archivable Game", str(game_path), "game.exe", "umu", steam_id="78901")
+                db.add_playtime(game_id, 3600)
+                db.toggle_favorite(game_id)
+                host = LifecycleHost(db)
+
+                self.assertTrue(MainWindow._apply_game_lifecycle_action(host, db.get_all_games()[0], "archive"))
+                archived = db.get_all_games()[0]
+                self.assertEqual(archived[0], game_id)
+                self.assertTrue(archived[17])
+                self.assertEqual(archived[7], 3600)
+                self.assertTrue(archived[8])
+                self.assertFalse(game_path.exists())
+                self.assertEqual(host.finished, [game_id])
+                self.assertFalse(host.toasts[-1][1])
+        finally:
+            db.close()
+
     def test_projection_groups_account_achievements_by_steam_app(self):
         db = GameDatabase(":memory:")
         try:

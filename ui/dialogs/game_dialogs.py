@@ -774,7 +774,9 @@ class EditGameDialog(AddGameDialog):
         self.btn_lifecycle.setIcon(get_icon("ph.trash-bold", color="#F05D6C"))
         self.btn_lifecycle.setIconSize(QSize(15, 15))
         self.btn_lifecycle.setMinimumSize(150, 38)
-        self.btn_lifecycle.setToolTip("Remove this game from SafeLauncher, delete its files, or move it to the archive.")
+        self.btn_lifecycle.setToolTip(
+            "Remove the library record, remove files and the record, or archive while removing files and preserving stats."
+        )
         self.btn_lifecycle.setStyleSheet("""
             QPushButton {
                 background: transparent;
@@ -2022,10 +2024,10 @@ class CustomRemoveDialog(PopupDialog):
         """)
         btn_disk.clicked.connect(self._select_remove_disk)
 
-        btn_archive = QPushButton(" Move to Archive (Keep Files & All Stats)")
+        btn_archive = QPushButton(" Move to Archive (Remove Files & Keep All Stats)")
         btn_archive.setIcon(get_icon("ph.archive-bold", color="#3B9FE8"))
         btn_archive.setToolTip(
-            "Hide the game from the active library while preserving files, playtime, favorites, and achievements."
+            "Remove the game files, hide the game from the active library, and preserve its record, playtime, favorites, and achievements."
         )
         btn_archive.setStyleSheet("""
             QPushButton {
@@ -2084,6 +2086,15 @@ class CustomRemoveDialog(PopupDialog):
         self.accept()
 
     def _select_archive(self):
+        if QMessageBox.question(
+            self,
+            "Archive and remove game files?",
+            "This removes the game files from disk and moves the game to the archive. "
+            "The SafeLauncher record, playtime, favorites, and achievements will be preserved. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
         self.choice = 'archive'
         self.accept()
 
