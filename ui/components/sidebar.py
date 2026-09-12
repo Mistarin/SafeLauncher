@@ -433,6 +433,7 @@ class HeaderBar(QFrame):
     search_changed = pyqtSignal(str)
     filter_requested = pyqtSignal(str)
     profile_requested = pyqtSignal()
+    friends_requested = pyqtSignal()
     public_profile_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     toggle_collections_requested = pyqtSignal()
@@ -596,8 +597,8 @@ class HeaderBar(QFrame):
         self.profile_menu.setStyleSheet(menu_style)
         act_my_profile = self.profile_menu.addAction(get_icon("ph.user-circle-bold", color="#FFFFFF"), "My Profile")
         act_my_profile.triggered.connect(self.profile_requested.emit)
-        act_open_public = self.profile_menu.addAction(get_icon("ph.users-three-bold", color="#FFFFFF"), "Open Public Profile…")
-        act_open_public.triggered.connect(self.public_profile_requested.emit)
+        act_find_friends = self.profile_menu.addAction(get_icon("ph.magnifying-glass-bold", color="#FFFFFF"), "Find Friends…")
+        act_find_friends.triggered.connect(self.public_profile_requested.emit)
         self.profile_menu.addSeparator()
         act_profile_settings = self.profile_menu.addAction(get_icon("ph.gear-bold", color="#FFFFFF"), "Settings…")
         act_profile_settings.triggered.connect(self.settings_requested.emit)
@@ -623,6 +624,17 @@ class HeaderBar(QFrame):
         self.search_input.textChanged.connect(self.search_changed.emit)
 
         layout.addStretch()
+
+        self.btn_friends = QPushButton("Friends")
+        self.btn_friends.setIcon(get_icon("ph.users-three-bold", color="#C4C4C8"))
+        self.btn_friends.setIconSize(QSize(15, 15))
+        self.btn_friends.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_friends.setFixedHeight(28)
+        self.btn_friends.setToolTip("Open friends and find people")
+        self.btn_friends.setAccessibleName("Friends")
+        self.btn_friends.setStyleSheet(header_btn_style)
+        self.btn_friends.clicked.connect(self.friends_requested.emit)
+        layout.addWidget(self.btn_friends)
 
         # One atomic identity control sits immediately beside the native window
         # controls. Keeping the avatar, display name, and menu on the same

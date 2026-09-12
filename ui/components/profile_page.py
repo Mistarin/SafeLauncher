@@ -7,7 +7,7 @@ import os
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
-from PyQt6.QtGui import QColor, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QPainter, QPixmap, QLinearGradient, QRadialGradient, QBrush
 from PyQt6.QtWidgets import (
     QColorDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
@@ -36,9 +36,10 @@ from core.network_policy import automatic_network_allowed
 from ui.icons import get_icon
 from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
 from ui.theme import (
-    ACCENT_PRIMARY, BG_APP, BORDER, SEMANTIC_ERROR, SEMANTIC_SUCCESS,
+    ACCENT_PRIMARY, BORDER, SEMANTIC_ERROR, SEMANTIC_SUCCESS,
     SURFACE, SURFACE_ELEVATED, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 )
+from ui.profile_theme import get_profile_theme, normalize_profile_theme, theme_rgba
 
 PROFILE_CARD_HEIGHT = 196
 PROFILE_ARTWORK_HEIGHT = 104
@@ -250,8 +251,6 @@ class ProfilePageWidget(QWidget):
     """Persistent profile page with an explicit owner/public mode boundary."""
 
     back_requested = pyqtSignal()
-    open_public_requested = pyqtSignal()
-    settings_requested = pyqtSignal()
     open_profile_handle_requested = pyqtSignal(str)
     profile_changed = pyqtSignal()
     private_profile_changed = pyqtSignal()
@@ -266,6 +265,7 @@ class ProfilePageWidget(QWidget):
         self._mode = "owner"
         self._profile_settings: dict[str, Any] = {}
         self._document: dict[str, Any] = {}
+        self._profile_theme_key = normalize_profile_theme(self.settings.value("profile_theme", "grey", type=str))
         self._editing = False
         self._draft_avatar_id = ""
         self._public_revision = int(self.settings.value("profile_public_revision", 0, type=int) or 0)
@@ -318,6 +318,46 @@ class ProfilePageWidget(QWidget):
         self._build_ui()
         self.show_owner()
 
+    def _profile_theme_style(self) -> str:
+        """Build one surface vocabulary for the entire profile page.
+
+        The backdrop is painted once by the page.  Surfaces only use dark
+        translucency and a shared border token, so cards remain inexpensive
+        even on large libraries and the glass effect reads as one composition.
+        """
+        theme = get_profile_theme(self._profile_theme_key)
+        panel = theme_rgba("#%02X%02X%02X" % theme.panel_rgb, theme.panel_alpha)
+        panel_soft = theme_rgba("#%02X%02X%02X" % theme.panel_rgb, max(110, theme.panel_alpha - 24))
+        hero = theme_rgba("#%02X%02X%02X" % theme.panel_rgb, theme.hero_alpha)
+        border = theme_rgba(theme.bubbles[0], theme.border_alpha)
+        return f"""
+            QFrame#profileHero {{ background: {hero}; border: 1px solid {border}; border-radius: 20px; }}
+            QFrame#profileActionStrip {{ background: {panel}; border: 1px solid {border}; border-top: none; border-radius: 0 0 16px 16px; }}
+            QFrame#profileSection {{ background: {panel_soft}; border: 1px solid {border}; border-radius: 16px; }}
+            QFrame#profileGameCard {{ background: {theme_rgba("#%02X%02X%02X" % theme.panel_rgb, max(95, theme.panel_alpha - 54))}; border: 1px solid {theme_rgba(theme.bubbles[0], max(22, theme.border_alpha - 18))}; border-radius: 12px; }}
+            QFrame#profileGameCard:hover {{ background: {panel}; border-color: {theme_rgba(theme.accent, 105)}; }}
+            QFrame#profileSeeMoreCard {{ background: {theme_rgba("#%02X%02X%02X" % theme.panel_rgb, max(90, theme.panel_alpha - 42))}; border: 1px dashed {border}; border-radius: 12px; }}
+            QFrame#profileSeeMoreCard:hover {{ background: {panel}; border-color: {theme.accent}; }}
+            QListWidget#profileList {{ background: {theme_rgba("#000000", 62)}; border: none; }}
+            QLineEdit#profileEditorInput, QComboBox#profileEditorInput, QPlainTextEdit#profileEditorInput {{ background: {theme_rgba("#000000", 82)}; border-color: {theme_rgba(theme.bubbles[0], 70)}; }}
+            QPushButton#profileActionButton:hover {{ background: {theme_rgba(theme.bubbles[0], 48)}; }}
+            QProgressBar {{ background: {theme_rgba("#000000", 95)}; }}
+            QProgressBar::chunk {{ background: {theme.accent}; }}
+        """
+
+    def set_profile_theme(self, value: object) -> None:
+        """Apply a live Settings preview without touching profile data."""
+        key = normalize_profile_theme(value)
+        if key == self._profile_theme_key and hasattr(self, "_base_style"):
+            return
+        self._profile_theme_key = key
+        if hasattr(self, "_base_style"):
+            self.setStyleSheet(self._base_style + self._profile_theme_style() + self._background_style(self._document.get("background", {})))
+            self.update()
+
+    def profile_theme(self) -> str:
+        return self._profile_theme_key
+
     def _build_ui(self) -> None:
         self.setObjectName("profilePage")
         self._base_style = f"""
@@ -338,11 +378,11 @@ class ProfilePageWidget(QWidget):
             QFrame#profileSeeMoreCard:hover {{ background: {SURFACE_ELEVATED}; border-color: {ACCENT_PRIMARY}; }}
             QFrame#profileHero {{ border: none; }}
             QLabel#profileEyebrow {{ color: {TEXT_MUTED}; font-size: 11px; font-weight: 700; letter-spacing: 1px; }}
-            QLabel#profileName {{ color: {TEXT_PRIMARY}; font-size: 28px; font-weight: 750; }}
+            QLabel#profileName {{ color: {TEXT_PRIMARY}; font-size: 28px; font-weight: 700; }}
             QLabel#profileHandle {{ color: {TEXT_SECONDARY}; font-size: 12px; }}
             QLabel#profileBio {{ color: {TEXT_PRIMARY}; font-size: 13px; }}
             QLabel#profileMuted {{ color: {TEXT_SECONDARY}; font-size: 12px; }}
-            QLabel#profileStatValue {{ color: {TEXT_PRIMARY}; font-size: 20px; font-weight: 750; }}
+            QLabel#profileStatValue {{ color: {TEXT_PRIMARY}; font-size: 20px; font-weight: 700; }}
             QLabel#profileStatCaption {{ color: {TEXT_MUTED}; font-size: 11px; }}
             QListWidget#profileList {{ background: {SURFACE}; color: {TEXT_PRIMARY}; border: none; outline: none; }}
             QListWidget#profileList::item {{ padding: 8px 4px; border: none; }}
@@ -353,7 +393,7 @@ class ProfilePageWidget(QWidget):
             }}
             QLineEdit#profileEditorInput:focus, QComboBox#profileEditorInput:focus, QPlainTextEdit#profileEditorInput:focus {{ border-color: {ACCENT_PRIMARY}; }}
         """
-        self.setStyleSheet(self._base_style)
+        self.setStyleSheet(self._base_style + self._profile_theme_style())
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -370,16 +410,6 @@ class ProfilePageWidget(QWidget):
         self.mode_label = QLabel("OWNER VIEW")
         self.mode_label.setObjectName("profileEyebrow")
         toolbar.addWidget(self.mode_label)
-        self.btn_open_public = QPushButton("Open public profile")
-        self.btn_open_public.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_open_public.clicked.connect(self.open_public_requested.emit)
-        toolbar.addWidget(self.btn_open_public)
-        self.btn_settings = QPushButton()
-        self.btn_settings.setIcon(get_icon("ph.gear-bold", color=TEXT_SECONDARY))
-        self.btn_settings.setToolTip("Open Settings")
-        self.btn_settings.setFixedSize(32, 30)
-        self.btn_settings.clicked.connect(self.settings_requested.emit)
-        toolbar.addWidget(self.btn_settings)
         root.addLayout(toolbar)
 
         self.scroll = QScrollArea()
@@ -462,6 +492,7 @@ class ProfilePageWidget(QWidget):
         action_layout = QHBoxLayout(self.profile_action_strip)
         action_layout.setContentsMargins(18, 9, 18, 9)
         action_layout.setSpacing(6)
+        action_layout.addStretch(1)
 
         self.btn_auth = QPushButton("Sign in")
         self.btn_auth.setObjectName("profileActionButton")
@@ -492,7 +523,7 @@ class ProfilePageWidget(QWidget):
         self.btn_resync.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_resync.clicked.connect(self._resync_private)
         action_layout.addWidget(self.btn_resync)
-        action_layout.addStretch()
+        action_layout.addStretch(1)
         self.column_layout.addWidget(self.profile_action_strip)
 
         self.editor = QFrame()
@@ -684,7 +715,7 @@ class ProfilePageWidget(QWidget):
         self.game_detail_name = QLabel()
         self.game_detail_name.setObjectName("profileName")
         self.game_detail_name.setTextFormat(Qt.TextFormat.PlainText)
-        self.game_detail_name.setStyleSheet(f"color:{TEXT_PRIMARY}; font-size:20px; font-weight:750;")
+        self.game_detail_name.setStyleSheet(f"color:{TEXT_PRIMARY}; font-size:20px; font-weight:700;")
         self.game_detail_name.setWordWrap(True)
         detail_info.addWidget(self.game_detail_name)
         self.game_detail_playtime = QLabel()
@@ -931,8 +962,6 @@ class ProfilePageWidget(QWidget):
         )
         self.btn_resync.setVisible(enabled)
         self.btn_resync.setEnabled(enabled and not self._auth_in_flight)
-        self.btn_open_public.setVisible(enabled)
-        self.btn_settings.setVisible(True)
         self._update_social_controls(enabled, published, signed_in)
 
     def _auth_button_clicked(self) -> None:
@@ -943,19 +972,10 @@ class ProfilePageWidget(QWidget):
             self._sign_in()
 
     def _background_style(self, background: dict[str, Any]) -> str:
-        background = normalize_background(background)
-        if background.get("kind") == "steam_hero":
-            return "QWidget#profileCanvas, QFrame#profileHero { background: transparent; }"
-        if background.get("kind") == "solid":
-            return (
-                f"QWidget#profileCanvas {{ background: {background['color']}; }}"
-                f" QFrame#profileHero {{ background: {background['color']}; }}"
-            )
-        stops = background.get("stops", ["#1C3158", BG_APP])
-        return (
-            "QWidget#profileCanvas, QFrame#profileHero { background: "
-            f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {stops[0]}, stop:1 {stops[-1]}); }}"
-        )
+        # The shared backdrop is painted once by ProfilePageWidget. Keeping
+        # the canvas transparent makes it visible between all translucent
+        # surfaces and prevents profile background choices from hiding glass.
+        return "QWidget#profileCanvas { background: transparent; }"
 
     def _profile_background_cache_path(self, app_id: str) -> str:
         """Return a private cache path for a validated Steam AppID."""
@@ -1127,15 +1147,29 @@ class ProfilePageWidget(QWidget):
 
     def paintEvent(self, event) -> None:
         background = normalize_background(self._document.get("background", {}))
-        if background.get("kind") != "steam_hero":
-            super().paintEvent(event)
-            return
+        theme = get_profile_theme(self._profile_theme_key)
         painter = QPainter(self)
         if not painter.isActive():
             return
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         width, height = self.width(), self.height()
-        painter.fillRect(self.rect(), QColor("#121214"))
-        if not self._profile_background_pixmap.isNull() and width > 0 and height > 0:
+        # Draw one continuous backdrop behind the hero, stats, game library,
+        # and social sections. The profile background remains user-selectable;
+        # the panel theme controls the shared atmosphere layered above it.
+        if background.get("kind") == "solid":
+            stops = (str(background.get("color", theme.backdrop[0])), theme.backdrop[2])
+        elif background.get("kind") == "gradient":
+            values = background.get("stops", theme.backdrop)
+            stops = tuple(values[:3]) if isinstance(values, list) and len(values) >= 3 else theme.backdrop
+        else:
+            stops = theme.backdrop
+        gradient = QLinearGradient(0, 0, max(1, width), max(1, height))
+        gradient.setColorAt(0.0, QColor(stops[0]))
+        gradient.setColorAt(0.52, QColor(stops[1]))
+        gradient.setColorAt(1.0, QColor(stops[-1]))
+        painter.fillRect(self.rect(), gradient)
+
+        if background.get("kind") == "steam_hero" and not self._profile_background_pixmap.isNull() and width > 0 and height > 0:
             if self._profile_background_blur_size != (width, height):
                 scaled = self._profile_background_pixmap.scaled(
                     width,
@@ -1159,11 +1193,31 @@ class ProfilePageWidget(QWidget):
             painter.setOpacity(0.42)
             painter.drawPixmap(0, 0, self._profile_background_blurred)
             painter.setOpacity(1.0)
-            painter.fillRect(self.rect(), QColor(0, 0, 0, 145))
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 168))
+
+        # A few large, low-alpha radial washes are deliberately drawn at page
+        # level. They join the spaces between cards instead of repeating a
+        # costly decorative effect for each individual card.
+        positions = ((0.10, 0.10, 0.48), (0.86, 0.24, 0.42), (0.22, 0.84, 0.56), (0.90, 0.82, 0.48))
+        for index, (x_ratio, y_ratio, radius_ratio) in enumerate(positions):
+            color = QColor(theme.bubbles[index % len(theme.bubbles)])
+            color.setAlpha(44 if index < 2 else 30)
+            center = (int(width * x_ratio), int(height * y_ratio))
+            radius = max(1, int(max(width, height) * radius_ratio))
+            wash = QRadialGradient(center[0], center[1], radius)
+            wash.setColorAt(0.0, color)
+            color.setAlpha(0)
+            wash.setColorAt(1.0, color)
+            painter.setOpacity(1.0)
+            painter.setBrush(QBrush(wash))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(center[0] - radius, center[1] - radius, radius * 2, radius * 2)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.end()
 
     def _render(self, document: dict[str, Any]) -> None:
-        self.setStyleSheet(self._base_style + self._background_style(document.get("background", {})))
+        self.setStyleSheet(self._base_style + self._profile_theme_style() + self._background_style(document.get("background", {})))
         self._set_profile_background(document.get("background", {}))
         self.name_label.setText(str(document.get("display_name", "Player")))
         handle = str(document.get("handle", "") or "")
@@ -1182,14 +1236,13 @@ class ProfilePageWidget(QWidget):
         self._set_avatar(document.get("avatar_id"))
         if self._mode == "owner":
             published = bool(self._profile_settings.get("published"))
-            signed_in = self.central_auth.signed_in
-            self.public_badge.setText("PUBLIC PROFILE" if published else "LOCAL PROFILE")
-            if published and signed_in:
-                self.status_label.setText("Published and visible by handle.")
-            elif published:
-                self.status_label.setText("Published profile; sign in to manage it from this device.")
-            else:
-                self.status_label.setText("Only you can see this profile until it is published.")
+            handle = str(document.get("handle", "") or "").strip()
+            self.public_badge.setText("PUBLIC PROFILE" if published else "PRIVATE PROFILE")
+            self.status_label.setText(
+                f"Published · Public · @{handle}" if published and handle
+                else "Published · Public" if published
+                else "Unpublished · Private"
+            )
             self.btn_publish.setText("Unpublish profile" if published else "Publish profile")
             self.btn_publish.setIcon(get_icon(
                 "ph.eye-slash-bold" if published else "ph.upload-simple-bold",
@@ -1199,7 +1252,8 @@ class ProfilePageWidget(QWidget):
             self._populate_editor()
         else:
             self.public_badge.setText("PUBLIC PROFILE")
-            self.status_label.setText("Read-only profile")
+            handle = str(document.get("handle", "") or "").strip()
+            self.status_label.setText(f"Published · Public · @{handle}" if handle else "Published · Public")
             self.footer_status.setText("This is a public projection. Private launcher data is not shown.")
         self._render_games(document)
         self._fill_list(self.favorite_list, document.get("favorite_games"), lambda item: f"♥  {item.get('name', 'Favorite game')}")

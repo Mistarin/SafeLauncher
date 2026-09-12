@@ -36,6 +36,7 @@ from ui.components.check_field import CheckField as QCheckBox
 from ui.maintenance_dialogs import RuntimeInventoryDialog
 from ui.dialogs.game_dialogs import ensure_sandbox_dir
 from ui.dialogs.save_conflict_dialog import format_bytes
+from ui.profile_theme import normalize_profile_theme, profile_theme_choices, profile_theme_preview_style
 
 
 from core.version import APP_VERSION, MIN_CONVEX_BACKEND_VERSION
@@ -69,8 +70,9 @@ class UserSettingsDialog(PopupDialog):
     appDownloadProgress = pyqtSignal(int, int) # (downloaded, total)
     appDownloadFinished = pyqtSignal(str)      # target path
     appDownloadFailed = pyqtSignal(str)        # error message
+    profile_theme_preview_changed = pyqtSignal(str)
 
-    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = ""):
+    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", profile_theme: str = "grey"):
         super().__init__("Settings", parent)
         self.user_name = user_name
         self.proton_path = proton_path
@@ -81,6 +83,8 @@ class UserSettingsDialog(PopupDialog):
         from core.cloud_save_sync import CloudSaveSyncEngine
         self.cloud_saves_dir = cloud_saves_dir or CloudSaveSyncEngine.get_cloud_root()
         self.date_format = date_format or get_date_format_key()
+        self.profile_theme = normalize_profile_theme(profile_theme)
+        self._profile_theme_original = self.profile_theme
         self._task_supervisor = TaskSupervisor(self, logger)
         self._account_probe_generation = 0
         self._health_probe_generation = 0
@@ -253,6 +257,15 @@ class UserSettingsDialog(PopupDialog):
             btn.setChecked(i == index)
         self.stack.setCurrentIndex(index)
 
+    def _on_profile_theme_changed(self, _index: int) -> None:
+        self.profile_theme = normalize_profile_theme(self.combo_profile_theme.currentData())
+        self._update_profile_theme_preview()
+        self.profile_theme_preview_changed.emit(self.profile_theme)
+
+    def _update_profile_theme_preview(self) -> None:
+        if hasattr(self, "profile_theme_preview"):
+            self.profile_theme_preview.setStyleSheet(profile_theme_preview_style(self.profile_theme))
+
     # -------------------------------------------------------------
     # TAB 1: General & Profile
     # -------------------------------------------------------------
@@ -313,6 +326,37 @@ class UserSettingsDialog(PopupDialog):
 
         card_form.addRow("Card Size:", card_row)
         layout.addLayout(card_form)
+
+        theme_form = QFormLayout()
+        theme_form.setSpacing(10)
+        theme_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.combo_profile_theme = QComboBox()
+        for label, key in profile_theme_choices():
+            self.combo_profile_theme.addItem(label, key)
+        theme_index = self.combo_profile_theme.findData(self.profile_theme)
+        self.combo_profile_theme.setCurrentIndex(max(0, theme_index))
+        self.combo_profile_theme.currentIndexChanged.connect(self._on_profile_theme_changed)
+        theme_form.addRow("Profile panels:", self.combo_profile_theme)
+        layout.addLayout(theme_form)
+
+        self.profile_theme_preview = QFrame()
+        self.profile_theme_preview.setObjectName("profileThemePreview")
+        self.profile_theme_preview.setMinimumHeight(64)
+        self.profile_theme_preview.setMaximumHeight(78)
+        preview_layout = QHBoxLayout(self.profile_theme_preview)
+        preview_layout.setContentsMargins(10, 10, 10, 10)
+        preview_layout.setSpacing(8)
+        for title in ("Stats", "Games library", "Social"):
+            panel = QFrame()
+            panel.setObjectName("themePreviewPanel")
+            panel_layout = QVBoxLayout(panel)
+            panel_layout.setContentsMargins(9, 6, 9, 6)
+            label = QLabel(title)
+            label.setStyleSheet("color: #E4E4E7; font-size: 10px; font-weight: 600;")
+            panel_layout.addWidget(label)
+            preview_layout.addWidget(panel, 1)
+        layout.addWidget(self.profile_theme_preview)
+        self._update_profile_theme_preview()
 
         date_form = QFormLayout()
         date_form.setSpacing(10)
@@ -1264,6 +1308,9 @@ class UserSettingsDialog(PopupDialog):
 
             if hasattr(self, "spin_card_size"):
                 settings.setValue("card_size", self.spin_card_size.value())
+            if hasattr(self, "combo_profile_theme"):
+                self.profile_theme = normalize_profile_theme(self.combo_profile_theme.currentData())
+                settings.setValue("profile_theme", self.profile_theme)
             if hasattr(self, "chk_achievement_notifications"):
                 settings.setValue("achievement_notifications_enabled", self.chk_achievement_notifications.isChecked())
             if hasattr(self, "chk_achievement_desktop"):
@@ -1790,6 +1837,18 @@ class UserSettingsDialog(PopupDialog):
 
     def get_card_size(self) -> int:
         return self.spin_card_size.value() if hasattr(self, "spin_card_size") else 200
+
+    def get_profile_theme(self) -> str:
+        if hasattr(self, "combo_profile_theme"):
+            return normalize_profile_theme(self.combo_profile_theme.currentData())
+        return self.profile_theme
+
+    def reject(self) -> None:
+        # Preview changes are intentionally live while Settings is open, but
+        # Cancel must restore the persisted selection in the host page.
+        if self.profile_theme != self._profile_theme_original:
+            self.profile_theme_preview_changed.emit(self._profile_theme_original)
+        super().reject()
 
     @staticmethod
     def _normalise_hotkey(ks: QKeySequence) -> str:

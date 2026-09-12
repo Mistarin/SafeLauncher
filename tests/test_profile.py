@@ -39,10 +39,18 @@ from core.central_auth import (
 )
 from ui.components.profile_page import ProfilePageWidget
 from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
+from ui.dialogs.friends_dialog import FriendsDialog
+from ui.dialogs.settings_dialog import UserSettingsDialog
 from ui.components.sidebar import HeaderBar
+from ui.profile_theme import normalize_profile_theme, profile_theme_choices
 
 
 class ProfileModelTests(unittest.TestCase):
+    def test_profile_panel_themes_are_bounded(self):
+        self.assertEqual(normalize_profile_theme("sunset"), "sunset")
+        self.assertEqual(normalize_profile_theme("unsupported"), "grey")
+        self.assertEqual([key for _label, key in profile_theme_choices()], ["grey", "aurora", "sunset", "bubble"])
+
     def test_official_central_auth_defaults_are_configured(self):
         with patch.dict("os.environ", {
             "SAFELAUNCHER_AUTH0_ISSUER": "",
@@ -595,9 +603,12 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertIs(page.btn_auth, page.btn_sign_in)
                 self.assertIs(page.btn_auth, page.btn_sign_out)
                 self.assertIs(page.btn_banner_edit, page.btn_edit)
+                self.assertFalse(hasattr(page, "btn_open_public"))
+                self.assertFalse(hasattr(page, "btn_settings"))
                 self.assertEqual(page.btn_auth.text(), "Sign in")
                 self.assertFalse(page.profile_action_strip.isHidden())
                 self.assertFalse(page.btn_banner_edit.isHidden())
+                self.assertEqual(page.status_label.text(), "Unpublished · Private")
 
                 auth.signed_in = True
                 page._set_admin_controls(True)
@@ -616,6 +627,7 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertTrue(page.show_public(public))
                 self.assertTrue(page.profile_action_strip.isHidden())
                 self.assertTrue(page.btn_banner_edit.isHidden())
+                self.assertIn("Published · Public · @", page.status_label.text())
             finally:
                 page.close()
                 page.deleteLater()
@@ -681,10 +693,38 @@ class ProfilePageTests(unittest.TestCase):
             self.assertIn("@martin-player", header.btn_profile.toolTip())
             self.assertFalse(hasattr(header, "profile_identity_label"))
             self.assertIsNotNone(header.btn_profile.menu())
+            self.assertEqual(header.btn_friends.text(), "Friends")
+            actions = [action.text() for action in header.profile_menu.actions() if not action.isSeparator()]
+            self.assertIn("Find Friends…", actions)
         finally:
             header.deleteLater()
             window.deleteLater()
             self.app.processEvents()
+
+    def test_profile_settings_theme_preview_and_friends_popup_are_custom(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            auth = Mock()
+            auth.signed_in = False
+            settings_dialog = UserSettingsDialog("Player", parent=None, profile_theme="grey")
+            friends_dialog = FriendsDialog(settings, auth)
+            try:
+                settings_dialog.combo_profile_theme.setCurrentIndex(
+                    settings_dialog.combo_profile_theme.findData("aurora")
+                )
+                self.assertEqual(settings_dialog.get_profile_theme(), "aurora")
+                self.assertTrue(settings_dialog.profile_theme_preview.styleSheet())
+                self.assertTrue(friends_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint)
+                self.assertEqual(friends_dialog.tabs.count(), 3)
+                self.assertEqual(friends_dialog.tabs.tabText(2), "Find Friends")
+                friends_dialog.find_input.setText("not valid!")
+                self.assertEqual(friends_dialog._target(), "")
+            finally:
+                settings_dialog.close()
+                friends_dialog.close()
+                settings_dialog.deleteLater()
+                friends_dialog.deleteLater()
+                self.app.processEvents()
 
     def test_profile_editor_shows_username_but_hides_service_details(self):
         with tempfile.TemporaryDirectory() as directory:

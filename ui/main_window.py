@@ -98,6 +98,7 @@ from ui.theme import (
     btn_tertiary_style, btn_destructive_style, BG_APP, SURFACE, SURFACE_ELEVATED,
     BORDER, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, ACCENT_PRIMARY
 )
+from ui.profile_theme import normalize_profile_theme
 
 
 import getpass
@@ -347,6 +348,7 @@ class MainWindow(QMainWindow):
         self.title_bar.filter_requested.connect(self._set_filter)
         self.title_bar.profile_requested.connect(self._open_achievement_profile)
         self.title_bar.public_profile_requested.connect(self._open_public_profile_prompt)
+        self.title_bar.friends_requested.connect(self._open_friends_popup)
         self.title_bar.settings_requested.connect(self._open_settings)
         self.title_bar.toggle_collections_requested.connect(self._toggle_collections_panel)
         self.title_bar.sync_requested.connect(self._on_sync_sandbox)
@@ -1146,9 +1148,7 @@ class MainWindow(QMainWindow):
         )
         self.profile_page.hide()
         self.profile_page.back_requested.connect(self._close_profile_page)
-        self.profile_page.open_public_requested.connect(self._open_public_profile_prompt)
         self.profile_page.open_profile_handle_requested.connect(self._open_public_profile_handle)
-        self.profile_page.settings_requested.connect(self._open_settings)
         self.profile_page.profile_changed.connect(self._on_profile_changed)
         self.profile_page.private_profile_changed.connect(self._on_private_profile_changed)
         right_layout.addWidget(self.profile_page, 1)
@@ -1696,6 +1696,7 @@ class MainWindow(QMainWindow):
             cloud_saves_dir=cloud_dir,
             parent=self,
             date_format=self.date_format,
+            profile_theme=normalize_profile_theme(self.settings.value("profile_theme", "grey", type=str)),
         )
         # PopupDialog uses WA_DeleteOnClose, but this handler reads the form
         # values after exec() returns. Keep the dialog alive until those reads
@@ -1703,6 +1704,7 @@ class MainWindow(QMainWindow):
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         dialog.runtime_manager_requested.connect(self._open_runtime_manager)
         dialog.proton_manager_requested.connect(self._open_proton_manager)
+        dialog.profile_theme_preview_changed.connect(self.profile_page.set_profile_theme)
         cloud_before = (
             self.settings.value("cloud_mode", "local", type=str),
             self.settings.value("convex_site_url", "", type=str),
@@ -1723,6 +1725,10 @@ class MainWindow(QMainWindow):
                 card_size = dialog.get_card_size()
                 self.settings.setValue("card_size", card_size)
                 self._on_card_size_changed(card_size)
+            if hasattr(dialog, "get_profile_theme"):
+                selected_theme = normalize_profile_theme(dialog.get_profile_theme())
+                self.settings.setValue("profile_theme", selected_theme)
+                self.profile_page.set_profile_theme(selected_theme)
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(self.proton_path)
 
@@ -5043,29 +5049,47 @@ class MainWindow(QMainWindow):
         self._update_detail_panel()
 
     def _open_public_profile_prompt(self):
-        """Fetch another profile by handle and display it read-only."""
-        from urllib.parse import urlparse
+        """Open the social hub focused on finding another profile."""
+        self._open_friends_popup(focus_find=True)
 
-        handle, accepted = QInputDialog.getText(self, "Open Public Profile", "Enter a profile handle or URL:")
-        if not accepted:
-            return
-        value = handle.strip()
-        if not value:
-            return
-        if "://" in value:
-            parsed = urlparse(value)
-            parts = [part for part in parsed.path.split("/") if part]
-            value = parts[-1] if parts else ""
-        if "/" in value:
-            value = value.rstrip("/").rsplit("/", 1)[-1]
-        value = value.lstrip("@").strip().lower()
-        if not value:
-            QMessageBox.warning(self, "Public Profile", "That profile handle is empty.")
-            return
-        if not HANDLE_RE.fullmatch(value):
-            QMessageBox.warning(self, "Public Profile", "That is not a valid SafeLauncher profile handle.")
-            return
-        self._open_public_profile_handle(value)
+    def _open_friends_popup(self, focus_find: bool = False) -> None:
+        """Show the single custom friends surface used by header navigation."""
+        from ui.dialogs.friends_dialog import FriendsDialog
+
+        existing = getattr(self, "_friends_dialog", None)
+        if existing is not None:
+            try:
+                if existing.isVisible():
+                    existing.raise_()
+                    existing.activateWindow()
+                    return
+            except RuntimeError:
+                self._friends_dialog = None
+
+        dialog = FriendsDialog(
+            self.settings,
+            self.central_auth,
+            self,
+            worker_registry=self.worker_supervisor,
+            focus_find=focus_find,
+        )
+        self._friends_dialog = dialog
+
+        def open_profile(handle: str) -> None:
+            dialog.close()
+            self._open_public_profile_handle(handle)
+
+        def open_owner() -> None:
+            dialog.close()
+            self._open_achievement_profile()
+
+        dialog.open_profile_requested.connect(open_profile)
+        dialog.open_owner_profile_requested.connect(open_owner)
+        try:
+            dialog.exec()
+        finally:
+            if self._friends_dialog is dialog:
+                self._friends_dialog = None
 
     def _open_public_profile_handle(self, handle: str):
         """Fetch and display a public profile without opening another window."""
