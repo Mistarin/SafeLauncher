@@ -198,4 +198,4 @@ requests. The same switch is available for scripts as
 
 ## License
 
-Created for personal use. Modify and distribute as needed.
+Licensed under the GNU General Public License v3.0 (GPLv3). See [`LICENSE`](LICENSE) for details.

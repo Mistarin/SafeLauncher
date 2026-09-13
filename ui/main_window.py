@@ -2063,11 +2063,20 @@ class MainWindow(QMainWindow):
                 build_id = dialog.get_build_id()
                 build_date = dialog.get_build_date()
                 save_sandbox_config(path, exe)
-                game_id = self.db.add_game(name, path, exe, mode, banner_path, steam_id or None)
+                existing = self.db.find_game_by_profile_identity(self.db.profile_identity(name, steam_id or ""))
+                if existing:
+                    game_id = existing.id
+                    self.db.update_game(game_id, name, path, exe, mode, banner_path)
+                    self.db.update_game_steam_id(game_id, steam_id or existing.steam_id or "")
+                    self.db.restore_game(game_id)
+                else:
+                    game_id = self.db.add_game(name, path, exe, mode, banner_path, steam_id or None)
                 if game_id:
                     self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
                     self._record_initial_steam_build(game_id, path, steam_id, build_id, build_date)
                 self._refresh_library()
+                if game_id:
+                    self._sync_launcher_metadata_async(game_id)
                 if hasattr(self, "profile_page"):
                     self.profile_page.mark_local_data_changed()
                 self._show_toast(f"Game '{name}' added to library.")
@@ -5274,7 +5283,8 @@ class MainWindow(QMainWindow):
             self.achievement_status_cache[game_id] = (unlocked_count, total_count, pct, recent)
             self._achievement_checked_ts[game_id] = time.time()
             if changed:
-                self._sync_launcher_metadata_async(game_id)
+                if hasattr(self, "_sync_launcher_metadata_async"):
+                    self._sync_launcher_metadata_async(game_id)
                 if hasattr(self, "profile_page"):
                     self.profile_page.mark_local_data_changed()
             self._save_persistent_cache()
@@ -5347,6 +5357,8 @@ class MainWindow(QMainWindow):
         self._show_toast(f"Restored '{game[1]}' to library.")
         self._refresh_library()
         self._select_game_by_id(game_id)
+        if hasattr(self, "_sync_launcher_metadata_async"):
+            self._sync_launcher_metadata_async(game_id)
 
     def _launch_game_by_id(self, game_id: int):
         """Directly select and launch game by its ID."""
@@ -6322,13 +6334,22 @@ class MainWindow(QMainWindow):
             
             path = os.path.abspath(os.path.expanduser(path))
             save_sandbox_config(path, exe)
-            game_id = self.db.add_game(name, path, exe, mode, banner_path, steam_id or None)
+            existing = self.db.find_game_by_profile_identity(self.db.profile_identity(name, steam_id or ""))
+            if existing:
+                game_id = existing.id
+                self.db.update_game(game_id, name, path, exe, mode, banner_path)
+                self.db.update_game_steam_id(game_id, steam_id or existing.steam_id or "")
+                self.db.restore_game(game_id)
+            else:
+                game_id = self.db.add_game(name, path, exe, mode, banner_path, steam_id or None)
             if game_id:
                 self.db.update_game_version_metadata(game_id, version_override, patch_notes_url)
                 if collection_name.strip():
                     self.db.update_game_collection(game_id, collection_name.strip())
                 self._record_initial_steam_build(game_id, path, steam_id, build_id, build_date)
             self._refresh_library()
+            if game_id:
+                self._sync_launcher_metadata_async(game_id)
             if hasattr(self, "profile_page"):
                 self.profile_page.mark_local_data_changed()
             self._show_toast(f"Game '{name}' added to library.")
@@ -6547,6 +6568,8 @@ class MainWindow(QMainWindow):
                 # fails. The user can retry cleanup from the archive without
                 # losing playtime, favorites, or achievement history.
                 self._finish_game_lifecycle_change(game_id)
+                if hasattr(self, "_sync_launcher_metadata_async"):
+                    self._sync_launcher_metadata_async(game_id)
                 self._show_toast(
                     f"Moved '{game_name}' to the archive, but could not remove its files: {error}",
                     is_error=True,
@@ -6578,6 +6601,10 @@ class MainWindow(QMainWindow):
             self._show_toast(f"Removed '{game_name}' and deleted its files from disk.")
 
         self._finish_game_lifecycle_change(game_id)
+        if action == "archive" and hasattr(self, "_sync_launcher_metadata_async"):
+            self._sync_launcher_metadata_async(game_id)
+        elif hasattr(self, "_sync_profile_metadata_async"):
+            self._sync_profile_metadata_async()
         return True
 
     def _on_remove(self):

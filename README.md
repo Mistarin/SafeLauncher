@@ -5,7 +5,7 @@
 [![Download Latest Release](https://img.shields.io/badge/Download-AppImage-blue?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/Mistarin/SafeLauncher/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.kernel.org)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 <img width="2560" height="1440" alt="SafeLauncher Library Interface" src="https://github.com/user-attachments/assets/0c776ac5-fcd6-4ef1-b236-3b81d6d117ff" />
 
@@ -146,7 +146,7 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 ### Library state semantics
 
 * **Favorite** marks a game for filtering; it does not affect launching or files.
-* **Archived** removes a game from the active library while preserving its launcher history and, by default, its files. The archived view can restore it.
+* **Not installed** removes a game from the active library on the current device while preserving its account-wide launcher history. The Not installed view can restore it; another device may still show the same game as playable.
 * **Permanently deleted** removes the selected game files and launcher records and cannot be undone by SafeLauncher.
 * **Cloud Save** status is separate from game-update status. A cloud conflict always requires choosing whether to keep the local or cloud version; the displaced version is retained as a backup generation.
 
@@ -171,4 +171,4 @@ SafeLauncher adheres to standard Linux XDG base directory specifications:
 
 ## License
 
-Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
+Distributed under the GNU General Public License v3.0 (GPLv3). See [`LICENSE`](LICENSE) for details.

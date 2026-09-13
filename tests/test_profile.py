@@ -30,6 +30,7 @@ from core.profile_models import (
 )
 from database import GameDatabase
 from core.library_controller import LibraryController, LibraryQuery
+from core.cloud_metadata_sync import CloudMetadataSync, _merge_profiles
 from core.profile_service import ProfileServiceClient, ProfileServiceError
 from core.central_auth import (
     CentralAuthConfig,
@@ -50,6 +51,44 @@ from ui.profile_theme import get_profile_theme, normalize_profile_theme, profile
 
 
 class ProfileModelTests(unittest.TestCase):
+    def test_cloud_library_materializes_history_and_reuses_it_on_install(self):
+        db = GameDatabase(":memory:")
+        try:
+            remote = {
+                "games": {
+                    "steam:24680": {
+                        "identity_key": "steam:24680",
+                        "app_id": "24680",
+                        "name": "Cloud Game",
+                        "mode": "umu",
+                        "playtime_baseline_seconds": 5400,
+                        "playtime_sessions": [],
+                        "last_played": 1700000000,
+                        "favorite": True,
+                        "devices": {"other-device": {"installed": True, "observed_at": 1700000000}},
+                    }
+                },
+                "achievements": {},
+            }
+            merged = _merge_profiles({}, remote)
+            CloudMetadataSync._apply_profile(db, merged)
+
+            history = db.get_all_games()[0]
+            self.assertEqual(history[1], "Cloud Game")
+            self.assertEqual(history[6], "24680")
+            self.assertTrue(history[17])
+            self.assertEqual(history[7], 5400)
+            self.assertTrue(history[8])
+
+            game_id = history[0]
+            db.update_game(game_id, "Cloud Game", "/tmp/cloud-game", "game.exe", "umu", "")
+            db.restore_game(game_id)
+            self.assertEqual(db.find_game_by_profile_identity("steam:24680").id, game_id)
+            self.assertEqual(db.get_all_games()[0][7], 5400)
+            self.assertFalse(db.get_all_games()[0][17])
+        finally:
+            db.close()
+
     def test_profile_panel_themes_are_bounded(self):
         self.assertEqual(normalize_profile_theme("sunset"), "sunset")
         self.assertEqual(normalize_profile_theme("unsupported"), "grey")

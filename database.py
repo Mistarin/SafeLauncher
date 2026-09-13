@@ -468,6 +468,32 @@ class GameDatabase:
             logger.error(f"Failed to add game '{name}': {e}")
             return None
 
+    def find_game_by_profile_identity(self, identity_key: str):
+        """Find a local game matching an account-profile identity."""
+        identity_key = str(identity_key or "").strip()
+        if not identity_key:
+            return None
+        for game in self.get_all_games():
+            if self.profile_identity(game.name, game.steam_id) == identity_key:
+                return game
+        return None
+
+    def ensure_cloud_game(self, value: dict):
+        """Materialize a cloud-only game as a not-installed local record."""
+        identity = str(value.get("identity_key", "")).strip()
+        existing = self.find_game_by_profile_identity(identity)
+        if existing:
+            return existing.id
+        app_id = str(value.get("app_id", "") or "").strip()
+        name = str(value.get("name", "") or "").strip() or (f"Steam App {app_id}" if app_id else identity)
+        game_id = self.add_game(
+            name[:120], "", "", str(value.get("mode", "linux") or "linux"),
+            str(value.get("banner_url", "") or "")[:1024], app_id or None,
+        )
+        if game_id:
+            self.archive_game(game_id, True)
+        return game_id
+
     def toggle_favorite(self, game_id: int) -> bool:
         try:
             cursor = self.conn.cursor()
@@ -619,6 +645,27 @@ class GameDatabase:
                 (int(bool(value.get("favorite"))), max(0, int(value.get("playtime_seconds", 0) or 0)),
                  max(0, int(value.get("last_played", 0) or 0)), game_id),
             )
+
+    def project_profile_library(self, game_id: int, value: dict) -> None:
+        """Apply portable cloud catalog fields without touching local paths."""
+        try:
+            with self.conn:
+                self.conn.execute(
+                    """UPDATE games SET name = COALESCE(NULLIF(?, ''), name),
+                       banner_url = COALESCE(NULLIF(?, ''), banner_url),
+                       mode = COALESCE(NULLIF(?, ''), mode),
+                       collection = ?, tags = ? WHERE id = ?""",
+                    (
+                        str(value.get("name", "") or "")[:120],
+                        str(value.get("banner_url", "") or "")[:1024],
+                        str(value.get("mode", "") or "")[:32],
+                        str(value.get("collection", "") or ""),
+                        str(value.get("tags", "") or "")[:2048],
+                        game_id,
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"Failed to project cloud library metadata for game {game_id}: {e}")
 
     def create_playtime_session(self, game_id: int, started_at: Optional[int] = None, session_id: str = "") -> str:
         """Create an idempotent playtime event for metadata synchronization."""

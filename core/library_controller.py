@@ -181,7 +181,7 @@ class LibraryController:
             elif normalized_filter == "favorites":
                 empty_message = "No favorite games added yet"
             elif normalized_filter == "archived":
-                empty_message = "No archived games found."
+                empty_message = "No not installed games found."
             elif normalized_filter == "installed":
                 empty_message = "No installed games found."
             else:

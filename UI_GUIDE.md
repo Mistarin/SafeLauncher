@@ -231,7 +231,7 @@ The `games` record contains the core launch identity plus optional metadata:
 | Activity | playtime, last played, install date |
 | Runtime | Proton path, build ID, version override, patch-notes URL, environment variables |
 
-Archived is a reversible library state. Permanent removal is a separate destructive action that deletes files and launcher records.
+Not installed is a reversible per-device library state. Permanent removal is a separate destructive action that deletes files while preserving account profile history.
 
 **Example Record:**
 ```

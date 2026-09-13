@@ -2041,12 +2041,12 @@ class CompactSidebarListWidget(QFrame):
         """
 
         self.btn_f_all = QPushButton()
-        self.btn_f_all.setAccessibleName("Show all games")
+        self.btn_f_all.setAccessibleName("Show library")
         self.btn_f_all.setIcon(get_icon("ph.squares-four-bold", color="#FFFFFF"))
         self.btn_f_all.setIconSize(QSize(15, 15))
         self.btn_f_all.setCheckable(True)
         self.btn_f_all.setChecked(True)
-        self.btn_f_all.setToolTip("All Games")
+        self.btn_f_all.setToolTip("Library")
         self.btn_f_all.setStyleSheet(btn_filter_style)
         self.btn_f_all.clicked.connect(lambda: self._on_filter_btn_clicked("all"))
         fb_layout.addWidget(self.btn_f_all)
@@ -2072,11 +2072,11 @@ class CompactSidebarListWidget(QFrame):
         fb_layout.addWidget(self.btn_f_fav)
 
         self.btn_f_arch = QPushButton()
-        self.btn_f_arch.setAccessibleName("Show archived games")
+        self.btn_f_arch.setAccessibleName("Show not installed games")
         self.btn_f_arch.setIcon(get_icon("ph.archive-bold", color="#FFFFFF"))
         self.btn_f_arch.setIconSize(QSize(15, 15))
         self.btn_f_arch.setCheckable(True)
-        self.btn_f_arch.setToolTip("Archived Games")
+        self.btn_f_arch.setToolTip("Not installed games")
         self.btn_f_arch.setStyleSheet(btn_filter_style)
         self.btn_f_arch.clicked.connect(lambda: self._on_filter_btn_clicked("archived"))
         fb_layout.addWidget(self.btn_f_arch)
@@ -2322,7 +2322,7 @@ class CompactSidebarListWidget(QFrame):
             if self.active_filter == "favorites":
                 self.empty_lbl.setText("No favorite games added yet")
             elif self.active_filter == "archived":
-                self.empty_lbl.setText("No archived games found")
+                self.empty_lbl.setText("No not installed games found")
             elif self.active_filter == "installed":
                 self.empty_lbl.setText("No installed games found")
             elif query:

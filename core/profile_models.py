@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 from PyQt6.QtCore import QSettings
 
-PRIVATE_PROFILE_VERSION = 7
+PRIVATE_PROFILE_VERSION = 8
 PUBLIC_PROFILE_VERSION = 3
 LEGACY_HANDLE_RE = re.compile(r"^[a-f0-9]{20,40}$")
 USERNAME_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?$")

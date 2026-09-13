@@ -104,7 +104,7 @@ class LeftSidebarWidget(QFrame):
             }
         """
 
-        self.nav_all = QPushButton("All Games")
+        self.nav_all = QPushButton("Library")
         self.nav_all.setIcon(get_icon("ph.squares-four-bold", color="#FFFFFF"))
         self.nav_all.setCheckable(True)
         self.nav_all.setChecked(True)
@@ -129,10 +129,10 @@ class LeftSidebarWidget(QFrame):
         self.nav_favorites.clicked.connect(lambda: self._on_filter_click("favorites"))
         layout.addWidget(self.nav_favorites)
 
-        self.nav_archived = QPushButton("Archived")
+        self.nav_archived = QPushButton("Not installed")
         self.nav_archived.setIcon(get_icon("ph.archive-bold", color="#FFFFFF"))
         self.nav_archived.setCheckable(True)
-        self.nav_archived.setToolTip("Games removed to archive (playtime & data preserved)")
+        self.nav_archived.setToolTip("Games not installed on this device (playtime & data preserved)")
         self.nav_archived.setStyleSheet(nav_style)
         self.nav_archived.setVisible(False)
         self.nav_archived.clicked.connect(lambda: self._on_filter_click("archived"))
@@ -263,10 +263,10 @@ class LeftSidebarWidget(QFrame):
         """Update count labels next to library navigation items."""
         self._last_counts = (all_c, inst_c, fav_c, arch_c)
         if not self.compact:
-            self.nav_all.setText(f"All Games  ({all_c})")
+            self.nav_all.setText(f"Library  ({all_c})")
             self.nav_installed.setText(f"Installed  ({inst_c})")
             self.nav_favorites.setText(f"Favorites  ({fav_c})")
-            self.nav_archived.setText(f"Archived  ({arch_c})")
+            self.nav_archived.setText(f"Not installed  ({arch_c})")
         else:
             self.nav_all.setText("")
             self.nav_installed.setText("")
@@ -530,13 +530,13 @@ class HeaderBar(QFrame):
 
         self.lib_menu = self.view_menu.addMenu(get_icon("ph.books-bold", color="#FFFFFF"), "Library")
         self.lib_menu.setStyleSheet(menu_style)
-        act_lib_all = self.lib_menu.addAction(get_icon("ph.squares-four-bold", color="#FFFFFF"), "All Games")
+        act_lib_all = self.lib_menu.addAction(get_icon("ph.squares-four-bold", color="#FFFFFF"), "Library")
         act_lib_all.triggered.connect(lambda: self.filter_requested.emit("all"))
         act_lib_inst = self.lib_menu.addAction(get_icon("ph.check-circle-bold", color="#FFFFFF"), "Installed")
         act_lib_inst.triggered.connect(lambda: self.filter_requested.emit("installed"))
         act_lib_fav = self.lib_menu.addAction(get_icon("ph.heart-bold", color="#FFFFFF"), "Favorites")
         act_lib_fav.triggered.connect(lambda: self.filter_requested.emit("favorites"))
-        act_lib_arch = self.lib_menu.addAction(get_icon("ph.archive-bold", color="#FFFFFF"), "Archived")
+        act_lib_arch = self.lib_menu.addAction(get_icon("ph.archive-bold", color="#FFFFFF"), "Not installed")
         act_lib_arch.triggered.connect(lambda: self.filter_requested.emit("archived"))
 
         act_profile = self.view_menu.addAction(get_icon("ph.user-circle-bold", color="#30D158"), "Profile")

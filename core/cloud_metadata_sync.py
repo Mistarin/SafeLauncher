@@ -126,14 +126,60 @@ def _normalise_profile(profile: dict) -> dict:
             games[identity] = {
                 "identity_key": identity,
                 "app_id": str(raw_value.get("app_id", "") or "")[:32],
+                "name": str(raw_value.get("name", "") or "")[:120],
+                "banner_url": str(raw_value.get("banner_url", "") or "")[:1024],
+                "mode": str(raw_value.get("mode", "") or "")[:32],
+                "executable": str(raw_value.get("executable", "") or "")[:256],
+                "collection": str(raw_value.get("collection", "") or "")[:120],
+                "tags": str(raw_value.get("tags", "") or "")[:2048],
                 "favorite": bool(raw_value.get("favorite", False)),
                 "favorite_changed_at": _safe_float(raw_value.get("favorite_changed_at")),
                 "favorite_change_id": str(raw_value.get("favorite_change_id", "") or "")[:128],
                 "playtime_baseline_seconds": _safe_int(raw_value.get("playtime_baseline_seconds")),
                 "playtime_sessions": sessions,
                 "last_played": _safe_int(raw_value.get("last_played")),
+                "devices": _normalise_devices(raw_value.get("devices")),
             }
     return {"format_version": PRIVATE_PROFILE_VERSION, "profile": profile_settings, "games": games, "achievements": achievements}
+
+
+def _normalise_devices(value) -> dict:
+    """Bound per-device installation observations from the private profile."""
+    if not isinstance(value, dict):
+        return {}
+    devices = {}
+    for raw_id, raw_state in list(value.items())[:256]:
+        device_id = str(raw_id).strip()[:128]
+        if not device_id or not isinstance(raw_state, dict):
+            continue
+        devices[device_id] = {
+            "installed": bool(raw_state.get("installed", False)),
+            "observed_at": _safe_int(raw_state.get("observed_at")),
+        }
+    return devices
+
+
+def _merge_text_values(left: object, right: object, limit: int = 2048) -> str:
+    values = []
+    seen = set()
+    for raw in (left, right):
+        for item in str(raw or "").split(","):
+            item = item.strip()
+            key = item.casefold()
+            if item and key not in seen:
+                seen.add(key)
+                values.append(item)
+    return ", ".join(values)[:limit]
+
+
+def _merge_devices(local: object, remote: object) -> dict:
+    merged = {}
+    for source in (local, remote):
+        for device_id, state in _normalise_devices(source).items():
+            old = merged.get(device_id, {})
+            if _safe_int(state.get("observed_at")) >= _safe_int(old.get("observed_at")):
+                merged[device_id] = dict(state)
+    return merged
 
 
 def _merge_unlocks(local: dict, remote: dict) -> dict:
@@ -186,6 +232,12 @@ def _merge_profiles(local: dict, remote: dict) -> dict:
         merged_games[str(identity)] = {
             "identity_key": str(identity),
             "app_id": str(left.get("app_id") or right.get("app_id") or ""),
+            "name": str(left.get("name") or right.get("name") or "")[:120],
+            "banner_url": str(left.get("banner_url") or right.get("banner_url") or "")[:1024],
+            "mode": str(left.get("mode") or right.get("mode") or "")[:32],
+            "executable": str(left.get("executable") or right.get("executable") or "")[:256],
+            "collection": _merge_text_values(left.get("collection"), right.get("collection"), 120),
+            "tags": _merge_text_values(left.get("tags"), right.get("tags")),
             # Before favorite change markers existed, a remote default false
             # must not erase a local true favorite. Once either side has a
             # marker, the later marker remains the authoritative toggle.
@@ -198,6 +250,7 @@ def _merge_profiles(local: dict, remote: dict) -> dict:
             "playtime_baseline_seconds": max(_safe_int(left.get("playtime_baseline_seconds")), _safe_int(right.get("playtime_baseline_seconds"))),
             "playtime_sessions": _merge_sessions(left.get("playtime_sessions"), right.get("playtime_sessions")),
             "last_played": max(_safe_int(left.get("last_played")), _safe_int(right.get("last_played"))),
+            "devices": _merge_devices(left.get("devices"), right.get("devices")),
         }
     merged = {}
     for app_id in set((local or {}).get("achievements", {}) or {}) | set((remote or {}).get("achievements", {}) or {}):
@@ -290,21 +343,43 @@ class CloudMetadataSync:
 
     @staticmethod
     def _local_profile(db) -> dict:
+        from core.cloud_backend import get_device_identity
+        device_id, _device_name, _device_platform = get_device_identity()
+        observed_at = int(time.time())
         db.collect_profile_from_games()
         games = {}
         for game in db.get_all_games():
             identity = db.profile_identity(game.name, game.steam_id)
             sessions = db.get_playtime_sessions(game.id)
             session_total = sum(int(x.get("duration_seconds", 0) or 0) for x in sessions)
+            executable_path = os.path.join(game.path, game.executable) if game.path and game.executable else game.path
+            installed = bool(
+                not game.is_archived
+                and game.path
+                and os.path.exists(game.path)
+                and (not game.executable or os.path.exists(executable_path))
+            )
             games[identity] = {
                 "identity_key": identity,
                 "app_id": str(game.steam_id or "").strip(),
+                "name": str(game.name or "")[:120],
+                "banner_url": str(game.banner_url or "")[:1024],
+                "mode": str(game.mode or "")[:32],
+                "executable": str(game.executable or "")[:256],
+                "collection": str(game.collection or "")[:120],
+                "tags": str(game.tags or "")[:2048],
                 "favorite": bool(game.is_favorite),
                 "favorite_changed_at": 0,
                 "favorite_change_id": "",
                 "playtime_baseline_seconds": max(0, int(game.playtime_seconds or 0) - session_total),
                 "playtime_sessions": sessions,
                 "last_played": max(0, int(game.last_played or 0)),
+                "devices": {
+                    device_id: {
+                        "installed": installed,
+                        "observed_at": observed_at,
+                    }
+                },
             }
         # Retain profile-only entries for games removed from this installation.
         for item in db.get_profile_games():
@@ -313,6 +388,11 @@ class CloudMetadataSync:
                 current["favorite_changed_at"] = item["favorite_changed_at"]
                 current["favorite_change_id"] = item["favorite_change_id"]
             else:
+                item = dict(item)
+                item["devices"] = _merge_devices(
+                    item.get("devices"),
+                    {device_id: {"installed": False, "observed_at": observed_at}},
+                )
                 games[item["identity_key"]] = item
         # If a previously local game has now been assigned an AppID, carry
         # its profile history into the stable Steam identity.  The old local
@@ -363,6 +443,18 @@ class CloudMetadataSync:
                 continue
             item = dict(value)
             item["identity_key"] = str(identity)
+            # Keep account-known games visible on devices where only their
+            # history has been downloaded. A later install reuses this row.
+            db.ensure_cloud_game(item)
+            local_game = db.find_game_by_profile_identity(str(identity))
+            if local_game:
+                portable = item
+                # A non-Steam identity is derived from the name, so changing
+                # it remotely would detach the local fallback identity.
+                if not str(item.get("app_id", "") or "").strip():
+                    portable = dict(item)
+                    portable["name"] = ""
+                db.project_profile_library(local_game.id, portable)
             sessions = item.get("playtime_sessions", []) or []
             item["playtime_seconds"] = int(item.get("playtime_baseline_seconds", 0) or 0) + sum(
                 int(x.get("duration_seconds", 0) or 0) for x in sessions if isinstance(x, dict)
