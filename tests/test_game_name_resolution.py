@@ -11,6 +11,7 @@ from core.cloud_metadata_sync import CloudMetadataSync, _merge_profiles
 from core.game_names import (
     fallback_game_name,
     is_placeholder_game_name,
+    local_profile_identity,
     meaningful_game_name,
 )
 from core.request_contracts import ResourceStatus
@@ -68,6 +69,53 @@ class GameNameResolutionTests(unittest.TestCase):
             self.assertEqual(len(games), 1)
             self.assertEqual(games[0].id, first.id)
             self.assertEqual(games[0].name, "Portal")
+        finally:
+            db.close()
+
+    def test_local_identity_normalization_is_idempotent(self):
+        self.assertEqual(local_profile_identity("Dub Together"), "local:dub-together")
+        self.assertEqual(local_profile_identity("local:dub-together"), "local:dub-together")
+        self.assertEqual(local_profile_identity("local:local-dub-together"), "local:dub-together")
+        self.assertEqual(fallback_game_name("", "local:local-dub-together"), "Dub Together")
+        self.assertEqual(GameDatabase.profile_identity("local:dub-together", ""), "local:dub-together")
+
+    def test_repeated_local_profile_materialization_keeps_one_archive_row(self):
+        db = GameDatabase(":memory:")
+        try:
+            profile = {
+                "games": {
+                    "local:dub-together": {
+                        "app_id": "",
+                        "name": "",
+                        "display_name": "",
+                    }
+                },
+                "achievements": {},
+            }
+            for _ in range(5):
+                CloudMetadataSync._apply_profile(db, _merge_profiles({}, profile))
+            games = db.get_all_games()
+            self.assertEqual(len(games), 1)
+            self.assertEqual(games[0].name, "Dub Together")
+            self.assertTrue(games[0].is_archived)
+        finally:
+            db.close()
+
+    def test_duplicate_local_rows_are_consolidated_without_losing_active_row(self):
+        db = GameDatabase(":memory:")
+        try:
+            archived_id = db.add_game("local:dub-together", "", "", "linux")
+            active_id = db.add_game("Dub Together", "/games/dub-together", "run.sh", "linux")
+            db.archive_game(archived_id, True)
+            db.archive_game(active_id, False)
+            removed = db.consolidate_duplicate_games(force=True)
+            self.assertEqual(removed, 1)
+            games = db.get_all_games()
+            self.assertEqual(len(games), 1)
+            self.assertEqual(games[0].id, active_id)
+            self.assertEqual(games[0].name, "Dub Together")
+            self.assertEqual(games[0].path, "/games/dub-together")
+            self.assertFalse(games[0].is_archived)
         finally:
             db.close()
 

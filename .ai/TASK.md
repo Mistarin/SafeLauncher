@@ -24,3 +24,8 @@ Details requests. AppID identity remains unchanged, so repair is in-place and
 cannot create a second library row. `CloudStatusService.record_status` accepts
 both its original `generation` spelling and MainWindow's compatibility spelling
 `context_generation`.
+
+Legacy non-Steam identities are now canonicalized to one `local:<slug>` form.
+`GameDatabase` repairs rows created by the old `local:local-<slug>` derivation
+at startup and during profile application, merging dependent achievements,
+playtime sessions, and profile history before removing redundant archived rows.

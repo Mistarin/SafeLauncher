@@ -27,7 +27,7 @@ from core.profile_models import (
     normalize_profile_settings,
     save_profile_settings,
 )
-from core.game_names import preferred_game_name
+from core.game_names import local_profile_identity, preferred_game_name
 
 logger = get_logger("CloudMetadata")
 _PROFILE_SYNC_LOCK = threading.Lock()
@@ -110,6 +110,12 @@ def _normalise_profile(profile: dict) -> dict:
     for raw_identity, raw_value in list(raw_games.items())[:_MAX_PROFILE_APPS]:
         identity = str(raw_identity).strip()
         if identity and len(identity) <= 256 and isinstance(raw_value, dict):
+            raw_app_id = str(raw_value.get("app_id", "") or "").strip()[:32]
+            # Normalize legacy local identities before they reach the merge
+            # path.  Otherwise ``local:local-dub-together`` survives in the
+            # remote document and can be materialized as a second archive row.
+            if not raw_app_id and identity.casefold().startswith("local:"):
+                identity = local_profile_identity(identity)
             sessions = []
             for raw_session in list(raw_value.get("playtime_sessions", []) or [])[:2_000]:
                 if not isinstance(raw_session, dict):
@@ -124,9 +130,9 @@ def _normalise_profile(profile: dict) -> dict:
                     "duration_seconds": _safe_int(raw_session.get("duration_seconds")),
                     "finalized": bool(raw_session.get("finalized", False)),
                 })
-            games[identity] = {
+            record = {
                 "identity_key": identity,
-                "app_id": str(raw_value.get("app_id", "") or "")[:32],
+                "app_id": raw_app_id,
                 "name": str(raw_value.get("name", "") or "")[:120],
                 "banner_url": str(raw_value.get("banner_url", "") or "")[:1024],
                 "mode": str(raw_value.get("mode", "") or "")[:32],
@@ -141,6 +147,8 @@ def _normalise_profile(profile: dict) -> dict:
                 "last_played": _safe_int(raw_value.get("last_played")),
                 "devices": _normalise_devices(raw_value.get("devices")),
             }
+            existing = games.get(identity)
+            games[identity] = _merge_normalized_game_records(existing, record, identity) if existing else record
     return {"format_version": PRIVATE_PROFILE_VERSION, "profile": profile_settings, "games": games, "achievements": achievements}
 
 
@@ -216,6 +224,34 @@ def _merge_sessions(local: list, remote: list) -> list:
             "finalized": bool(old.get("finalized", False) or item.get("finalized", False)),
         }
     return sorted(by_id.values(), key=lambda x: (x["started_at"], x["session_id"]))
+
+
+def _merge_normalized_game_records(left: Optional[dict], right: dict, identity: str) -> dict:
+    """Merge two already-validated records that normalized to one identity."""
+    left = left if isinstance(left, dict) else {}
+    right = right if isinstance(right, dict) else {}
+    app_id = str(left.get("app_id") or right.get("app_id") or "")
+    left_key = (_safe_float(left.get("favorite_changed_at")), str(left.get("favorite_change_id", "") or ""))
+    right_key = (_safe_float(right.get("favorite_changed_at")), str(right.get("favorite_change_id", "") or ""))
+    markerless = left_key == right_key == (0, "")
+    favorite_source = right if right_key >= left_key else left
+    return {
+        "identity_key": identity,
+        "app_id": app_id,
+        "name": preferred_game_name(app_id, left.get("name"), left.get("display_name"), right.get("name"), right.get("display_name"))[:120],
+        "banner_url": str(left.get("banner_url") or right.get("banner_url") or "")[:1024],
+        "mode": str(left.get("mode") or right.get("mode") or "")[:32],
+        "executable": str(left.get("executable") or right.get("executable") or "")[:256],
+        "collection": _merge_text_values(left.get("collection"), right.get("collection"), 120),
+        "tags": _merge_text_values(left.get("tags"), right.get("tags")),
+        "favorite": bool(left.get("favorite", False) or right.get("favorite", False)) if markerless else bool(favorite_source.get("favorite", False)),
+        "favorite_changed_at": max(left_key[0], right_key[0]),
+        "favorite_change_id": str(favorite_source.get("favorite_change_id", "") or ""),
+        "playtime_baseline_seconds": max(_safe_int(left.get("playtime_baseline_seconds")), _safe_int(right.get("playtime_baseline_seconds"))),
+        "playtime_sessions": _merge_sessions(left.get("playtime_sessions"), right.get("playtime_sessions")),
+        "last_played": max(_safe_int(left.get("last_played")), _safe_int(right.get("last_played"))),
+        "devices": _merge_devices(left.get("devices"), right.get("devices")),
+    }
 
 
 def _merge_profiles(local: dict, remote: dict) -> dict:
@@ -356,6 +392,10 @@ class CloudMetadataSync:
     @staticmethod
     def _local_profile(db) -> dict:
         from core.cloud_backend import get_device_identity
+        # A legacy process may have materialized another row after database
+        # startup. Repair before building the outbound profile so the cloud
+        # document itself cannot perpetuate duplicate local identities.
+        db.consolidate_duplicate_games(force=True)
         device_id, _device_name, _device_platform = get_device_identity()
         observed_at = int(time.time())
         db.collect_profile_from_games()
@@ -462,6 +502,10 @@ class CloudMetadataSync:
 
     @staticmethod
     def _apply_profile(db, profile: dict) -> None:
+        # Clean rows created by older identity derivation before materializing
+        # this profile.  ``force`` is intentional: duplicates can be created
+        # by a previous process after startup repair has already run.
+        db.consolidate_duplicate_games(force=True)
         profile_settings = profile.get("profile")
         if isinstance(profile_settings, dict):
             save_profile_settings(
@@ -474,13 +518,15 @@ class CloudMetadataSync:
                 continue
             item = dict(value)
             item["identity_key"] = str(identity)
+            if not str(item.get("app_id", "") or "").strip() and item["identity_key"].casefold().startswith("local:"):
+                item["identity_key"] = local_profile_identity(item["identity_key"])
             item["name"] = preferred_game_name(
                 item.get("app_id"), item.get("name"), item.get("display_name")
             )
             # Keep account-known games visible on devices where only their
             # history has been downloaded. A later install reuses this row.
             db.ensure_cloud_game(item)
-            local_game = db.find_game_by_profile_identity(str(identity))
+            local_game = db.find_game_by_profile_identity(item["identity_key"])
             if local_game:
                 portable = item
                 # A non-Steam identity is derived from the name, so changing
@@ -495,7 +541,7 @@ class CloudMetadataSync:
             )
             db.merge_profile_game(item)
             for game in db.get_all_games():
-                if db.profile_identity(game.name, game.steam_id) == str(identity):
+                if db.profile_identity(game.name, game.steam_id) == item["identity_key"]:
                     db.merge_playtime_sessions(game.id, sessions)
                     db.project_profile_game(game.id, item)
         for app_id, unlocks in (profile.get("achievements", {}) or {}).items():

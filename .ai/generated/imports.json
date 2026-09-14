@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T19:19:23+00:00",
+  "generated_at": "2026-09-14T19:35:19+00:00",
   "imports": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -1404,47 +1404,47 @@
     {
       "file": "core/cloud_metadata_sync.py",
       "import": "core.cloud_backend",
-      "line": 358
+      "line": 394
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "import": "core.cloud_save_sync",
-      "line": 527
+      "line": 573
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "import": "core.cloud_sync_queue",
-      "line": 532
+      "line": 578
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "import": "core.network_policy",
-      "line": 533
+      "line": 579
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "import": "core.cloud_save_sync",
-      "line": 554
+      "line": 600
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "import": "core.cloud_save_sync",
-      "line": 570
+      "line": 616
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "import": "core.cloud_save_sync",
-      "line": 659
+      "line": 705
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "import": "core.cloud_save_sync",
-      "line": 670
+      "line": 716
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "import": "core.cloud_save_sync",
-      "line": 685
+      "line": 731
     },
     {
       "file": "core/cloud_operation_records.py",
@@ -4179,17 +4179,17 @@
     {
       "file": "database.py",
       "import": "dataclasses",
-      "line": 81
+      "line": 84
     },
     {
       "file": "database.py",
       "import": "typing",
-      "line": 82
+      "line": 85
     },
     {
       "file": "database.py",
       "import": "core.achievement_models",
-      "line": 1275
+      "line": 1543
     },
     {
       "file": "main.py",
@@ -5474,27 +5474,27 @@
     {
       "file": "tests/test_game_name_resolution.py",
       "import": "core.request_contracts",
-      "line": 16
-    },
-    {
-      "file": "tests/test_game_name_resolution.py",
-      "import": "core.request_manager",
       "line": 17
     },
     {
       "file": "tests/test_game_name_resolution.py",
-      "import": "core.resource_cache",
+      "import": "core.request_manager",
       "line": 18
     },
     {
       "file": "tests/test_game_name_resolution.py",
-      "import": "core.steam_resource_service",
+      "import": "core.resource_cache",
       "line": 19
     },
     {
       "file": "tests/test_game_name_resolution.py",
-      "import": "database",
+      "import": "core.steam_resource_service",
       "line": 20
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "import": "database",
+      "line": 21
     },
     {
       "file": "tests/test_global_hotkeys.py",

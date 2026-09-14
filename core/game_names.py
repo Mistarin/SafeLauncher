@@ -13,6 +13,7 @@ import re
 
 MAX_GAME_NAME_LENGTH = 120
 _PLACEHOLDER_RE = re.compile(r"^steam\s+app\s+(\d{1,16})$", re.IGNORECASE)
+_LOCAL_IDENTITY_RE = re.compile(r"^local:[a-z0-9]+(?:-[a-z0-9]+)*$", re.IGNORECASE)
 
 
 def clean_game_name(value: object, *, limit: int = MAX_GAME_NAME_LENGTH) -> str:
@@ -31,10 +32,15 @@ def is_placeholder_game_name(value: object, app_id: object = "") -> bool:
     return not requested or requested in {"0", "None"} or match.group(1) == requested
 
 
+def is_identity_placeholder_name(value: object) -> bool:
+    """Return whether a local profile identity was accidentally shown as a title."""
+    return bool(_LOCAL_IDENTITY_RE.fullmatch(clean_game_name(value)))
+
+
 def meaningful_game_name(value: object, app_id: object = "") -> str:
     """Return a usable title, excluding generated Steam placeholders."""
     name = clean_game_name(value)
-    return "" if is_placeholder_game_name(name, app_id) else name
+    return "" if is_placeholder_game_name(name, app_id) or is_identity_placeholder_name(name) else name
 
 
 def fallback_game_name(app_id: object, identity: object = "") -> str:
@@ -42,7 +48,24 @@ def fallback_game_name(app_id: object, identity: object = "") -> str:
     normalized = str(app_id or "").strip()
     if normalized and normalized not in {"0", "None"}:
         return f"Steam App {normalized}"[:MAX_GAME_NAME_LENGTH]
-    return clean_game_name(identity) or "Unnamed Game"
+    identity_text = clean_game_name(identity)
+    if identity_text.casefold().startswith("local:"):
+        slug = identity_text.split(":", 1)[1].replace("-", " ").replace("_", " ")
+        while slug.casefold().startswith("local "):
+            slug = slug[6:]
+        return clean_game_name(slug).title() or "Unnamed Game"
+    return identity_text or "Unnamed Game"
+
+
+def local_profile_identity(name: object) -> str:
+    """Build the canonical identity for a non-Steam title or legacy identity."""
+    raw_name = clean_game_name(name)
+    if raw_name.casefold().startswith("local:"):
+        raw_name = raw_name.split(":", 1)[1]
+    while raw_name.casefold().startswith("local-"):
+        raw_name = raw_name[6:]
+    normalized = re.sub(r"[^a-z0-9]+", "-", raw_name.casefold()).strip("-")
+    return f"local:{normalized or 'unnamed-game'}"
 
 
 def preferred_game_name(app_id: object, *values: object) -> str:
@@ -59,6 +82,8 @@ __all__ = [
     "clean_game_name",
     "fallback_game_name",
     "is_placeholder_game_name",
+    "is_identity_placeholder_name",
+    "local_profile_identity",
     "meaningful_game_name",
     "preferred_game_name",
 ]

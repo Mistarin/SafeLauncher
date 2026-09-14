@@ -1,8 +1,8 @@
 {
   "files": [
     {
-      "bytes": 4005,
-      "lines": 74,
+      "bytes": 4189,
+      "lines": 77,
       "path": ".ai/ARCHITECTURE.md",
       "suffix": ".md"
     },
@@ -19,7 +19,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 11467,
+      "bytes": 11493,
       "lines": 86,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
@@ -31,8 +31,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 1425,
-      "lines": 27,
+      "bytes": 1738,
+      "lines": 32,
       "path": ".ai/TASK.md",
       "suffix": ".md"
     },
@@ -91,8 +91,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 1922,
-      "lines": 47,
+      "bytes": 2369,
+      "lines": 54,
       "path": ".ai/architecture/game-name-resolution.md",
       "suffix": ".md"
     },
@@ -661,8 +661,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 5109,
-      "lines": 163,
+      "bytes": 5305,
+      "lines": 166,
       "path": ".github/workflows/ci.yml",
       "suffix": ".yml"
     },
@@ -895,8 +895,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 34402,
-      "lines": 712,
+      "bytes": 37805,
+      "lines": 758,
       "path": "core/cloud_metadata_sync.py",
       "suffix": ".py"
     },
@@ -985,8 +985,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 2215,
-      "lines": 65,
+      "bytes": 3404,
+      "lines": 90,
       "path": "core/game_names.py",
       "suffix": ".py"
     },
@@ -1339,8 +1339,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 83661,
-      "lines": 1650,
+      "bytes": 100244,
+      "lines": 1918,
       "path": "database.py",
       "suffix": ".py"
     },
@@ -1663,8 +1663,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 5186,
-      "lines": 130,
+      "bytes": 7398,
+      "lines": 178,
       "path": "tests/test_game_name_resolution.py",
       "suffix": ".py"
     },
@@ -2065,5 +2065,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T19:19:23+00:00"
+  "generated_at": "2026-09-14T19:35:19+00:00"
 }

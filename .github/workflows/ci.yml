@@ -13,7 +13,10 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       SAFELAUNCHER_OFFLINE_TEST_MODE: "1"
-      XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
+      # Keep test state isolated inside the ephemeral workspace.  The runner
+      # context is intentionally not used at job-level env scope.
+      XDG_DATA_HOME: ${{ github.workspace }}/.ci/xdg-data
+      SAFELAUNCHER_SMOKE_DIR: ${{ github.workspace }}/.ci/smoke
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,20 +47,20 @@ jobs:
       - name: Prepare smoke environment
         run: |
           mkdir -p "$XDG_DATA_HOME"
-          mkdir -p "$RUNNER_TEMP/safelauncher-smoke"
+          mkdir -p "$SAFELAUNCHER_SMOKE_DIR"
 
       - name: Run canonical release-readiness gate
         timeout-minutes: 25
         run: |
           set -o pipefail
-          python ci/release_readiness.py 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/release-readiness.log"
+          python ci/release_readiness.py 2>&1 | tee "$SAFELAUNCHER_SMOKE_DIR/release-readiness.log"
 
       - name: Upload smoke phase logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: safelauncher-smoke-logs-${{ github.run_id }}
-          path: ${{ runner.temp }}/safelauncher-smoke
+          path: ${{ github.workspace }}/.ci/smoke
           if-no-files-found: warn
 
   profile-gateway:

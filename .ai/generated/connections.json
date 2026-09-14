@@ -27,25 +27,25 @@
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 36,
+      "line": 39,
       "value": "RequestManager"
     },
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 37,
+      "line": 40,
       "value": "ResourceCache"
     },
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 50,
+      "line": 53,
       "value": "CloudMetadataSync"
     },
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 59,
+      "line": 62,
       "value": "RequestManager"
     },
     {
@@ -129,7 +129,7 @@
     {
       "file": ".ai/architecture/game-name-resolution.md",
       "kind": "manager_call",
-      "line": 39,
+      "line": 46,
       "value": "request"
     },
     {
@@ -915,14 +915,8 @@
     {
       "file": "core/cloud_metadata_sync.py",
       "kind": "architecture_symbol",
-      "line": 280,
+      "line": 316,
       "value": "CloudMetadataSync"
-    },
-    {
-      "file": "core/cloud_metadata_sync.py",
-      "kind": "architecture_symbol",
-      "line": 556,
-      "value": "CloudSaveSyncEngine"
     },
     {
       "file": "core/cloud_metadata_sync.py",
@@ -933,13 +927,19 @@
     {
       "file": "core/cloud_metadata_sync.py",
       "kind": "architecture_symbol",
-      "line": 685,
+      "line": 648,
       "value": "CloudSaveSyncEngine"
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "kind": "architecture_symbol",
-      "line": 686,
+      "line": 731,
+      "value": "CloudSaveSyncEngine"
+    },
+    {
+      "file": "core/cloud_metadata_sync.py",
+      "kind": "architecture_symbol",
+      "line": 732,
       "value": "CloudSaveSyncEngine"
     },
     {
@@ -1689,31 +1689,31 @@
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 68,
+      "line": 71,
       "value": "connect"
     },
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 69,
+      "line": 72,
       "value": "connect"
     },
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 211,
+      "line": 218,
       "value": "connect"
     },
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 230,
+      "line": 237,
       "value": "connect"
     },
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 242,
+      "line": 249,
       "value": "connect"
     },
     {
@@ -2247,43 +2247,49 @@
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "architecture_symbol",
-      "line": 17,
+      "line": 18,
       "value": "RequestManager"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "architecture_symbol",
-      "line": 18,
+      "line": 19,
       "value": "ResourceCache"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "architecture_symbol",
-      "line": 56,
+      "line": 57,
       "value": "CloudMetadataSync"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "architecture_symbol",
-      "line": 63,
+      "line": 64,
+      "value": "CloudMetadataSync"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "architecture_symbol",
+      "line": 96,
       "value": "CloudMetadataSync"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "qt_connection",
-      "line": 77,
+      "line": 125,
       "value": "connect"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "architecture_symbol",
-      "line": 115,
+      "line": 163,
       "value": "RequestManager"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "architecture_symbol",
-      "line": 115,
+      "line": 163,
       "value": "ResourceCache"
     },
     {
@@ -8479,5 +8485,5 @@
       "value": "cancel"
     }
   ],
-  "generated_at": "2026-09-14T19:19:23+00:00"
+  "generated_at": "2026-09-14T19:35:19+00:00"
 }

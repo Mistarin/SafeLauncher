@@ -11,6 +11,8 @@ from core.logger import get_logger
 from core.game_names import (
     MAX_GAME_NAME_LENGTH,
     fallback_game_name,
+    is_identity_placeholder_name,
+    local_profile_identity,
     meaningful_game_name,
     preferred_game_name,
 )
@@ -43,6 +45,7 @@ def _migrate_legacy_db(new_path: str) -> None:
 
 _BACKUP_CREATED: set = set()
 _SCHEMA_INITIALIZED: set = set()
+_DUPLICATE_REPAIR_DONE: set = set()
 
 
 def _create_database_backup(db_path: str, source_connection=None, *, force: bool = False) -> None:
@@ -186,6 +189,10 @@ class GameDatabase:
         self._connect_with_retry()
 
         self._create_table()
+        # Repair identities materialized by older cloud-sync versions before
+        # the database is projected into the UI.  The repair is idempotent and
+        # preserves the canonical row's local data and dependent ledgers.
+        self.consolidate_duplicate_games()
 
         if db_path != ":memory:":
             try:
@@ -510,13 +517,18 @@ class GameDatabase:
     def ensure_cloud_game(self, value: dict):
         """Materialize a cloud-only game as a not-installed local record."""
         identity = str(value.get("identity_key", "")).strip()
+        app_id = str(value.get("app_id", "") or "").strip()
         existing = self.find_game_by_profile_identity(identity)
         if existing:
             # A previously materialized placeholder must be upgraded in place;
             # the Steam AppID remains the identity and no duplicate is made.
             self.project_profile_library(existing.id, value)
+            if is_identity_placeholder_name(existing.name):
+                self.update_game_name_from_metadata(
+                    existing.id,
+                    fallback_game_name(app_id, identity),
+                )
             return existing.id
-        app_id = str(value.get("app_id", "") or "").strip()
         name = preferred_game_name(
             app_id,
             value.get("name"),
@@ -625,8 +637,11 @@ class GameDatabase:
         sid = str(app_id or "").strip()
         if sid and sid not in ("0", "None"):
             return f"steam:{sid}"
-        normalized = re.sub(r"[^a-z0-9]+", "-", str(name or "").casefold()).strip("-")
-        return f"local:{normalized or 'unnamed-game'}"
+        # A prior cloud-only fallback could persist the identity itself as
+        # the title (``local:dub-together``), or repeatedly prefix it while
+        # rematerializing the same record.  Always collapse those spellings
+        # to one stable local identity.
+        return local_profile_identity(name)
 
     def get_profile_games(self) -> List[dict]:
         rows = self.conn.execute(
@@ -1032,6 +1047,259 @@ class GameDatabase:
         except Exception as e:
             logger.error(f"Failed to fetch games list: {e}")
             return []
+
+    def consolidate_duplicate_games(self, *, force: bool = False) -> int:
+        """Consolidate rows that resolve to the same portable game identity.
+
+        Older cloud-only materialization treated ``local:<slug>`` as a title,
+        then derived ``local:local-<slug>`` on the next pass.  That made every
+        sync create another archived row.  This repair runs once per persistent
+        database during startup and can be forced by a sync pass.  It keeps the
+        best row, merges dependent achievement/session ledgers, preserves
+        profile history, and only then removes redundant rows.
+        """
+        repair_key = self.db_path
+        if not force and repair_key != ":memory:" and repair_key in _DUPLICATE_REPAIR_DONE:
+            return 0
+
+        removed = 0
+        try:
+            with _ACHIEVEMENT_DB_LOCK:
+                # Normalize legacy local profile-history keys first.  The
+                # profile table is append-only by design, but old identity
+                # spellings are aliases rather than separate games.
+                history_rows = self.conn.execute(
+                    """SELECT identity_key, app_id, display_name, favorite,
+                              favorite_changed_at, favorite_change_id,
+                              playtime_baseline_seconds, last_played
+                       FROM profile_games"""
+                ).fetchall()
+                for row in history_rows:
+                    old_identity = str(row[0] or "").strip()
+                    app_id = str(row[1] or "").strip()
+                    if app_id or not old_identity.casefold().startswith("local:"):
+                        continue
+                    canonical_identity = local_profile_identity(old_identity)
+                    if canonical_identity == old_identity:
+                        continue
+                    self.merge_profile_game({
+                        "identity_key": canonical_identity,
+                        "app_id": "",
+                        "name": preferred_game_name("", row[2]) or fallback_game_name("", old_identity),
+                        "display_name": row[2] or "",
+                        "favorite": bool(row[3]),
+                        "favorite_changed_at": row[4] or 0,
+                        "favorite_change_id": row[5] or "",
+                        "playtime_baseline_seconds": row[6] or 0,
+                        "last_played": row[7] or 0,
+                    })
+                    self.conn.execute(
+                        "DELETE FROM profile_games WHERE identity_key = ?",
+                        (old_identity,),
+                    )
+
+                games_by_identity = {}
+                for game in self.get_all_games():
+                    identity = self.profile_identity(game.name, game.steam_id)
+                    games_by_identity.setdefault(identity, []).append(game)
+
+                duplicate_groups = [
+                    (identity, rows)
+                    for identity, rows in games_by_identity.items()
+                    if len(rows) > 1
+                ]
+                for identity, rows in duplicate_groups:
+                    def _rank(game):
+                        installed = bool(not game.is_archived and game.path)
+                        meaningful = bool(meaningful_game_name(game.name, game.steam_id))
+                        return (installed, meaningful, bool(game.path), -int(game.id))
+
+                    ordered = sorted(rows, key=_rank, reverse=True)
+                    canonical = ordered[0]
+                    duplicates = ordered[1:]
+                    app_id = str(canonical.steam_id or "").strip()
+                    if not app_id:
+                        app_id = next((str(game.steam_id or "").strip() for game in rows if game.steam_id), "")
+
+                    title = next(
+                        (
+                            meaningful_game_name(game.name, app_id)
+                            for game in ordered
+                            if meaningful_game_name(game.name, app_id)
+                        ),
+                        fallback_game_name(app_id, identity),
+                    )[:MAX_GAME_NAME_LENGTH]
+
+                    def _first_text(*values):
+                        for value in values:
+                            text = str(value or "").strip()
+                            if text:
+                                return text
+                        return ""
+
+                    path_source = next((game for game in ordered if game.path), canonical)
+                    executable_source = next((game for game in ordered if game.executable), canonical)
+                    banner = _first_text(canonical.banner_url, *(game.banner_url for game in duplicates))[:1024]
+                    tags = _first_text(canonical.tags, *(game.tags for game in duplicates))[:2048]
+                    build_id = _first_text(canonical.build_id, *(game.build_id for game in duplicates))
+                    proton_path = _first_text(canonical.proton_path, *(game.proton_path for game in duplicates))
+                    collection = _first_text(canonical.collection, *(game.collection for game in duplicates))
+                    version_override = _first_text(canonical.version_override, *(game.version_override for game in duplicates))
+                    patch_notes_url = _first_text(canonical.patch_notes_url, *(game.patch_notes_url for game in duplicates))
+                    icon_url = _first_text(canonical.icon_url, *(game.icon_url for game in duplicates))[:1024]
+                    env_vars = _first_text(canonical.env_vars, *(game.env_vars for game in duplicates)) or "{}"
+                    mode = _first_text(path_source.mode, canonical.mode, *(game.mode for game in duplicates))[:32]
+                    install_dates = [int(game.install_date or 0) for game in rows if int(game.install_date or 0) > 0]
+                    install_date = min(install_dates) if install_dates else 0
+
+                    with self.conn:
+                        self.conn.execute(
+                            """UPDATE games SET
+                               name = ?, path = ?, executable = ?, mode = ?,
+                               banner_url = ?, steam_id = ?,
+                               playtime_seconds = ?, is_favorite = ?,
+                               last_played = ?, tags = ?, build_id = ?,
+                               proton_path = ?, collection = ?, install_date = ?,
+                               version_override = ?, patch_notes_url = ?,
+                               is_archived = ?, icon_url = ?, env_vars = ?, build_date = ?
+                               WHERE id = ?""",
+                            (
+                                title,
+                                _first_text(canonical.path, path_source.path),
+                                _first_text(canonical.executable, executable_source.executable),
+                                mode,
+                                banner,
+                                app_id or _first_text(canonical.steam_id),
+                                max(int(game.playtime_seconds or 0) for game in rows),
+                                int(any(bool(game.is_favorite) for game in rows)),
+                                max(int(game.last_played or 0) for game in rows),
+                                tags,
+                                build_id,
+                                proton_path,
+                                collection,
+                                install_date,
+                                version_override,
+                                patch_notes_url,
+                                int(all(bool(game.is_archived) for game in rows)),
+                                icon_url,
+                                env_vars,
+                                max(int(game.build_date or 0) for game in rows),
+                                canonical.id,
+                            ),
+                        )
+
+                        for duplicate in duplicates:
+                            achievement_rows = self.conn.execute(
+                                """SELECT app_id, api_name, display_name, description,
+                                          icon_path, icongray_path, unlocked, unlock_time,
+                                          hidden, unlock_provenance, unlock_verified,
+                                          unlock_source_format, unlock_source_path,
+                                          notification_sent
+                                   FROM achievements WHERE game_id = ?""",
+                                (duplicate.id,),
+                            ).fetchall()
+                            for achievement in achievement_rows:
+                                current = self.conn.execute(
+                                    """SELECT id, app_id, display_name, description,
+                                              icon_path, icongray_path, unlocked, unlock_time,
+                                              hidden, unlock_provenance, unlock_verified,
+                                              unlock_source_format, unlock_source_path,
+                                              notification_sent
+                                       FROM achievements
+                                       WHERE game_id = ? AND api_name = ?""",
+                                    (canonical.id, achievement[1]),
+                                ).fetchone()
+                                if not current:
+                                    self.conn.execute(
+                                        """INSERT INTO achievements
+                                           (game_id, app_id, api_name, display_name, description,
+                                            icon_path, icongray_path, unlocked, unlock_time, hidden,
+                                            unlock_provenance, unlock_verified, unlock_source_format,
+                                            unlock_source_path, notification_sent)
+                                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                        (canonical.id, *achievement),
+                                    )
+                                    continue
+                                current_time = float(current[7] or 0)
+                                incoming_time = float(achievement[7] or 0)
+                                if current_time > 0 and incoming_time > 0:
+                                    unlock_time = min(current_time, incoming_time)
+                                else:
+                                    unlock_time = max(current_time, incoming_time)
+                                provenance = _first_text(current[9], achievement[9]) or "unknown"
+                                self.conn.execute(
+                                    """UPDATE achievements SET
+                                           app_id = COALESCE(NULLIF(app_id, ''), ?),
+                                           display_name = COALESCE(NULLIF(display_name, ''), ?),
+                                           description = COALESCE(NULLIF(description, ''), ?),
+                                           icon_path = COALESCE(NULLIF(icon_path, ''), ?),
+                                           icongray_path = COALESCE(NULLIF(icongray_path, ''), ?),
+                                           unlocked = MAX(unlocked, ?),
+                                           unlock_time = ?,
+                                           hidden = MAX(hidden, ?),
+                                           unlock_provenance = ?,
+                                           unlock_verified = MAX(unlock_verified, ?),
+                                           unlock_source_format = COALESCE(NULLIF(unlock_source_format, ''), ?),
+                                           unlock_source_path = COALESCE(NULLIF(unlock_source_path, ''), ?),
+                                           notification_sent = MAX(notification_sent, ?)
+                                       WHERE id = ?""",
+                                    (
+                                        achievement[0], achievement[2], achievement[3],
+                                        achievement[4], achievement[5], achievement[6],
+                                        unlock_time, achievement[8], provenance,
+                                        achievement[10], achievement[11], achievement[12],
+                                        achievement[13], current[0],
+                                    ),
+                                )
+                            self.conn.execute("DELETE FROM achievements WHERE game_id = ?", (duplicate.id,))
+
+                            session_rows = self.conn.execute(
+                                """SELECT session_id, started_at, ended_at,
+                                          duration_seconds, finalized, updated_at
+                                   FROM playtime_sessions WHERE game_id = ?""",
+                                (duplicate.id,),
+                            ).fetchall()
+                            for session in session_rows:
+                                existing_session = self.conn.execute(
+                                    "SELECT game_id, started_at, ended_at, duration_seconds, finalized, updated_at FROM playtime_sessions WHERE session_id = ?",
+                                    (session[0],),
+                                ).fetchone()
+                                if existing_session and int(existing_session[0]) == canonical.id:
+                                    self.conn.execute(
+                                        """UPDATE playtime_sessions SET
+                                               started_at = MIN(started_at, ?),
+                                               ended_at = MAX(ended_at, ?),
+                                               duration_seconds = MAX(duration_seconds, ?),
+                                               finalized = MAX(finalized, ?),
+                                               updated_at = MAX(updated_at, ?)
+                                           WHERE session_id = ?""",
+                                        (session[1], session[2], session[3], session[4], session[5], session[0]),
+                                    )
+                                    self.conn.execute("DELETE FROM playtime_sessions WHERE session_id = ? AND game_id = ?", (session[0], duplicate.id))
+                                elif not existing_session:
+                                    self.conn.execute(
+                                        "UPDATE playtime_sessions SET game_id = ? WHERE session_id = ?",
+                                        (canonical.id, session[0]),
+                                    )
+                            self.conn.execute("DELETE FROM games WHERE id = ?", (duplicate.id,))
+                            removed += 1
+
+                        total_sessions = self.conn.execute(
+                            "SELECT COALESCE(SUM(duration_seconds), 0) FROM playtime_sessions WHERE game_id = ?",
+                            (canonical.id,),
+                        ).fetchone()[0]
+                        self.conn.execute(
+                            "UPDATE games SET playtime_seconds = MAX(playtime_seconds, ?) WHERE id = ?",
+                            (int(total_sessions or 0), canonical.id),
+                        )
+
+                if removed:
+                    logger.info("Consolidated %d duplicate local game rows", removed)
+            if repair_key != ":memory:":
+                _DUPLICATE_REPAIR_DONE.add(repair_key)
+        except Exception as e:
+            logger.error(f"Failed to consolidate duplicate game rows: {e}")
+        return removed
 
     def remove_game(self, game_id: int) -> bool:
         """Remove a launcher game row while retaining append-only profile history."""

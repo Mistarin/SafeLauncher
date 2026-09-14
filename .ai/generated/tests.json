@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T19:19:23+00:00",
+  "generated_at": "2026-09-14T19:35:19+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -406,37 +406,55 @@
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "test",
-      "line": 33,
+      "line": 34,
       "name": "test_placeholder_rules_are_bounded_and_case_insensitive"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "test",
-      "line": 39,
+      "line": 40,
       "name": "test_profile_merge_does_not_let_placeholder_overwrite_title"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "test",
-      "line": 52,
+      "line": 53,
       "name": "test_placeholder_materialization_is_repaired_in_place"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "test",
-      "line": 73,
+      "line": 74,
+      "name": "test_local_identity_normalization_is_idempotent"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 81,
+      "name": "test_repeated_local_profile_materialization_keeps_one_archive_row"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 103,
+      "name": "test_duplicate_local_rows_are_consolidated_without_losing_active_row"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 121,
       "name": "test_profile_game_migration_recovers_steam_title"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "test",
-      "line": 113,
+      "line": 161,
       "name": "test_steam_app_details_are_cached_and_deduplicated"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "test_class",
-      "line": 30,
+      "line": 31,
       "name": "GameNameResolutionTests"
     },
     {

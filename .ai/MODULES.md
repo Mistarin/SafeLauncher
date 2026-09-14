@@ -17,7 +17,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | UI presentation cache | [`core/presentation_cache.py`](../core/presentation_cache.py) | `PresentationCache` | active; bounded decoded-value LRU only |
 | Library query/state | [`core/library_controller.py`](../core/library_controller.py), [`core/library_state.py`](../core/library_state.py) | `LibraryController`, `LibraryStateStore` | active |
 | Local database | [`database.py`](../database.py) | `GameDatabase`, `GameRecord` | active |
-| Portable game naming | [`core/game_names.py`](../core/game_names.py) | `meaningful_game_name`, `preferred_game_name`, placeholder/fallback rules | active |
+| Portable game naming | [`core/game_names.py`](../core/game_names.py) | `meaningful_game_name`, `preferred_game_name`, `local_profile_identity`, placeholder/fallback rules | active |
 | Library application service | [`core/library_service.py`](../core/library_service.py) | `LibraryService`, `LibraryProjection` | active |
 | Library metadata presentation state | [`core/library_metadata_state.py`](../core/library_metadata_state.py) | `LibraryMetadataState` | active; local projection and legacy migration adapter |
 | Cloud sync queue | [`core/cloud_sync_queue.py`](../core/cloud_sync_queue.py) | `PendingCloudSyncQueue` | active |

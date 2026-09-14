@@ -30,6 +30,9 @@ wheels/
 library.db
 *.db
 
+# CI-generated isolated test state
+.ci/
+
 # Environment
 venv/
 ENV/

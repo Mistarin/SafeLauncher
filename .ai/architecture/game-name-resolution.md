@@ -18,6 +18,13 @@ repair uses `SteamResourceService.request_app_details`, so it is bounded,
 cached, deduplicated by AppID, stale-cache compatible, and cooperative with
 application shutdown.
 
+Non-Steam identities use `local_profile_identity`, which collapses both title
+forms such as `Dub Together` and legacy identity-as-title forms such as
+`local:local-dub-together` to `local:dub-together`. `GameDatabase` runs an
+idempotent consolidation pass at startup and before profile materialization;
+it keeps the best installed/meaningful row, merges achievements, playtime
+sessions, and profile history, then removes only redundant game rows.
+
 ## Persistence
 
 `profile_games.display_name` stores the last meaningful local title for
