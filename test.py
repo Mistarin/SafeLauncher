@@ -920,7 +920,7 @@ try:
     )
 
     # 1. Versioning assertions
-    assert APP_VERSION == "0.7.0", f"Expected APP_VERSION == 0.7.0, got {APP_VERSION}"
+    assert APP_VERSION == "0.8.0", f"Expected APP_VERSION == 0.8.0, got {APP_VERSION}"
 
     assert MIN_CONVEX_BACKEND_VERSION == "1.7.0"
     assert parse_version("0.5.5") == (0, 5, 5)
