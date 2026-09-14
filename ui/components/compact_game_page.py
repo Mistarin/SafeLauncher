@@ -1903,11 +1903,11 @@ class CompactSidebarListItemWidget(QWidget):
         layout.addWidget(self.title_lbl, 1)
 
         # 3. Favorite Star
-        if self.is_favorite:
-            fav_lbl = QLabel()
-            fav_lbl.setPixmap(get_icon("ph.heart-fill", color="#FF453A").pixmap(12, 12))
-            fav_lbl.setStyleSheet("background: transparent;")
-            layout.addWidget(fav_lbl)
+        self.favorite_lbl = QLabel()
+        self.favorite_lbl.setFixedSize(14, 14)
+        self.favorite_lbl.setStyleSheet("background: transparent;")
+        layout.addWidget(self.favorite_lbl)
+        self.set_favorite(self.is_favorite)
 
         # Keep the same installation/update facts visible in every library
         # presentation. The update marker is a compact, independent icon;
@@ -1937,6 +1937,19 @@ class CompactSidebarListItemWidget(QWidget):
         meta = cloud_indicator(self.cloud_status)
         self.cloud_lbl.setPixmap(get_icon(meta.icon, color=meta.color).pixmap(12, 12))
         self.cloud_lbl.setToolTip(meta.tooltip)
+
+    def set_favorite(self, is_favorite: bool) -> None:
+        """Update the compact sidebar favorite marker in place."""
+        self.is_favorite = bool(is_favorite)
+        if not hasattr(self, "favorite_lbl"):
+            return
+        self.favorite_lbl.setVisible(self.is_favorite)
+        if self.is_favorite:
+            self.favorite_lbl.setPixmap(
+                get_icon("ph.heart-fill", color="#FF453A").pixmap(12, 12)
+            )
+        else:
+            self.favorite_lbl.clear()
 
     def _load_icon(self):
         if self.is_archived:
@@ -2380,6 +2393,16 @@ class CompactSidebarListWidget(QFrame):
                     widget._load_icon()
                 break
 
+    def update_favorite(self, game_id: int, is_favorite: bool):
+        """Update one compact sidebar marker without rebuilding the list."""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item and item.data(Qt.ItemDataRole.UserRole) == game_id:
+                widget = self.list_widget.itemWidget(item)
+                if isinstance(widget, CompactSidebarListItemWidget):
+                    widget.set_favorite(is_favorite)
+                break
+
     def update_update_available(self, game_id: int, is_available: bool):
         """Update a sidebar release icon without rebuilding the compact view."""
         for i in range(self.list_widget.count()):
@@ -2565,6 +2588,11 @@ class CompactLayoutContainer(QWidget):
 
     def update_game_icon(self, game_id: int, icon_path: str):
         self.sidebar_list.update_game_icon(game_id, icon_path)
+
+    def update_favorite(self, game_id: int, is_favorite: bool):
+        self.sidebar_list.update_favorite(game_id, is_favorite)
+        if getattr(self.game_page, "current_game_id", None) == game_id:
+            self.game_page.action_bar.set_favorite_active(is_favorite)
 
     def update_cloud_status(self, game_id: int, status: Any):
         """Update the compact action bar when it is showing this game."""

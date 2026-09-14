@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 from PyQt6.QtCore import QSettings, QTimer, Qt
 from PyQt6.QtGui import QColor, QImage, QPixmap
-from PyQt6.QtWidgets import QApplication, QMainWindow
+from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton
 
 from core.profile_avatar_catalog import (
     normalize_avatar_catalog,
@@ -1001,6 +1001,8 @@ class ProfilePageTests(unittest.TestCase):
                 self.app.processEvents()
 
     def test_header_uses_one_combined_identity_control(self):
+        from ui.main_window import MainWindow
+
         class TestWindow(QMainWindow):
             def _toggle_maximize(self):
                 pass
@@ -1016,6 +1018,16 @@ class ProfilePageTests(unittest.TestCase):
             self.assertEqual(header.btn_friends.text(), "Friends")
             actions = [action.text() for action in header.profile_menu.actions() if not action.isSeparator()]
             self.assertIn("Find Friends…", actions)
+            window.title_bar = header
+            MainWindow._sync_window_controls(window)
+            self.assertFalse(header.btn_min.isHidden())
+            self.assertFalse(header.btn_max.isHidden())
+            self.assertFalse(header.btn_close.isHidden())
+            header.set_cloud_status_indicator("ready")
+            # Cloud status updates must not create or remove title-bar controls.
+            self.assertIs(header.findChild(QPushButton, "windowMinimize"), header.btn_min)
+            self.assertIs(header.findChild(QPushButton, "windowMaximize"), header.btn_max)
+            self.assertIs(header.findChild(QPushButton, "windowClose"), header.btn_close)
         finally:
             header.deleteLater()
             window.deleteLater()

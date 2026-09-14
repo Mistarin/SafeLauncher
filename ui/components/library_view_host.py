@@ -179,6 +179,12 @@ class LibraryViewHost(QStackedWidget):
         self.virtual_grid.update_icon(game_id, icon_path)
         self.compact_container.update_game_icon(game_id, icon_path)
 
+    def update_favorite(self, game_id: int, is_favorite: bool) -> None:
+        """Fan out one favorite change without rebuilding any presentation."""
+        self.list_view.update_favorite(game_id, is_favorite)
+        self.virtual_grid.update_favorite(game_id, is_favorite)
+        self.compact_container.update_favorite(game_id, is_favorite)
+
     def update_missing(self, game_id: int, missing: bool) -> None:
         self.list_view.update_missing(game_id, missing)
         self.virtual_grid.update_missing(game_id, missing)

@@ -25,8 +25,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 4556,
-      "lines": 60,
+      "bytes": 4917,
+      "lines": 65,
       "path": ".ai/STATUS.md",
       "suffix": ".md"
     },
@@ -1783,8 +1783,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 60241,
-      "lines": 1266,
+      "bytes": 60970,
+      "lines": 1278,
       "path": "tests/test_profile.py",
       "suffix": ".py"
     },
@@ -1873,8 +1873,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 25527,
-      "lines": 596,
+      "bytes": 26476,
+      "lines": 621,
       "path": "ui/components/banner_card.py",
       "suffix": ".py"
     },
@@ -1885,8 +1885,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 111986,
-      "lines": 2597,
+      "bytes": 113258,
+      "lines": 2625,
       "path": "ui/components/compact_game_page.py",
       "suffix": ".py"
     },
@@ -1903,8 +1903,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 9212,
-      "lines": 191,
+      "bytes": 9558,
+      "lines": 197,
       "path": "ui/components/library_view_host.py",
       "suffix": ".py"
     },
@@ -1927,14 +1927,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 7453,
-      "lines": 177,
+      "bytes": 7424,
+      "lines": 175,
       "path": "ui/components/responsive_grid.py",
       "suffix": ".py"
     },
     {
-      "bytes": 42992,
-      "lines": 981,
+      "bytes": 43194,
+      "lines": 984,
       "path": "ui/components/sidebar.py",
       "suffix": ".py"
     },
@@ -2059,14 +2059,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 20533,
-      "lines": 502,
+      "bytes": 21366,
+      "lines": 522,
       "path": "ui/library_list.py",
       "suffix": ".py"
     },
     {
-      "bytes": 376648,
-      "lines": 7950,
+      "bytes": 378347,
+      "lines": 7983,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2101,5 +2101,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T21:36:20+00:00"
+  "generated_at": "2026-09-14T21:52:14+00:00"
 }

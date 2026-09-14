@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T21:36:20+00:00",
+  "generated_at": "2026-09-14T21:52:14+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -1114,49 +1114,49 @@
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1023,
+      "line": 1035,
       "name": "test_profile_settings_theme_preview_and_friends_popup_are_custom"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1055,
+      "line": 1067,
       "name": "test_edit_game_exposes_safe_lifecycle_action_without_form_save"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1079,
+      "line": 1091,
       "name": "test_profile_editor_shows_username_but_hides_service_details"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1110,
+      "line": 1122,
       "name": "test_profile_editor_saves_steam_hero_background_from_appid"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1137,
+      "line": 1149,
       "name": "test_profile_editor_previews_backgrounds_without_mutating_saved_profile"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1168,
+      "line": 1180,
       "name": "test_profile_editor_previews_steam_hero_behind_panels"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1195,
+      "line": 1207,
       "name": "test_nested_profile_panels_apply_opaque_and_glass_surface_modes"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1227,
+      "line": 1239,
       "name": "test_steam_hero_is_painted_as_background_independent_of_panel_theme"
     },
     {
@@ -1174,7 +1174,7 @@
     {
       "file": "tests/test_profile.py",
       "kind": "test_class",
-      "line": 1004,
+      "line": 1005,
       "name": "TestWindow"
     },
     {

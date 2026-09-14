@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T21:36:20+00:00",
+  "generated_at": "2026-09-14T21:52:14+00:00",
   "imports": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -6117,6 +6117,11 @@
       "line": 393
     },
     {
+      "file": "tests/test_profile.py",
+      "import": "ui.main_window",
+      "line": 1004
+    },
+    {
       "file": "tests/test_profile_resource_service.py",
       "import": "__future__",
       "line": 3
@@ -6584,7 +6589,7 @@
     {
       "file": "ui/components/banner_card.py",
       "import": "core.game_status",
-      "line": 230
+      "line": 232
     },
     {
       "file": "ui/components/check_field.py",
@@ -6714,12 +6719,12 @@
     {
       "file": "ui/components/compact_game_page.py",
       "import": "core.steamgriddb_client",
-      "line": 1954
+      "line": 1967
     },
     {
       "file": "ui/components/compact_game_page.py",
       "import": "core.icon_extractor",
-      "line": 1986
+      "line": 1999
     },
     {
       "file": "ui/components/extraction_spinner.py",
@@ -8754,22 +8759,22 @@
     {
       "file": "ui/library_list.py",
       "import": "core.game_status",
-      "line": 219
+      "line": 218
     },
     {
       "file": "ui/library_list.py",
       "import": "core.game_status",
-      "line": 243
+      "line": 257
     },
     {
       "file": "ui/library_list.py",
       "import": "core.steamgriddb_client",
-      "line": 282
+      "line": 296
     },
     {
       "file": "ui/library_list.py",
       "import": "core.icon_extractor",
-      "line": 308
+      "line": 322
     },
     {
       "file": "ui/main_window.py",
@@ -9284,152 +9289,152 @@
     {
       "file": "ui/main_window.py",
       "import": "core.updater",
-      "line": 1646
+      "line": 1652
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_backend",
-      "line": 1665
+      "line": 1671
     },
     {
       "file": "ui/main_window.py",
       "import": "core.secret_store",
-      "line": 1673
+      "line": 1679
     },
     {
       "file": "ui/main_window.py",
       "import": "core.updater",
-      "line": 1773
+      "line": 1779
     },
     {
       "file": "ui/main_window.py",
       "import": "core.updater",
-      "line": 1827
+      "line": 1833
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.welcome_wizard",
-      "line": 1831
+      "line": 1837
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.cloud_wizard_dialog",
-      "line": 1900
+      "line": 1906
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.account_dialog",
-      "line": 1914
+      "line": 1920
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 2060
+      "line": 2066
     },
     {
       "file": "ui/main_window.py",
       "import": "subprocess",
-      "line": 2219
+      "line": 2225
     },
     {
       "file": "ui/main_window.py",
       "import": "core.screenshot_capture",
-      "line": 3851
+      "line": 3889
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 4004
+      "line": 4042
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 4484
+      "line": 4519
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_operations",
-      "line": 4860
+      "line": 4895
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 4922
+      "line": 4957
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 5024
+      "line": 5057
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_watcher",
-      "line": 5677
+      "line": 5710
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_schema",
-      "line": 5694
+      "line": 5727
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.achievements_dialog",
-      "line": 5864
+      "line": 5897
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.friends_dialog",
-      "line": 5927
+      "line": 5960
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.components.achievement_toast",
-      "line": 6168
+      "line": 6201
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.components.achievement_toast",
-      "line": 6176
+      "line": 6209
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 6728
+      "line": 6761
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 6762
+      "line": 6795
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 7008
+      "line": 7041
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_coordinator",
-      "line": 7203
+      "line": 7236
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 7322
+      "line": 7355
     },
     {
       "file": "ui/main_window.py",
       "import": "core.plugins.gpu_screen_recorder",
-      "line": 7444
+      "line": 7477
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 7507
+      "line": 7540
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_schema",
-      "line": 7519
+      "line": 7552
     },
     {
       "file": "ui/maintenance_dialogs.py",

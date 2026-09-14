@@ -1,10 +1,10 @@
 {
   "counts": {
     "connections": 1468,
-    "imports": 1943,
+    "imports": 1944,
     "request_keys": 77,
     "service_routes": 7,
-    "symbols": 3229,
+    "symbols": 3238,
     "tables": 34,
     "tests": 276
   },
@@ -17,7 +17,7 @@
     ".ai/generated",
     ".ai/manifest.json"
   ],
-  "generated_at": "2026-09-14T21:36:20+00:00",
+  "generated_at": "2026-09-14T21:52:14+00:00",
   "generated_files": [
     "connections.json",
     "database-schema.json",

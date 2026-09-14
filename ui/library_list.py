@@ -114,12 +114,11 @@ class LibraryListItemWidget(QWidget):
             """)
             top_line.addWidget(ver_badge)
 
-        if self.is_favorite:
-            fav_lbl = QLabel()
-            fav_lbl.setPixmap(get_icon("ph.heart-fill", color="#FF453A").pixmap(13, 13))
-            fav_lbl.setStyleSheet("background: transparent;")
-            fav_lbl.setToolTip("Favorite")
-            top_line.addWidget(fav_lbl)
+        self.favorite_lbl = QLabel()
+        self.favorite_lbl.setFixedSize(16, 16)
+        self.favorite_lbl.setStyleSheet("background: transparent;")
+        top_line.addWidget(self.favorite_lbl)
+        self.set_favorite(self.is_favorite)
 
         self.update_badge = QLabel("Game Update: Available")
         self.update_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
@@ -229,6 +228,21 @@ class LibraryListItemWidget(QWidget):
             "font-weight: bold; font-size: 10px; }"
         )
         self.cloud_badge.show()
+
+    def set_favorite(self, is_favorite: bool) -> None:
+        """Update the favorite marker without rebuilding the list row."""
+        self.is_favorite = bool(is_favorite)
+        if not hasattr(self, "favorite_lbl"):
+            return
+        self.favorite_lbl.setVisible(self.is_favorite)
+        if self.is_favorite:
+            self.favorite_lbl.setPixmap(
+                get_icon("ph.heart-fill", color="#FF453A").pixmap(13, 13)
+            )
+            self.favorite_lbl.setToolTip("Favorite")
+        else:
+            self.favorite_lbl.clear()
+            self.favorite_lbl.setToolTip("")
 
     def contextMenuEvent(self, event):
         self.cloud_menu_requested.emit(int(self.game_id), event.globalPos())
@@ -467,6 +481,12 @@ class LibraryListView(QListWidget):
         widget = self._row_widgets_by_id.get(game_id)
         if widget is not None:
             widget.set_cloud_status(status)
+
+    def update_favorite(self, game_id: int, is_favorite: bool) -> None:
+        """Update one row's favorite marker without resetting scroll/hover."""
+        widget = self._row_widgets_by_id.get(game_id)
+        if widget is not None:
+            widget.set_favorite(is_favorite)
 
     def update_update_available(self, game_id: int, is_available: bool) -> None:
         """Dynamically update a single game's release badge."""

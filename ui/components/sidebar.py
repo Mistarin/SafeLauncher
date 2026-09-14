@@ -710,27 +710,9 @@ class HeaderBar(QFrame):
         self.btn_profile.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         layout.addWidget(self.btn_profile)
 
-    def set_cloud_status_indicator(self, connection: str) -> None:
-        """Reflect the last known private-cloud state in the header icon."""
-        colors = {
-            "ready": "#35C98A",
-            "local": "#8E8E93",
-            "offline": "#F59E0B",
-            "setup_required": "#F59E0B",
-        }
-        color = colors.get(str(connection or ""), "#F05D6C")
-        icon_name = "ph.cloud-check-bold" if connection == "ready" else "ph.cloud-bold"
-        self.btn_cloud_center.setIcon(get_icon(icon_name, color=color))
-        self.btn_cloud_center.setToolTip(
-            {
-                "ready": "Cloud connected · open Cloud Center",
-                "offline": "Cloud offline · open Cloud Center",
-                "setup_required": "Cloud setup required · open Cloud Center",
-                "local": "Local sync active · open Cloud Center",
-            }.get(connection, "Cloud status unavailable · open Cloud Center")
-        )
-
-        # Window Control Buttons
+        # Window controls must be built with the header.  Keeping these in
+        # __init__ guarantees that they exist before the first WindowStateChange
+        # event and keeps them visible even when cloud status is unavailable.
         control_style = """
             QPushButton {
                 background: transparent;
@@ -781,6 +763,27 @@ class HeaderBar(QFrame):
         self.btn_close.setStyleSheet(control_style)
         self.btn_close.clicked.connect(self.main_window.close)
         layout.addWidget(self.btn_close)
+
+    def set_cloud_status_indicator(self, connection: str) -> None:
+        """Reflect the last known private-cloud state in the header icon."""
+        colors = {
+            "ready": "#35C98A",
+            "local": "#8E8E93",
+            "offline": "#F59E0B",
+            "setup_required": "#F59E0B",
+        }
+        color = colors.get(str(connection or ""), "#F05D6C")
+        icon_name = "ph.cloud-check-bold" if connection == "ready" else "ph.cloud-bold"
+        self.btn_cloud_center.setIcon(get_icon(icon_name, color=color))
+        self.btn_cloud_center.setToolTip(
+            {
+                "ready": "Cloud connected · open Cloud Center",
+                "offline": "Cloud offline · open Cloud Center",
+                "setup_required": "Cloud setup required · open Cloud Center",
+                "local": "Local sync active · open Cloud Center",
+            }.get(connection, "Cloud status unavailable · open Cloud Center")
+        )
+
 
     def set_profile_identity(self, display_name: str = "", handle: str = "") -> None:
         """Update the combined local-profile control without exposing claims."""

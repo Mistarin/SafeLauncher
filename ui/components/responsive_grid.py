@@ -94,11 +94,9 @@ class ResponsiveGridContainer(QWidget):
             available_width = max(1, self.width() - 20)
             cols = max(1, available_width // (self.card_width + self.spacing))
 
-            # Only animate the meaningful layout change: cards crossing a column boundary.
-            if self._last_columns is not None and cols != self._last_columns and not self._reflow_animating:
-                self._animate_reflow(cols)
-                return
-
+            # Apply column changes immediately. A long reflow animation fights
+            # continuous splitter/window resizing and leaves cards moving after
+            # the pointer has stopped. Hover animations remain local to cards.
             self._last_columns = cols
             self._apply_reflow(cols)
         except (RuntimeError, AttributeError):

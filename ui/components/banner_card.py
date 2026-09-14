@@ -2,10 +2,10 @@ import os
 from typing import Optional, List, Tuple, Dict, Any
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QWidget
 from PyQt6.QtCore import (
-    Qt, QSize, QPoint, QPointF, pyqtSignal, QVariantAnimation, QEasingCurve,
+    Qt, QSize, QPoint, QPointF, QTimer, pyqtSignal, QVariantAnimation, QEasingCurve,
     QPropertyAnimation, QSequentialAnimationGroup,
 )
-from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QPixmapCache
+from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QPixmapCache, QCursor
 
 # Allocate 64MB LRU cache budget for decoded pixmaps
 QPixmapCache.setCacheLimit(64 * 1024)
@@ -83,6 +83,8 @@ class GameBannerWidget(QFrame):
         self.is_favorite = False
         self.is_update_available = False
         self._hover_progress = 0.0  # LERP progress: 0.0 (normal) -> 1.0 (hovered)
+        self._hover_active = False
+        self._hover_reconcile_pending = False
         
         # Smooth 180ms LERP animation setup with OutCubic easing curve
         self.anim = QVariantAnimation(self)
@@ -306,26 +308,49 @@ class GameBannerWidget(QFrame):
             
     def enterEvent(self, event):
         super().enterEvent(event)
-        self.favorite_button.show()
-        self.favorite_button.raise_()
-        if not self.is_missing:
-            if hasattr(self, 'btn_card_play'):
-                self.btn_card_play.show()
-                self.btn_card_play.raise_()
-            if not self.selected:
-                self.image_label.setStyleSheet("background: #18181f; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px;")
-            self.anim.stop()
-            self.anim.setStartValue(self._hover_progress)
-            self.anim.setEndValue(1.0)
-            self.anim.start()
+        self._set_hover_active(True)
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
+        # Moving from the cover to an overlay button can generate a transient
+        # leave event for the card. Defer the decision until Qt has delivered
+        # the child enter event, otherwise the button appears/disappears under
+        # the pointer and repeatedly restarts the hover animation.
+        if not self._hover_reconcile_pending:
+            self._hover_reconcile_pending = True
+            QTimer.singleShot(0, self._reconcile_hover_state)
+
+    def _reconcile_hover_state(self) -> None:
+        self._hover_reconcile_pending = False
+        try:
+            local_pos = self.mapFromGlobal(QCursor.pos())
+            inside = self.rect().contains(local_pos)
+        except (RuntimeError, AttributeError):
+            inside = False
+        self._set_hover_active(inside)
+
+    def _set_hover_active(self, active: bool) -> None:
+        """Apply hover UI once, including transitions onto child buttons."""
+        active = bool(active)
+        if self._hover_active == active:
+            return
+        self._hover_active = active
+        if active:
+            self.favorite_button.show()
+            self.favorite_button.raise_()
+            if hasattr(self, "btn_card_play") and not self.is_missing:
+                self.btn_card_play.show()
+                self.btn_card_play.raise_()
+            if not self.is_missing:
+                self.anim.stop()
+                self.anim.setStartValue(self._hover_progress)
+                self.anim.setEndValue(1.0)
+                self.anim.start()
+            return
+
         self.favorite_button.hide()
-        if hasattr(self, 'btn_card_play'):
+        if hasattr(self, "btn_card_play"):
             self.btn_card_play.hide()
-        if not self.selected and not self.is_missing:
-            self.image_label.setStyleSheet("background: #18181f; border: none; border-radius: 8px;")
         if not self.is_missing:
             self.anim.stop()
             self.anim.setStartValue(self._hover_progress)

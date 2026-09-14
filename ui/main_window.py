@@ -345,9 +345,9 @@ class MainWindow(QMainWindow):
         self._size_resort_timer.setSingleShot(True)
         self._size_resort_timer.setInterval(400)
         self._size_resort_timer.timeout.connect(self._refresh_library)
-        # Coalesce asynchronous Steam results: every presentation is rebuilt
-        # from the same update-status map, without one network result causing
-        # three separate full library renders.
+        # Compatibility timer for older Steam snapshot callers. Current cloud
+        # and presentation updates are applied incrementally so an active
+        # list/grid is never torn down underneath the pointer.
         self._update_status_refresh_timer = QTimer(self)
         self._update_status_refresh_timer.setSingleShot(True)
         self._update_status_refresh_timer.setInterval(80)
@@ -590,10 +590,16 @@ class MainWindow(QMainWindow):
                 background: transparent;
             }
             QSplitter::handle {
-                background: transparent;
-                width: 0px;
+                background: #2A2D34;
+                width: 8px;
+                margin: 0px;
+            }
+            QSplitter::handle:hover {
+                background: #3B9FE8;
             }
         """)
+        # Keep a real hit target for manually resizing the inspector.
+        self.splitter.setHandleWidth(8)
         body_layout.addWidget(self.splitter, 1)
 
         # -------------------------------------------------------------
@@ -2651,20 +2657,46 @@ class MainWindow(QMainWindow):
         game_id = game[0]
         new_fav = self.library_service.toggle_favorite(game_id)
         self._show_toast("Added to Favorites" if new_fav else "Removed from Favorites")
-        self._refresh_library()
-        self._select_game_by_id(game_id)
+        self._set_local_favorite_state(game_id, new_fav)
+        if self.current_filter == "favorites" and not new_fav:
+            self._refresh_library()
         self._sync_launcher_metadata_async(game_id)
         if hasattr(self, "profile_page"):
             self.profile_page.mark_local_data_changed()
 
     def _on_card_favorite_clicked(self, game_id: int):
-        """Toggle a game's favorite directly from its library card."""
+        """Toggle a game's favorite without rebuilding the active view."""
         new_fav = self.library_service.toggle_favorite(game_id)
         self._show_toast("Added to Favorites" if new_fav else "Removed from Favorites")
-        self._refresh_library()
+        self._set_local_favorite_state(game_id, new_fav)
+        # Removing an item from the Favorites filter changes membership and
+        # therefore needs one query refresh. All other filters can update in
+        # place, preserving scroll, hover, and inspector geometry.
+        if self.current_filter == "favorites" and not new_fav:
+            self._refresh_library()
         self._sync_launcher_metadata_async(game_id)
         if hasattr(self, "profile_page"):
             self.profile_page.mark_local_data_changed()
+
+    def _set_local_favorite_state(self, game_id: int, is_favorite: bool) -> None:
+        """Keep cached records and all library renderers aligned after a toggle."""
+        game_id = int(game_id)
+        for index, game in enumerate(getattr(self, "games", ())):
+            if int(game[0]) != game_id:
+                continue
+            if hasattr(game, "is_favorite"):
+                game.is_favorite = int(bool(is_favorite))
+            else:
+                values = list(game)
+                while len(values) <= 8:
+                    values.append(0)
+                values[8] = int(bool(is_favorite))
+                self.games[index] = tuple(values)
+            self.games_by_id[game_id] = self.games[index]
+            if self.selected_game is not None and int(self.selected_game[0]) == game_id:
+                self.selected_game = self.games[index]
+            break
+        self.library_view_host.update_favorite(game_id, bool(is_favorite))
 
     def _refresh_library(self):
         """Clear and reload game banners into dynamic responsive grid based on search, status filter, and sorting."""
@@ -3637,6 +3669,12 @@ class MainWindow(QMainWindow):
         self._launch_mode(game_id, path, exe, mode or "umu")
 
     def _on_splitter_moved(self, pos: int, index: int):
+        # A user drag must win over any in-progress show/hide animation.
+        if self.panel_anim.state() == QAbstractAnimation.State.Running:
+            self.panel_anim.stop()
+            self._panel_expanding = True
+            self.detail_panel.setVisible(True)
+            self.btn_reveal_detail.setVisible(False)
         sizes = self.splitter.sizes()
         if len(sizes) > 1 and sizes[1] > 150:
             self.settings.setValue("right_inspector_width", sizes[1])
@@ -4239,9 +4277,6 @@ class MainWindow(QMainWindow):
         except (RuntimeError, AttributeError):
             pass
         self._update_library_item("update_update_available", game_id, is_available)
-
-        if hasattr(self, "_update_status_refresh_timer"):
-            self._update_status_refresh_timer.start()
 
     def _request_managed_steam_build(
         self,
@@ -4938,8 +4973,6 @@ class MainWindow(QMainWindow):
             cloud_checked_at=checked_at,
         )
         self._render_cloud_status(game_id, status, local_stats, cloud_stats)
-        if hasattr(self, "_update_status_refresh_timer"):
-            self._update_status_refresh_timer.start()
         self._save_persistent_cache()
 
     def _accept_cloud_status_for_context(self, generation: int, game_id: int, status, local_stats, cloud_stats):
@@ -6755,7 +6788,7 @@ class MainWindow(QMainWindow):
             )
             self._render_cloud_status(game_id, status)
         if changed:
-            self._update_status_refresh_timer.start()
+            self._save_persistent_cache()
 
     def _mark_cloud_offline(self, game_ids=None):
         """Render a stable offline verdict without touching the network."""
@@ -6789,7 +6822,7 @@ class MainWindow(QMainWindow):
             )
             self._render_cloud_status(game_id, status)
         if changed:
-            self._update_status_refresh_timer.start()
+            self._save_persistent_cache()
 
     def _spawn_status_fetchers(
         self,
