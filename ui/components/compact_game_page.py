@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QTextEdit, QFrame, QScrollArea, QSizePolicy,
     QListWidget, QListWidgetItem, QLineEdit, QSplitter, QGridLayout,
-    QComboBox
+    QComboBox, QToolButton, QMenu
 )
 from PyQt6.QtGui import (
     QPixmap, QColor, QPainter, QLinearGradient, QFont, QIcon, QPainterPath
@@ -252,6 +252,7 @@ class CompactActionBar(QFrame):
     folder_clicked = pyqtSignal()
     save_manager_clicked = pyqtSignal()
     favorite_clicked = pyqtSignal()
+    cloud_action_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -455,15 +456,22 @@ class CompactActionBar(QFrame):
         self.btn_folder.setStyleSheet(quick_btn_style)
         self.btn_folder.clicked.connect(self.folder_clicked.emit)
 
-        self.btn_save = QPushButton()
-        self.btn_save.setAccessibleName("Open save manager")
+        self.btn_save = QToolButton()
+        self.btn_save.setAccessibleName("Open cloud actions")
         self.btn_save.setIcon(get_icon("ph.cloud-bold", color="#A1A1AA"))
         self.btn_save.setIconSize(QSize(16, 16))
         self.btn_save.setFixedSize(36, 36)
-        self.btn_save.setToolTip("Save manager & backups")
+        self.btn_save.setToolTip("Cloud actions")
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_save.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.btn_save.setStyleSheet(quick_btn_style)
-        self.btn_save.clicked.connect(self.save_manager_clicked.emit)
+        cloud_menu = QMenu(self.btn_save)
+        for action_name, label in (("upload", "Upload"), ("restore", "Restore"),
+                                   ("history", "Save history"), ("resolve", "Resolve conflict"),
+                                   ("center", "Open Cloud Center")):
+            action = cloud_menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, name=action_name: self.cloud_action_requested.emit(name))
+        self.btn_save.setMenu(cloud_menu)
 
         self.btn_fav = QPushButton()
         self.btn_fav.setAccessibleName("Toggle favorite game")
@@ -1392,6 +1400,7 @@ class CompactGamePageWidget(QWidget):
     screenshots_requested = pyqtSignal(int)
     videos_requested = pyqtSignal(int)
     settings_requested = pyqtSignal()
+    cloud_action_requested = pyqtSignal(int, str)
     add_game_requested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -1465,6 +1474,7 @@ class CompactGamePageWidget(QWidget):
         self.action_bar.settings_clicked.connect(self._on_settings)
         self.action_bar.folder_clicked.connect(self._on_folder)
         self.action_bar.save_manager_clicked.connect(self._on_save_manager)
+        self.action_bar.cloud_action_requested.connect(self._on_cloud_action)
         self.action_bar.favorite_clicked.connect(self._on_favorite)
         self.hero_banner.set_action_bar(self.action_bar)
 
@@ -1798,6 +1808,10 @@ class CompactGamePageWidget(QWidget):
     def _on_save_manager(self):
         if self.current_game_id is not None:
             self.save_manager_requested.emit(self.current_game_id)
+
+    def _on_cloud_action(self, action: str):
+        if self.current_game_id is not None:
+            self.cloud_action_requested.emit(int(self.current_game_id), str(action))
 
     def _on_favorite(self):
         if self.current_game_id is not None:
@@ -2440,6 +2454,7 @@ class CompactLayoutContainer(QWidget):
     videos_requested = pyqtSignal(int)
     settings_requested = pyqtSignal()
     add_game_requested = pyqtSignal()
+    cloud_action_requested = pyqtSignal(int, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2480,6 +2495,7 @@ class CompactLayoutContainer(QWidget):
         self.game_page.edit_requested.connect(self.edit_requested.emit)
         self.game_page.properties_requested.connect(self.properties_requested.emit)
         self.game_page.save_manager_requested.connect(self.save_manager_requested.emit)
+        self.game_page.cloud_action_requested.connect(self.cloud_action_requested.emit)
         self.game_page.open_folder_requested.connect(self.open_folder_requested.emit)
         self.game_page.prefix_maintenance_requested.connect(self.prefix_maintenance_requested.emit)
         self.game_page.favorite_toggled.connect(self.favorite_toggled.emit)

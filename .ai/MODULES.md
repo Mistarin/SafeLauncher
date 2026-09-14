@@ -23,6 +23,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Cloud sync queue | [`core/cloud_sync_queue.py`](../core/cloud_sync_queue.py) | `PendingCloudSyncQueue` | active |
 | Cloud context/status service | [`core/cloud_context.py`](../core/cloud_context.py), [`core/cloud_status_service.py`](../core/cloud_status_service.py) | `CloudContext`, `CloudStatusService`, `CloudStatusTarget`, `CloudStatusPlan` | active |
 | Cloud status polling lifecycle | [`core/cloud_status_polling_service.py`](../core/cloud_status_polling_service.py) | `CloudStatusPollingService` | active; owns periodic listing diff lifecycle and target snapshots |
+| Private cloud center facade | [`core/cloud_center_service.py`](../core/cloud_center_service.py) | `CloudCenterService`, `CloudOverview`, `CloudConnectionState`, `CloudSyncSummary`, `CloudQuotaSummary`, `CloudConflictSummary` | active; single overview/sync/history/probe entry point composed from existing cloud services |
 | Cloud operation service | [`core/cloud_operation_service.py`](../core/cloud_operation_service.py) | `CloudOperationService`, `CloudOperationTarget` | active |
 | Cloud operation lifecycle records | [`core/cloud_operation_records.py`](../core/cloud_operation_records.py) | `CloudOperationRecord`, `CloudOperationState` | active; metadata-only, no save payloads |
 | Cloud exit synchronization | [`core/cloud_exit_sync_service.py`](../core/cloud_exit_sync_service.py) | `CloudExitSyncService`, `CloudExitSyncResult`, `CloudExitPresentation` | active; exit request/result/presentation boundary |
@@ -77,6 +78,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 - Library views: [`ui/library_list.py`](../ui/library_list.py), [`ui/components/library_view_host.py`](../ui/components/library_view_host.py), [`ui/components/compact_game_page.py`](../ui/components/compact_game_page.py), [`ui/components/virtual_grid.py`](../ui/components/virtual_grid.py)
 - Profile: [`ui/components/profile_page.py`](../ui/components/profile_page.py)
 - Account/settings: [`ui/dialogs/account_dialog.py`](../ui/dialogs/account_dialog.py), [`ui/dialogs/settings_dialog.py`](../ui/dialogs/settings_dialog.py)
+- Unified private cloud management: [`ui/dialogs/cloud_center_dialog.py`](../ui/dialogs/cloud_center_dialog.py) (simple overview by default; setup, connection settings, and detailed history are advanced paths)
 - Achievements: [`ui/dialogs/achievements_dialog.py`](../ui/dialogs/achievements_dialog.py), [`ui/dialogs/achievement_profile_dialog.py`](../ui/dialogs/achievement_profile_dialog.py)
 - Save/cloud UI: [`ui/dialogs/save_manager_dialog.py`](../ui/dialogs/save_manager_dialog.py), [`ui/dialogs/save_conflict_dialog.py`](../ui/dialogs/save_conflict_dialog.py)
 - Compatibility worker definitions: [`ui/threads.py`](../ui/threads.py), [`core/safe_thread.py`](../core/safe_thread.py)

@@ -8,7 +8,8 @@ main.py
       └─ MainWindow
           ├─ GameDatabase (local authority)
           ├─ RequestManager ── ResourceCache
-          │       ├─ CloudAccountService / CloudClient ── SafeLauncherCloud
+          │       ├─ CloudCenterService ── CloudAccountService / CloudStatusService / CloudMetadataService
+          │       │                         └─ CloudClient ── SafeLauncherCloud
           │       ├─ SteamClient ── Steam services
           │       ├─ ArtworkClient ── SteamGridDBClient
           │       └─ Profile/resource adapters
@@ -57,6 +58,18 @@ Details: [ownership-and-boundaries.md](architecture/ownership-and-boundaries.md)
 Account-level cloud reads, setup probes, device administration, and explicit
 generation deletion are documented in
 [cloud-account-services.md](architecture/cloud-account-services.md).
+
+The private-cloud UI has one user-facing entry point: `CloudCenterDialog`,
+opened from the header cloud button or account menu. `CloudCenterService` is
+its Qt-free application facade. It composes the existing account, status, and
+metadata services; it does not create a second transport or save implementation.
+The facade exposes normalized connection, sync, quota, device, and conflict
+models plus managed overview, history, and connection-probe handles. The
+default surface is a compact overview, while setup, connection settings, and
+detailed save history remain expandable/secondary workflows. Per-game grid,
+list, and compact views expose one Cloud menu that routes to the existing
+managed Save Manager or this center. Only redacted overview/health metadata is
+cacheable; raw credentials and save contents never cross this boundary.
 
 ## Data boundaries
 

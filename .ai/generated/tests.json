@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T20:56:11+00:00",
+  "generated_at": "2026-09-14T21:26:19+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -156,6 +156,36 @@
       "kind": "test_class",
       "line": 39,
       "name": "CloudAccountServiceTests"
+    },
+    {
+      "file": "tests/test_cloud_center_service.py",
+      "kind": "test",
+      "line": 93,
+      "name": "test_overview_is_composed_and_cached_without_secret_or_endpoint_in_key"
+    },
+    {
+      "file": "tests/test_cloud_center_service.py",
+      "kind": "test",
+      "line": 119,
+      "name": "test_offline_context_returns_local_state_without_transport_call"
+    },
+    {
+      "file": "tests/test_cloud_center_service.py",
+      "kind": "test",
+      "line": 134,
+      "name": "test_sync_delegates_to_managed_metadata_service"
+    },
+    {
+      "file": "tests/test_cloud_center_service.py",
+      "kind": "test",
+      "line": 152,
+      "name": "test_history_and_probe_are_managed_and_redacted"
+    },
+    {
+      "file": "tests/test_cloud_center_service.py",
+      "kind": "test_class",
+      "line": 68,
+      "name": "CloudCenterServiceTests"
     },
     {
       "file": "tests/test_cloud_metadata_service.py",

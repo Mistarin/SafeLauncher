@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional, Set
 
 from PyQt6 import sip
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PyQt6.QtWidgets import QLabel, QStackedWidget
 
 from core.library_controller import LibrarySnapshot
@@ -47,6 +47,8 @@ class LibraryViewHost(QStackedWidget):
     videos_requested = pyqtSignal(int)
     settings_requested = pyqtSignal()
     add_game_requested = pyqtSignal()
+    cloud_menu_requested = pyqtSignal(int, QPoint)
+    cloud_action_requested = pyqtSignal(int, str)
 
     GRID = 0
     LIST = 1
@@ -78,11 +80,13 @@ class LibraryViewHost(QStackedWidget):
         self.list_view.game_clicked.connect(self.game_selected.emit)
         self.list_view.game_double_clicked.connect(self.game_double_clicked.emit)
         self.list_view.game_launch_clicked.connect(self.game_launch_requested.emit)
+        self.list_view.cloud_menu_requested.connect(self.cloud_menu_requested.emit)
 
         self.virtual_grid.game_clicked.connect(self.game_selected.emit)
         self.virtual_grid.game_double_clicked.connect(self.game_double_clicked.emit)
         self.virtual_grid.game_launch_clicked.connect(self.game_launch_requested.emit)
         self.virtual_grid.favorite_clicked.connect(self.favorite_requested.emit)
+        self.virtual_grid.game_right_clicked.connect(self.cloud_menu_requested.emit)
 
         compact = self.compact_container
         compact.game_selected.connect(self.game_selected.emit)
@@ -103,6 +107,11 @@ class LibraryViewHost(QStackedWidget):
         compact.videos_requested.connect(self.videos_requested.emit)
         compact.settings_requested.connect(self.settings_requested.emit)
         compact.add_game_requested.connect(self.add_game_requested.emit)
+        compact.cloud_action_requested.connect(self._emit_compact_cloud_action)
+
+    def _emit_compact_cloud_action(self, game_id: int, action: str) -> None:
+        """Forward compact Cloud actions using the host's normal action bus."""
+        self.cloud_action_requested.emit(int(game_id), str(action))
 
     def render_snapshot(
         self,

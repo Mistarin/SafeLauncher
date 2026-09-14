@@ -79,7 +79,7 @@ class UserSettingsDialog(PopupDialog):
     profile_publish_requested = pyqtSignal()
     profile_resync_requested = pyqtSignal()
 
-    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", profile_theme: str = "grey", request_manager=None):
+    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", profile_theme: str = "grey", request_manager=None, initial_tab: int | None = None):
         super().__init__("Settings", parent)
         self.user_name = user_name
         self.proton_path = proton_path
@@ -238,6 +238,9 @@ class UserSettingsDialog(PopupDialog):
         self.stack.addWidget(self.page_storage)
         self.stack.addWidget(self.page_cloud)
         self.stack.addWidget(self.page_plugins)
+
+        if initial_tab is not None:
+            self._switch_tab(max(0, min(int(initial_tab), len(self.tab_buttons) - 1)))
 
         body_layout.addWidget(self.stack, 1)
 

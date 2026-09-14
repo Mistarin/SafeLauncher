@@ -461,6 +461,7 @@ class HeaderBar(QFrame):
     profile_requested = pyqtSignal()
     friends_requested = pyqtSignal()
     public_profile_requested = pyqtSignal()
+    cloud_center_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     toggle_collections_requested = pyqtSignal()
     sync_requested = pyqtSignal()
@@ -630,6 +631,8 @@ class HeaderBar(QFrame):
         self.profile_menu.setStyleSheet(menu_style)
         act_my_profile = self.profile_menu.addAction(get_icon("ph.user-circle-bold", color="#FFFFFF"), "My Profile")
         act_my_profile.triggered.connect(self.profile_requested.emit)
+        act_cloud_center = self.profile_menu.addAction(get_icon("ph.cloud-bold", color="#FFFFFF"), "Cloud Center")
+        act_cloud_center.triggered.connect(self.cloud_center_requested.emit)
         act_find_friends = self.profile_menu.addAction(get_icon("ph.magnifying-glass-bold", color="#FFFFFF"), "Find Friends…")
         act_find_friends.triggered.connect(self.public_profile_requested.emit)
         self.profile_menu.addSeparator()
@@ -674,6 +677,21 @@ class HeaderBar(QFrame):
         self.btn_friends.clicked.connect(self.friends_requested.emit)
         layout.addWidget(self.btn_friends)
 
+        # A compact, always-discoverable entry point for private-cloud status.
+        # The account menu contains the same action for users who prefer a
+        # text-oriented path; this button also gives us a place to reflect the
+        # last known connection state without exposing any credentials.
+        self.btn_cloud_center = QToolButton()
+        self.btn_cloud_center.setIcon(get_icon("ph.cloud-bold", color="#8E8E93"))
+        self.btn_cloud_center.setIconSize(QSize(17, 17))
+        self.btn_cloud_center.setFixedSize(30, 30)
+        self.btn_cloud_center.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_cloud_center.setToolTip("Cloud Center")
+        self.btn_cloud_center.setAccessibleName("Cloud Center")
+        self.btn_cloud_center.setStyleSheet(profile_control_style)
+        self.btn_cloud_center.clicked.connect(self.cloud_center_requested.emit)
+        layout.addWidget(self.btn_cloud_center)
+
         # One atomic identity control sits immediately beside the native window
         # controls. Keeping the avatar, display name, and menu on the same
         # button avoids the old dead-label/active-icon split hit target.
@@ -691,6 +709,26 @@ class HeaderBar(QFrame):
         self.btn_profile.setMenu(self.profile_menu)
         self.btn_profile.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         layout.addWidget(self.btn_profile)
+
+    def set_cloud_status_indicator(self, connection: str) -> None:
+        """Reflect the last known private-cloud state in the header icon."""
+        colors = {
+            "ready": "#35C98A",
+            "local": "#8E8E93",
+            "offline": "#F59E0B",
+            "setup_required": "#F59E0B",
+        }
+        color = colors.get(str(connection or ""), "#F05D6C")
+        icon_name = "ph.cloud-check-bold" if connection == "ready" else "ph.cloud-bold"
+        self.btn_cloud_center.setIcon(get_icon(icon_name, color=color))
+        self.btn_cloud_center.setToolTip(
+            {
+                "ready": "Cloud connected · open Cloud Center",
+                "offline": "Cloud offline · open Cloud Center",
+                "setup_required": "Cloud setup required · open Cloud Center",
+                "local": "Local sync active · open Cloud Center",
+            }.get(connection, "Cloud status unavailable · open Cloud Center")
+        )
 
         # Window Control Buttons
         control_style = """

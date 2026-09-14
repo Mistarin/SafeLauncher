@@ -2,7 +2,7 @@
 
 import os
 from typing import Optional, Set, Any
-from PyQt6.QtCore import pyqtSignal, Qt, QSize
+from PyQt6.QtCore import pyqtSignal, Qt, QSize, QPoint
 
 from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton
@@ -28,6 +28,7 @@ def _format_playtime_str(seconds: int) -> str:
 class LibraryListItemWidget(QWidget):
     """Custom widget for a library list item with large left-aligned icon and rich details."""
     launch_requested = pyqtSignal(int)
+    cloud_menu_requested = pyqtSignal(int, QPoint)
 
     def __init__(
         self,
@@ -229,6 +230,10 @@ class LibraryListItemWidget(QWidget):
         )
         self.cloud_badge.show()
 
+    def contextMenuEvent(self, event):
+        self.cloud_menu_requested.emit(int(self.game_id), event.globalPos())
+        event.accept()
+
     def set_update_available(self, is_available: bool) -> None:
         """Update the release badge without rebuilding this row."""
         self.is_update_available = bool(is_available)
@@ -345,6 +350,7 @@ class LibraryListView(QListWidget):
     game_clicked = pyqtSignal(int)
     game_double_clicked = pyqtSignal(int)
     game_launch_clicked = pyqtSignal(int)
+    cloud_menu_requested = pyqtSignal(int, QPoint)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -441,6 +447,7 @@ class LibraryListView(QListWidget):
                 parent=self
             )
             row_widget.launch_requested.connect(self.game_launch_clicked.emit)
+            row_widget.cloud_menu_requested.connect(self.cloud_menu_requested.emit)
             self.addItem(item)
             self.setItemWidget(item, row_widget)
             self._row_widgets_by_id[game_id] = row_widget

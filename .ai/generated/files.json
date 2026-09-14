@@ -1,8 +1,8 @@
 {
   "files": [
     {
-      "bytes": 4884,
-      "lines": 87,
+      "bytes": 5846,
+      "lines": 100,
       "path": ".ai/ARCHITECTURE.md",
       "suffix": ".md"
     },
@@ -19,8 +19,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 11758,
-      "lines": 87,
+      "bytes": 12292,
+      "lines": 89,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
     },
@@ -859,6 +859,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 17418,
+      "lines": 456,
+      "path": "core/cloud_center_service.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 63868,
       "lines": 1373,
       "path": "core/cloud_cli_wizard.py",
@@ -1621,6 +1627,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 6567,
+      "lines": 180,
+      "path": "tests/test_cloud_center_service.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 6173,
       "lines": 169,
       "path": "tests/test_cloud_metadata_service.py",
@@ -1849,8 +1861,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 25323,
-      "lines": 591,
+      "bytes": 25527,
+      "lines": 596,
       "path": "ui/components/banner_card.py",
       "suffix": ".py"
     },
@@ -1861,8 +1873,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 110978,
-      "lines": 2581,
+      "bytes": 111986,
+      "lines": 2597,
       "path": "ui/components/compact_game_page.py",
       "suffix": ".py"
     },
@@ -1879,8 +1891,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 8628,
-      "lines": 182,
+      "bytes": 9212,
+      "lines": 191,
       "path": "ui/components/library_view_host.py",
       "suffix": ".py"
     },
@@ -1909,8 +1921,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 40870,
-      "lines": 943,
+      "bytes": 42992,
+      "lines": 981,
       "path": "ui/components/sidebar.py",
       "suffix": ".py"
     },
@@ -1954,6 +1966,12 @@
       "bytes": 46127,
       "lines": 1070,
       "path": "ui/dialogs/achievements_dialog.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 19314,
+      "lines": 441,
+      "path": "ui/dialogs/cloud_center_dialog.py",
       "suffix": ".py"
     },
     {
@@ -2011,8 +2029,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 130719,
-      "lines": 2858,
+      "bytes": 130875,
+      "lines": 2861,
       "path": "ui/dialogs/settings_dialog.py",
       "suffix": ".py"
     },
@@ -2029,14 +2047,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 20199,
-      "lines": 495,
+      "bytes": 20533,
+      "lines": 502,
       "path": "ui/library_list.py",
       "suffix": ".py"
     },
     {
-      "bytes": 369725,
-      "lines": 7807,
+      "bytes": 376626,
+      "lines": 7950,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2071,5 +2089,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T20:56:11+00:00"
+  "generated_at": "2026-09-14T21:26:19+00:00"
 }

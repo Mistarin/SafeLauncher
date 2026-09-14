@@ -298,6 +298,11 @@ class GameBannerWidget(QFrame):
         super().mouseDoubleClickEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
             self.doubleClicked.emit(self.game_id)
+
+    def contextMenuEvent(self, event):
+        """Expose one consistent per-game Cloud menu to the library host."""
+        self.rightClicked.emit(self.game_id, event.globalPos())
+        event.accept()
             
     def enterEvent(self, event):
         super().enterEvent(event)

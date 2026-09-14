@@ -58,6 +58,7 @@ from core.cloud_operations import CloudStatusResult, CloudSyncCoordinator
 from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
 from core.cloud_metadata_service import CloudMetadataService, CloudMetadataTarget
 from core.cloud_account_service import CloudAccountService
+from core.cloud_center_service import CloudCenterService
 from core.cloud_status_service import CloudStatusService, CloudStatusTarget
 from core.cloud_status_polling_service import CloudStatusPollingService
 from core.achievement_resource_service import AchievementResourceService, AchievementTarget
@@ -109,6 +110,7 @@ from ui.dialogs.game_dialogs import (
     ManageCollectionGamesDialog, CreateCollectionDialog, RenameCollectionDialog
 )
 from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDialog, VideoGalleryDialog, DiskManagerDialog
+from ui.dialogs.cloud_center_dialog import CloudCenterDialog
 from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from ui.dialogs.save_conflict_dialog import SaveConflictDialog
@@ -310,6 +312,13 @@ class MainWindow(QMainWindow):
             request_manager=self.request_manager,
         )
         self.cloud_metadata_service = CloudMetadataService(self.request_manager)
+        self.cloud_center_service = CloudCenterService(
+            self.request_manager,
+            account_service=self.cloud_account_service,
+            status_service=self.cloud_status_service,
+            metadata_service=self.cloud_metadata_service,
+            settings=self.settings,
+        )
         self.cloud_save_status_cache = self.cloud_status_service.status_cache
         self._public_profile_generation = 0
         self._public_profile_binding: ResourceBinding | None = None
@@ -469,6 +478,7 @@ class MainWindow(QMainWindow):
         self.title_bar.search_changed.connect(self._on_search_query_changed)
         self.title_bar.filter_requested.connect(self._set_filter)
         self.title_bar.profile_requested.connect(self._open_achievement_profile)
+        self.title_bar.cloud_center_requested.connect(self._open_cloud_center)
         self.title_bar.public_profile_requested.connect(self._open_public_profile_prompt)
         self.title_bar.friends_requested.connect(self._open_friends_popup)
         self.title_bar.settings_requested.connect(self._open_settings)
@@ -1266,6 +1276,8 @@ class MainWindow(QMainWindow):
         self.library_view_host.edit_requested.connect(self._on_edit)
         self.library_view_host.properties_requested.connect(self._open_game_properties)
         self.library_view_host.save_manager_requested.connect(self._on_export)
+        self.library_view_host.cloud_menu_requested.connect(self._show_game_cloud_menu)
+        self.library_view_host.cloud_action_requested.connect(self._on_game_cloud_action)
         self.library_view_host.open_folder_requested.connect(self._open_game_dir_by_id)
         self.library_view_host.prefix_maintenance_requested.connect(self._open_prefix_maintenance)
         self.library_view_host.achievements_requested.connect(self._open_achievements_dialog)
@@ -1853,17 +1865,75 @@ class MainWindow(QMainWindow):
             str(profile.get("public_handle", "") or ""),
         )
 
-    def _open_settings(self):
+    def _open_cloud_center(self) -> None:
+        """Open the single private-cloud overview and action surface."""
+        dialog = CloudCenterDialog(
+            self,
+            cloud_center_service=self.cloud_center_service,
+            db_path=getattr(self.db, "db_path", None),
+            last_sync_at=self.settings.value("cloud_center_last_sync_at", 0.0, type=float),
+        )
+        dialog.sync_finished.connect(self._on_cloud_center_sync_finished)
+        dialog.overview_changed.connect(self._on_cloud_center_overview_changed)
+        dialog.setup_requested.connect(self._open_cloud_setup_from_center)
+        dialog.settings_requested.connect(self._open_cloud_settings_from_center)
+        dialog.history_requested.connect(self._open_cloud_history_from_center)
+        dialog.exec()
+
+    def _on_cloud_center_overview_changed(self, overview) -> None:
+        """Keep the compact header cloud indicator in sync with the center."""
+        if hasattr(self, "title_bar"):
+            self.title_bar.set_cloud_status_indicator(
+                getattr(overview, "connection", "unavailable")
+            )
+
+    def _on_cloud_center_sync_finished(self, result) -> None:
+        """Refresh library/cloud badges after the central sync action."""
+        if getattr(result, "success", False):
+            self.settings.setValue("cloud_center_last_sync_at", time.time())
+            self.request_cloud_recheck(None, "cloud-center-sync")
+            self._refresh_library()
+
+    def _open_cloud_setup_from_center(self) -> None:
+        """Run setup without exposing credentials to Cloud Center."""
+        try:
+            from ui.dialogs.cloud_wizard_dialog import CloudWizardDialog
+            wizard = CloudWizardDialog(self)
+            if wizard.exec() == QDialog.DialogCode.Accepted:
+                self._refresh_cloud_after_config_change()
+        except Exception as error:
+            self._show_toast(f"Could not open cloud setup: {error}", is_error=True)
+
+    def _open_cloud_settings_from_center(self) -> None:
+        """Open the existing settings dialog directly on its Cloud page."""
+        self._open_settings(initial_tab=3)
+
+    def _open_cloud_history_from_center(self) -> None:
+        """Open detailed save history as an explicit advanced workflow."""
+        try:
+            from ui.dialogs.account_dialog import AccountDialog
+            dialog = AccountDialog(
+                self,
+                request_manager=self.request_manager,
+                cloud_account_service=self.cloud_account_service,
+                cloud_operation_service=self.cloud_operation_service,
+            )
+            dialog.exec()
+            self.request_cloud_recheck(None, "cloud-history")
+        except Exception as error:
+            self._show_toast(f"Could not open cloud history: {error}", is_error=True)
+
+    def _open_settings(self, initial_tab: int | None = None):
         """Open Settings once at a time and keep menu/dialog lifecycles separate."""
         if self._settings_dialog_active:
             return
         self._settings_dialog_active = True
         try:
-            self._open_settings_dialog()
+            self._open_settings_dialog(initial_tab=initial_tab)
         finally:
             self._settings_dialog_active = False
 
-    def _open_settings_dialog(self):
+    def _open_settings_dialog(self, initial_tab: int | None = None):
         """Open launcher preferences and persist profile changes."""
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
         offline_before = is_offline_mode(self.settings)
@@ -1883,6 +1953,7 @@ class MainWindow(QMainWindow):
                 fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
             ).get("panel_theme_id")),
             request_manager=self.request_manager,
+            initial_tab=initial_tab,
         )
         # PopupDialog uses WA_DeleteOnClose, but this handler reads the form
         # values after exec() returns. Keep the dialog alive until those reads
@@ -2778,6 +2849,7 @@ class MainWindow(QMainWindow):
                 widget.doubleClicked.connect(self._on_double_click_game)
                 widget.favoriteClicked.connect(self._on_card_favorite_clicked)
                 widget.launchClicked.connect(self._launch_game_by_id)
+                widget.rightClicked.connect(self._show_game_cloud_menu)
                 
                 widgets.append(widget)
                 self.banner_widgets[game_id] = widget
@@ -7793,6 +7865,77 @@ class MainWindow(QMainWindow):
             return
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
         SaveManagerDialog(game[0], game[1], game[2], steam_id, self, self.cloud_sync_coordinator).exec()
+        self.refresh_cloud_status_for_game(game[0])
+
+    def _game_by_id(self, game_id: int):
+        """Resolve a game from the current authoritative library snapshot."""
+        try:
+            wanted = int(game_id)
+        except (TypeError, ValueError):
+            return None
+        for game in self.games:
+            try:
+                if int(game[0]) == wanted:
+                    return game
+            except (TypeError, ValueError, IndexError):
+                continue
+        return None
+
+    def _show_game_cloud_menu(self, game_id: int, global_pos: QPoint) -> None:
+        """Show one safe Cloud menu for cards and list rows."""
+        game = self._game_by_id(game_id)
+        if not game:
+            return
+        menu = QMenu(self)
+        menu.setTitle(str(game[1]))
+        for name, label, icon_name in (
+            ("upload", "Upload", "ph.cloud-arrow-up-bold"),
+            ("restore", "Restore", "ph.cloud-arrow-down-bold"),
+            ("history", "Save history", "ph.clock-counter-clockwise-bold"),
+            ("resolve", "Resolve conflict", "ph.warning-bold"),
+        ):
+            action = menu.addAction(get_icon(icon_name, color="#A1A1AA"), label)
+            action.triggered.connect(
+                lambda _checked=False, action_name=name, gid=int(game_id):
+                self._on_game_cloud_action(gid, action_name)
+            )
+        menu.addSeparator()
+        center = menu.addAction(get_icon("ph.cloud-bold", color="#3B9FE8"), "Open Cloud Center")
+        center.triggered.connect(lambda: self._open_cloud_center())
+        anchor = global_pos if global_pos and not global_pos.isNull() else self.cursor().pos()
+        menu.exec(anchor)
+
+    def _on_game_cloud_action(self, game_id: int, action: str) -> None:
+        """Route per-game commands to Save Manager or Cloud Center."""
+        game = self._game_by_id(game_id)
+        if not game:
+            return
+        action = str(action or "").lower()
+        if action == "center":
+            self._open_cloud_center()
+            return
+        self._select_game_by_id(int(game_id))
+        if action in {"history", "resolve"}:
+            self._open_save_manager_for_game(game, tab="history")
+        elif action == "restore":
+            self._open_save_manager_for_game(game, tab="restore")
+        else:
+            self._open_save_manager_for_game(game)
+
+    def _open_save_manager_for_game(self, game, *, tab: str | None = None) -> None:
+        """Open the existing managed Save Manager without auto-destructive work."""
+        steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
+        dialog = SaveManagerDialog(
+            game[0], game[1], game[2], steam_id, self, self.cloud_sync_coordinator
+        )
+        if tab == "history" and hasattr(dialog, "tab_history"):
+            dialog.tabs.setCurrentWidget(dialog.tab_history)
+            if hasattr(dialog, "_load_history"):
+                dialog._load_history()
+        elif tab == "restore" and hasattr(dialog, "_restore_from_cloud"):
+            # Save Manager performs its existing confirmation and conflict checks.
+            QTimer.singleShot(0, dialog._restore_from_cloud)
+        dialog.exec()
         self.refresh_cloud_status_for_game(game[0])
     
     def _on_import(self):
