@@ -1,8 +1,8 @@
 {
   "files": [
     {
-      "bytes": 3694,
-      "lines": 70,
+      "bytes": 4005,
+      "lines": 74,
       "path": ".ai/ARCHITECTURE.md",
       "suffix": ".md"
     },
@@ -19,8 +19,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 11279,
-      "lines": 85,
+      "bytes": 11467,
+      "lines": 86,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
     },
@@ -31,8 +31,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 905,
-      "lines": 17,
+      "bytes": 1425,
+      "lines": 27,
       "path": ".ai/TASK.md",
       "suffix": ".md"
     },
@@ -88,6 +88,12 @@
       "bytes": 1466,
       "lines": 16,
       "path": ".ai/architecture/game-launch-and-sandbox.md",
+      "suffix": ".md"
+    },
+    {
+      "bytes": 1922,
+      "lines": 47,
+      "path": ".ai/architecture/game-name-resolution.md",
       "suffix": ".md"
     },
     {
@@ -709,8 +715,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 10407,
-      "lines": 287,
+      "bytes": 10538,
+      "lines": 290,
       "path": "ci/security_audit.py",
       "suffix": ".py"
     },
@@ -823,8 +829,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 2629,
-      "lines": 71,
+      "bytes": 2706,
+      "lines": 72,
       "path": "core/cache_policy.py",
       "suffix": ".py"
     },
@@ -889,8 +895,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 32855,
-      "lines": 678,
+      "bytes": 34402,
+      "lines": 712,
       "path": "core/cloud_metadata_sync.py",
       "suffix": ".py"
     },
@@ -925,8 +931,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 20252,
-      "lines": 529,
+      "bytes": 20582,
+      "lines": 535,
       "path": "core/cloud_status_service.py",
       "suffix": ".py"
     },
@@ -976,6 +982,12 @@
       "bytes": 18533,
       "lines": 383,
       "path": "core/firejail_runner.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 2215,
+      "lines": 65,
+      "path": "core/game_names.py",
       "suffix": ".py"
     },
     {
@@ -1279,8 +1291,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 4655,
-      "lines": 151,
+      "bytes": 5818,
+      "lines": 186,
       "path": "core/steam_resource_service.py",
       "suffix": ".py"
     },
@@ -1327,8 +1339,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 79154,
-      "lines": 1552,
+      "bytes": 83661,
+      "lines": 1650,
       "path": "database.py",
       "suffix": ".py"
     },
@@ -1627,7 +1639,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 9466,
+      "bytes": 9474,
       "lines": 238,
       "path": "tests/test_cloud_status_service.py",
       "suffix": ".py"
@@ -1648,6 +1660,12 @@
       "bytes": 5054,
       "lines": 120,
       "path": "tests/test_cross_device_matrix.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 5186,
+      "lines": 130,
+      "path": "tests/test_game_name_resolution.py",
       "suffix": ".py"
     },
     {
@@ -2011,8 +2029,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 359686,
-      "lines": 7588,
+      "bytes": 363072,
+      "lines": 7660,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2047,5 +2065,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T19:01:21+00:00"
+  "generated_at": "2026-09-14T19:19:23+00:00"
 }

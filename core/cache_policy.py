@@ -44,6 +44,7 @@ _POLICIES = {
     "artwork": CachePolicy("artwork", 30 * 24 * 60 * 60),
     "steam-build": CachePolicy("steam-build", 15 * 60),
     "steam-tags": CachePolicy("steam-tags", 7 * 24 * 60 * 60),
+    "steam-app-details": CachePolicy("steam-app-details", 7 * 24 * 60 * 60),
     "achievement-schema": CachePolicy("achievement-schema", 24 * 60 * 60),
     "cloud-status": CachePolicy("cloud-status", 2 * 60 * 60),
     "cloud-listing": CachePolicy("cloud-listing", 2 * 60 * 60),

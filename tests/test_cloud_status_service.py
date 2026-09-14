@@ -183,7 +183,7 @@ class CloudStatusServiceTests(unittest.TestCase):
                 42,
                 SyncStatus.IN_SYNC,
                 checked_at=123.0,
-                generation=coordinator.generation,
+                context_generation=coordinator.generation,
             )
             self.assertEqual(service.cached_status(42)[0], SyncStatus.IN_SYNC)
             self.assertEqual(

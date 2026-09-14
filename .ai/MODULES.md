@@ -17,6 +17,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | UI presentation cache | [`core/presentation_cache.py`](../core/presentation_cache.py) | `PresentationCache` | active; bounded decoded-value LRU only |
 | Library query/state | [`core/library_controller.py`](../core/library_controller.py), [`core/library_state.py`](../core/library_state.py) | `LibraryController`, `LibraryStateStore` | active |
 | Local database | [`database.py`](../database.py) | `GameDatabase`, `GameRecord` | active |
+| Portable game naming | [`core/game_names.py`](../core/game_names.py) | `meaningful_game_name`, `preferred_game_name`, placeholder/fallback rules | active |
 | Library application service | [`core/library_service.py`](../core/library_service.py) | `LibraryService`, `LibraryProjection` | active |
 | Library metadata presentation state | [`core/library_metadata_state.py`](../core/library_metadata_state.py) | `LibraryMetadataState` | active; local projection and legacy migration adapter |
 | Cloud sync queue | [`core/cloud_sync_queue.py`](../core/cloud_sync_queue.py) | `PendingCloudSyncQueue` | active |
@@ -29,7 +30,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Achievement resource service | [`core/achievement_resource_service.py`](../core/achievement_resource_service.py) | `AchievementResourceService`, `AchievementTarget` | active |
 | Achievement persistence service | [`core/achievement_persistence_service.py`](../core/achievement_persistence_service.py) | `AchievementPersistenceService`, `AchievementProjection` | active; SQLite-backed local authority |
 | Library achievement coordination | [`core/library_achievement_coordinator.py`](../core/library_achievement_coordinator.py) | `LibraryAchievementCoordinator`, `AchievementRequestPlan` | active; Qt-free MainWindow orchestration boundary |
-| Steam resource service | [`core/steam_resource_service.py`](../core/steam_resource_service.py) | `SteamResourceService` | active |
+| Steam resource service | [`core/steam_resource_service.py`](../core/steam_resource_service.py) | `SteamResourceService`, cached `request_app_details` | active |
 | Library Steam metadata coordination | [`core/library_steam_metadata_coordinator.py`](../core/library_steam_metadata_coordinator.py) | `LibrarySteamMetadataCoordinator`, build/tag plans | active; Qt-free MainWindow orchestration boundary |
 | Achievement presentation state | [`core/achievement_state_store.py`](../core/achievement_state_store.py) | `AchievementStateStore` | active; local UI projection only |
 | Launch/session coordination | [`core/launch_session_coordinator.py`](../core/launch_session_coordinator.py) | `LaunchSessionCoordinator`, `LaunchSessionContext` | active; process/session registration boundary |

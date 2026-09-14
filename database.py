@@ -8,6 +8,12 @@ import re
 import threading
 import math
 from core.logger import get_logger
+from core.game_names import (
+    MAX_GAME_NAME_LENGTH,
+    fallback_game_name,
+    meaningful_game_name,
+    preferred_game_name,
+)
 
 logger = get_logger("Database")
 
@@ -394,6 +400,7 @@ class GameDatabase:
                     CREATE TABLE IF NOT EXISTS profile_games (
                         identity_key TEXT PRIMARY KEY,
                         app_id TEXT DEFAULT '',
+                        display_name TEXT DEFAULT '',
                         favorite INTEGER DEFAULT 0,
                         favorite_changed_at REAL DEFAULT 0,
                         favorite_change_id TEXT DEFAULT '',
@@ -402,6 +409,28 @@ class GameDatabase:
                         first_seen_at REAL NOT NULL
                     )
                 """)
+                cursor.execute("PRAGMA table_info(profile_games)")
+                profile_game_columns = {column[1] for column in cursor.fetchall()}
+                if "display_name" not in profile_game_columns:
+                    cursor.execute(
+                        "ALTER TABLE profile_games ADD COLUMN display_name TEXT DEFAULT ''"
+                    )
+                # Recover meaningful titles for history rows created before
+                # display_name existed.  A Steam identity is stable even when
+                # the current row has since been archived or removed.
+                cursor.execute(
+                    """
+                    UPDATE profile_games
+                    SET display_name = (
+                        SELECT name FROM games
+                        WHERE profile_games.app_id != ''
+                          AND games.steam_id = profile_games.app_id
+                        ORDER BY games.id ASC LIMIT 1
+                    )
+                    WHERE COALESCE(display_name, '') = ''
+                      AND app_id != ''
+                    """
+                )
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_profile_games_app ON profile_games(app_id)")
 
                 cursor.execute("""
@@ -483,11 +512,18 @@ class GameDatabase:
         identity = str(value.get("identity_key", "")).strip()
         existing = self.find_game_by_profile_identity(identity)
         if existing:
+            # A previously materialized placeholder must be upgraded in place;
+            # the Steam AppID remains the identity and no duplicate is made.
+            self.project_profile_library(existing.id, value)
             return existing.id
         app_id = str(value.get("app_id", "") or "").strip()
-        name = str(value.get("name", "") or "").strip() or (f"Steam App {app_id}" if app_id else identity)
+        name = preferred_game_name(
+            app_id,
+            value.get("name"),
+            value.get("display_name"),
+        ) or fallback_game_name(app_id, identity)
         game_id = self.add_game(
-            name[:120], "", "", str(value.get("mode", "linux") or "linux"),
+            name[:MAX_GAME_NAME_LENGTH], "", "", str(value.get("mode", "linux") or "linux"),
             str(value.get("banner_url", "") or "")[:1024], app_id or None,
         )
         if game_id:
@@ -510,14 +546,23 @@ class GameDatabase:
                     identity = self.profile_identity(row[0], row[1])
                     self.conn.execute(
                         """INSERT INTO profile_games
-                           (identity_key, app_id, favorite, favorite_changed_at, favorite_change_id, first_seen_at)
-                           VALUES (?, ?, ?, ?, ?, ?)
+                           (identity_key, app_id, display_name, favorite, favorite_changed_at, favorite_change_id, first_seen_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)
                            ON CONFLICT(identity_key) DO UPDATE SET
                              app_id = excluded.app_id,
+                             display_name = CASE WHEN excluded.display_name != '' THEN excluded.display_name ELSE profile_games.display_name END,
                              favorite = excluded.favorite,
                              favorite_changed_at = excluded.favorite_changed_at,
                              favorite_change_id = excluded.favorite_change_id""",
-                        (identity, str(row[1] or "").strip(), new_val, time.time(), str(uuid.uuid4()), time.time()),
+                        (
+                            identity,
+                            str(row[1] or "").strip(),
+                            meaningful_game_name(row[0], row[1]),
+                            new_val,
+                            time.time(),
+                            str(uuid.uuid4()),
+                            time.time(),
+                        ),
                     )
             return bool(new_val)
         except Exception as e:
@@ -586,12 +631,14 @@ class GameDatabase:
     def get_profile_games(self) -> List[dict]:
         rows = self.conn.execute(
             """SELECT identity_key, app_id, favorite, favorite_changed_at,
-                      favorite_change_id, playtime_baseline_seconds, last_played
+                      favorite_change_id, playtime_baseline_seconds, last_played,
+                      display_name
                FROM profile_games ORDER BY identity_key"""
         ).fetchall()
         return [{"identity_key": r[0], "app_id": r[1] or "", "favorite": bool(r[2]),
                  "favorite_changed_at": float(r[3] or 0), "favorite_change_id": r[4] or "",
-                 "playtime_baseline_seconds": int(r[5] or 0), "last_played": int(r[6] or 0)} for r in rows]
+                 "playtime_baseline_seconds": int(r[5] or 0), "last_played": int(r[6] or 0),
+                 "display_name": meaningful_game_name(r[7], r[1])} for r in rows]
 
     def merge_profile_game(self, value: dict) -> None:
         """Merge one generalized profile record and project it to matching games."""
@@ -600,9 +647,15 @@ class GameDatabase:
             return
         incoming_ts = float(value.get("favorite_changed_at", 0) or 0)
         incoming_id = str(value.get("favorite_change_id", "") or "")
+        app_id = str(value.get("app_id", "") or "").strip()
+        incoming_name = preferred_game_name(
+            app_id,
+            value.get("name"),
+            value.get("display_name"),
+        )
         with self.conn:
             current = self.conn.execute(
-                "SELECT favorite, favorite_changed_at, favorite_change_id FROM profile_games WHERE identity_key = ?",
+                "SELECT favorite, favorite_changed_at, favorite_change_id, display_name FROM profile_games WHERE identity_key = ?",
                 (identity,),
             ).fetchone()
             if current:
@@ -622,17 +675,18 @@ class GameDatabase:
                 favorite = int(bool(value.get("favorite")))
             self.conn.execute(
                 """INSERT INTO profile_games
-                   (identity_key, app_id, favorite, favorite_changed_at, favorite_change_id,
+                   (identity_key, app_id, display_name, favorite, favorite_changed_at, favorite_change_id,
                     playtime_baseline_seconds, last_played, first_seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(identity_key) DO UPDATE SET
                      app_id = excluded.app_id,
+                     display_name = CASE WHEN excluded.display_name != '' THEN excluded.display_name ELSE profile_games.display_name END,
                      favorite = excluded.favorite,
                      favorite_changed_at = excluded.favorite_changed_at,
                      favorite_change_id = excluded.favorite_change_id,
                      playtime_baseline_seconds = MAX(profile_games.playtime_baseline_seconds, excluded.playtime_baseline_seconds),
                      last_played = MAX(profile_games.last_played, excluded.last_played)""",
-                (identity, str(value.get("app_id", "") or ""), favorite, incoming_ts, incoming_id,
+                (identity, app_id, incoming_name, favorite, incoming_ts, incoming_id,
                  max(0, int(value.get("playtime_baseline_seconds", 0) or 0)),
                  max(0, int(value.get("last_played", 0) or 0)), time.time()),
             )
@@ -649,6 +703,23 @@ class GameDatabase:
     def project_profile_library(self, game_id: int, value: dict) -> None:
         """Apply portable cloud catalog fields without touching local paths."""
         try:
+            row = self.conn.execute(
+                "SELECT name, steam_id FROM games WHERE id = ?", (game_id,)
+            ).fetchone()
+            current_name = str(row[0] or "") if row else ""
+            app_id = str(value.get("app_id", "") or (row[1] if row else "") or "").strip()
+            incoming_name = preferred_game_name(
+                app_id,
+                value.get("name"),
+                value.get("display_name"),
+            )
+            # Local meaningful names win.  Remote metadata may repair a
+            # generated placeholder, but must not rename a user's local title.
+            name_update = (
+                incoming_name
+                if not meaningful_game_name(current_name, app_id)
+                else ""
+            )
             with self.conn:
                 self.conn.execute(
                     """UPDATE games SET name = COALESCE(NULLIF(?, ''), name),
@@ -656,7 +727,7 @@ class GameDatabase:
                        mode = COALESCE(NULLIF(?, ''), mode),
                        collection = ?, tags = ? WHERE id = ?""",
                     (
-                        str(value.get("name", "") or "")[:120],
+                        name_update[:MAX_GAME_NAME_LENGTH],
                         str(value.get("banner_url", "") or "")[:1024],
                         str(value.get("mode", "") or "")[:32],
                         str(value.get("collection", "") or ""),
@@ -666,6 +737,33 @@ class GameDatabase:
                 )
         except Exception as e:
             logger.error(f"Failed to project cloud library metadata for game {game_id}: {e}")
+
+    def update_game_name_from_metadata(self, game_id: int, name: str) -> bool:
+        """Repair a generated Steam title without replacing a local title."""
+        try:
+            with self.conn:
+                row = self.conn.execute(
+                    "SELECT name, steam_id FROM games WHERE id = ?", (game_id,)
+                ).fetchone()
+                if not row:
+                    return False
+                app_id = str(row[1] or "").strip()
+                candidate = meaningful_game_name(name, app_id)
+                if not candidate or meaningful_game_name(row[0], app_id):
+                    return False
+                self.conn.execute(
+                    "UPDATE games SET name = ? WHERE id = ?",
+                    (candidate[:MAX_GAME_NAME_LENGTH], game_id),
+                )
+                identity = self.profile_identity(candidate, app_id)
+                self.conn.execute(
+                    "UPDATE profile_games SET display_name = ? WHERE identity_key = ?",
+                    (candidate[:MAX_GAME_NAME_LENGTH], identity),
+                )
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update metadata name for game {game_id}: {e}")
+            return False
 
     def create_playtime_session(self, game_id: int, started_at: Optional[int] = None, session_id: str = "") -> str:
         """Create an idempotent playtime event for metadata synchronization."""

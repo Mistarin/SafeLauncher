@@ -27,6 +27,7 @@ from core.profile_models import (
     normalize_profile_settings,
     save_profile_settings,
 )
+from core.game_names import preferred_game_name
 
 logger = get_logger("CloudMetadata")
 _PROFILE_SYNC_LOCK = threading.Lock()
@@ -229,10 +230,21 @@ def _merge_profiles(local: dict, remote: dict) -> dict:
         right_key = (_safe_float(right.get("favorite_changed_at")), str(right.get("favorite_change_id", "") or ""))
         markerless_favorite = left_key == right_key == (0, "")
         favorite_source = right if right_key >= left_key else left
+        app_id = str(left.get("app_id") or right.get("app_id") or "")
         merged_games[str(identity)] = {
             "identity_key": str(identity),
-            "app_id": str(left.get("app_id") or right.get("app_id") or ""),
-            "name": str(left.get("name") or right.get("name") or "")[:120],
+            "app_id": app_id,
+            # Prefer a meaningful local title.  A generated placeholder is
+            # intentionally transparent so a useful remote/Steam title can
+            # repair a cloud-only record instead of being overwritten by the
+            # device that materialized it.
+            "name": preferred_game_name(
+                app_id,
+                left.get("name"),
+                left.get("display_name"),
+                right.get("name"),
+                right.get("display_name"),
+            )[:120],
             "banner_url": str(left.get("banner_url") or right.get("banner_url") or "")[:1024],
             "mode": str(left.get("mode") or right.get("mode") or "")[:32],
             "executable": str(left.get("executable") or right.get("executable") or "")[:256],
@@ -347,9 +359,18 @@ class CloudMetadataSync:
         device_id, _device_name, _device_platform = get_device_identity()
         observed_at = int(time.time())
         db.collect_profile_from_games()
+        profile_history = {
+            item["identity_key"]: item for item in db.get_profile_games()
+        }
         games = {}
         for game in db.get_all_games():
             identity = db.profile_identity(game.name, game.steam_id)
+            history = profile_history.get(identity, {})
+            display_name = preferred_game_name(
+                game.steam_id,
+                game.name,
+                history.get("display_name"),
+            )
             sessions = db.get_playtime_sessions(game.id)
             session_total = sum(int(x.get("duration_seconds", 0) or 0) for x in sessions)
             executable_path = os.path.join(game.path, game.executable) if game.path and game.executable else game.path
@@ -362,7 +383,10 @@ class CloudMetadataSync:
             games[identity] = {
                 "identity_key": identity,
                 "app_id": str(game.steam_id or "").strip(),
-                "name": str(game.name or "")[:120],
+                # Do not publish generated placeholders.  This lets another
+                # device keep the title it already knows and lets the Steam
+                # App Details resolver repair the local projection offline.
+                "name": display_name[:120],
                 "banner_url": str(game.banner_url or "")[:1024],
                 "mode": str(game.mode or "")[:32],
                 "executable": str(game.executable or "")[:256],
@@ -385,10 +409,17 @@ class CloudMetadataSync:
         for item in db.get_profile_games():
             current = games.get(item["identity_key"])
             if current:
+                if not current.get("name"):
+                    current["name"] = preferred_game_name(
+                        item.get("app_id"), item.get("display_name")
+                    )
                 current["favorite_changed_at"] = item["favorite_changed_at"]
                 current["favorite_change_id"] = item["favorite_change_id"]
             else:
                 item = dict(item)
+                item["name"] = preferred_game_name(
+                    item.get("app_id"), item.get("display_name"), item.get("name")
+                )
                 item["devices"] = _merge_devices(
                     item.get("devices"),
                     {device_id: {"installed": False, "observed_at": observed_at}},
@@ -443,6 +474,9 @@ class CloudMetadataSync:
                 continue
             item = dict(value)
             item["identity_key"] = str(identity)
+            item["name"] = preferred_game_name(
+                item.get("app_id"), item.get("name"), item.get("display_name")
+            )
             # Keep account-known games visible on devices where only their
             # history has been downloaded. A later install reuses this row.
             db.ensure_cloud_game(item)

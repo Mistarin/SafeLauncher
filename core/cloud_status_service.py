@@ -134,7 +134,13 @@ class CloudStatusService:
         *,
         checked_at: float | None = None,
         generation: int | None = None,
+        context_generation: int | None = None,
     ) -> None:
+        if generation is not None and context_generation is not None:
+            if int(generation) != int(context_generation):
+                raise ValueError("generation and context_generation disagree")
+        if generation is None:
+            generation = context_generation
         with self._lock:
             context = self.current_context()
             self.status_store.set_cloud_status(

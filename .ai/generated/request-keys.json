@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T19:01:21+00:00",
+  "generated_at": "2026-09-14T19:19:23+00:00",
   "request_keys": [
     {
       "file": "ci/performance_baseline.py",
@@ -38,13 +38,18 @@
     },
     {
       "file": "core/steam_resource_service.py",
-      "line": 34,
+      "line": 35,
       "resource": "steam-build"
     },
     {
       "file": "core/steam_resource_service.py",
-      "line": 39,
+      "line": 40,
       "resource": "steam-tags"
+    },
+    {
+      "file": "core/steam_resource_service.py",
+      "line": 44,
+      "resource": "steam-app-details"
     },
     {
       "file": "core/steam_tags.py",
@@ -348,12 +353,12 @@
     },
     {
       "file": "ui/main_window.py",
-      "line": 3153,
+      "line": 3158,
       "resource": "window-task"
     },
     {
       "file": "ui/main_window.py",
-      "line": 5730,
+      "line": 5802,
       "resource": "public-profile"
     },
     {

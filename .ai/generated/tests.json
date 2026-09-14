@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T19:01:21+00:00",
+  "generated_at": "2026-09-14T19:19:23+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -402,6 +402,42 @@
       "kind": "test_class",
       "line": 17,
       "name": "CrossDeviceLibraryMatrixTests"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 33,
+      "name": "test_placeholder_rules_are_bounded_and_case_insensitive"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 39,
+      "name": "test_profile_merge_does_not_let_placeholder_overwrite_title"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 52,
+      "name": "test_placeholder_materialization_is_repaired_in_place"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 73,
+      "name": "test_profile_game_migration_recovers_steam_title"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 113,
+      "name": "test_steam_app_details_are_cached_and_deduplicated"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test_class",
+      "line": 30,
+      "name": "GameNameResolutionTests"
     },
     {
       "file": "tests/test_global_hotkeys.py",

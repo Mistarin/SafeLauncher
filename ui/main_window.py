@@ -68,6 +68,7 @@ from core.library_artwork_coordinator import LibraryArtworkCoordinator
 from core.steam_resource_service import SteamResourceService
 from core.library_steam_metadata_coordinator import LibrarySteamMetadataCoordinator
 from core.cache_policy import cache_policy
+from core.game_names import is_placeholder_game_name
 from core.game_status import GameStatusState, cloud_indicator
 from ui.icons import (
     LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap,
@@ -138,7 +139,7 @@ from core.request_manager import RequestManager
 from core.resource_cache import ResourceCache
 from core.performance_metrics import ResourcePerformanceTracker
 from core.steam_client import SteamClient
-from ui.resource_binding import ResourceBinding, ResourceBindingRegistry, bind_resource
+from ui.resource_binding import ResourceBinding, ResourceBindingRegistry, bind_resource, bind_request
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -273,6 +274,9 @@ class MainWindow(QMainWindow):
             self.request_manager,
             client=self.steam_client,
         )
+        # One binding per AppID repairs cloud-only placeholder titles while
+        # retaining the normal RequestManager cache/deduplication lifecycle.
+        self._steam_name_bindings: dict[RequestKey, ResourceBinding] = {}
         self.steam_metadata_coordinator = LibrarySteamMetadataCoordinator(
             self.steam_resource_service,
         )
@@ -2537,6 +2541,7 @@ class MainWindow(QMainWindow):
         
         self.games = list(self.library_service.read_games())
         self.games_by_id = {game[0]: game for game in self.games}
+        self._resolve_missing_steam_names()
         self.cloud_status_polling.set_targets(self._cloud_status_targets_snapshot())
         if selected_game_id is not None:
             self.selected_game = self.games_by_id.get(selected_game_id)
@@ -4215,6 +4220,73 @@ class MainWindow(QMainWindow):
         for binding in self.steam_metadata_coordinator.close():
             binding.close()
             binding.deleteLater()
+        for binding in tuple(getattr(self, "_steam_name_bindings", {}).values()):
+            try:
+                binding.close()
+                binding.deleteLater()
+            except RuntimeError:
+                pass
+        getattr(self, "_steam_name_bindings", {}).clear()
+
+    def _resolve_missing_steam_names(self, *, priority: RequestPriority = RequestPriority.BACKGROUND) -> None:
+        """Repair archived/cloud-only Steam titles through cached App Details."""
+        if self.request_manager is None or not hasattr(self, "steam_resource_service"):
+            return
+        for game in self.db.get_all_games():
+            app_id = str(game.steam_id or "").strip()
+            if not app_id or app_id == "0" or not is_placeholder_game_name(game.name, app_id):
+                continue
+            key = self.steam_resource_service.app_details_key(app_id)
+            if key in self._steam_name_bindings:
+                continue
+            try:
+                handle = self.steam_resource_service.request_app_details(
+                    app_id,
+                    priority=priority,
+                    tag="repair_game_name",
+                )
+                binding = bind_request(
+                    self.request_manager,
+                    handle,
+                    lambda result, key=key: self._on_managed_steam_name_state(key, result),
+                    self,
+                    cancel_on_close=True,
+                )
+                self._steam_name_bindings[key] = binding
+            except Exception as exc:
+                logger.debug("Managed Steam App Details request failed for %s: %s", app_id, exc)
+
+    def _on_managed_steam_name_state(self, key: RequestKey, result) -> None:
+        """Apply only verified Steam titles to matching placeholder records."""
+        if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
+            details = result.value if isinstance(result.value, dict) else {}
+            name = str(details.get("name", "") or "").strip()
+            if name:
+                app_id = key.identity.rsplit(":", 1)[-1]
+                changed = False
+                for game in self.db.get_all_games():
+                    if str(game.steam_id or "").strip() != app_id:
+                        continue
+                    changed = self.db.update_game_name_from_metadata(game.id, name) or changed
+                if changed:
+                    self._refresh_library()
+            return
+        if result.status in {
+            ResourceStatus.ERROR,
+            ResourceStatus.OFFLINE,
+            ResourceStatus.UNAVAILABLE,
+            ResourceStatus.AUTHENTICATION_REQUIRED,
+            ResourceStatus.PERMISSION_DENIED,
+            ResourceStatus.CONFLICT,
+            ResourceStatus.CANCELLED,
+        }:
+            binding = self._steam_name_bindings.pop(key, None)
+            if binding is not None:
+                try:
+                    binding.close()
+                    binding.deleteLater()
+                except RuntimeError:
+                    pass
 
     def _on_steam_build_checked(self, game_id: int, latest_build_id: str, latest_build_date: int, is_update_available: bool):
         """Callback when background SteamBuildFetcher returns build info."""

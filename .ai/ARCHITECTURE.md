@@ -29,6 +29,10 @@ backend deployment checkout, not the client's local SQLite database. See
 ## Ownership boundaries
 
 - `GameDatabase` owns the local SQLite projection and local-first mutations.
+- Steam AppIDs are stable game identity (`steam:<appid>`); game titles are
+  display metadata. A generated `Steam App <appid>` title is never treated as
+  authoritative when a meaningful local, private-profile, or Steam title is
+  available. See [game-name-resolution.md](architecture/game-name-resolution.md).
 - `RequestManager` owns scheduling, deduplication, cancellation, retry, generation ordering, and request state notification.
 - `ResourceCache` owns reusable resource retention and freshness.
 - Transport clients own HTTP sessions, authentication headers, encryption transport, response validation, and parsing.

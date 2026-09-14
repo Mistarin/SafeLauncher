@@ -27,25 +27,25 @@
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 32,
+      "line": 36,
       "value": "RequestManager"
     },
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 33,
+      "line": 37,
       "value": "ResourceCache"
     },
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 46,
+      "line": 50,
       "value": "CloudMetadataSync"
     },
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 55,
+      "line": 59,
       "value": "RequestManager"
     },
     {
@@ -75,25 +75,25 @@
     {
       "file": ".ai/MODULES.md",
       "kind": "architecture_symbol",
-      "line": 50,
+      "line": 51,
       "value": "CloudMetadataSync"
     },
     {
       "file": ".ai/MODULES.md",
       "kind": "architecture_symbol",
-      "line": 51,
+      "line": 52,
       "value": "CloudSaveSyncEngine"
     },
     {
       "file": ".ai/MODULES.md",
       "kind": "architecture_symbol",
-      "line": 62,
+      "line": 63,
       "value": "SteamClient"
     },
     {
       "file": ".ai/MODULES.md",
       "kind": "architecture_symbol",
-      "line": 63,
+      "line": 64,
       "value": "ArtworkClient"
     },
     {
@@ -125,6 +125,12 @@
       "kind": "architecture_symbol",
       "line": 9,
       "value": "CloudMetadataSync"
+    },
+    {
+      "file": ".ai/architecture/game-name-resolution.md",
+      "kind": "manager_call",
+      "line": 39,
+      "value": "request"
     },
     {
       "file": ".ai/architecture/ownership-and-boundaries.md",
@@ -909,31 +915,31 @@
     {
       "file": "core/cloud_metadata_sync.py",
       "kind": "architecture_symbol",
-      "line": 268,
+      "line": 280,
       "value": "CloudMetadataSync"
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "kind": "architecture_symbol",
-      "line": 522,
+      "line": 556,
       "value": "CloudSaveSyncEngine"
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "kind": "architecture_symbol",
-      "line": 568,
+      "line": 602,
       "value": "CloudSaveSyncEngine"
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "kind": "architecture_symbol",
-      "line": 651,
+      "line": 685,
       "value": "CloudSaveSyncEngine"
     },
     {
       "file": "core/cloud_metadata_sync.py",
       "kind": "architecture_symbol",
-      "line": 652,
+      "line": 686,
       "value": "CloudSaveSyncEngine"
     },
     {
@@ -1029,31 +1035,31 @@
     {
       "file": "core/cloud_status_service.py",
       "kind": "manager_call",
-      "line": 298,
+      "line": 304,
       "value": "cancel"
     },
     {
       "file": "core/cloud_status_service.py",
       "kind": "manager_call",
-      "line": 316,
+      "line": 322,
       "value": "cancel"
     },
     {
       "file": "core/cloud_status_service.py",
       "kind": "architecture_symbol",
-      "line": 385,
+      "line": 391,
       "value": "RequestManager"
     },
     {
       "file": "core/cloud_status_service.py",
       "kind": "manager_call",
-      "line": 395,
+      "line": 401,
       "value": "request_many"
     },
     {
       "file": "core/cloud_status_service.py",
       "kind": "manager_call",
-      "line": 429,
+      "line": 435,
       "value": "request_many"
     },
     {
@@ -1599,25 +1605,25 @@
     {
       "file": "core/steam_resource_service.py",
       "kind": "architecture_symbol",
-      "line": 27,
+      "line": 28,
       "value": "SteamClient"
     },
     {
       "file": "core/steam_resource_service.py",
       "kind": "architecture_symbol",
-      "line": 29,
+      "line": 30,
       "value": "SteamClient"
     },
     {
       "file": "core/steam_resource_service.py",
       "kind": "manager_call",
-      "line": 137,
+      "line": 172,
       "value": "request_many"
     },
     {
       "file": "core/steam_resource_service.py",
       "kind": "manager_call",
-      "line": 138,
+      "line": 173,
       "value": "request_many_cached"
     },
     {
@@ -1683,31 +1689,31 @@
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 62,
+      "line": 68,
       "value": "connect"
     },
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 63,
+      "line": 69,
       "value": "connect"
     },
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 205,
+      "line": 211,
       "value": "connect"
     },
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 224,
+      "line": 230,
       "value": "connect"
     },
     {
       "file": "database.py",
       "kind": "qt_connection",
-      "line": 236,
+      "line": 242,
       "value": "connect"
     },
     {
@@ -2231,6 +2237,54 @@
       "kind": "architecture_symbol",
       "line": 48,
       "value": "CloudMetadataSync"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "architecture_symbol",
+      "line": 10,
+      "value": "CloudMetadataSync"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "architecture_symbol",
+      "line": 17,
+      "value": "RequestManager"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "architecture_symbol",
+      "line": 18,
+      "value": "ResourceCache"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "architecture_symbol",
+      "line": 56,
+      "value": "CloudMetadataSync"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "architecture_symbol",
+      "line": 63,
+      "value": "CloudMetadataSync"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "qt_connection",
+      "line": 77,
+      "value": "connect"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "architecture_symbol",
+      "line": 115,
+      "value": "RequestManager"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "architecture_symbol",
+      "line": 115,
+      "value": "ResourceCache"
     },
     {
       "file": "tests/test_library_artwork_coordinator.py",
@@ -6873,26 +6927,20 @@
     {
       "file": "ui/main_window.py",
       "kind": "architecture_symbol",
-      "line": 137,
+      "line": 138,
       "value": "RequestManager"
     },
     {
       "file": "ui/main_window.py",
       "kind": "architecture_symbol",
-      "line": 138,
+      "line": 139,
       "value": "ResourceCache"
     },
     {
       "file": "ui/main_window.py",
       "kind": "architecture_symbol",
-      "line": 140,
+      "line": 141,
       "value": "SteamClient"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "signal_declaration",
-      "line": 174,
-      "value": "pyqtSignal"
     },
     {
       "file": "ui/main_window.py",
@@ -6962,86 +7010,74 @@
     },
     {
       "file": "ui/main_window.py",
-      "kind": "architecture_symbol",
-      "line": 221,
-      "value": "ArtworkClient"
+      "kind": "signal_declaration",
+      "line": 186,
+      "value": "pyqtSignal"
     },
     {
       "file": "ui/main_window.py",
       "kind": "architecture_symbol",
       "line": 222,
+      "value": "ArtworkClient"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "architecture_symbol",
+      "line": 223,
       "value": "SteamClient"
     },
     {
       "file": "ui/main_window.py",
       "kind": "architecture_symbol",
-      "line": 226,
+      "line": 227,
       "value": "ResourceCache"
     },
     {
       "file": "ui/main_window.py",
       "kind": "architecture_symbol",
-      "line": 240,
+      "line": 241,
       "value": "RequestManager"
     },
     {
       "file": "ui/main_window.py",
       "kind": "architecture_symbol",
-      "line": 263,
+      "line": 264,
+      "value": "RequestManager"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "architecture_symbol",
+      "line": 278,
       "value": "RequestManager"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 311,
+      "line": 315,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 312,
+      "line": 316,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 314,
+      "line": 318,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 332,
+      "line": 336,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 339,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 353,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 354,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 355,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 356,
+      "line": 343,
       "value": "connect"
     },
     {
@@ -7077,31 +7113,31 @@
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 435,
+      "line": 362,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 463,
+      "line": 363,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 464,
+      "line": 364,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 465,
+      "line": 365,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 466,
+      "line": 439,
       "value": "connect"
     },
     {
@@ -7167,37 +7203,37 @@
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 530,
+      "line": 477,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 559,
+      "line": 478,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 562,
+      "line": 479,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 480,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 534,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
       "line": 563,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 564,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 565,
       "value": "connect"
     },
     {
@@ -7215,139 +7251,139 @@
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 612,
+      "line": 568,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 613,
+      "line": 569,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 659,
+      "line": 570,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 765,
+      "line": 571,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 805,
+      "line": 616,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 838,
+      "line": 617,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 872,
+      "line": 663,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 880,
+      "line": 769,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 888,
+      "line": 809,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 896,
+      "line": 842,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 906,
+      "line": 876,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 998,
+      "line": 884,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1019,
+      "line": 892,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1054,
+      "line": 900,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1095,
+      "line": 910,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1136,
+      "line": 1002,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1144,
+      "line": 1023,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1152,
+      "line": 1058,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1175,
+      "line": 1099,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1214,
+      "line": 1140,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1215,
+      "line": 1148,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1216,
+      "line": 1156,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1217,
+      "line": 1179,
       "value": "connect"
     },
     {
@@ -7437,175 +7473,175 @@
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1268,
+      "line": 1232,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1269,
+      "line": 1233,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1270,
+      "line": 1234,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1271,
+      "line": 1235,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1311,
+      "line": 1272,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1323,
+      "line": 1273,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1372,
+      "line": 1274,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1395,
+      "line": 1275,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1402,
+      "line": 1315,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1403,
+      "line": 1327,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1404,
+      "line": 1376,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1414,
+      "line": 1399,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1432,
+      "line": 1406,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1517,
+      "line": 1407,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1588,
+      "line": 1408,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1687,
+      "line": 1418,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 1436,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 1521,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 1592,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 1691,
       "value": "disconnect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1694,
+      "line": 1698,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1700,
+      "line": 1704,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1715,
+      "line": 1719,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1716,
+      "line": 1720,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1717,
+      "line": 1721,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1731,
+      "line": 1735,
       "value": "disconnect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1734,
+      "line": 1738,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1749,
+      "line": 1753,
       "value": "disconnect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1752,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 1833,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 1834,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 1835,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 1836,
+      "line": 1756,
       "value": "connect"
     },
     {
@@ -7635,146 +7671,158 @@
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1963,
+      "line": 1841,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1964,
+      "line": 1842,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 1984,
+      "line": 1843,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2028,
+      "line": 1844,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2049,
+      "line": 1967,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2054,
+      "line": 1968,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2060,
+      "line": 1988,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2066,
+      "line": 2032,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2151,
+      "line": 2053,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2152,
+      "line": 2058,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2344,
+      "line": 2064,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2701,
+      "line": 2070,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2702,
+      "line": 2155,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2703,
+      "line": 2156,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2704,
+      "line": 2348,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2867,
+      "line": 2706,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 2868,
+      "line": 2707,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 2708,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 2709,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 2872,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 2873,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 2918,
+      "line": 2923,
       "value": "request"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 3024,
+      "line": 3029,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 3072,
+      "line": 3077,
       "value": "request"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 3126,
+      "line": 3131,
       "value": "request"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 3154,
+      "line": 3159,
       "value": "request"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 3182,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 3184,
-      "value": "connect"
     },
     {
       "file": "ui/main_window.py",
@@ -7785,43 +7833,49 @@
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 3195,
+      "line": 3189,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 3283,
+      "line": 3192,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 3200,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 3288,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 3914,
+      "line": 3919,
       "value": "request_many_cached"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 3945,
+      "line": 3950,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 3946,
+      "line": 3951,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 3947,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 3948,
+      "line": 3952,
       "value": "connect"
     },
     {
@@ -7833,91 +7887,61 @@
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 3991,
+      "line": 3958,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 3992,
+      "line": 3996,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 3993,
+      "line": 3997,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 3998,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 4413,
+      "line": 4485,
       "value": "invalidate"
     },
     {
       "file": "ui/main_window.py",
       "kind": "architecture_symbol",
-      "line": 4459,
+      "line": 4531,
       "value": "ArtworkClient"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 4753,
+      "line": 4825,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 4850,
+      "line": 4922,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 4851,
+      "line": 4923,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 4891,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 5380,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 5381,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 5382,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 5383,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 5439,
-      "value": "connect"
-    },
-    {
-      "file": "ui/main_window.py",
-      "kind": "qt_connection",
-      "line": 5440,
+      "line": 4963,
       "value": "connect"
     },
     {
@@ -7935,163 +7959,199 @@
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5468,
+      "line": 5454,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5471,
+      "line": 5455,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5476,
+      "line": 5511,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5479,
+      "line": 5512,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5480,
+      "line": 5524,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5483,
+      "line": 5525,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5484,
+      "line": 5540,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5692,
+      "line": 5543,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5693,
+      "line": 5548,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 5551,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 5552,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 5555,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 5556,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 5764,
+      "value": "connect"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "qt_connection",
+      "line": 5765,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 5740,
+      "line": 5812,
       "value": "request_cached"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 5750,
+      "line": 5822,
       "value": "request"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 5774,
+      "line": 5846,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 6251,
+      "line": 6323,
       "value": "request"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 6419,
+      "line": 6491,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 6423,
+      "line": 6495,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 6577,
+      "line": 6649,
       "value": "request_many"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 6606,
+      "line": 6678,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 6871,
+      "line": 6943,
       "value": "request_many"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 6898,
+      "line": 6970,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 6899,
+      "line": 6971,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 6920,
+      "line": 6992,
       "value": "invalidate"
     },
     {
       "file": "ui/main_window.py",
       "kind": "manager_call",
-      "line": 6939,
+      "line": 7011,
       "value": "invalidate"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 6951,
+      "line": 7023,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 6952,
+      "line": 7024,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 6976,
+      "line": 7048,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 7013,
+      "line": 7085,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 7335,
+      "line": 7407,
       "value": "connect"
     },
     {
@@ -8419,5 +8479,5 @@
       "value": "cancel"
     }
   ],
-  "generated_at": "2026-09-14T19:01:21+00:00"
+  "generated_at": "2026-09-14T19:19:23+00:00"
 }

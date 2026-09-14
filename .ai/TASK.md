@@ -14,3 +14,13 @@ secret values are parsed, logged, or stored by this path.
 
 The global hotkey listener also consumes the initial dirty-bind marker before
 its first bind, preventing duplicate registration messages during startup.
+
+## Portable archived-game naming
+
+The private profile path now preserves meaningful game titles in SQLite
+history, ignores generated `Steam App <appid>` placeholders during merges, and
+repairs unresolved Steam records through cached `SteamResourceService` App
+Details requests. AppID identity remains unchanged, so repair is in-place and
+cannot create a second library row. `CloudStatusService.record_status` accepts
+both its original `generation` spelling and MainWindow's compatibility spelling
+`context_generation`.

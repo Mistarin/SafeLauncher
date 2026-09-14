@@ -61,12 +61,15 @@ ALLOWED_CONVEX_FIXTURE_HOSTS = {
     "project.convex.site",
     "scheme-less.convex.site",
     "test-deployment.eu-west-1.convex.site",
+    "test-deployment.eu-west-1.convex.cloud",
     "test.convex.site",
     "your-central-deployment.convex.site",
     "your-central-deployment.convex.cloud",
     "your-central-deployment.eu-west-1.convex.site",
     "your-profile-service.convex.site",
     "your-project.convex.site",
+    "fresh-target.eu-west-1.convex.cloud",
+    "fresh-target.eu-west-1.convex.site",
 }
 # These deployments appeared in pre-gateway historical snapshots. They are
 # public endpoint origins, not credentials; current release inputs remain
