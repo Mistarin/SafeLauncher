@@ -63,7 +63,7 @@ class AchievementResolution:
 class AchievementProvider:
     name = "base"
 
-    def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False) -> List[dict]:
+    def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False, request_manager=None) -> List[dict]:
         return []
 
 
@@ -71,7 +71,7 @@ class LanzadorSchemaProvider(AchievementProvider):
     """Offline schemas generated from Goldberg/Steam cache files."""
     name = "lanzador-local-schema"
 
-    def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False) -> List[dict]:
+    def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False, request_manager=None) -> List[dict]:
         from core.achievement_schema import find_local_achievement_schema
         return find_local_achievement_schema(game_path, proton_path, app_id)
 
@@ -80,13 +80,14 @@ class SteamSchemaProvider(AchievementProvider):
     """Cached/public Steam schema fallback used by Sentinel-like setups."""
     name = "sentinel-steam-schema"
 
-    def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False) -> List[dict]:
+    def get_schema(self, app_id: str, game_path: str, proton_path: str, download_icons: bool = False, request_manager=None) -> List[dict]:
         if not automatic_network_allowed():
             return []
         from core.achievement_schema import fetch_steam_achievements_schema
         return fetch_steam_achievements_schema(
             app_id, game_path=game_path, proton_path=proton_path,
             download_icons=download_icons,
+            request_manager=request_manager,
         )
 
 
@@ -146,7 +147,7 @@ class AchievementProviderRegistry:
     schema_providers = (LanzadorSchemaProvider(), SteamSchemaProvider())
 
     @classmethod
-    def resolve(cls, app_id: str, game_path: str = "", proton_path: str = "", download_icons: bool = False) -> AchievementResolution:
+    def resolve(cls, app_id: str, game_path: str = "", proton_path: str = "", download_icons: bool = False, request_manager=None) -> AchievementResolution:
         app_id = str(app_id or "").strip()
         if not _APP_ID_RE.fullmatch(app_id) or app_id == "0":
             return AchievementResolution([], {}, None, "", "", AchievementAvailability.MISSING,
@@ -191,7 +192,11 @@ class AchievementProviderRegistry:
         schema_source = ""
         for provider in cls.schema_providers:
             try:
-                schema = provider.get_schema(app_id, game_path, proton_path, download_icons=download_icons)
+                schema = provider.get_schema(
+                    app_id, game_path, proton_path,
+                    download_icons=download_icons,
+                    request_manager=request_manager,
+                )
             except Exception as exc:
                 logger.debug("Achievement provider %s failed for %s: %s", provider.name, app_id, exc)
                 continue
@@ -307,6 +312,10 @@ class AchievementProviderRegistry:
         )
 
 
-def resolve_achievements(app_id: str, game_path: str = "", proton_path: str = "", download_icons: bool = False) -> AchievementResolution:
+def resolve_achievements(app_id: str, game_path: str = "", proton_path: str = "", download_icons: bool = False, request_manager=None) -> AchievementResolution:
     """Public provider entry point used by workers and future UI surfaces."""
-    return AchievementProviderRegistry.resolve(app_id, game_path, proton_path, download_icons=download_icons)
+    return AchievementProviderRegistry.resolve(
+        app_id, game_path, proton_path,
+        download_icons=download_icons,
+        request_manager=request_manager,
+    )

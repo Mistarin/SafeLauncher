@@ -197,10 +197,10 @@ def _backend():
     context = cloud_context_fingerprint()
     with _LISTING_LOCK:
         if _backend_singleton is None or _backend_context != context:
-            from core.cloud_backend import ConvexSaveBackend
+            from core.cloud_client import CloudClient
             if _backend_singleton is not None:
                 _backend_singleton.close()
-            _backend_singleton = ConvexSaveBackend()
+            _backend_singleton = CloudClient()
             _backend_context = context
         return _backend_singleton
 

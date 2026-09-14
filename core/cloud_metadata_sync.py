@@ -490,28 +490,42 @@ class CloudMetadataSync:
     @classmethod
     def _sync_profile_locked(cls, db, *, force: bool = False) -> bool:
         """Serialized implementation of :meth:`sync_profile`."""
-        from core.cloud_save_sync import backend_active, _cloud_auth_configured
+        from core.cloud_save_sync import (
+            backend_active,
+            _cloud_auth_configured,
+            cloud_context_fingerprint,
+        )
+        from core.cloud_sync_queue import PendingCloudSyncQueue
+        from core.network_policy import automatic_network_allowed
+
+        queue = PendingCloudSyncQueue()
+        context = cloud_context_fingerprint()
+        local = cls._local_profile(db)
+        db_key = str(getattr(db, "db_path", "") or f"memory:{id(db)}")
+        local_digest = hashlib.sha256(
+            json.dumps(local, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        pending = bool(queue.pending(context, "profile"))
+
+        if backend_active() and not automatic_network_allowed(QSettings("SafeLauncher", "SafeLauncher")):
+            queue.enqueue(context, "profile", local_digest=local_digest)
+            return False
         if backend_active() and not _cloud_auth_configured():
-            # The backend rejects unauthenticated requests. Return quietly so
-            # startup does not create one failed network operation per game.
+            # The backend rejects unauthenticated requests. Retain the local
+            # digest so configuring credentials later has an explicit retry.
+            queue.enqueue(context, "profile", local_digest=local_digest)
             return False
 
-        local = cls._local_profile(db)
         try:
             from core.cloud_save_sync import (
                 backend_active,
                 CloudSaveSyncEngine,
                 resolve_name_key,
-                cloud_context_fingerprint,
             )
-            context = cloud_context_fingerprint()
-            db_key = str(getattr(db, "db_path", "") or f"memory:{id(db)}")
-            local_digest = hashlib.sha256(
-                json.dumps(local, sort_keys=True, separators=(",", ":")).encode("utf-8")
-            ).hexdigest()
             now = time.monotonic()
             if (
                 not force
+                and not pending
                 and _PROFILE_SYNC_STATE["context"] == context
                 and _PROFILE_SYNC_STATE["db_key"] == db_key
                 and _PROFILE_SYNC_STATE["local_digest"] == local_digest
@@ -544,6 +558,7 @@ class CloudMetadataSync:
                             local_digest=local_digest,
                             synced_at=time.monotonic(),
                         )
+                        queue.acknowledge(context, "profile", local_digest=local_digest)
                         return True
                     except Exception:
                         if attempt == 1:
@@ -598,8 +613,10 @@ class CloudMetadataSync:
                 local_digest=local_digest,
                 synced_at=time.monotonic(),
             )
+            queue.acknowledge(context, "profile", local_digest=local_digest)
             return True
         except Exception as exc:
+            queue.enqueue(context, "profile", local_digest=local_digest)
             logger.warning("Achievement profile sync failed: %s", exc)
             return False
 

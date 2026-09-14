@@ -89,6 +89,23 @@ class ProfileModelTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_offline_private_profile_sync_records_a_digest_only_retry(self):
+        db = GameDatabase(":memory:")
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                with patch("core.cloud_sync_queue._APP_DATA_DIR", directory), \
+                        patch("core.cloud_save_sync.backend_active", return_value=True), \
+                        patch("core.network_policy.automatic_network_allowed", return_value=False):
+                    self.assertFalse(CloudMetadataSync.sync_profile(db, force=True))
+                    from core.cloud_sync_queue import PendingCloudSyncQueue
+
+                    pending = PendingCloudSyncQueue().pending()
+                    self.assertEqual(len(pending), 1)
+                    self.assertEqual(pending[0]["operation"], "profile")
+                    self.assertTrue(pending[0]["local_digest"])
+        finally:
+            db.close()
+
     def test_profile_panel_themes_are_bounded(self):
         self.assertEqual(normalize_profile_theme("sunset"), "sunset")
         self.assertEqual(normalize_profile_theme("unsupported"), "grey")

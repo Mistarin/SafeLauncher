@@ -28,7 +28,7 @@ from core.plugins.gpu_screen_recorder import (
     DEFAULT_RECORDINGS_DIR
 )
 from ui.icons import get_icon, get_app_icon
-from typing import Optional
+from typing import Any, Optional
 from ui.icons import LOGO_PATH
 from ui.components.sidebar import DialogTitleBar
 from ui.components.popup_shell import PopupDialog
@@ -44,6 +44,7 @@ from core.updater import check_for_updates, download_and_apply_appimage_update, 
 from core.cloud_backend import check_backend_health
 from core.cloud_detector import detect_local_cloud_installation
 from core.safe_thread import TaskSupervisor
+from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.secret_store import get_secret, set_secret, delete_secret
 from core.network_policy import (
     automatic_network_allowed,
@@ -74,8 +75,9 @@ class UserSettingsDialog(PopupDialog):
     profile_auth_requested = pyqtSignal()
     profile_publish_requested = pyqtSignal()
     profile_resync_requested = pyqtSignal()
+    _managed_task_done = pyqtSignal(object)
 
-    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", profile_theme: str = "grey"):
+    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", profile_theme: str = "grey", request_manager=None):
         super().__init__("Settings", parent)
         self.user_name = user_name
         self.proton_path = proton_path
@@ -89,6 +91,9 @@ class UserSettingsDialog(PopupDialog):
         self.profile_theme = normalize_profile_theme(profile_theme)
         self._profile_theme_original = self.profile_theme
         self._task_supervisor = TaskSupervisor(self, logger)
+        self.request_manager = request_manager
+        self._managed_tasks: dict[str, tuple[Any, Any, Any]] = {}
+        self._managed_task_done.connect(self._on_managed_task_done)
         self._account_probe_generation = 0
         self._health_probe_generation = 0
         self._profile_action_status_custom = False
@@ -1513,7 +1518,7 @@ class UserSettingsDialog(PopupDialog):
         """Launch the full profile/quota/version manager dialog."""
         try:
             from ui.dialogs.account_dialog import AccountDialog
-            dialog = AccountDialog(self)
+            dialog = AccountDialog(self, request_manager=self.request_manager)
             dialog.exec()
             self._refresh_account_status()  # picker may have changed session/state
             self._refresh_backend_health()
@@ -1567,6 +1572,25 @@ class UserSettingsDialog(PopupDialog):
                 category="Settings",
             )
 
+        if self.request_manager is not None:
+            key = RequestKey("settings-task", f"{name}:{id(work)}")
+            handle = self.request_manager.request(
+                key,
+                lambda token: (token.raise_if_cancelled(), work(), token.raise_if_cancelled())[1],
+                priority=RequestPriority.NORMAL,
+                timeout_seconds=120,
+            )
+            if operation is not None:
+                operation.cancel = handle.cancel
+                operation.retry = lambda: self._start_managed_task(name, work, on_complete)
+            self._managed_tasks[handle.request_id] = (operation, on_complete, key)
+            handle.future.add_done_callback(
+                lambda future, request_id=handle.request_id: self._managed_task_done.emit(
+                    (request_id, future)
+                )
+            )
+            return handle
+
         def _complete(result):
             if operation is not None:
                 registry.finish_result(operation.operation_id, result)
@@ -1581,8 +1605,42 @@ class UserSettingsDialog(PopupDialog):
             )
         return worker
 
+    def _on_managed_task_done(self, payload: object) -> None:
+        request_id, future = payload
+        task = self._managed_tasks.pop(request_id, None)
+        if task is None:
+            return
+        operation, on_complete, _key = task
+        try:
+            result = future.result()
+        except Exception as error:
+            if operation is not None:
+                registry = getattr(self.parent(), "operation_registry", None)
+                if registry is not None:
+                    registry.fail(operation.operation_id, str(error))
+            return
+        if result.status == ResourceStatus.CANCELLED:
+            if operation is not None:
+                registry = getattr(self.parent(), "operation_registry", None)
+                if registry is not None:
+                    registry.finish(operation.operation_id, state="cancelled")
+            return
+        if result.status != ResourceStatus.READY:
+            value = {"error": str(result.error or result.status.value)}
+        else:
+            value = result.value
+        if operation is not None:
+            registry = getattr(self.parent(), "operation_registry", None)
+            if registry is not None:
+                registry.finish_result(operation.operation_id, value)
+        on_complete(value)
+
     def closeEvent(self, event):
         """Keep Qt workers alive until their cooperative cancellation completes."""
+        if self.request_manager is not None:
+            for _request_id, (_operation, _callback, key) in list(self._managed_tasks.items()):
+                self.request_manager.cancel(key)
+            self._managed_tasks.clear()
         self._task_supervisor.cancel_all(100)
         if self._task_supervisor.has_running_tasks():
             QTimer.singleShot(100, self.close)
@@ -1600,11 +1658,12 @@ class UserSettingsDialog(PopupDialog):
 
         def _probe():
             try:
-                from core.cloud_backend import ConvexSaveBackend, get_site_url
+                from core.cloud_client import CloudClient
+                from core.cloud_backend import get_site_url
                 site = get_site_url()
                 if not site:
                     return "Not connected."
-                backend = ConvexSaveBackend()
+                backend = CloudClient()
                 overview = backend.account()
                 used = overview.get("bytesUsed", 0)
                 quota = overview.get("quotaBytes", 1)

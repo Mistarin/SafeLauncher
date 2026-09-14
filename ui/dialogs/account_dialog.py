@@ -9,6 +9,7 @@ Network work happens on daemon threads; results marshal back via signals.
 
 import os
 import time
+from typing import Any
 
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
@@ -22,6 +23,7 @@ from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
 from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
+from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.date_formatting import format_datetime_timestamp
 
 logger = get_logger("AccountDialog")
@@ -57,14 +59,18 @@ class AccountDialog(PopupDialog):
 
     _data_ready = pyqtSignal(object)   # {'ok': {...}} | {'error': str}
     _op_done = pyqtSignal(object)
+    _managed_task_done = pyqtSignal(object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, request_manager=None):
         super().__init__("Cloud Account", parent)
         self.setFixedSize(780, 560)
         self._games = []
         self._quota = {}
         self._busy = False
         self._task_supervisor = TaskSupervisor(self, logger)
+        self.request_manager = request_manager
+        self._managed_tasks: dict[str, tuple[Any, Any, Any]] = {}
+        self._managed_task_done.connect(self._on_managed_task_done)
 
         body_layout = self.popup_layout(margins=(20, 16, 20, 16), spacing=12)
 
@@ -253,6 +259,25 @@ class AccountDialog(PopupDialog):
                 category="Cloud Account",
             )
 
+        if self.request_manager is not None:
+            key = RequestKey("cloud-account-task", f"{name}:{id(work)}")
+            handle = self.request_manager.request(
+                key,
+                lambda token: (token.raise_if_cancelled(), work(), token.raise_if_cancelled())[1],
+                priority=RequestPriority.NORMAL,
+                timeout_seconds=60,
+            )
+            if operation is not None:
+                operation.cancel = handle.cancel
+                operation.retry = lambda: self._start_task(name, work, on_complete)
+            self._managed_tasks[handle.request_id] = (operation, on_complete, key)
+            handle.future.add_done_callback(
+                lambda future, request_id=handle.request_id: self._managed_task_done.emit(
+                    (request_id, future)
+                )
+            )
+            return handle
+
         def _complete(result):
             if operation is not None:
                 registry.finish_result(operation.operation_id, result)
@@ -267,7 +292,40 @@ class AccountDialog(PopupDialog):
             )
         return worker
 
+    def _on_managed_task_done(self, payload: object) -> None:
+        request_id, future = payload
+        task = self._managed_tasks.pop(request_id, None)
+        if task is None:
+            return
+        operation, on_complete, _key = task
+        try:
+            result = future.result()
+        except Exception as error:
+            result = {"error": str(error)}
+        if hasattr(result, "status"):
+            if result.status == ResourceStatus.READY:
+                value = result.value
+            elif result.status == ResourceStatus.CANCELLED:
+                if operation is not None:
+                    operation_registry = getattr(self.parent(), "operation_registry", None)
+                    if operation_registry is not None:
+                        operation_registry.finish(operation.operation_id, state="cancelled")
+                return
+            else:
+                value = {"error": str(result.error or result.status.value)}
+        else:
+            value = result
+        if operation is not None:
+            operation_registry = getattr(self.parent(), "operation_registry", None)
+            if operation_registry is not None:
+                operation_registry.finish_result(operation.operation_id, value)
+        on_complete(value)
+
     def closeEvent(self, event):
+        if self.request_manager is not None:
+            for _request_id, (_operation, _callback, key) in list(self._managed_tasks.items()):
+                self.request_manager.cancel(key)
+            self._managed_tasks.clear()
         self._task_supervisor.cancel_all(100)
         if self._task_supervisor.has_running_tasks():
             QTimer.singleShot(100, self.close)
@@ -284,11 +342,12 @@ class AccountDialog(PopupDialog):
 
     def _load_worker(self):
         try:
-            from core.cloud_backend import ConvexSaveBackend, get_site_url
+            from core.cloud_client import CloudClient
+            from core.cloud_backend import get_site_url
             site = get_site_url()
             if not site:
                 return {"ok": None}   # not connected state
-            backend = ConvexSaveBackend()
+            backend = CloudClient()
             listing = backend.list_games()
             overview = backend.account()
             return {
@@ -410,8 +469,8 @@ class AccountDialog(PopupDialog):
 
         def _work():
             try:
-                from core.cloud_backend import ConvexSaveBackend
-                ConvexSaveBackend().revoke_device(device_id)
+                from core.cloud_client import CloudClient
+                CloudClient().revoke_device(device_id)
             except Exception as e:
                 logger.warning(f"Device revocation failed: {e}")
             return {"revoked": device_id}
@@ -566,8 +625,8 @@ class AccountDialog(PopupDialog):
 
         def _work():
             try:
-                from core.cloud_backend import ConvexSaveBackend
-                deleted = ConvexSaveBackend().delete_generation(name_key, version)
+                from core.cloud_client import CloudClient
+                deleted = CloudClient().delete_generation(name_key, version)
                 return {"deleted": deleted, "name": name_key}
             except Exception as e:
                 return {"error": str(e)}

@@ -200,7 +200,8 @@ def download_achievement_icons_batch(
     achievements: List[Dict[str, Any]],
     app_id: str,
     max_workers: int = 10,
-    timeout: float = 6.0
+    timeout: float = 6.0,
+    request_manager=None,
 ) -> List[Dict[str, Any]]:
     """Download achievement badges concurrently with a fast thread pool."""
     if not achievements or not app_id:
@@ -254,6 +255,22 @@ def download_achievement_icons_batch(
                             pass
             if target_gray.is_file() and target_gray.stat().st_size > 0:
                 item["icongray_path"] = str(target_gray)
+
+    if request_manager is not None:
+        from core.request_contracts import RequestKey, RequestPriority, RequestSpec
+
+        specs = []
+        for item in achievements:
+            identity = str(item.get("api_name", "ACH")).strip() or "ACH"
+            key = RequestKey("achievement-icons", f"{app_id}:{identity}")
+            specs.append(RequestSpec(
+                key,
+                lambda token, item=item: (token.raise_if_cancelled(), _dl_one(item), token.raise_if_cancelled())[1],
+                priority=RequestPriority.BACKGROUND,
+                timeout_seconds=max(1.0, timeout * 2),
+            ))
+        request_manager.request_many(specs)
+        return achievements
 
     with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="SafeLauncher-IconDL") as executor:
         list(executor.map(_dl_one, achievements))
@@ -339,7 +356,7 @@ def find_local_achievement_schema(game_path: Optional[str] = None, proton_path: 
     return []
 
 
-def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir: Optional[Path] = None, download_icons: bool = False) -> List[Dict[str, Any]]:
+def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir: Optional[Path] = None, download_icons: bool = False, request_manager=None) -> List[Dict[str, Any]]:
     """Parse public Steam Community achievements page (no API key required)."""
     if not _COMMUNITY_RATE_LIMITER.acquire(1.0, timeout=timeout):
         logger.warning(f"Steam Community rate limiter capacity exceeded for AppID {app_id}.")
@@ -441,7 +458,7 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
             logger.debug(f"Regex HTML parsing failed for AppID {app_id}: {e}")
 
     if download_icons and achievements:
-        download_achievement_icons_batch(achievements, app_id, timeout=timeout)
+        download_achievement_icons_batch(achievements, app_id, timeout=timeout, request_manager=request_manager)
 
     return achievements
 
@@ -452,7 +469,8 @@ def fetch_steam_achievements_schema(
     proton_path: Optional[str] = None,
     api_key: Optional[str] = None,
     timeout: float = 8.0,
-    download_icons: bool = False
+    download_icons: bool = False,
+    request_manager=None,
 ) -> List[Dict[str, Any]]:
     """
     Fetch all achievement definitions for a given Steam AppID in sub-second time.
@@ -478,7 +496,7 @@ def fetch_steam_achievements_schema(
             if cached_data:
                 logger.debug(f"Loaded {len(cached_data)} achievements from cache for AppID {app_id}")
                 if download_icons and automatic_network_allowed():
-                    download_achievement_icons_batch(cached_data, app_id, timeout=timeout)
+                    download_achievement_icons_batch(cached_data, app_id, timeout=timeout, request_manager=request_manager)
                 return cached_data
         except Exception as e:
             logger.debug(f"Could not parse cached achievement schema for {app_id}: {e}")
@@ -549,7 +567,7 @@ def fetch_steam_achievements_schema(
 
     # 4. Try public Steam Community HTML scraper (100% keyless, public, 1 single HTTP request)
     if not achievements:
-        achievements = _fetch_steam_community_html(app_id, timeout=timeout, app_icon_dir=app_icon_dir, download_icons=False)
+        achievements = _fetch_steam_community_html(app_id, timeout=timeout, app_icon_dir=app_icon_dir, download_icons=False, request_manager=request_manager)
 
     # 5. Try Steam Community XML stats endpoint
     if not achievements:
@@ -598,7 +616,7 @@ def fetch_steam_achievements_schema(
     # If icons were explicitly requested, download in parallel
     achievements = _validated_schema(achievements)
     if download_icons and achievements:
-        download_achievement_icons_batch(achievements, app_id, timeout=timeout)
+        download_achievement_icons_batch(achievements, app_id, timeout=timeout, request_manager=request_manager)
 
     # Save to disk cache if fetched successfully
     if achievements:
@@ -625,7 +643,8 @@ class SteamAchievementFetcherWorker(SafeQThread):
         proton_path: Optional[str] = None,
         api_key: Optional[str] = None,
         download_icons: bool = False,
-        parent=None
+        parent=None,
+        request_manager=None,
     ):
         super().__init__(parent)
         self.game_id = game_id
@@ -634,6 +653,7 @@ class SteamAchievementFetcherWorker(SafeQThread):
         self.proton_path = proton_path
         self.api_key = api_key
         self.download_icons = download_icons
+        self.request_manager = request_manager
 
     def safe_run(self):
         try:
@@ -650,6 +670,7 @@ class SteamAchievementFetcherWorker(SafeQThread):
                 self.game_path or "",
                 self.proton_path or "",
                 download_icons=self.download_icons,
+                request_manager=self.request_manager,
             )
             if self.isInterruptionRequested():
                 return

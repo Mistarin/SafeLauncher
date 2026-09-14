@@ -30,8 +30,10 @@ from core.achievement_schema import SteamAchievementFetcherWorker
 from core.achievement_providers import AchievementAvailability
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
+from core.request_contracts import RequestKey, RequestPriority, ResourceResult, ResourceStatus
 from ui.icons import get_icon
 from ui.components.popup_shell import PopupDialog
+from ui.resource_binding import ResourceBinding, bind_resource
 
 logger = get_logger("AchievementsDialog")
 
@@ -356,7 +358,7 @@ class AchievementsDialog(PopupDialog):
     Apple macOS styled Game Achievements Viewer.
     Features frosted glass metric cards, segmented filter pills, search, and rich tooltips.
     """
-    def __init__(self, game: Any, db: GameDatabase, parent: Optional[QWidget] = None):
+    def __init__(self, game: Any, db: GameDatabase, parent: Optional[QWidget] = None, request_manager=None):
         initial_name = (
             game[1] if isinstance(game, (tuple, list)) else
             game.get("name", "Achievements") if isinstance(game, dict) else
@@ -365,6 +367,7 @@ class AchievementsDialog(PopupDialog):
         super().__init__(f"Achievements - {initial_name}", parent)
         self.game = game
         self.db = db
+        self.request_manager = request_manager
 
         if isinstance(game, (list, tuple)):
             self.game_id = game[0]
@@ -393,6 +396,8 @@ class AchievementsDialog(PopupDialog):
         self.search_query = ""
         self.sort_mode = "unlocked_first"
         self.fetch_worker = None
+        self._schema_binding: ResourceBinding | None = None
+        self._schema_request_key: RequestKey | None = None
         self._close_requested = False
         self._pending_result = None
         self._last_resolution = None
@@ -465,6 +470,7 @@ class AchievementsDialog(PopupDialog):
 
     def closeEvent(self, event):
         """Do not destroy a dialog-owned resolver while its QThread runs."""
+        self._close_managed_schema_binding()
         worker = self.fetch_worker
         if worker is not None and worker.isRunning():
             self._close_requested = True
@@ -499,6 +505,7 @@ class AchievementsDialog(PopupDialog):
 
     def done(self, result: int) -> None:
         """Defer accept/reject until the resolver has stopped emitting."""
+        self._close_managed_schema_binding()
         worker = self.fetch_worker
         if worker is not None and worker.isRunning():
             self._close_requested = True
@@ -792,6 +799,10 @@ class AchievementsDialog(PopupDialog):
         """Render cached achievements, then resolve local/Steam state once."""
         if self.fetch_worker is not None and self.fetch_worker.isRunning():
             return
+        if self._schema_binding is not None:
+            if not force:
+                return
+            self._close_managed_schema_binding()
         app_id = self.game_steam_id.strip() if self.game_steam_id else ""
         if not app_id:
             self.status_tag.setText(" No Steam AppID ")
@@ -821,13 +832,62 @@ class AchievementsDialog(PopupDialog):
 
         self.status_tag.setText(" Resolving achievement data… ")
         self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #0A84FF; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+
+        if self.request_manager is not None:
+            # The manager key includes the installation context because local
+            # achievement files can differ between two copies of the same
+            # Steam game.  Separate dialogs for the same target still share
+            # one in-flight resolution through this stable key.
+            key = RequestKey(
+                "achievement-resolution",
+                app_id,
+                f"{self.game_path}\x1f{self.game_proton_path}",
+            )
+            self._schema_request_key = key
+            self._schema_binding = bind_resource(
+                self.request_manager,
+                key,
+                self._on_managed_resolution_state,
+                parent=self,
+                # A dialog closing must not cancel a request another dialog
+                # may be sharing. The binding still detaches immediately.
+                cancel_on_close=False,
+            )
+
+            def _resolve(token):
+                token.raise_if_cancelled()
+                from core.achievement_coordinator import coordinated_resolve
+
+                resolution = coordinated_resolve(
+                    app_id,
+                    self.game_path,
+                    self.game_proton_path,
+                    download_icons=True,
+                    request_manager=self.request_manager,
+                )
+                token.raise_if_cancelled()
+                return resolution
+
+            try:
+                self.request_manager.request(
+                    key,
+                    _resolve,
+                    priority=RequestPriority.NORMAL,
+                    timeout_seconds=60.0,
+                )
+            except Exception as exc:
+                self._close_managed_schema_binding()
+                self._on_schema_failed(self.game_id, app_id, str(exc))
+            return
+
         self.fetch_worker = SteamAchievementFetcherWorker(
             self.game_id,
             app_id,
             game_path=self.game_path,
             proton_path=self.game_proton_path,
             download_icons=True,
-            parent=self
+            parent=self,
+            request_manager=self.request_manager,
         )
         self.fetch_worker.resolution_ready.connect(self._on_resolution_ready)
         self.fetch_worker.failed.connect(self._on_schema_failed)
@@ -835,6 +895,30 @@ class AchievementsDialog(PopupDialog):
         worker.finished.connect(lambda w=worker: self._release_fetch_worker(w))
         worker.finished.connect(worker.deleteLater)
         self.fetch_worker.start()
+
+    def _on_managed_resolution_state(self, result: ResourceResult) -> None:
+        """Apply manager results on the dialog's Qt thread."""
+        if self._close_requested or result.key != self._schema_request_key:
+            return
+        if result.status == ResourceStatus.LOADING:
+            self.status_tag.setText(" Resolving achievement data… ")
+            return
+        if result.status in {ResourceStatus.READY, ResourceStatus.STALE} and result.value is not None:
+            self._on_resolution_ready(self.game_id, self.game_steam_id, result.value)
+            return
+        if result.status in {ResourceStatus.ERROR, ResourceStatus.OFFLINE}:
+            self._on_schema_failed(
+                self.game_id,
+                self.game_steam_id,
+                str(result.error or "Achievement data unavailable"),
+            )
+
+    def _close_managed_schema_binding(self) -> None:
+        binding = self._schema_binding
+        self._schema_binding = None
+        self._schema_request_key = None
+        if binding is not None:
+            binding.close()
 
     def _release_fetch_worker(self, worker) -> None:
         """Release completed resolver workers so refreshes do not accumulate children."""

@@ -5,6 +5,7 @@ background thread exceptions from crashing Qt event loops or destroying thread h
 """
 
 import atexit
+from functools import partial
 import time
 import traceback
 import weakref
@@ -25,6 +26,11 @@ def _discard_live_thread(worker_ref) -> None:
     worker = worker_ref()
     if worker is not None:
         _LIVE_THREADS.discard(worker)
+
+
+def _discard_live_thread_signal(worker_ref, *_args) -> None:
+    """Remove a worker from the process registry from any Qt signal shape."""
+    _discard_live_thread(worker_ref)
 
 
 def _is_running(worker: QThread) -> bool:
@@ -108,11 +114,14 @@ def _register_live_thread(worker: QThread) -> None:
         _ATEXIT_HOOK_REGISTERED = True
     worker_ref = weakref.ref(worker)
     try:
-        worker.destroyed.connect(lambda _object=None, ref=worker_ref: _discard_live_thread(ref))
+        worker.destroyed.connect(partial(_discard_live_thread_signal, worker_ref))
         # A finished QThread is no longer a shutdown hazard. Removing it here
         # also prevents the weak registry from retaining a large collection of
         # already-finished wrappers until application teardown.
-        worker.finished.connect(lambda ref=worker_ref: _discard_live_thread(ref))
+        # QThread.finished is currently argument-less, but accepting and
+        # discarding any signal arguments keeps this callback safe across Qt
+        # bindings that expose an overload with a boolean result.
+        worker.finished.connect(partial(_discard_live_thread_signal, worker_ref))
     except RuntimeError:
         pass
     _install_app_shutdown_hook()
@@ -268,22 +277,12 @@ class TaskSupervisor(QObject):
             )
         )
 
-        worker_ref = weakref.ref(worker)
-
-        def _retire(ref=worker_ref):
-            w = ref()
-            if w is None:
-                return
-            if w in self._workers:
-                self._workers.remove(w)
-            try:
-                w.deleteLater()
-            except RuntimeError:
-                # A late queued finished callback can run after an embedding
-                # application's QObject tree has already deleted the wrapper.
-                pass
-
-        worker.finished.connect(_retire)
+        # Keep the worker strongly owned until the supervisor is closed.  A
+        # QThread emits finished() before queued QObject cleanup is delivered;
+        # releasing an unparented wrapper from that signal can destroy the
+        # native object while the remaining signal callbacks are dispatching.
+        # Finished workers are cheap and are cleared synchronously by
+        # shutdown(), after every native thread has been reaped.
         self._workers.append(worker)
         if self._worker_registry is not None:
             self._worker_registry.register(worker, name)
@@ -320,6 +319,7 @@ class TaskSupervisor(QObject):
         while True:
             running = [worker for worker in list(self._workers) if _is_running(worker)]
             if not running:
+                self._workers.clear()
                 return
             now = time.monotonic()
             if now >= deadline and not deadline_reported:
@@ -379,26 +379,14 @@ class WorkerSupervisor(QObject):
         worker_name = name or worker.objectName() or worker.__class__.__name__
         self._workers.append(worker)
         self._names[worker] = worker_name
-        worker_ref = weakref.ref(worker)
-        def _finished(ref=worker_ref):
-            worker_obj = ref()
-            if worker_obj is not None:
-                self._on_finished(worker_obj)
-
-        worker.finished.connect(_finished)
-        # Qt's documented cleanup pattern for QThread subclasses. The
-        # supervisor removes its Python references first; deleteLater then
-        # releases the QObject on its owning thread after the native thread
-        # has stopped, preventing both QObject accumulation and live-thread
-        # destruction during parent teardown.
-        worker.finished.connect(worker.deleteLater)
+        # Bind the worker explicitly because QThread.finished carries no
+        # worker argument.  Accepting optional signal payloads keeps the
+        # adapter compatible with bindings that expose another overload.
+        worker.finished.connect(partial(self._on_finished, worker))
         self.worker_registered.emit(worker)
         return True
 
-    def _on_finished(self, worker: QThread) -> None:
-        self._names.pop(worker, None)
-        if worker in self._workers:
-            self._workers.remove(worker)
+    def _on_finished(self, worker: QThread, *_args) -> None:
         self.worker_finished.emit(worker)
 
     def workers(self, running_only: bool = False) -> list[QThread]:
@@ -430,6 +418,10 @@ class WorkerSupervisor(QObject):
         self.cancel_all()
         while self.has_running_workers():
             self.wait(250)
+        # All native threads are stopped now, so releasing the wrappers cannot
+        # trigger Qt's live-QThread destruction warning.
+        self._workers.clear()
+        self._names.clear()
 
     def __del__(self):
         # MainWindow normally reaches this boundary with an empty registry,

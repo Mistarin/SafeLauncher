@@ -19,6 +19,8 @@ from ui.threads import BannerFetcher, BannerDownloader, ArchiveExtractorThread, 
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
+from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+from ui.resource_binding import ResourceBinding, bind_resource
 
 DEFAULT_SANDBOX_DIR = os.path.expanduser("~/Games/Sandbox")
 UNSET_BUILD_DATE = QDate(1970, 1, 1)
@@ -98,7 +100,7 @@ def load_sandbox_config(dir_path: str) -> str | None:
 
 
 class AddGameDialog(PopupDialog):
-    def __init__(self, parent=None, sgdb_client: SteamGridDBClient = None):
+    def __init__(self, parent=None, sgdb_client: SteamGridDBClient = None, request_manager=None):
         super().__init__("Add Game", parent)
         self.setMinimumSize(780, 560)
         self.resize(860, 680)
@@ -107,6 +109,7 @@ class AddGameDialog(PopupDialog):
             self.setWindowIcon(QIcon(LOGO_PATH))
             
         self.sgdb_client = sgdb_client
+        self.request_manager = request_manager
         self.banner_path = None
         self._form_result = None
         self._version_result = None
@@ -115,6 +118,8 @@ class AddGameDialog(PopupDialog):
         self._steam_id_result = None
         self.fetcher_thread = None
         self.downloader_thread = None
+        self._banner_search_binding: ResourceBinding | None = None
+        self._banner_download_binding: ResourceBinding | None = None
         self.extractor_thread = None
         self._close_requested = False
         self._pending_result = 0
@@ -378,6 +383,7 @@ class AddGameDialog(PopupDialog):
 
     def closeEvent(self, event):
         """Defer dialog destruction until banner/archive workers have stopped."""
+        self._close_managed_artwork_bindings()
         if self._defer_thread_close(0):
             event.ignore()
             return
@@ -385,9 +391,18 @@ class AddGameDialog(PopupDialog):
 
     def done(self, result: int) -> None:
         """Protect modal accept/reject paths as well as the window close path."""
+        self._close_managed_artwork_bindings()
         if self._defer_thread_close(result):
             return
         super().done(result)
+
+    def _close_managed_artwork_bindings(self) -> None:
+        for binding_name in ("_banner_search_binding", "_banner_download_binding"):
+            binding = getattr(self, binding_name, None)
+            if binding is not None:
+                binding.close()
+                binding.deleteLater()
+                setattr(self, binding_name, None)
 
     def _defer_thread_close(self, result: int) -> bool:
         active = [
@@ -514,8 +529,41 @@ class AddGameDialog(PopupDialog):
         
         self.fetch_btn.setEnabled(False)
         self.fetch_btn.setText("Searching...")
+
+        if self.request_manager is not None:
+            if self._banner_search_binding is not None:
+                self._banner_search_binding.close()
+                self._banner_search_binding.deleteLater()
+            key = RequestKey("artwork-search", game_name.casefold(), "steam-store")
+            loader = lambda token: (
+                token.raise_if_cancelled(),
+                self.sgdb_client.search_game(game_name),
+            )[1]
+            self._banner_search_binding = bind_resource(
+                self.request_manager,
+                key,
+                lambda result: self._on_managed_banner_search_state(result),
+                self,
+                cancel_on_close=True,
+            )
+            if getattr(self.request_manager, "cache", None) is not None:
+                self.request_manager.request_cached(
+                    key,
+                    loader,
+                    max_age_seconds=24 * 60 * 60,
+                    priority=RequestPriority.NORMAL,
+                    timeout_seconds=15,
+                )
+            else:
+                self.request_manager.request(
+                    key,
+                    loader,
+                    priority=RequestPriority.NORMAL,
+                    timeout_seconds=15,
+                )
+            return
         
-        self.fetcher_thread = BannerFetcher(game_name, self.sgdb_client, parent=self)
+        self.fetcher_thread = BannerFetcher(game_name, self.sgdb_client, parent=self, request_manager=self.request_manager)
         self.fetcher_thread.results_found.connect(self._on_results_found)
         self.fetcher_thread.error_occurred.connect(self._on_search_error)
         self.fetcher_thread.finished.connect(self._reset_fetch_button)
@@ -523,6 +571,23 @@ class AddGameDialog(PopupDialog):
         fetcher.finished.connect(lambda thread=fetcher: self._release_fetcher(thread))
         fetcher.finished.connect(fetcher.deleteLater)
         self.fetcher_thread.start()
+
+    def _on_managed_banner_search_state(self, result) -> None:
+        if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
+            value = result.value if isinstance(result.value, dict) else {}
+            if value.get("found") and value.get("results"):
+                self._on_results_found(value["results"])
+            else:
+                self._on_search_error("No games found matching your search")
+            self._reset_fetch_button()
+        elif result.status in {
+            ResourceStatus.ERROR,
+            ResourceStatus.OFFLINE,
+            ResourceStatus.CANCELLED,
+        }:
+            if result.status != ResourceStatus.CANCELLED:
+                self._on_search_error(str(result.error or result.status.value))
+            self._reset_fetch_button()
 
     def _release_fetcher(self, thread) -> None:
         """Release a completed artwork lookup before the next search."""
@@ -579,17 +644,49 @@ class AddGameDialog(PopupDialog):
             self.steam_id_input.setText(self.selected_steam_id)
             banner_url = result.get('banner_url')
             if banner_url and self.sgdb_client:
+                if self.request_manager is not None:
+                    if self._banner_download_binding is not None:
+                        self._banner_download_binding.close()
+                        self._banner_download_binding.deleteLater()
+                    key = RequestKey("artwork-banner", str(banner_url), "selected")
+                    loader = lambda token, banner_url=banner_url: (
+                        token.raise_if_cancelled(),
+                        self.sgdb_client.download_banner(banner_url),
+                    )[1]
+                    self._banner_download_binding = bind_resource(
+                        self.request_manager,
+                        key,
+                        lambda state: self._on_managed_banner_download_state(state),
+                        self,
+                        cancel_on_close=True,
+                    )
+                    self.request_manager.request(
+                        key,
+                        loader,
+                        priority=RequestPriority.CRITICAL,
+                        timeout_seconds=30,
+                    )
+                    return
                 if self.downloader_thread and self.downloader_thread.isRunning():
                     self.downloader_thread.requestInterruption()
                     if not self.downloader_thread.wait(3000):
                         self._on_search_error("The previous cover download is still stopping; please try again.")
                         return
-                self.downloader_thread = BannerDownloader(banner_url, self.sgdb_client, parent=self)
+                self.downloader_thread = BannerDownloader(banner_url, self.sgdb_client, parent=self, request_manager=self.request_manager)
                 downloader = self.downloader_thread
                 downloader.download_complete.connect(self._on_banner_downloaded)
                 downloader.finished.connect(lambda thread=downloader: self._release_downloader(thread))
                 downloader.finished.connect(downloader.deleteLater)
                 downloader.start()
+
+    def _on_managed_banner_download_state(self, result) -> None:
+        if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
+            self._on_banner_downloaded(str(result.value or ""))
+        elif result.status in {
+            ResourceStatus.ERROR,
+            ResourceStatus.OFFLINE,
+        }:
+            self._on_search_error(str(result.error or "Banner download failed."))
 
     def _release_downloader(self, thread) -> None:
         """Release a completed artwork download before another selection."""
@@ -616,7 +713,7 @@ class AddGameDialog(PopupDialog):
     def _on_search_error(self, error_msg: str):
         """Handle search error"""
         QMessageBox.information(self, "Search Info", error_msg)
-    
+
     def _reset_fetch_button(self):
         """Re-enable fetch button"""
         self.fetch_btn.setEnabled(True)

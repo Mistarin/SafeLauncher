@@ -24,7 +24,7 @@ def _key(app_id: str, game_path: str, proton_path: str) -> tuple[str, str, str]:
     return (str(app_id or "").strip(), str(game_path or ""), str(proton_path or ""))
 
 
-def coordinated_resolve(app_id: str, game_path: str = "", proton_path: str = "", *, download_icons: bool = False) -> AchievementResolution:
+def coordinated_resolve(app_id: str, game_path: str = "", proton_path: str = "", *, download_icons: bool = False, request_manager=None) -> AchievementResolution:
     """Resolve one target once for overlapping callers."""
     key = _key(app_id, game_path, proton_path)
     lock = _TARGET_LOCKS[key]
@@ -34,7 +34,11 @@ def coordinated_resolve(app_id: str, game_path: str = "", proton_path: str = "",
             cached = _CACHE.get(key)
             if cached and now - cached[0] < _CACHE_TTL_SECONDS and (not download_icons or cached[1].schema):
                 return cached[1]
-        result = resolve_achievements(app_id, game_path, proton_path, download_icons=download_icons)
+        result = resolve_achievements(
+            app_id, game_path, proton_path,
+            download_icons=download_icons,
+            request_manager=request_manager,
+        )
         with _CACHE_LOCK:
             _CACHE[key] = (time.monotonic(), result)
             if len(_CACHE) > 256:

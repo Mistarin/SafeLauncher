@@ -1,9 +1,8 @@
-import urllib.parse
-import requests
 from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
+from core.steam_client import SteamClient
 
 logger = get_logger("SteamTags")
 
@@ -12,10 +11,12 @@ class SteamTagsFetcher(SafeQThread):
     """Background worker thread to auto-fetch Steam genres and category tags for a game."""
     tags_found = pyqtSignal(int, list, str)  # game_id, tags_list, steam_app_id
 
-    def __init__(self, game_id: int, game_name: str, parent=None):
+    def __init__(self, game_id: int, game_name: str, parent=None, request_manager=None, steam_client=None):
         super().__init__(parent)
         self.game_id = game_id
         self.game_name = game_name
+        self.request_manager = request_manager
+        self.steam_client = steam_client
 
     def _emit_if_active(self, tags: list, app_id: str = "") -> None:
         """Never deliver a late result after cooperative cancellation."""
@@ -23,66 +24,62 @@ class SteamTagsFetcher(SafeQThread):
             self.tags_found.emit(self.game_id, tags, app_id)
 
     def safe_run(self):
+        if self.isInterruptionRequested():
+            return
+        if self.request_manager is not None:
+            from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+            client = self.steam_client or SteamClient()
+            identity = self.game_name.strip().casefold() or f"game-{self.game_id}"
+            key = RequestKey("steam-tags", identity)
+            loader = lambda token: (token.raise_if_cancelled(), client.tags_for_game(self.game_name))[1]
+            if getattr(self.request_manager, "cache", None) is not None:
+                handle = self.request_manager.request_cached(
+                    key,
+                    loader,
+                    max_age_seconds=7 * 24 * 60 * 60,
+                    priority=RequestPriority.NORMAL,
+                    timeout_seconds=10,
+                )
+            else:
+                handle = self.request_manager.request(
+                    key,
+                    loader,
+                    priority=RequestPriority.NORMAL,
+                    timeout_seconds=10,
+                )
+            result = handle.future.result()
+            usable = result
+            if result.status != ResourceStatus.READY:
+                cached_state = self.request_manager.state(key)
+                if cached_state.status == ResourceStatus.STALE:
+                    usable = cached_state
+            if usable.status in {ResourceStatus.READY, ResourceStatus.STALE} and usable.value and not self.isInterruptionRequested():
+                tags, app_id = usable.value
+                self._emit_if_active(tags, str(app_id))
+            elif result.status == ResourceStatus.ERROR:
+                logger.debug("Managed Steam tag request failed for %s: %s", self.game_name, result.error)
+                self._emit_if_active([], "")
+            if self.steam_client is None:
+                client.close()
+            return
         if not automatic_network_allowed():
             return
-        resp = None
-        resp_detail = None
+        self._safe_run_direct(None)
+
+    def _safe_run_direct(self, token=None):
+        client = self.steam_client or SteamClient()
         try:
-            if self.isInterruptionRequested():
+            if (token and token.cancelled) or self.isInterruptionRequested():
                 return
-            query = urllib.parse.quote(self.game_name)
-            search_url = f"https://store.steampowered.com/api/storesearch/?term={query}&l=english&cc=US"
-            resp = requests.get(search_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
-            if resp.status_code != 200:
-                self._emit_if_active([], "")
+            combined, app_id = client.tags_for_game(self.game_name)
+
+            if (token and token.cancelled) or self.isInterruptionRequested():
                 return
-            search_data = resp.json()
-            resp.close()
-            resp = None
-
-            if self.isInterruptionRequested():
-                return
-
-            items = search_data.get("items", [])
-            if not items:
-                self._emit_if_active([], "")
-                return
-
-            app_id = items[0]["id"]
-            detail_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}"
-            resp_detail = requests.get(detail_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
-            if resp_detail.status_code != 200:
-                self._emit_if_active([], str(app_id))
-                return
-            detail_data = resp_detail.json()
-            resp_detail.close()
-            resp_detail = None
-
-            if self.isInterruptionRequested():
-                return
-
-            app_data = detail_data.get(str(app_id), {}).get("data", {})
-            if not app_data:
-                self._emit_if_active([], str(app_id))
-                return
-
-            genres = [g["description"] for g in app_data.get("genres", [])]
-            categories = [c["description"] for c in app_data.get("categories", [])]
-
-            combined = []
-            for t in genres + categories:
-                if t not in combined and len(combined) < 4:
-                    combined.append(t)
-
             logger.info(f"Fetched Steam tags for '{self.game_name}': {combined}")
             self._emit_if_active(combined, str(app_id))
         except Exception as e:
             logger.warning(f"Failed to fetch Steam tags for '{self.game_name}': {e}")
             self._emit_if_active([], "")
         finally:
-            for response in (resp, resp_detail):
-                if response is not None:
-                    try:
-                        response.close()
-                    except Exception:
-                        pass
+            if self.steam_client is None:
+                client.close()

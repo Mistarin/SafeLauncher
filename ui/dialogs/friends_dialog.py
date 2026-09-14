@@ -14,6 +14,7 @@ from core.network_policy import automatic_network_allowed
 from core.profile_models import HANDLE_RE, load_profile_settings, normalize_social_snapshot
 from core.profile_service import ProfileServiceClient, ProfileServiceError, get_profile_service_url
 from core.safe_thread import TaskSupervisor
+from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from ui.components.popup_shell import PopupDialog
 from ui.icons import get_icon
 from ui.theme import SEMANTIC_ERROR, SEMANTIC_SUCCESS, TEXT_PRIMARY, TEXT_SECONDARY
@@ -29,13 +30,17 @@ class FriendsDialog(PopupDialog):
 
     open_profile_requested = pyqtSignal(str)
     open_owner_profile_requested = pyqtSignal()
+    _managed_remote_done = pyqtSignal(object)
 
     def __init__(self, settings: QSettings | None = None, auth_session=None,
-                 parent=None, worker_registry=None, focus_find: bool = False):
+                 parent=None, worker_registry=None, focus_find: bool = False, request_manager=None):
         super().__init__("Friends", parent)
         self.settings = settings or QSettings("SafeLauncher", "SafeLauncher")
         self.auth_session = auth_session
         self._tasks = TaskSupervisor(self, worker_registry=worker_registry)
+        self.request_manager = request_manager
+        self._managed_handles: dict[str, tuple[Any, Any, Any]] = {}
+        self._managed_remote_done.connect(self._on_managed_remote_done)
         self._focus_find = bool(focus_find)
         self._social_loading = False
         self._social_mutating = False
@@ -296,6 +301,14 @@ class FriendsDialog(PopupDialog):
             with ProfileServiceClient(service_url, auth_session=self.auth_session) as client:
                 return client.get_social(handle)
 
+        if self._start_managed_remote(
+            RequestKey("friends-dialog-refresh", f"{service_url}:{handle}"),
+            work,
+            self._refresh_done,
+            lambda error: self._refresh_done(ProfileServiceError(str(error), "social_refresh_failed")),
+        ) is not None:
+            return
+
         worker = self._tasks.start("SafeLauncher-FriendsDialogRefresh", work, self._refresh_done)
         worker.error_occurred.connect(lambda error: self._refresh_done(ProfileServiceError(error, "social_refresh_failed")))
 
@@ -309,6 +322,39 @@ class FriendsDialog(PopupDialog):
         self.status_label.setStyleSheet("")
         self._snapshot = normalize_social_snapshot(result if isinstance(result, dict) else {})
         self._render()
+
+    def _start_managed_remote(self, key, loader, on_ready, on_error):
+        if self.request_manager is None:
+            return None
+        handle = self.request_manager.request(
+            key,
+            lambda token: (token.raise_if_cancelled(), loader())[1],
+            priority=RequestPriority.NORMAL,
+            timeout_seconds=20,
+        )
+        self._managed_handles[handle.request_id] = (key, on_ready, on_error)
+        handle.future.add_done_callback(
+            lambda future, request_id=handle.request_id: self._managed_remote_done.emit(
+                (request_id, future)
+            )
+        )
+        return handle
+
+    def _on_managed_remote_done(self, payload: object) -> None:
+        request_id, future = payload
+        callbacks = self._managed_handles.pop(request_id, None)
+        if callbacks is None:
+            return
+        _key, on_ready, on_error = callbacks
+        try:
+            result = future.result()
+        except Exception as error:
+            on_error(error)
+            return
+        if result.status == ResourceStatus.READY:
+            on_ready(result.value)
+        elif result.status != ResourceStatus.CANCELLED:
+            on_error(result.error or result.status.value)
 
     def _target(self) -> str:
         value = self.find_input.text().strip().lstrip("@").lower()
@@ -348,6 +394,14 @@ class FriendsDialog(PopupDialog):
         def work():
             with ProfileServiceClient(service_url, auth_session=self.auth_session) as client:
                 return operation(client, owner)
+
+        if self._start_managed_remote(
+            RequestKey("friends-dialog-mutation", f"{owner}:{success}"),
+            work,
+            lambda result: self._mutation_done(result, success),
+            lambda error: self._mutation_done(ProfileServiceError(str(error), "social_operation_failed"), success),
+        ) is not None:
+            return
 
         worker = self._tasks.start("SafeLauncher-FriendsDialogMutation", work, lambda result: self._mutation_done(result, success))
         worker.error_occurred.connect(lambda error: self._mutation_done(ProfileServiceError(error, "social_operation_failed"), success))

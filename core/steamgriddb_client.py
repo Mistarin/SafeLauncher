@@ -9,9 +9,18 @@ from typing import Any, Optional, List, Dict
 # [M2 FIX] XDG-compliant cache directory: ~/.cache/safelauncher/banners/
 # Owner-only permissions (700 on dir, 600 on files) to prevent other local users
 # from reading cached cover art files.
-_XDG_CACHE_HOME = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-_DEFAULT_CACHE_DIR = os.path.join(_XDG_CACHE_HOME, "safelauncher", "banners")
 _LEGACY_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".banner_cache")
+
+
+def _default_cache_dir() -> str:
+    """Resolve the cache root at client construction time.
+
+    Test runners, portable launches, and embedding applications can establish
+    XDG paths after importing the module. Resolving lazily keeps artwork and
+    the request-manager cache on the same runtime-selected root.
+    """
+    xdg_cache_home = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
+    return os.path.join(xdg_cache_home, "safelauncher", "banners")
 
 
 def _close_response(response) -> None:
@@ -32,7 +41,7 @@ class SteamGridDBClient:
 
     def __init__(self, cache_dir: str = None, rawg_api_key: str = None, api_key: str = None):
         # [M2 FIX] Default to XDG cache dir; allow override for tests.
-        resolved = Path(cache_dir) if cache_dir else Path(_DEFAULT_CACHE_DIR)
+        resolved = Path(cache_dir) if cache_dir else Path(_default_cache_dir())
         resolved.mkdir(parents=True, exist_ok=True)
         # Owner-only directory: prevents other local users from listing/reading cache.
         try:

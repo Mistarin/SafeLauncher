@@ -93,6 +93,8 @@ class GlobalHotkeyListener(QObject):
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._bindings_lock = threading.Lock()
+        self._display_lock = threading.Lock()
+        self._display = None
         self._bindings: Dict[str, str] = {}   # "F9" / "Ctrl+Shift+Y" -> action_name
         self._dirty = False
 
@@ -120,12 +122,31 @@ class GlobalHotkeyListener(QObject):
         if self._running or (self._thread is not None and self._thread.is_alive()):
             return
         self._running = True
-        self._thread = threading.Thread(target=self._run_loop, name="SafeLauncher-GlobalHotkeys")
+        # The listener is auxiliary UI infrastructure. It is always asked to
+        # stop by its owner, but a display server can keep an Xlib call alive
+        # briefly during process teardown. A daemon fallback prevents that
+        # optional listener from keeping Python alive after Qt has shut down;
+        # normal stop() still joins it within the bounded timeout.
+        self._thread = threading.Thread(
+            target=self._run_loop,
+            name="SafeLauncher-GlobalHotkeys",
+            daemon=True,
+        )
         self._thread.start()
 
     def stop(self, timeout: float = 1.5) -> bool:
         """Request listener shutdown and join its bounded polling loop."""
         self._running = False
+        # pending_events() normally returns immediately, but closing the Xlib
+        # connection also wakes a display call if the server disappears while
+        # the listener is being torn down.
+        with self._display_lock:
+            display = self._display
+        if display is not None:
+            try:
+                display.close()
+            except Exception:
+                pass
         thread = self._thread
         if thread is not None and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout)
@@ -145,6 +166,8 @@ class GlobalHotkeyListener(QObject):
 
         try:
             disp = display.Display()
+            with self._display_lock:
+                self._display = disp
             disp.set_error_handler(lambda err, req: None)
             root = disp.screen().root
             root.change_attributes(event_mask=X.KeyPressMask)
@@ -237,3 +260,12 @@ class GlobalHotkeyListener(QObject):
                     disp.close()
                 except Exception:
                     pass
+            with self._display_lock:
+                if self._display is disp:
+                    self._display = None
+
+    def __del__(self):
+        try:
+            self.stop()
+        except Exception:
+            pass

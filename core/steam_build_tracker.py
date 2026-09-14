@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import requests
@@ -6,6 +5,7 @@ from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
+from core.steam_client import SteamClient, SteamClientError
 
 logger = get_logger("SteamBuildTracker")
 
@@ -94,45 +94,86 @@ class SteamBuildFetcher(SafeQThread):
     check_failed = pyqtSignal(int, str)  # game_id, human-readable reason
     offline_detected = pyqtSignal(int)  # game_id — no internet connection
 
-    def __init__(self, game_id: int, steam_id: str, local_build_id: str = "", local_build_date: int = 0, parent=None):
+    def __init__(self, game_id: int, steam_id: str, local_build_id: str = "", local_build_date: int = 0, parent=None, request_manager=None, steam_client=None):
         super().__init__(parent)
         self.game_id = game_id
         self.steam_id = str(steam_id).strip()
         self.local_build_id = str(local_build_id).strip()
         self.local_build_date = int(local_build_date or 0)
+        self.request_manager = request_manager
+        self.steam_client = steam_client
 
     def safe_run(self):
-        if self.isInterruptionRequested() or not automatic_network_allowed():
+        if self.isInterruptionRequested():
             return
+        if self.request_manager is not None:
+            from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+            client = self.steam_client or SteamClient()
+            key = RequestKey("steam-build", self.steam_id or f"game-{self.game_id}")
+            loader = lambda token: (token.raise_if_cancelled(), client.public_build(self.steam_id))[1]
+            if getattr(self.request_manager, "cache", None) is not None:
+                handle = self.request_manager.request_cached(
+                    key,
+                    loader,
+                    max_age_seconds=15 * 60,
+                    priority=RequestPriority.BACKGROUND,
+                    timeout_seconds=15,
+                )
+            else:
+                handle = self.request_manager.request(
+                    key,
+                    loader,
+                    priority=RequestPriority.BACKGROUND,
+                    timeout_seconds=15,
+                )
+            result = handle.future.result()
+            usable = result
+            if result.status != ResourceStatus.READY:
+                cached_state = self.request_manager.state(key)
+                if cached_state.status == ResourceStatus.STALE:
+                    usable = cached_state
+            if usable.status in {ResourceStatus.READY, ResourceStatus.STALE} and usable.value and not self.isInterruptionRequested():
+                latest_build_id, latest_build_date = usable.value
+                self._emit_build_result(latest_build_id, latest_build_date)
+            elif result.status == ResourceStatus.ERROR:
+                logger.debug("Managed Steam build request failed for %s: %s", self.steam_id, result.error)
+                self._fail(f"Steam check failed: {result.error}")
+            if self.steam_client is None:
+                client.close()
+            return
+        if not automatic_network_allowed():
+            return
+        self._safe_run_direct(None)
+
+    def _emit_build_result(self, latest_build_id: str, latest_build_date: int) -> None:
+        if not latest_build_id:
+            self._fail("Steam returned no public branch build for this AppID")
+            return
+        if self.local_build_id:
+            is_update = latest_build_id != self.local_build_id
+        elif self.local_build_date > 0:
+            is_update = latest_build_date > self.local_build_date
+        else:
+            self._fail("No installed Steam build reference; enter a current Build ID or date")
+            return
+        logger.info(
+            "Steam Build check for game %s (AppID %s): latest=%s, update=%s",
+            self.game_id, self.steam_id, latest_build_id, is_update,
+        )
+        if not self.isInterruptionRequested():
+            self.update_checked.emit(self.game_id, latest_build_id, latest_build_date, is_update)
+
+    def _safe_run_direct(self, token=None):
         if not self.steam_id or self.steam_id == "0":
             self._fail("No Steam AppID is configured")
             return
 
-        resp = None
+        client = self.steam_client or SteamClient()
         try:
-            url = f"https://api.steamcmd.net/v1/info/{self.steam_id}"
-            headers = {"User-Agent": "SafeLauncher/1.0 (Linux Game Sandbox Manager)"}
             logger.debug(f"Checking Steam build for game {self.game_id}, AppID {self.steam_id}")
-            resp = requests.get(url, headers=headers, timeout=12)
-            if resp.status_code != 200:
-                self._fail(f"Steam metadata returned HTTP {resp.status_code}")
+            latest_build_id, latest_build_date = client.public_build(self.steam_id)
+            if (token and token.cancelled) or self.isInterruptionRequested():
                 return
-            data = resp.json()
-            if not isinstance(data, dict):
-                self._fail("Steam metadata returned an invalid response")
-                return
-            if self.isInterruptionRequested():
-                return
-            app_data = data.get("data", {}).get(self.steam_id, {})
-            depots = app_data.get("depots", {})
-            branches = depots.get("branches", {})
-            public_branch = branches.get("public", {})
-            latest_build_id = str(public_branch.get("buildid", "")).strip()
-            latest_build_date = public_branch.get("timeupdated", 0)
-            try:
-                latest_build_date = int(latest_build_date or 0)
-            except (TypeError, ValueError):
-                latest_build_date = 0
 
             if latest_build_id:
                 if self.local_build_id:
@@ -146,7 +187,7 @@ class SteamBuildFetcher(SafeQThread):
                     self._fail("No installed Steam build reference; enter a current Build ID or date")
                     return
                 logger.info(f"Steam Build check for game {self.game_id} (AppID {self.steam_id}): latest={latest_build_id}, update={is_update}")
-                if self.isInterruptionRequested():
+                if (token and token.cancelled) or self.isInterruptionRequested():
                     return
                 self.update_checked.emit(self.game_id, latest_build_id, latest_build_date, is_update)
                 return
@@ -157,15 +198,15 @@ class SteamBuildFetcher(SafeQThread):
             logger.info(f"Offline while checking Steam build for AppID {self.steam_id}: {e}")
             if not self.isInterruptionRequested():
                 self.offline_detected.emit(self.game_id)
+        except SteamClientError as e:
+            logger.warning("Steam build metadata failed for AppID %s: %s", self.steam_id, e)
+            self._fail(str(e))
         except Exception as e:
             logger.warning(f"Failed to check Steam build for AppID {self.steam_id}: {e}")
             self._fail(f"Steam check failed: {e}")
         finally:
-            if resp is not None:
-                try:
-                    resp.close()
-                except Exception:
-                    pass
+            if self.steam_client is None:
+                client.close()
 
     def _fail(self, reason: str):
         if not self.isInterruptionRequested():

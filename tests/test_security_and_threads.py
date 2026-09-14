@@ -16,6 +16,7 @@ from core.host_process import host_process_env
 from core.logger import redact_sensitive_text
 from core.performance_env import build_launch_env
 from ui.threads import DiskSizeFetcherThread
+from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
 
 
 class SecurityBoundaryTests(unittest.TestCase):
@@ -137,6 +138,25 @@ class QtWorkerLifecycleTests(unittest.TestCase):
             worker.requestInterruption()
             self.assertTrue(worker.wait(2000))
             self.assertFalse(worker.isRunning())
+
+    def test_supervisors_retain_finished_workers_until_safe_reap(self):
+        """A finished QThread must outlive its signal-delivery turn."""
+        registry = WorkerSupervisor()
+        worker = FunctionWorker(lambda: "done")
+        self.assertTrue(registry.register(worker, "lifecycle-test"))
+        worker.start()
+        self.assertTrue(worker.wait(2000))
+        self.assertIn(worker, registry.workers())
+        self.assertEqual(registry.workers(running_only=True), [])
+        registry.shutdown()
+        self.assertEqual(registry.workers(), [])
+
+        tasks = TaskSupervisor(None)
+        task = tasks.start("retained-task", lambda: "done")
+        self.assertTrue(task.wait(2000))
+        self.assertIn(task, tasks._workers)
+        tasks.shutdown()
+        self.assertEqual(tasks._workers, [])
 
 
 if __name__ == "__main__":

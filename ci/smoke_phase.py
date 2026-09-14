@@ -62,6 +62,7 @@ def run_phase(name: str, timeout_seconds: int = 300) -> int:
     smoke_data_home = tempfile.mkdtemp(prefix="safelauncher-smoke-")
     os.environ["XDG_DATA_HOME"] = smoke_data_home
     os.environ["XDG_CONFIG_HOME"] = smoke_data_home
+    os.environ["XDG_CACHE_HOME"] = smoke_data_home
     # Some selected cloud sections instantiate dialogs without including the
     # historical UI bootstrap section. Create one deterministic offscreen Qt
     # application for every phase.
