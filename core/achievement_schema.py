@@ -3,6 +3,11 @@ Steam Achievement Schema Fetcher and Badge Asset Cacher.
 Retrieves achievement definitions (titles, descriptions, icons, secret flags)
 using local game files, public Steam Community endpoints, and Steam Web API
 with persistent caching.
+
+The icon downloader and ``SteamAchievementFetcherWorker`` are manager-less
+compatibility fallbacks. Production callers submit schema and icon requests
+through the shared RequestManager; the disk files here are validated asset
+materialization, not a second remote-resource cache.
 """
 
 from __future__ import annotations
@@ -16,7 +21,6 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
-from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import requests.adapters
@@ -25,6 +29,9 @@ from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
+from core.cache_policy import cache_policy
+from core.asset_cache import AssetCacheBudget, prune_asset_cache
+from core.request_contracts import RequestKey
 
 logger = get_logger("AchievementSchema")
 
@@ -97,6 +104,7 @@ _SCHEMA_API_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _SCHEMA_APP_RE = re.compile(r"^[0-9]{1,16}$")
 _MAX_SCHEMA_BYTES = 8 * 1024 * 1024
 _MAX_SCHEMA_RECORDS = 20_000
+_ASSET_CACHE_BUDGET = AssetCacheBudget(max_files=2048, max_bytes=128 * 1024 * 1024)
 
 
 def close_achievement_http_session() -> None:
@@ -151,6 +159,7 @@ def _write_schema_cache(path: Path, records: List[Dict[str, Any]]) -> None:
             os.unlink(temporary)
         except OSError:
             pass
+    prune_asset_cache(_CACHE_DIR, _ASSET_CACHE_BUDGET)
 
 
 def _get_http_session() -> requests.Session:
@@ -171,6 +180,27 @@ def _ensure_cache_dirs(app_id: str) -> Tuple[Path, Path]:
     return schema_cache_file, app_icon_dir
 
 
+def _write_asset_atomic(path: Path, data: bytes) -> None:
+    """Atomically materialize one validated icon so readers never see a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        fd, raw_path = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        temporary = Path(raw_path)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def _download_icon(url: str, target_path: Path, timeout: float = 6.0) -> Optional[str]:
     """Download and cache an achievement badge icon image."""
     if not url or not url.startswith("http"):
@@ -183,7 +213,8 @@ def _download_icon(url: str, target_path: Path, timeout: float = 6.0) -> Optiona
         headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
         resp = session.get(url, headers=headers, timeout=timeout)
         if resp.status_code == 200 and resp.content:
-            target_path.write_bytes(resp.content)
+            _write_asset_atomic(target_path, resp.content)
+            prune_asset_cache(_CACHE_DIR, _ASSET_CACHE_BUDGET)
             return str(target_path)
     except Exception as e:
         logger.debug(f"Failed to download achievement icon {url}: {e}")
@@ -203,7 +234,7 @@ def download_achievement_icons_batch(
     timeout: float = 6.0,
     request_manager=None,
 ) -> List[Dict[str, Any]]:
-    """Download achievement badges concurrently with a fast thread pool."""
+    """Download achievement badges through the manager or a safe fallback."""
     if not achievements or not app_id:
         return achievements
     if not automatic_network_allowed():
@@ -224,7 +255,7 @@ def download_achievement_icons_batch(
                 try:
                     resp = session.get(icon_url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}, timeout=timeout)
                     if resp.status_code == 200 and resp.content:
-                        target.write_bytes(resp.content)
+                        _write_asset_atomic(target, resp.content)
                 except Exception:
                     pass
                 finally:
@@ -244,7 +275,7 @@ def download_achievement_icons_batch(
                 try:
                     resp = session.get(gray_url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}, timeout=timeout)
                     if resp.status_code == 200 and resp.content:
-                        target_gray.write_bytes(resp.content)
+                        _write_asset_atomic(target_gray, resp.content)
                 except Exception:
                     pass
                 finally:
@@ -255,6 +286,8 @@ def download_achievement_icons_batch(
                             pass
             if target_gray.is_file() and target_gray.stat().st_size > 0:
                 item["icongray_path"] = str(target_gray)
+
+        prune_asset_cache(_CACHE_DIR, _ASSET_CACHE_BUDGET)
 
     if request_manager is not None:
         from core.request_contracts import RequestKey, RequestPriority, RequestSpec
@@ -272,8 +305,13 @@ def download_achievement_icons_batch(
         request_manager.request_many(specs)
         return achievements
 
-    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="SafeLauncher-IconDL") as executor:
-        list(executor.map(_dl_one, achievements))
+    # Synchronous compatibility callers already own the calling context. The
+    # managed path above provides bounded parallelism through RequestManager;
+    # this fallback must not create a hidden feature-local scheduler.
+    for item in achievements:
+        _dl_one(item)
+
+    prune_asset_cache(_CACHE_DIR, _ASSET_CACHE_BUDGET)
 
     return achievements
 
@@ -471,6 +509,7 @@ def fetch_steam_achievements_schema(
     timeout: float = 8.0,
     download_icons: bool = False,
     request_manager=None,
+    schema_cache=None,
 ) -> List[Dict[str, Any]]:
     """
     Fetch all achievement definitions for a given Steam AppID in sub-second time.
@@ -487,6 +526,17 @@ def fetch_steam_achievements_schema(
     app_id = str(app_id).strip()
     schema_cache_file, app_icon_dir = _ensure_cache_dirs(app_id)
 
+    shared_key = RequestKey("achievement-schema", app_id, "v1")
+
+    def _shared_schema():
+        if schema_cache is None:
+            return None
+        entry = schema_cache.get(shared_key)
+        if entry is None or not entry.is_fresh(cache_policy("achievement-schema").max_age_seconds):
+            return None
+        value = _validated_schema(entry.value)
+        return value or None
+
     # 1. Check local cache first (< 0.1ms)
     if schema_cache_file.is_file():
         try:
@@ -495,6 +545,12 @@ def fetch_steam_achievements_schema(
             cached_data = _validated_schema(json.loads(schema_cache_file.read_text(encoding="utf-8")))
             if cached_data:
                 logger.debug(f"Loaded {len(cached_data)} achievements from cache for AppID {app_id}")
+                if schema_cache is not None:
+                    schema_cache.put(
+                        shared_key,
+                        cached_data,
+                        content_type=cache_policy("achievement-schema").content_type,
+                    )
                 if download_icons and automatic_network_allowed():
                     download_achievement_icons_batch(cached_data, app_id, timeout=timeout, request_manager=request_manager)
                 return cached_data
@@ -509,6 +565,13 @@ def fetch_steam_achievements_schema(
         except Exception:
             pass
         return _validated_schema(local_achs)
+
+    shared_data = _shared_schema()
+    if shared_data:
+        logger.debug("Loaded achievement schema from shared resource cache for AppID %s", app_id)
+        if download_icons and automatic_network_allowed():
+            download_achievement_icons_batch(shared_data, app_id, timeout=timeout, request_manager=request_manager)
+        return shared_data
 
     # The local cache and game files above remain useful offline. Once those
     # are exhausted, do not enter the public Steam fallback chain at all.
@@ -620,6 +683,12 @@ def fetch_steam_achievements_schema(
 
     # Save to disk cache if fetched successfully
     if achievements:
+        if schema_cache is not None:
+            schema_cache.put(
+                shared_key,
+                achievements,
+                content_type=cache_policy("achievement-schema").content_type,
+            )
         try:
             _write_schema_cache(schema_cache_file, achievements)
             logger.info(f"Successfully fetched and cached {len(achievements)} achievements for AppID {app_id}")

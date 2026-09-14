@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import Any
 import requests
 
+from core.request_contracts import classify_remote_error
+
 
 class SteamClientError(RuntimeError):
     """Raised when Steam returns an unusable metadata response."""
@@ -17,6 +19,7 @@ class SteamClientError(RuntimeError):
     def __init__(self, message: str, status_code: int = 0):
         super().__init__(message)
         self.status_code = int(status_code or 0)
+        self.category = classify_remote_error(self).value
 
 
 class SteamClient:

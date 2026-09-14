@@ -104,12 +104,16 @@ class ZipBackupManager(IBackupManager):
         *,
         snapshot: Optional[GameSaveSnapshot] = None,
         cancel_check=None,
+        progress_callback=None,
     ) -> bool:
         """Export multiple detected save locations with metadata manifest."""
         self.last_error = ""
         if not locations:
             self.last_error = "No save locations were supplied."
             return False
+
+        if progress_callback is not None:
+            progress_callback(0.0)
 
         max_source_mtime = 0.0
         max_save_mtime = 0.0
@@ -215,6 +219,8 @@ class ZipBackupManager(IBackupManager):
                             # content clock (zip headers alone lose the timezone).
                             item_meta["files"] = file_mtimes
                         items_meta.append(item_meta)
+                        if progress_callback is not None:
+                            progress_callback((idx + 1) / max(1, len(locations)))
 
                     if not written_any:
                         raise ValueError("No save files found to archive")
@@ -244,6 +250,8 @@ class ZipBackupManager(IBackupManager):
                         _MANIFEST_NAME, date_time=(1980, 1, 1, 0, 0, 0))
                     manifest_info.compress_type = zipfile.ZIP_DEFLATED
                     zipf.writestr(manifest_info, json.dumps(manifest, indent=2))
+                    if progress_callback is not None:
+                        progress_callback(1.0)
 
             def record_error(error):
                 if isinstance(error, SaveOperationCancelled):
@@ -281,7 +289,13 @@ class ZipBackupManager(IBackupManager):
         except (OSError, ValueError, TypeError, KeyError, zipfile.BadZipFile):
             return {}
 
-    def import_save(self, import_zip_path: str, destination_path: str, game_path: str = "") -> bool:
+    def import_save(
+        self,
+        import_zip_path: str,
+        destination_path: str,
+        game_path: str = "",
+        cancel_check=None,
+    ) -> bool:
         """Import save archive into destination path (supports both manifest & raw ZIP).
 
         Every member is unpacked into a staging directory first; live save data
@@ -293,6 +307,8 @@ class ZipBackupManager(IBackupManager):
         of being dumped inside the prefix.
         """
         if not os.path.exists(import_zip_path):
+            return False
+        if cancel_check and cancel_check():
             return False
 
         dest_abs = os.path.abspath(destination_path)
@@ -325,6 +341,8 @@ class ZipBackupManager(IBackupManager):
                 staging_root = _make_staging_dir(dest_abs)
                 staged = []
                 for idx, (member, final_path, mtime) in enumerate(planned):
+                    if cancel_check and cancel_check():
+                        raise SaveOperationCancelled()
                     staged_path = os.path.join(staging_root, f"p{idx}")
                     os.makedirs(os.path.dirname(staged_path), exist_ok=True)
                     with zipf.open(member) as src_file, open(staged_path, "wb") as out_f:
@@ -345,6 +363,8 @@ class ZipBackupManager(IBackupManager):
             originals = []
             try:
                 for idx, (staged_path, final_path) in enumerate(staged):
+                    if cancel_check and cancel_check():
+                        raise SaveOperationCancelled()
                     final_path = os.path.normpath(final_path)
                     os.makedirs(os.path.dirname(final_path), exist_ok=True)
                     if os.path.lexists(final_path):
@@ -386,7 +406,13 @@ class ZipBackupManager(IBackupManager):
             if rollback_root and os.path.isdir(rollback_root):
                 shutil.rmtree(rollback_root, ignore_errors=True)
 
-    def verify_import(self, import_zip_path: str, destination_path: str, game_path: str = "") -> bool:
+    def verify_import(
+        self,
+        import_zip_path: str,
+        destination_path: str,
+        game_path: str = "",
+        cancel_check=None,
+    ) -> bool:
         """Content-check a completed import: every archive member must exist on
         disk with identical bytes at the location import_save would place it.
 
@@ -404,6 +430,8 @@ class ZipBackupManager(IBackupManager):
                     return False
                 checked = 0
                 for member, final_path, _mtime in planned:
+                    if cancel_check and cancel_check():
+                        return False
                     final_path = os.path.normpath(final_path)
                     if not os.path.isfile(final_path):
                         logger.warning(f"Restore verification: missing {final_path}")

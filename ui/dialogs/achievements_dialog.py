@@ -28,12 +28,13 @@ from PyQt6.QtGui import QPixmap, QColor, QPainter, QFont, QIcon, QPainterPath
 from database import GameDatabase, GameRecord
 from core.achievement_schema import SteamAchievementFetcherWorker
 from core.achievement_providers import AchievementAvailability
+from core.achievement_resource_service import AchievementResourceService, AchievementTarget
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
 from core.request_contracts import RequestKey, RequestPriority, ResourceResult, ResourceStatus
 from ui.icons import get_icon
 from ui.components.popup_shell import PopupDialog
-from ui.resource_binding import ResourceBinding, bind_resource
+from ui.resource_binding import ResourceBinding, bind_request
 
 logger = get_logger("AchievementsDialog")
 
@@ -368,6 +369,11 @@ class AchievementsDialog(PopupDialog):
         self.game = game
         self.db = db
         self.request_manager = request_manager
+        self.achievement_resource_service = getattr(
+            parent, "achievement_resource_service", None
+        )
+        if self.achievement_resource_service is None and request_manager is not None:
+            self.achievement_resource_service = AchievementResourceService(request_manager)
 
         if isinstance(game, (list, tuple)):
             self.game_id = game[0]
@@ -811,8 +817,18 @@ class AchievementsDialog(PopupDialog):
             return
 
         if force:
-            from core.achievement_coordinator import invalidate
-            invalidate(app_id, self.game_path, self.game_proton_path)
+            if self.achievement_resource_service is not None:
+                self.achievement_resource_service.invalidate(
+                    AchievementTarget(
+                        int(self.game_id),
+                        app_id,
+                        str(self.game_path or ""),
+                        str(self.game_proton_path or ""),
+                    )
+                )
+            else:
+                from core.achievement_coordinator import invalidate
+                invalidate(app_id, self.game_path, self.game_proton_path)
 
         # Show the last known schema immediately, but always let the shared
         # resolver reconcile it with local state and authenticated Steam.
@@ -834,46 +850,31 @@ class AchievementsDialog(PopupDialog):
         self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #0A84FF; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
 
         if self.request_manager is not None:
-            # The manager key includes the installation context because local
-            # achievement files can differ between two copies of the same
-            # Steam game.  Separate dialogs for the same target still share
-            # one in-flight resolution through this stable key.
-            key = RequestKey(
-                "achievement-resolution",
+            target = AchievementTarget(
+                int(self.game_id),
                 app_id,
-                f"{self.game_path}\x1f{self.game_proton_path}",
+                str(self.game_path or ""),
+                str(self.game_proton_path or ""),
             )
-            self._schema_request_key = key
-            self._schema_binding = bind_resource(
-                self.request_manager,
-                key,
-                self._on_managed_resolution_state,
-                parent=self,
-                # A dialog closing must not cancel a request another dialog
-                # may be sharing. The binding still detaches immediately.
-                cancel_on_close=False,
+            spec = self.achievement_resource_service.status_spec(
+                target,
+                db_path=getattr(self.db, "db_path", None),
+                priority=RequestPriority.NORMAL,
+                tag="achievement_dialog",
+                download_icons=True,
             )
-
-            def _resolve(token):
-                token.raise_if_cancelled()
-                from core.achievement_coordinator import coordinated_resolve
-
-                resolution = coordinated_resolve(
-                    app_id,
-                    self.game_path,
-                    self.game_proton_path,
-                    download_icons=True,
-                    request_manager=self.request_manager,
-                )
-                token.raise_if_cancelled()
-                return resolution
 
             try:
-                self.request_manager.request(
-                    key,
-                    _resolve,
-                    priority=RequestPriority.NORMAL,
-                    timeout_seconds=60.0,
+                handle = self.request_manager.submit(spec)
+                self._schema_request_key = handle.key
+                self._schema_binding = bind_request(
+                    self.request_manager,
+                    handle,
+                    self._on_managed_resolution_state,
+                    parent=self,
+                    # A dialog closing must not cancel a request another
+                    # dialog may be sharing. The binding still detaches.
+                    cancel_on_close=False,
                 )
             except Exception as exc:
                 self._close_managed_schema_binding()
@@ -904,9 +905,18 @@ class AchievementsDialog(PopupDialog):
             self.status_tag.setText(" Resolving achievement data… ")
             return
         if result.status in {ResourceStatus.READY, ResourceStatus.STALE} and result.value is not None:
-            self._on_resolution_ready(self.game_id, self.game_steam_id, result.value)
+            value = result.value
+            resolution = value[0] if isinstance(value, tuple) else value
+            self._on_resolution_ready(self.game_id, self.game_steam_id, resolution)
             return
-        if result.status in {ResourceStatus.ERROR, ResourceStatus.OFFLINE}:
+        if result.status in {
+            ResourceStatus.ERROR,
+            ResourceStatus.OFFLINE,
+            ResourceStatus.UNAVAILABLE,
+            ResourceStatus.AUTHENTICATION_REQUIRED,
+            ResourceStatus.PERMISSION_DENIED,
+            ResourceStatus.CONFLICT,
+        }:
             self._on_schema_failed(
                 self.game_id,
                 self.game_steam_id,

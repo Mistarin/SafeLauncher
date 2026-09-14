@@ -1111,22 +1111,30 @@ try:
         )
         mocked_health = MagicMock(status_code=200)
         mocked_health.json.return_value = {"version": "1.7.0"}
+        def fake_deploy_run(command, **kwargs):
+            if command[:3] == ["npx", "convex", "deploy"]:
+                return MagicMock(
+                    returncode=0,
+                    stdout="Deploying to https://test-deployment.eu-west-1.convex.site...\n",
+                    stderr="",
+                )
+            return MagicMock(returncode=0, stdout="", stderr="")
         with patch("core.cloud_cli_wizard.inspect_system_compatibility", return_value={"has_npm": True}), \
                 patch("core.cloud_cli_wizard._convex_cli_env", return_value={"CONVEX_DEPLOY_KEY": "prod:project|deploy"}), \
                 patch("core.cloud_cli_wizard.get_secret", return_value="api-secret"), \
                 patch("core.cloud_cli_wizard.set_secret") as save_secret, \
-                patch("core.cloud_cli_wizard.subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as run_command, \
+                patch("core.cloud_cli_wizard.subprocess.run", side_effect=fake_deploy_run) as run_command, \
                 patch("core.cloud_cli_wizard.requests.get", return_value=mocked_health):
             deployed_url = deploy_convex_backend(
                 str(deploy_backend), expected_site_url="https://project.convex.site"
             )
-        assert deployed_url == "https://project.convex.site"
+        assert deployed_url == "https://test-deployment.eu-west-1.convex.site"
         commands = [call.args[0] for call in run_command.call_args_list]
         assert commands == [
             ["npm", "install"],
             ["npx", "convex", "deploy", "--yes"],
-            ["npx", "convex", "env", "get", "SAFELAUNCHER_SECRET_KEY", "--deployment", "project"],
-            ["npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY", "--deployment", "project"],
+            ["npx", "convex", "env", "get", "SAFELAUNCHER_SECRET_KEY", "--deployment", "test-deployment"],
+            ["npx", "convex", "env", "set", "SAFELAUNCHER_SECRET_KEY", "--deployment", "test-deployment"],
         ]
         assert run_command.call_args_list[-1].kwargs["input"] == "api-secret"
         # The existing local secret is used to repair a missing remote value.

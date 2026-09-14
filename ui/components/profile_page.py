@@ -22,9 +22,11 @@ from core.profile_models import (
     HANDLE_RE, load_profile_settings, normalize_avatar_asset_id, normalize_avatar_id,
     normalize_background, normalize_panel_theme_id, normalize_username_handle, panel_theme_key,
     normalize_public_document, profile_username_suggestion, save_profile_settings,
-    steam_app_id, steam_hero_url, steam_hero_urls,
+    steam_app_id,
 )
-from core.profile_service import ProfileServiceClient, ProfileServiceError, get_profile_service_url, is_local_service_url
+from core.profile_service import ProfileServiceError, get_profile_service_url, is_local_service_url
+from core.profile_resource_service import ProfileResourceService
+from core.cache_policy import cache_policy
 from core.profile_avatar_catalog import (
     load_cached_avatar_catalog,
     read_cached_avatar,
@@ -35,9 +37,15 @@ from core.central_auth import CentralAuthError, CentralAuthSession
 from core.secret_store import delete_secret, get_secret
 from core.safe_thread import TaskSupervisor
 from core.network_policy import automatic_network_allowed
-from core.request_contracts import RequestKey, RequestPriority, RequestSpec, ResourceStatus
+from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.resource_cache import ResourceCache
-from ui.resource_binding import ResourceBinding, bind_resource
+from core.presentation_cache import PresentationCache
+from ui.resource_binding import (
+    ResourceBinding,
+    ResourceBindingRegistry,
+    bind_resource,
+    bind_request,
+)
 from ui.icons import get_icon
 from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
 from ui.theme import (
@@ -50,52 +58,9 @@ PROFILE_CARD_HEIGHT = 196
 PROFILE_ARTWORK_HEIGHT = 104
 MAX_PROFILE_BACKGROUND_BYTES = 4 * 1024 * 1024
 MAX_PROFILE_BACKGROUND_PIXELS = 32_000_000
-MAX_PROFILE_BACKGROUND_CACHE_ITEMS = 3
 MAX_PROFILE_AVATAR_CACHE_ITEMS = 16
+MAX_PROFILE_ARTWORK_CACHE_ITEMS = 32
 MAX_PROFILE_AVATAR_BYTES = 512 * 1024
-
-
-def _download_profile_image(
-    url: str,
-    timeout: tuple[int, int],
-    *,
-    max_bytes: int = MAX_PROFILE_BACKGROUND_BYTES,
-) -> bytes:
-    """Download one fixed artwork URL with a bounded response body."""
-    import requests
-
-    response = None
-    try:
-        response = requests.get(
-            url,
-            headers={"Accept": "image/jpeg,image/*;q=0.8", "User-Agent": "SafeLauncher/1"},
-            timeout=timeout,
-            stream=True,
-        )
-        content_type = response.headers.get("Content-Type", "")
-        if response.status_code != 200 or not content_type.startswith("image/"):
-            return b""
-        content_length = response.headers.get("Content-Length")
-        try:
-            if content_length and int(content_length) > max_bytes:
-                return b""
-        except (TypeError, ValueError, OverflowError):
-            return b""
-        chunks = []
-        size = 0
-        for chunk in response.iter_content(chunk_size=64 * 1024):
-            if not chunk:
-                continue
-            size += len(chunk)
-            if size > max_bytes:
-                return b""
-            chunks.append(chunk)
-        return b"".join(chunks) if size else b""
-    except requests.RequestException:
-        return b""
-    finally:
-        if response is not None:
-            response.close()
 
 
 class ProfileGameCard(QFrame):
@@ -265,20 +230,18 @@ class ProfilePageWidget(QWidget):
     # drift into separate implementations.
     profile_action_state_changed = pyqtSignal(bool, bool, bool, bool)
     profile_action_status_changed = pyqtSignal(str, bool)
-    _managed_remote_result = pyqtSignal(object)
 
     def __init__(self, db, settings: QSettings | None = None, parent=None, worker_registry=None, auth_session=None, request_manager=None, resource_cache: ResourceCache | None = None):
         super().__init__(parent)
         self.db = db
         self.settings = settings or QSettings("SafeLauncher", "SafeLauncher")
         self.central_auth = auth_session or CentralAuthSession()
+        self.profile_resources = ProfileResourceService(self.central_auth)
+        self._profile_context_identity = ""
         self._tasks = TaskSupervisor(self, worker_registry=worker_registry)
         self.request_manager = request_manager
         self.resource_cache = resource_cache
-        self._managed_request_keys: set[RequestKey] = set()
-        self._managed_remote_handles: dict[str, Any] = {}
-        self._resource_bindings: dict[RequestKey, ResourceBinding] = {}
-        self._managed_remote_result.connect(self._on_managed_remote_result)
+        self._resource_bindings = ResourceBindingRegistry()
         self._mode = "owner"
         self._profile_settings: dict[str, Any] = {}
         self._document: dict[str, Any] = {}
@@ -302,9 +265,8 @@ class ProfilePageWidget(QWidget):
         self._social_mutating = False
         self._auth_in_flight = False
         self._game_cards: dict[str, list[ProfileGameCard]] = {}
-        self._artwork_cache: dict[str, bytes] = {}
+        self._artwork_cache = PresentationCache(MAX_PROFILE_ARTWORK_CACHE_ITEMS)
         self._artwork_inflight: set[str] = set()
-        self._profile_background_cache: dict[str, bytes] = {}
         self._profile_background_inflight: set[str] = set()
         self._profile_background_pixmap = QPixmap()
         self._profile_background_blurred = QPixmap()
@@ -312,7 +274,7 @@ class ProfilePageWidget(QWidget):
         self._avatar_catalog: list[dict[str, Any]] = load_cached_avatar_catalog() or []
         self._avatar_catalog_loading = False
         self._avatar_dialog: ProfileAvatarCatalogDialog | None = None
-        self._avatar_pixmaps: dict[str, QPixmap] = {}
+        self._avatar_pixmaps = PresentationCache(MAX_PROFILE_AVATAR_CACHE_ITEMS)
         self._avatar_inflight: set[str] = set()
         self._selected_profile_game: dict[str, Any] | None = None
         self._games_return_index = 0
@@ -910,6 +872,9 @@ class ProfilePageWidget(QWidget):
         self._local_refresh_pending = False
         self.mode_label.setText("OWNER VIEW")
         self._profile_settings = load_profile_settings(self.settings, fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"))
+        self._rotate_profile_context(
+            f"owner:{self._profile_settings.get('public_handle', '')}:{int(self.central_auth.signed_in)}"
+        )
         self._profile_theme_key = panel_theme_key(self._profile_settings.get("panel_theme_id"))
         self._document = build_public_projection(self.db, self._profile_settings)
         if self._profile_settings.get("public_handle") != self._social_handle:
@@ -968,6 +933,7 @@ class ProfilePageWidget(QWidget):
         self._local_refresh_pending = False
         self._editing = False
         self._document = normalized
+        self._rotate_profile_context(f"public:{normalized.get('handle', '')}")
         self._profile_theme_key = panel_theme_key(normalized.get("panel_theme_id"))
         self._social_snapshot = self._empty_social_snapshot()
         self._social_handle = ""
@@ -1072,18 +1038,24 @@ class ProfilePageWidget(QWidget):
             return ""
         return os.path.join(directory, f"steam_{app_id}.jpg")
 
+    def _profile_resource_key(self, resource: str, identity: str, variant: str = "") -> RequestKey:
+        """Build a profile resource key through the shared service boundary."""
+        return self.profile_resources.request_key(resource, identity, variant)
+
+    def _profile_artwork_key(self, url: str) -> RequestKey:
+        identity = hashlib.sha256(str(url).encode("utf-8")).hexdigest()[:24]
+        return self._profile_resource_key("profile-artwork", identity, "image")
+
+    def _profile_background_key(self, app_id: str) -> RequestKey:
+        return self._profile_resource_key("profile-background", app_id, "steam-hero")
+
     def _load_profile_background_bytes(self, app_id: str) -> bytes:
         app_id = steam_app_id(app_id)
         if not app_id:
             return b""
-        cached = self._profile_background_cache.pop(app_id, None)
-        if cached:
-            self._profile_background_cache[app_id] = cached
-            return cached
         if self.resource_cache is not None:
-            entry = self.resource_cache.get(RequestKey("profile-background", app_id))
+            entry = self.resource_cache.get(self._profile_background_key(app_id))
             if entry is not None and isinstance(entry.value, bytes) and entry.value:
-                self._cache_profile_background_bytes(app_id, entry.value)
                 return entry.value
         path = self._profile_background_cache_path(app_id)
         if not path:
@@ -1092,18 +1064,10 @@ class ProfilePageWidget(QWidget):
             with open(path, "rb") as stream:
                 data = stream.read(MAX_PROFILE_BACKGROUND_BYTES + 1)
             if 0 < len(data) <= MAX_PROFILE_BACKGROUND_BYTES:
-                self._cache_profile_background_bytes(app_id, data)
                 return data
         except OSError:
             pass
         return b""
-
-    def _cache_profile_background_bytes(self, app_id: str, data: bytes) -> None:
-        """Keep only a small in-memory LRU-like window; disk remains the cache."""
-        self._profile_background_cache.pop(app_id, None)
-        self._profile_background_cache[app_id] = data
-        while len(self._profile_background_cache) > MAX_PROFILE_BACKGROUND_CACHE_ITEMS:
-            self._profile_background_cache.pop(next(iter(self._profile_background_cache)), None)
 
     @staticmethod
     def _decode_profile_background(data: bytes) -> QPixmap | None:
@@ -1148,22 +1112,25 @@ class ProfilePageWidget(QWidget):
             or not automatic_network_allowed(self.settings)
         ):
             return
-        self._profile_background_inflight.add(app_id)
 
         if self.request_manager is not None:
-            key = RequestKey("profile-background", app_id)
-            self._managed_request_keys.add(key)
-            spec = RequestSpec(
+            key = self._profile_background_key(app_id)
+            state = self.request_manager.state(key)
+            if state.status in {ResourceStatus.LOADING, ResourceStatus.READY, ResourceStatus.STALE}:
+                return
+            self._profile_background_inflight.add(app_id)
+            spec = self.profile_resources.request_spec(
                 key,
                 lambda token, app_id=app_id: self._download_steam_artwork(app_id, token, (2, 6)),
                 priority=RequestPriority.NORMAL,
                 timeout_seconds=15,
+                tag="profile-background",
             )
             handle = self.request_manager.cached_request(
                 spec,
                 self.resource_cache,
-                max_age_seconds=7 * 24 * 60 * 60,
-                content_type="image/jpeg",
+                max_age_seconds=cache_policy("profile-background").max_age_seconds,
+                content_type=cache_policy("profile-background").content_type,
             ) if self.resource_cache is not None else self.request_manager.request(
                 key,
                 spec.loader,
@@ -1176,12 +1143,10 @@ class ProfilePageWidget(QWidget):
             )
             return
 
+        self._profile_background_inflight.add(app_id)
+
         def work():
-            for candidate in steam_hero_urls(app_id):
-                data = _download_profile_image(candidate, (2, 6))
-                if data:
-                    return data
-            return b""
+            return self.profile_resources.download_steam_artwork(app_id, timeout=(2, 6))
 
         worker = self._tasks.start(
             "SafeLauncher-ProfileBackground",
@@ -1192,21 +1157,19 @@ class ProfilePageWidget(QWidget):
             lambda _error, expected_app_id=app_id: self._profile_background_failed(expected_app_id)
         )
 
-    @staticmethod
-    def _download_steam_artwork(app_id: str, token, timeout: tuple[int, int]) -> bytes:
-        for candidate in steam_hero_urls(app_id):
-            token.raise_if_cancelled()
-            data = _download_profile_image(candidate, timeout)
-            if data:
-                return data
-        return b""
+    def _download_steam_artwork(self, app_id: str, token, timeout: tuple[int, int]) -> bytes:
+        return self.profile_resources.download_steam_artwork(app_id, token, timeout)
 
     def _on_profile_background_state(self, app_id: str, result: Any) -> None:
         if result.status in {ResourceStatus.READY, ResourceStatus.STALE} and result.value:
-            self._profile_background_loaded(str(app_id), result.value)
+            self._profile_background_loaded(str(app_id), result.value, persist_legacy_cache=False)
         elif result.status in {
             ResourceStatus.ERROR,
             ResourceStatus.OFFLINE,
+            ResourceStatus.UNAVAILABLE,
+            ResourceStatus.AUTHENTICATION_REQUIRED,
+            ResourceStatus.PERMISSION_DENIED,
+            ResourceStatus.CONFLICT,
             ResourceStatus.CANCELLED,
         }:
             self._profile_background_failed(str(app_id))
@@ -1214,34 +1177,40 @@ class ProfilePageWidget(QWidget):
     def _profile_background_failed(self, app_id: str) -> None:
         self._profile_background_inflight.discard(app_id)
 
-    def _profile_background_loaded(self, app_id: str, data: Any) -> None:
+    def _profile_background_loaded(
+        self,
+        app_id: str,
+        data: Any,
+        *,
+        persist_legacy_cache: bool = True,
+    ) -> None:
         self._profile_background_inflight.discard(app_id)
         if not isinstance(data, bytes) or not data:
             return
         pixmap = self._decode_profile_background(data)
         if pixmap is None:
             return
-        self._cache_profile_background_bytes(app_id, data)
         if self.resource_cache is not None:
             self.resource_cache.put(
-                RequestKey("profile-background", app_id),
+                self._profile_background_key(app_id),
                 data,
                 content_type="image/jpeg",
             )
-        cache_path = self._profile_background_cache_path(app_id)
-        if cache_path:
-            temp_path = f"{cache_path}.tmp"
-            try:
-                with open(temp_path, "wb") as stream:
-                    stream.write(data)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.replace(temp_path, cache_path)
-            except OSError:
+        if persist_legacy_cache:
+            cache_path = self._profile_background_cache_path(app_id)
+            if cache_path:
+                temp_path = f"{cache_path}.tmp"
                 try:
-                    os.unlink(temp_path)
+                    with open(temp_path, "wb") as stream:
+                        stream.write(data)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.replace(temp_path, cache_path)
                 except OSError:
-                    pass
+                    try:
+                        os.unlink(temp_path)
+                    except OSError:
+                        pass
         current = normalize_background(self._document.get("background", {}))
         if current.get("kind") == "steam_hero" and current.get("app_id") == app_id:
             self._set_profile_background_pixmap(pixmap)
@@ -1511,7 +1480,7 @@ class ProfilePageWidget(QWidget):
         if url in self._artwork_cache:
             card.set_artwork_bytes(self._artwork_cache[url])
         elif self.resource_cache is not None:
-            cached = self.resource_cache.get(RequestKey("profile-artwork", url))
+            cached = self.resource_cache.get(self._profile_artwork_key(url))
             if cached is not None and isinstance(cached.value, bytes) and cached.value:
                 self._artwork_cache[url] = cached.value
                 card.set_artwork_bytes(cached.value)
@@ -1532,7 +1501,8 @@ class ProfilePageWidget(QWidget):
             self._add_game_card(game, index, self.games_all_grid)
             app_id = str(game.get("app_id", ""))
             url = str(game.get("artwork_url", "") or "")
-            shared_cached = self.resource_cache.get(RequestKey("profile-artwork", url)) if self.resource_cache is not None else None
+            artwork_key = self._profile_artwork_key(url) if url else None
+            shared_cached = self.resource_cache.get(artwork_key) if self.resource_cache is not None and artwork_key is not None else None
             if url and url not in self._artwork_cache and shared_cached is None and url not in self._artwork_inflight:
                 pending[app_id] = url
         self._queue_artwork_download(pending)
@@ -1545,19 +1515,22 @@ class ProfilePageWidget(QWidget):
 
         if self.request_manager is not None:
             for app_id, url in pending.items():
-                key = RequestKey("profile-artwork", url)
-                self._managed_request_keys.add(key)
-                spec = RequestSpec(
+                key = self._profile_artwork_key(url)
+                state = self.request_manager.state(key)
+                if state.status in {ResourceStatus.LOADING, ResourceStatus.READY, ResourceStatus.STALE}:
+                    continue
+                spec = self.profile_resources.request_spec(
                     key,
                     lambda token, app_id=app_id: self._download_steam_artwork(app_id, token, (2, 5)),
                     priority=RequestPriority.BACKGROUND,
                     timeout_seconds=15,
+                    tag="profile-artwork",
                 )
                 handle = self.request_manager.cached_request(
                     spec,
                     self.resource_cache,
-                    max_age_seconds=7 * 24 * 60 * 60,
-                    content_type="image/jpeg",
+                    max_age_seconds=cache_policy("profile-artwork").max_age_seconds,
+                    content_type=cache_policy("profile-artwork").content_type,
                 ) if self.resource_cache is not None else self.request_manager.request(
                     key,
                     spec.loader,
@@ -1575,14 +1548,12 @@ class ProfilePageWidget(QWidget):
         def work():
             downloaded = {}
             for app_id, url in pending.items():
-                for candidate in steam_hero_urls(app_id):
-                    data = _download_profile_image(candidate, (2, 5))
-                    if data:
-                        # Keep the canonical URL as the cache key even when a
-                        # fallback endpoint supplied the bytes. That way all
-                        # cards for this AppID can use the same memory entry.
-                        downloaded[app_id] = (url, data)
-                        break
+                data = self.profile_resources.download_steam_artwork(app_id, timeout=(2, 5))
+                if data:
+                    # Keep the canonical URL as the cache key even when a
+                    # fallback endpoint supplied the bytes. That way all
+                    # cards for this AppID can use the same memory entry.
+                    downloaded[app_id] = (url, data)
             return downloaded
 
         worker = self._tasks.start(
@@ -1600,6 +1571,10 @@ class ProfilePageWidget(QWidget):
         elif result.status in {
             ResourceStatus.ERROR,
             ResourceStatus.OFFLINE,
+            ResourceStatus.UNAVAILABLE,
+            ResourceStatus.AUTHENTICATION_REQUIRED,
+            ResourceStatus.PERMISSION_DENIED,
+            ResourceStatus.CONFLICT,
             ResourceStatus.CANCELLED,
         }:
             self._artwork_request_failed({str(url)})
@@ -1613,7 +1588,6 @@ class ProfilePageWidget(QWidget):
         if previous is not None:
             previous.close()
             previous.deleteLater()
-        self._managed_request_keys.add(key)
         binding = bind_resource(
             self.request_manager,
             key,
@@ -1625,10 +1599,9 @@ class ProfilePageWidget(QWidget):
         return binding
 
     def _close_resource_bindings(self) -> None:
-        for binding in tuple(self._resource_bindings.values()):
+        for binding in self._resource_bindings.take_all():
             binding.close()
             binding.deleteLater()
-        self._resource_bindings.clear()
 
     def _artwork_loaded(self, result: Any, urls: set[str]) -> None:
         if not isinstance(result, dict):
@@ -1643,7 +1616,7 @@ class ProfilePageWidget(QWidget):
                 continue
             self._artwork_cache[url] = data
             if self.resource_cache is not None:
-                self.resource_cache.put(RequestKey("profile-artwork", url), data, content_type="image/jpeg")
+                self.resource_cache.put(self._profile_artwork_key(url), data, content_type="image/jpeg")
             # A request can outlive a profile navigation. The bytes are
             # immutable, validated Steam CDN artwork, so applying them to a
             # current card with the same AppID is safe and avoids leaving a
@@ -1858,42 +1831,58 @@ class ProfilePageWidget(QWidget):
         """
         if self.request_manager is None:
             return None
-        handle = self.request_manager.request(
+        spec = self.profile_resources.request_spec(
             key,
             lambda token: (token.raise_if_cancelled(), loader())[1],
             priority=priority,
             timeout_seconds=timeout_seconds,
+            tag="profile-operation",
         )
-        self._managed_request_keys.add(key)
-        self._managed_remote_handles[handle.request_id] = (key, on_ready, on_error)
-        handle.future.add_done_callback(
-            lambda future, request_id=handle.request_id: self._managed_remote_result.emit(
-                (request_id, future)
-            )
+        handle = self.request_manager.submit(spec)
+        previous = self._resource_bindings.pop(key, None)
+        if previous is not None:
+            previous.close()
+
+        def _deliver(result):
+            if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                return
+            binding = self._resource_bindings.pop(key, None)
+            if binding is not None:
+                binding.close()
+            if result.status == ResourceStatus.READY:
+                on_ready(result.value)
+                return
+            if result.status == ResourceStatus.CANCELLED:
+                return
+            if result.status == ResourceStatus.OFFLINE:
+                on_error(ProfileServiceError("Offline mode is enabled.", "offline"))
+                return
+            category = result.error_category
+            on_error(ProfileServiceError(
+                str(result.error or "Remote request failed."),
+                category,
+            ))
+
+        self._resource_bindings[key] = bind_request(
+            self.request_manager,
+            handle,
+            _deliver,
+            self,
+            cancel_on_close=True,
         )
         return handle
 
-    def _on_managed_remote_result(self, payload: object) -> None:
-        request_id, future = payload
-        operation = self._managed_remote_handles.pop(request_id, None)
-        if operation is None:
+    def _rotate_profile_context(self, identity: str) -> None:
+        """Cancel page-scoped work when the viewed account/profile changes."""
+        identity = str(identity or "").strip()
+        if identity == self._profile_context_identity:
             return
-        key, on_ready, on_error = operation
-        self._managed_request_keys.discard(key)
-        try:
-            result = future.result()
-        except Exception as exc:
-            on_error(exc)
-            return
-        if result.status == ResourceStatus.READY:
-            on_ready(result.value)
-            return
-        if result.status == ResourceStatus.OFFLINE:
-            on_error(ProfileServiceError("Offline mode is enabled.", "offline"))
-            return
-        if result.status == ResourceStatus.CANCELLED:
-            return
-        on_error(ProfileServiceError(str(result.error or "Remote request failed."), "request_failed"))
+        self._profile_context_identity = identity
+        self.profile_resources.invalidate_context()
+        self._close_resource_bindings()
+        self._artwork_inflight.clear()
+        self._profile_background_inflight.clear()
+        self._avatar_inflight.clear()
 
     def _refresh_social(self) -> None:
         if self._mode != "owner" or self._social_loading or self._social_mutating:
@@ -1921,10 +1910,9 @@ class ProfilePageWidget(QWidget):
         self._update_social_controls(True, True, True)
         self.friends_status.setText("Loading friends…")
         def _fetch_social():
-            with ProfileServiceClient(service_url, auth_session=self.central_auth) as client:
-                return client.get_social(handle)
+            return self.profile_resources.get_social(handle, service_url)
         if self._start_managed_remote(
-            RequestKey("profile-social", handle),
+            self._profile_resource_key("profile-social", handle),
             _fetch_social,
             lambda result, expected_handle=handle: self._social_refresh_done(result, expected_handle),
             lambda error, expected_handle=handle: self._social_refresh_done(
@@ -1987,9 +1975,8 @@ class ProfilePageWidget(QWidget):
         self.friends_status.setStyleSheet("")
         self.friends_status.setText("Updating friends…")
         def _run_mutation():
-            with ProfileServiceClient(service_url, auth_session=self.central_auth) as client:
-                return operation(client, owner_handle)
-        mutation_key = RequestKey(
+            return operation(self.profile_resources, owner_handle, service_url)
+        mutation_key = self._profile_resource_key(
             "profile-social-mutation",
             f"{owner_handle}:{self._social_handle}:{success_message}",
         )
@@ -2026,7 +2013,9 @@ class ProfilePageWidget(QWidget):
             self.friends_status.setText("You cannot send a friend request to yourself.")
             return
         self._start_social_mutation(
-            lambda client, handle: client.send_friend_request(handle, target_handle),
+            lambda service, handle, url: service.social_operation(
+                "send_friend_request", handle, target_handle=target_handle, service_url=url
+            ),
             "Friend request sent.",
         )
 
@@ -2034,7 +2023,9 @@ class ProfilePageWidget(QWidget):
         if not request_id:
             return
         self._start_social_mutation(
-            lambda client, handle: client.respond_friend_request(handle, request_id, action),
+            lambda service, handle, url: service.social_operation(
+                "respond_friend_request", handle, request_id=request_id, action=action, service_url=url
+            ),
             {"accept": "Friend request accepted.", "decline": "Friend request declined.", "cancel": "Friend request canceled."}.get(action, "Friend request updated."),
         )
 
@@ -2046,7 +2037,9 @@ class ProfilePageWidget(QWidget):
         ) != QMessageBox.StandardButton.Yes:
             return
         self._start_social_mutation(
-            lambda client, handle: client.remove_friend(handle, friend_handle),
+            lambda service, handle, url: service.social_operation(
+                "remove_friend", handle, target_handle=friend_handle, service_url=url
+            ),
             "Friend removed.",
         )
 
@@ -2058,13 +2051,17 @@ class ProfilePageWidget(QWidget):
         ) != QMessageBox.StandardButton.Yes:
             return
         self._start_social_mutation(
-            lambda client, handle: client.block_user(handle, friend_handle),
+            lambda service, handle, url: service.social_operation(
+                "block_user", handle, target_handle=friend_handle, service_url=url
+            ),
             "Profile blocked.",
         )
 
     def _unblock_profile(self, blocked_handle: str) -> None:
         self._start_social_mutation(
-            lambda client, handle: client.unblock_user(handle, blocked_handle),
+            lambda service, handle, url: service.social_operation(
+                "unblock_user", handle, target_handle=blocked_handle, service_url=url
+            ),
             "Profile unblocked.",
         )
 
@@ -2090,12 +2087,8 @@ class ProfilePageWidget(QWidget):
     def hideEvent(self, event) -> None:
         """Cancel profile-only remote work when navigation leaves this page."""
         self._close_resource_bindings()
-        if self.request_manager is not None:
-            for key in tuple(self._managed_request_keys):
-                self.request_manager.cancel(key)
-            self._managed_request_keys.clear()
-            self._artwork_inflight.clear()
-            self._profile_background_inflight.clear()
+        self._artwork_inflight.clear()
+        self._profile_background_inflight.clear()
         super().hideEvent(event)
 
     @staticmethod
@@ -2158,8 +2151,6 @@ class ProfilePageWidget(QWidget):
     def _cache_avatar_pixmap(self, avatar_id: str, pixmap: QPixmap) -> None:
         self._avatar_pixmaps.pop(avatar_id, None)
         self._avatar_pixmaps[avatar_id] = pixmap
-        while len(self._avatar_pixmaps) > MAX_PROFILE_AVATAR_CACHE_ITEMS:
-            self._avatar_pixmaps.pop(next(iter(self._avatar_pixmaps)), None)
 
     def _avatar_catalog_item(self, avatar_id: str) -> dict[str, Any] | None:
         normalized = normalize_avatar_id(avatar_id)
@@ -2215,6 +2206,40 @@ class ProfilePageWidget(QWidget):
         self._avatar_inflight.update(requested)
         service_url = get_profile_service_url()
 
+        # Production path: each avatar is a cacheable resource.  The old
+        # batch worker below remains for manager-less embedders, but bytes no
+        # longer need a second feature-specific disk cache when the shared
+        # ResourceCache is available.
+        if self.request_manager is not None and self.resource_cache is not None:
+            for avatar_id in requested:
+                item = self._avatar_catalog_item(avatar_id) or {}
+                expected_hash = str(item.get("sha256", "") or "")
+                key = self._profile_resource_key(
+                    "profile-avatar", avatar_id, expected_hash
+                )
+                had_cache = self.resource_cache.get(key) is not None
+                spec = self.profile_resources.request_spec(
+                    key,
+                    lambda token, avatar_id=avatar_id: self._load_avatar_resource(
+                        avatar_id, service_url, token
+                    ),
+                    priority=RequestPriority.NORMAL,
+                    timeout_seconds=30,
+                    tag="profile-avatar",
+                )
+                handle = self.request_manager.cached_request(
+                    spec,
+                    self.resource_cache,
+                    max_age_seconds=cache_policy("profile-avatar").max_age_seconds,
+                    content_type=cache_policy("profile-avatar").content_type,
+                )
+                self._bind_resource(
+                    key,
+                    lambda result, avatar_id=avatar_id, key=key, had_cache=had_cache:
+                    self._on_avatar_resource_state(avatar_id, key, had_cache, result),
+                )
+            return
+
         def work():
             downloaded: dict[str, bytes] = {}
             missing: list[str] = []
@@ -2227,12 +2252,11 @@ class ProfilePageWidget(QWidget):
                 else:
                     missing.append(avatar_id)
             if missing and automatic_network_allowed(self.settings):
-                with ProfileServiceClient(service_url) as client:
-                    downloaded.update(client.fetch_avatar_batch(missing))
+                downloaded.update(self.profile_resources.fetch_avatar_batch(missing, service_url))
             return downloaded
 
         if self._start_managed_remote(
-            RequestKey("profile-avatar-batch", ",".join(requested)),
+            self._profile_resource_key("profile-avatar-batch", ",".join(requested)),
             work,
             lambda result, expected_ids=set(requested): self._avatar_batch_loaded(expected_ids, result),
             lambda _error, expected_ids=set(requested): self._avatar_batch_failed(expected_ids),
@@ -2250,10 +2274,61 @@ class ProfilePageWidget(QWidget):
             lambda _error, expected_ids=set(requested): self._avatar_batch_failed(expected_ids)
         )
 
+    def _load_avatar_resource(self, avatar_id: str, service_url: str, token) -> bytes:
+        token.raise_if_cancelled()
+        values = self.profile_resources.fetch_avatar_batch(
+            [avatar_id],
+            service_url,
+            max_items=1,
+            max_total_bytes=MAX_PROFILE_AVATAR_BYTES,
+        )
+        token.raise_if_cancelled()
+        return values.get(avatar_id, b"")
+
+    def _finish_profile_resource(self, key: RequestKey) -> None:
+        binding = self._resource_bindings.pop(key, None)
+        if binding is not None:
+            binding.close()
+            binding.deleteLater()
+
+    def _on_avatar_resource_state(
+        self,
+        avatar_id: str,
+        key: RequestKey,
+        had_cache: bool,
+        result: Any,
+    ) -> None:
+        if result.status in {ResourceStatus.STALE, ResourceStatus.READY} and isinstance(result.value, bytes):
+            self._avatar_batch_loaded({avatar_id}, {avatar_id: result.value}, persist_legacy_cache=False)
+            if result.status == ResourceStatus.READY:
+                self._finish_profile_resource(key)
+            return
+        if result.status == ResourceStatus.OFFLINE and had_cache:
+            # RequestManager emits the stale cached value immediately after
+            # the offline state when one exists.
+            return
+        if result.status in {
+            ResourceStatus.ERROR,
+            ResourceStatus.OFFLINE,
+            ResourceStatus.UNAVAILABLE,
+            ResourceStatus.AUTHENTICATION_REQUIRED,
+            ResourceStatus.PERMISSION_DENIED,
+            ResourceStatus.CONFLICT,
+            ResourceStatus.CANCELLED,
+        }:
+            self._avatar_batch_failed({avatar_id})
+            self._finish_profile_resource(key)
+
     def _avatar_batch_failed(self, avatar_ids: set[str]) -> None:
         self._avatar_inflight.difference_update(avatar_ids)
 
-    def _avatar_batch_loaded(self, avatar_ids: set[str], result: Any) -> None:
+    def _avatar_batch_loaded(
+        self,
+        avatar_ids: set[str],
+        result: Any,
+        *,
+        persist_legacy_cache: bool = True,
+    ) -> None:
         self._avatar_inflight.difference_update(avatar_ids)
         if not isinstance(result, dict):
             return
@@ -2269,7 +2344,8 @@ class ProfilePageWidget(QWidget):
             if pixmap is None:
                 continue
             self._cache_avatar_pixmap(avatar_id, pixmap)
-            save_cached_avatar(avatar_id, digest, data)
+            if persist_legacy_cache:
+                save_cached_avatar(avatar_id, digest, data)
             if self._avatar_dialog is not None and self._avatar_dialog.isVisible():
                 self._avatar_dialog.set_thumbnail(avatar_id, pixmap)
             current_avatar = self._draft_avatar_id if self._editing else (
@@ -2278,7 +2354,7 @@ class ProfilePageWidget(QWidget):
             if self._avatar_reference(current_avatar) == avatar_id:
                 self._set_avatar(avatar_id)
 
-    def _avatar_catalog_loaded(self, result: Any) -> None:
+    def _avatar_catalog_loaded(self, result: Any, *, persist_legacy_cache: bool = True) -> None:
         self._avatar_catalog_loading = False
         self.btn_avatar.setEnabled(True)
         if isinstance(result, Exception):
@@ -2290,7 +2366,8 @@ class ProfilePageWidget(QWidget):
             self.footer_status.setText("The cloud profile picture catalog is empty.")
             return
         self._avatar_catalog = result
-        save_cached_avatar_catalog(result)
+        if persist_legacy_cache:
+            save_cached_avatar_catalog(result)
         if self._mode == "owner" and not self._editing:
             current = self._profile_settings.get("avatar_id")
             item = self._avatar_catalog_item(current)
@@ -2435,11 +2512,10 @@ class ProfilePageWidget(QWidget):
         self._handle_check_inflight = True
 
         def work():
-            with self._central_profile_client() as client:
-                return client.check_handle_availability(candidate)
+            return self.profile_resources.check_handle_availability(candidate)
 
         if self._start_managed_remote(
-            RequestKey("profile-handle-availability", candidate),
+            self._profile_resource_key("profile-handle-availability", candidate),
             work,
             lambda result, expected_serial=serial, expected_handle=candidate: self._handle_availability_done(
                 result, expected_serial, expected_handle
@@ -2490,9 +2566,6 @@ class ProfilePageWidget(QWidget):
         self.footer_status.setStyleSheet("")
         self.footer_status.setText(str(message or "Waiting for central sign-in…"))
 
-    def _central_profile_client(self) -> ProfileServiceClient:
-        return ProfileServiceClient(get_profile_service_url(), auth_session=self.central_auth)
-
     def _reconcile_authenticated_profile(self) -> dict[str, Any] | None:
         """Find or migrate the profile belonging to the current Auth0 identity.
 
@@ -2500,33 +2573,16 @@ class ProfilePageWidget(QWidget):
         deleted only after Convex confirms the identity claim, so an
         interrupted migration cannot strand an existing profile.
         """
-        with self._central_profile_client() as client:
-            remote = client.current_profile()
-            if remote is not None:
-                return remote
-
-            local = load_profile_settings(
-                self.settings,
-                fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
-            )
-            handle = str(local.get("public_handle", "") or "").strip().lower()
-            legacy_token = str(get_secret("profile_owner_token") or "").strip()
-            if not handle or not legacy_token:
-                return None
-            try:
-                client.claim_legacy_profile(handle, legacy_token)
-            except ProfileServiceError as exc:
-                # An invalid/missing old token is recoverable: the user is
-                # still signed in and may create a new profile. Other
-                # failures should remain visible to the caller.
-                if exc.code not in {"not_found", "unauthorized", "claimed", "identity_has_profile"}:
-                    raise
-                return None
-            if not delete_secret("profile_owner_token"):
-                # The server-side claim is complete. The old token cannot
-                # authorize the claimed identity after its hash is removed.
-                self.auth_progress.emit("Signed in; the old migration token could not be removed locally.")
-            return client.current_profile()
+        local = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        handle = str(local.get("public_handle", "") or "").strip().lower()
+        legacy_token = str(get_secret("profile_owner_token") or "").strip()
+        remote, claimed = self.profile_resources.reconcile_authenticated_profile(handle, legacy_token)
+        if claimed and not delete_secret("profile_owner_token"):
+            self.auth_progress.emit("Signed in; the old migration token could not be removed locally.")
+        return remote
 
     def _setup_username(self, identity: dict[str, Any] | None = None) -> bool:
         """Collect the first public handle without persisting OIDC claims."""
@@ -2592,7 +2648,7 @@ class ProfilePageWidget(QWidget):
             }
 
         if self._start_managed_remote(
-            RequestKey("profile-sign-in", "central-account"),
+            self._profile_resource_key("profile-sign-in", "central-account"),
             work,
             self._sign_in_done,
             lambda error: self._sign_in_error(str(error)),
@@ -2653,6 +2709,7 @@ class ProfilePageWidget(QWidget):
             return
         self._publish_timer.stop()
         self.central_auth.clear()
+        self._profile_context_identity = ""
         self._publish_dirty = False
         if self._mode == "owner":
             self.show_owner()
@@ -2776,13 +2833,38 @@ class ProfilePageWidget(QWidget):
         self.btn_avatar.setEnabled(False)
         self.footer_status.setStyleSheet("")
         self.footer_status.setText("Loading cloud profile pictures…")
+        service_url = get_profile_service_url()
+        catalog_key = self._profile_resource_key("profile-avatar-catalog", "catalog")
+        if self.request_manager is not None and self.resource_cache is not None:
+            had_cache = self.resource_cache.get(catalog_key) is not None
+            spec = self.profile_resources.request_spec(
+                catalog_key,
+                lambda token: (
+                    token.raise_if_cancelled(),
+                    self.profile_resources.list_avatar_catalog(service_url),
+                )[1],
+                priority=RequestPriority.BACKGROUND,
+                timeout_seconds=20,
+                tag="profile-avatar-catalog",
+            )
+            self.request_manager.cached_request(
+                spec,
+                self.resource_cache,
+                max_age_seconds=cache_policy("profile-avatar-catalog").max_age_seconds,
+                content_type=cache_policy("profile-avatar-catalog").content_type,
+            )
+            self._bind_resource(
+                catalog_key,
+                lambda result, key=catalog_key, had_cache=had_cache:
+                self._on_avatar_catalog_state(key, had_cache, result),
+            )
+            return
 
         def work():
-            with ProfileServiceClient(get_profile_service_url()) as client:
-                return client.list_avatar_catalog()
+            return self.profile_resources.list_avatar_catalog(service_url)
 
         if self._start_managed_remote(
-            RequestKey("profile-avatar-catalog", get_profile_service_url()),
+            catalog_key,
             work,
             self._avatar_catalog_loaded,
             lambda error: self._avatar_catalog_loaded(
@@ -2794,6 +2876,28 @@ class ProfilePageWidget(QWidget):
             return
         worker = self._tasks.start("SafeLauncher-ProfileAvatarCatalog", work, self._avatar_catalog_loaded)
         worker.error_occurred.connect(lambda error: self._avatar_catalog_loaded(ProfileServiceError(str(error), "catalog_fetch_failed")))
+
+    def _on_avatar_catalog_state(self, key: RequestKey, had_cache: bool, result: Any) -> None:
+        if result.status in {ResourceStatus.STALE, ResourceStatus.READY} and isinstance(result.value, list):
+            self._avatar_catalog_loaded(result.value, persist_legacy_cache=False)
+            if result.status == ResourceStatus.READY:
+                self._finish_profile_resource(key)
+            return
+        if result.status == ResourceStatus.OFFLINE and had_cache:
+            return
+        if result.status in {
+            ResourceStatus.ERROR,
+            ResourceStatus.OFFLINE,
+            ResourceStatus.UNAVAILABLE,
+            ResourceStatus.AUTHENTICATION_REQUIRED,
+            ResourceStatus.PERMISSION_DENIED,
+            ResourceStatus.CONFLICT,
+            ResourceStatus.CANCELLED,
+        }:
+            self._avatar_catalog_loaded(
+                ProfileServiceError(str(result.error or "Profile picture catalog unavailable."), "catalog_fetch_failed")
+            )
+            self._finish_profile_resource(key)
 
     def _remove_avatar(self) -> None:
         if self._mode != "owner" or not self._editing:
@@ -2880,49 +2984,20 @@ class ProfilePageWidget(QWidget):
             finally:
                 if worker_db is not None:
                     worker_db.close()
-            with ProfileServiceClient(service_url, auth_session=self.central_auth) as client:
-                remote = client.current_profile()
-                if remote is None:
-                    legacy_token = str(get_secret("profile_owner_token") or "").strip()
-                    if legacy_token:
-                        try:
-                            client.claim_legacy_profile(handle, legacy_token)
-                        except ProfileServiceError as exc:
-                            if exc.code not in {"not_found", "unauthorized", "claimed", "identity_has_profile"}:
-                                raise
-                        else:
-                            # Delete only after the atomic server-side claim.
-                            delete_secret("profile_owner_token")
-                        remote = client.current_profile()
-
-                if remote is None:
-                    try:
-                        response = client.create_profile(document)
-                    except ProfileServiceError as exc:
-                        if exc.code not in {"exists", "profile_exists_for_identity"}:
-                            raise
-                        remote = client.current_profile()
-                        if remote is None:
-                            raise
-                        document["handle"] = remote["handle"]
-                        response = client.update_profile(document, int(remote.get("revision", 0) or 0))
-                else:
-                    document["handle"] = remote["handle"]
-                    revision = int(remote.get("revision", 0) or 0)
-                    try:
-                        response = client.update_profile(document, revision)
-                    except ProfileServiceError as exc:
-                        if exc.code != "conflict":
-                            raise
-                        fresh = client.current_profile()
-                        if fresh is None:
-                            raise
-                        document["handle"] = fresh["handle"]
-                        response = client.update_profile(document, int(fresh.get("revision", 0) or 0))
-                return {"response": response, "document": document}
+            legacy_token = str(get_secret("profile_owner_token") or "").strip()
+            result = self.profile_resources.publish(
+                document,
+                handle,
+                legacy_token=legacy_token,
+                service_url=service_url,
+            )
+            if result.get("legacy_claimed"):
+                # Delete only after the service confirms the atomic server-side claim.
+                delete_secret("profile_owner_token")
+            return result
 
         if self._start_managed_remote(
-            RequestKey("profile-publish", handle),
+            self._profile_resource_key("profile-publish", handle),
             work,
             self._publish_done,
             lambda error: self._publish_error(str(error)),
@@ -2983,21 +3058,21 @@ class ProfilePageWidget(QWidget):
         self._emit_profile_action_state()
         self._set_profile_action_status("Unpublishing public profile…")
         def work():
-            with ProfileServiceClient(service_url, auth_session=self.central_auth) as client:
-                if client.current_profile() is None:
-                    legacy_token = str(get_secret("profile_owner_token") or "").strip()
-                    handle = str(self._profile_settings.get("public_handle", "") or "")
-                    if legacy_token and handle:
-                        try:
-                            client.claim_legacy_profile(handle, legacy_token)
-                        except ProfileServiceError as exc:
-                            if exc.code not in {"not_found", "unauthorized", "claimed", "identity_has_profile"}:
-                                raise
-                        else:
-                            delete_secret("profile_owner_token")
-                return client.delete_profile()
+            legacy_token = str(get_secret("profile_owner_token") or "").strip()
+            handle = str(self._profile_settings.get("public_handle", "") or "")
+            result = self.profile_resources.unpublish(
+                handle,
+                legacy_token=legacy_token,
+                service_url=service_url,
+            )
+            if result.get("legacy_claimed"):
+                delete_secret("profile_owner_token")
+            return result.get("response")
         if self._start_managed_remote(
-            RequestKey("profile-unpublish", str(self._profile_settings.get("public_handle", ""))),
+            self._profile_resource_key(
+                "profile-unpublish",
+                str(self._profile_settings.get("public_handle", "")),
+            ),
             work,
             self._unpublish_done,
             lambda error: self._unpublish_error(str(error)),
@@ -3049,7 +3124,7 @@ class ProfilePageWidget(QWidget):
                 worker_db.close()
         self._set_profile_action_status("Resyncing private profile data…")
         if self._start_managed_remote(
-            RequestKey("profile-private-resync", str(db_path or "default")),
+            self._profile_resource_key("profile-private-resync", str(db_path or "default")),
             work,
             self._resync_done,
             lambda _error: self._resync_done(False),
@@ -3076,11 +3151,16 @@ class ProfilePageWidget(QWidget):
     def set_public_service_url(self, url: str) -> None:
         """Keep a localhost-only override for development and UI tests."""
         value = str(url or "").strip().rstrip("/")
+        previous = get_profile_service_url()
         if is_local_service_url(value):
             self.settings.setValue("profile_service_url", value)
         else:
             self.settings.remove("profile_service_url")
         self.settings.sync()
+        if previous != get_profile_service_url():
+            self._profile_context_identity = ""
+            self.profile_resources.invalidate_context()
+            self._close_resource_bindings()
 
     def closeEvent(self, event) -> None:
         self._handle_check_timer.stop()

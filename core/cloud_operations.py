@@ -261,20 +261,31 @@ class CloudOperationCoordinator:
         return _normalize_engine_result(result)
 
     @staticmethod
-    def restore_cloud_save(game_name: str, game_path: str, steam_id: str = "", target_version: Optional[int] = None) -> CloudOperationResult:
+    def restore_cloud_save(
+        game_name: str,
+        game_path: str,
+        steam_id: str = "",
+        target_version: Optional[int] = None,
+        cancel_check=None,
+        progress_callback=None,
+    ) -> CloudOperationResult:
         try:
             result = CloudSaveSyncEngine.sync_cloud_to_local(
                 game_name, game_path, steam_id=steam_id,
                 preserve_local_fork=True, target_version=target_version,
+                cancel_check=cancel_check,
+                progress_callback=progress_callback,
             )
         except Exception as exc:
             return _failure("Cloud restore", game_name, describe_cloud_error(exc))
         return _normalize_engine_result(result)
 
     @staticmethod
-    def restore_generation(game_name: str, game_path: str, steam_id: str = "", version: Optional[int] = None) -> CloudOperationResult:
+    def restore_generation(game_name: str, game_path: str, steam_id: str = "", version: Optional[int] = None,
+                           cancel_check=None, progress_callback=None) -> CloudOperationResult:
         result = CloudOperationCoordinator.restore_cloud_save(
-            game_name, game_path, steam_id=steam_id, target_version=version
+            game_name, game_path, steam_id=steam_id, target_version=version,
+            cancel_check=cancel_check, progress_callback=progress_callback,
         )
         result.operation = "Generation restore"
         return result

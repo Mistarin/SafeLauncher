@@ -1,6 +1,10 @@
 # UI Reference: Resource Bindings
 
-[`ui/resource_binding.py`](../../../ui/resource_binding.py) is the supported bridge from Qt-free manager listeners to Qt widgets. A binding has a stable key, subscribes to state, emits on the Qt event loop, and can close/unsubscribe safely.
+[`ui/resource_binding.py`](../../../ui/resource_binding.py) is the supported bridge from Qt-free manager listeners to Qt widgets. `bind_resource()` subscribes to a stable key; `bind_request()` additionally scopes delivery to one request handle. Bindings emit on the Qt event loop and can close/unsubscribe safely.
+
+`ResourceBindingRegistry` provides the corresponding owner-scoped collection
+for pages and windows. It stores binding lifetimes only; remote values,
+freshness, retries, and deduplication remain in the core manager/cache.
 
 Binding owners should:
 

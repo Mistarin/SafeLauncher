@@ -29,10 +29,13 @@ from core.save_validation import (
 from core.save_models import SaveOperationResult
 from core.save_state import SaveStateStore
 from core.cloud_operations import CloudSyncCoordinator, classify_cloud_error
+from core.cloud_operation_service import CloudOperationTarget
+from core.request_contracts import RequestPriority, ResourceStatus
 from core.zip_backup import ZipBackupManager
 from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
+from ui.resource_binding import ResourceBinding, bind_request
 
 logger = get_logger("SaveManagerDialog")
 
@@ -63,6 +66,8 @@ class SaveManagerDialog(PopupDialog):
         self.game_path = game_path
         self.steam_id = steam_id
         self.cloud_sync_coordinator = cloud_coordinator or getattr(parent, "cloud_sync_coordinator", None) or CloudSyncCoordinator()
+        self.cloud_operation_service = getattr(parent, "cloud_operation_service", None)
+        self.request_manager = getattr(parent, "request_manager", None)
         self.backup_mgr = ZipBackupManager()
         self.save_state_store = getattr(parent, "save_state_store", None) or SaveStateStore()
         self.save_locations: list[SaveLocation] = []
@@ -72,6 +77,7 @@ class SaveManagerDialog(PopupDialog):
         # being garbage-collected while it is running and lets closeEvent wait
         # for cooperative cancellation instead of racing a deleted widget.
         self._task_supervisor = TaskSupervisor(self, logger)
+        self._resource_bindings: dict[str, ResourceBinding] = {}
         self._closing = False
         self._restore_done.connect(self._on_restore_done)
         self._upload_done.connect(self._on_upload_done)
@@ -544,6 +550,58 @@ class SaveManagerDialog(PopupDialog):
         """Keep the shared result intact at the UI boundary."""
         return result
 
+    def _resource_operation_result(self, future, operation: str) -> SaveOperationResult:
+        """Convert a manager resource completion into the dialog result model."""
+        try:
+            resource = future
+            if hasattr(future, "result"):
+                resource = future.result()
+            if resource.status == ResourceStatus.READY and isinstance(resource.value, SaveOperationResult):
+                return resource.value
+            error = str(resource.error or f"{operation} failed.")
+        except Exception as exc:
+            error = str(exc)
+        return SaveOperationResult(
+            False,
+            operation,
+            self.game_name,
+            error=error,
+            category="backend_unavailable",
+            guidance="Check the cloud connection and try again.",
+        )
+
+    def _bind_cloud_operation(self, handle, callback) -> ResourceBinding | None:
+        """Deliver one cloud operation through the Qt resource bridge."""
+        if self.request_manager is None:
+            return None
+
+        request_id = handle.request_id
+
+        def _deliver(resource):
+            if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                return
+            binding = self._resource_bindings.pop(request_id, None)
+            try:
+                callback(resource)
+            finally:
+                if binding is not None:
+                    binding.close()
+
+        binding = bind_request(
+            self.request_manager,
+            handle,
+            _deliver,
+            parent=self,
+            cancel_on_close=True,
+        )
+        self._resource_bindings[request_id] = binding
+        return binding
+
+    def _close_resource_bindings(self) -> None:
+        for binding in tuple(self._resource_bindings.values()):
+            binding.close()
+        self._resource_bindings.clear()
+
     def _open_cloud_settings(self) -> None:
         parent = self.parent()
         if parent is not None and hasattr(parent, "_open_settings"):
@@ -574,6 +632,7 @@ class SaveManagerDialog(PopupDialog):
     def closeEvent(self, event):
         """Do not destroy this dialog while an owned worker still runs."""
         self._closing = True
+        self._close_resource_bindings()
         self._task_supervisor.cancel_all(100)
         if self._task_supervisor.has_running_tasks():
             QTimer.singleShot(100, self.close)
@@ -721,6 +780,23 @@ class SaveManagerDialog(PopupDialog):
         progress.show()
         self._upload_progress = progress
         self._last_operation_retry = self._upload_selected
+        if self.cloud_operation_service is not None:
+            target = CloudOperationTarget(
+                self.game_id, self.game_name, self.game_path, self.steam_id
+            )
+            handle = self.cloud_operation_service.request_upload(
+                target,
+                priority=RequestPriority.NORMAL,
+                tag="save_manager_upload",
+                snapshot=snapshot,
+            )
+            self._bind_cloud_operation(
+                handle,
+                lambda resource: self._upload_done.emit(
+                    self._resource_operation_result(resource, "Cloud upload")
+                ),
+            )
+            return
         worker_ref = {}
 
         def _worker():
@@ -867,6 +943,44 @@ class SaveManagerDialog(PopupDialog):
         self.lst_history.addItem(loading_item)
         self.btn_restore_history.setEnabled(False)
 
+        if self.cloud_operation_service is not None:
+            target = CloudOperationTarget(
+                self.game_id, self.game_name, self.game_path, self.steam_id
+            )
+            handle = self.cloud_operation_service.request_history(
+                target,
+                priority=RequestPriority.NORMAL,
+                tag="save_manager_history",
+            )
+
+            def _deliver(resource):
+                try:
+                    if resource.status == ResourceStatus.READY:
+                        versions, error = resource.value
+                        self._history_loaded.emit(error if error is not None else versions)
+                        return
+                    error = SaveOperationResult(
+                        False,
+                        "History load",
+                        self.game_name,
+                        error=str(resource.error or "Could not load cloud history."),
+                        category="backend_unavailable",
+                        guidance="Check the cloud connection and try again.",
+                    )
+                except Exception as exc:
+                    error = SaveOperationResult(
+                        False,
+                        "History load",
+                        self.game_name,
+                        error=str(exc),
+                        category="backend_unavailable",
+                        guidance="Check the cloud connection and try again.",
+                    )
+                self._history_loaded.emit(error)
+
+            self._bind_cloud_operation(handle, _deliver)
+            return
+
         def _work():
             versions, error = self.cloud_sync_coordinator.load_history(
                 self.game_id, self.game_name, self.game_path, self.steam_id
@@ -940,6 +1054,28 @@ class SaveManagerDialog(PopupDialog):
         if hasattr(self, "btn_cloud"):
             self.btn_cloud.setEnabled(False)
 
+        if self.cloud_operation_service is not None and entry.get("source") == "cloud":
+            v_num = entry.get("version")
+            target = CloudOperationTarget(
+                self.game_id, self.game_name, self.game_path, self.steam_id
+            )
+            handle = self.cloud_operation_service.request_restore(
+                target,
+                priority=RequestPriority.CRITICAL,
+                tag="save_manager_history_restore",
+                target_version=int(v_num) if v_num else None,
+            )
+
+            def _deliver(resource):
+                result = self._resource_operation_result(resource, "Cloud restore")
+                self._restore_done.emit(
+                    bool(result.success),
+                    title if result.success else f"__restore_error__{result.error or result.guidance}",
+                )
+
+            self._bind_cloud_operation(handle, _deliver)
+            return
+
         def _worker():
             success = False
             error_message = ""
@@ -993,6 +1129,34 @@ class SaveManagerDialog(PopupDialog):
         prog.setMinimumDuration(0)
         prog.show()
         self._cloud_preflight_progress = prog
+
+        if self.cloud_operation_service is not None:
+            target = CloudOperationTarget(
+                self.game_id, self.game_name, self.game_path, self.steam_id
+            )
+            handle = self.cloud_operation_service.request_restore_preflight(
+                target,
+                priority=RequestPriority.CRITICAL,
+                tag="save_manager_restore_preflight",
+            )
+
+            def _deliver(resource):
+                try:
+                    value = resource.value if resource.status == ResourceStatus.READY else None
+                except Exception:
+                    value = None
+                if value is None or value.get("kind") == "error":
+                    self._restore_done.emit(False, "__preflight_error__")
+                elif value.get("kind") == "history":
+                    self._restore_done.emit(False, "__switch_to_history__")
+                else:
+                    self._restore_done.emit(
+                        False,
+                        f"__preflight_ok__{value.get('display_path', 'Unavailable')}__exists__{bool(value.get('cloud_exists'))}",
+                    )
+
+            self._bind_cloud_operation(handle, _deliver)
+            return
 
         def _preflight():
             try:
@@ -1082,6 +1246,26 @@ class SaveManagerDialog(PopupDialog):
             self.btn_export.setEnabled(False)
             if hasattr(self, "btn_cloud"):
                 self.btn_cloud.setEnabled(False)
+
+            if self.cloud_operation_service is not None:
+                target = CloudOperationTarget(
+                    self.game_id, self.game_name, self.game_path, self.steam_id
+                )
+                handle = self.cloud_operation_service.request_restore(
+                    target,
+                    priority=RequestPriority.CRITICAL,
+                    tag="save_manager_restore",
+                )
+
+                def _deliver(resource):
+                    result = self._resource_operation_result(resource, "Cloud restore")
+                    self._restore_done.emit(
+                        bool(result.success),
+                        display_path if result.success else f"__restore_error__{result.error or result.guidance}",
+                    )
+
+                self._bind_cloud_operation(handle, _deliver)
+                return
 
             def _worker():
                 worker_success = False

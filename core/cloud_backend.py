@@ -22,11 +22,13 @@ from typing import Optional, Dict, Any
 
 import requests
 from PyQt6.QtCore import QSettings
+from urllib.parse import urlsplit, urlunsplit
 
 from core import save_crypto
 from core.logger import get_logger
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 from core.secret_store import get_secret
+from core.request_contracts import classify_remote_error
 
 logger = get_logger("CloudBackend")
 
@@ -51,6 +53,7 @@ class CloudBackendError(Exception):
         self.status = status
         self.status_code = status
         self.extra = extra or {}
+        self.category = classify_remote_error(self).value
 
 
 def describe_cloud_error(error: Exception) -> str:
@@ -86,19 +89,54 @@ def describe_cloud_error(error: Exception) -> str:
     return str(error)
 
 
+def normalize_site_url(value: str | None) -> str:
+    """Normalize Convex client URLs to the HTTP-function ``.convex.site`` host.
+
+    Convex CLI commonly writes ``CONVEX_URL`` as the client/database host
+    (``*.convex.cloud``), while SafeLauncher calls HTTP actions such as
+    ``/api/health`` on the paired ``*.convex.site`` host.  Treating the cloud
+    URL as a site URL makes a successful deploy look incomplete because the
+    health probe returns no SafeLauncher API response.
+    """
+    raw = str(value or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    candidate = raw if "://" in raw else f"https://{raw}"
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return raw
+    hostname = (parsed.hostname or "").lower()
+    if not hostname.endswith(".convex.cloud"):
+        return raw
+    normalized_host = hostname[: -len(".convex.cloud")] + ".convex.site"
+    if parsed.port is not None:
+        normalized_host = f"{normalized_host}:{parsed.port}"
+    netloc = normalized_host
+    if parsed.username or parsed.password:
+        # This should never be needed for a Convex URL, but preserve parsing
+        # semantics without logging or inventing credential data.
+        auth = parsed.username or ""
+        if parsed.password is not None:
+            auth += f":{parsed.password}"
+        netloc = f"{auth}@{netloc}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)).rstrip("/")
+
+
 def get_site_url() -> str:
     settings = QSettings("SafeLauncher", "SafeLauncher")
     url = str(
         os.environ.get("SAFELAUNCHER_CONVEX_SITE_URL", "")
         or settings.value("convex_site_url", "", type=str)
         or DEFAULT_SITE_URL
-    ).strip().rstrip("/")
+    )
+    url = normalize_site_url(url)
     if not url:
         try:
             from core.cloud_detector import discover_local_cloud_backend
             discovered = discover_local_cloud_backend()
             if discovered:
-                return discovered.rstrip("/")
+                return normalize_site_url(discovered)
         except Exception as e:
             logger.debug(f"Local cloud backend discovery failed: {e}")
     return url
@@ -183,7 +221,7 @@ class ConvexSaveBackend:
     @property
     def site_url(self) -> str:
         if self._site_url is not None:
-            return self._site_url.rstrip("/")
+            return normalize_site_url(self._site_url)
         return get_site_url()
 
     @property
@@ -553,7 +591,7 @@ def check_backend_health(
     if url is None:
         endpoint = get_site_url().rstrip("/")
     else:
-        endpoint = url.strip().rstrip("/")
+        endpoint = normalize_site_url(url)
 
     if endpoint and not endpoint.startswith(("http://", "https://")):
         endpoint = f"https://{endpoint}"

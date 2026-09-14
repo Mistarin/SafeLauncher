@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, QSize, QPoint, QDate, QEvent, pyqtSignal, QVariantA
 from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QMovie, QDesktopServices
 
 from core.steamgriddb_client import SteamGridDBClient
+from core.artwork_resource_service import ArtworkResourceService
 from core.archive_extractor import executable_sort_key
 from core.launch_diagnostics import persist_diagnostics
 from core.date_formatting import qt_date_format
@@ -20,6 +21,7 @@ from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+from core.cache_policy import cache_policy
 from ui.resource_binding import ResourceBinding, bind_resource
 
 DEFAULT_SANDBOX_DIR = os.path.expanduser("~/Games/Sandbox")
@@ -110,6 +112,11 @@ class AddGameDialog(PopupDialog):
             
         self.sgdb_client = sgdb_client
         self.request_manager = request_manager
+        self.artwork_resources = (
+            ArtworkResourceService(request_manager, client=sgdb_client)
+            if request_manager is not None and sgdb_client is not None
+            else None
+        )
         self.banner_path = None
         self._form_result = None
         self._version_result = None
@@ -534,11 +541,16 @@ class AddGameDialog(PopupDialog):
             if self._banner_search_binding is not None:
                 self._banner_search_binding.close()
                 self._banner_search_binding.deleteLater()
-            key = RequestKey("artwork-search", game_name.casefold(), "steam-store")
-            loader = lambda token: (
-                token.raise_if_cancelled(),
-                self.sgdb_client.search_game(game_name),
-            )[1]
+            service = self.artwork_resources
+            if service is None:
+                self._on_search_error("Artwork resource service is unavailable")
+                self._reset_fetch_button()
+                return
+            handle = service.request_search(
+                game_name,
+                priority=RequestPriority.NORMAL,
+            )
+            key = handle.key
             self._banner_search_binding = bind_resource(
                 self.request_manager,
                 key,
@@ -546,21 +558,6 @@ class AddGameDialog(PopupDialog):
                 self,
                 cancel_on_close=True,
             )
-            if getattr(self.request_manager, "cache", None) is not None:
-                self.request_manager.request_cached(
-                    key,
-                    loader,
-                    max_age_seconds=24 * 60 * 60,
-                    priority=RequestPriority.NORMAL,
-                    timeout_seconds=15,
-                )
-            else:
-                self.request_manager.request(
-                    key,
-                    loader,
-                    priority=RequestPriority.NORMAL,
-                    timeout_seconds=15,
-                )
             return
         
         self.fetcher_thread = BannerFetcher(game_name, self.sgdb_client, parent=self, request_manager=self.request_manager)
@@ -583,6 +580,10 @@ class AddGameDialog(PopupDialog):
         elif result.status in {
             ResourceStatus.ERROR,
             ResourceStatus.OFFLINE,
+            ResourceStatus.UNAVAILABLE,
+            ResourceStatus.AUTHENTICATION_REQUIRED,
+            ResourceStatus.PERMISSION_DENIED,
+            ResourceStatus.CONFLICT,
             ResourceStatus.CANCELLED,
         }:
             if result.status != ResourceStatus.CANCELLED:
@@ -648,23 +649,21 @@ class AddGameDialog(PopupDialog):
                     if self._banner_download_binding is not None:
                         self._banner_download_binding.close()
                         self._banner_download_binding.deleteLater()
-                    key = RequestKey("artwork-banner", str(banner_url), "selected")
-                    loader = lambda token, banner_url=banner_url: (
-                        token.raise_if_cancelled(),
-                        self.sgdb_client.download_banner(banner_url),
-                    )[1]
+                    service = self.artwork_resources
+                    if service is None:
+                        self._on_search_error("Artwork resource service is unavailable")
+                        return
+                    handle = service.request_banner(
+                        str(banner_url),
+                        priority=RequestPriority.CRITICAL,
+                    )
+                    key = handle.key
                     self._banner_download_binding = bind_resource(
                         self.request_manager,
                         key,
                         lambda state: self._on_managed_banner_download_state(state),
                         self,
                         cancel_on_close=True,
-                    )
-                    self.request_manager.request(
-                        key,
-                        loader,
-                        priority=RequestPriority.CRITICAL,
-                        timeout_seconds=30,
                     )
                     return
                 if self.downloader_thread and self.downloader_thread.isRunning():
@@ -685,6 +684,10 @@ class AddGameDialog(PopupDialog):
         elif result.status in {
             ResourceStatus.ERROR,
             ResourceStatus.OFFLINE,
+            ResourceStatus.UNAVAILABLE,
+            ResourceStatus.AUTHENTICATION_REQUIRED,
+            ResourceStatus.PERMISSION_DENIED,
+            ResourceStatus.CONFLICT,
         }:
             self._on_search_error(str(result.error or "Banner download failed."))
 

@@ -20,8 +20,21 @@ class ResourcePerformanceTrackerTests(unittest.TestCase):
         snapshot = tracker.snapshot({
             "submitted": 4,
             "deduplicated": 2,
+            "completed": 3,
+            "errors": 1,
+            "retries": 2,
+            "cancelled": 1,
+            "offline": 1,
+            "invalidated": 1,
+            "cache_hits": 4,
+            "cache_stale": 2,
+            "cache_misses": 1,
+            "cache_memory_hits": 3,
+            "cache_disk_hits": 3,
             "cache_hit_rate": 0.5,
             "active_peak": 3,
+            "workers_peak": 3,
+            "workers_current": 0,
         })
         self.assertEqual(snapshot["time_to_first_library_render_seconds"], 0.0)
         self.assertEqual(snapshot["time_to_first_visible_artwork_seconds"], 0.0)
@@ -31,6 +44,19 @@ class ResourcePerformanceTrackerTests(unittest.TestCase):
         self.assertEqual(snapshot["library_refreshes_per_second"], 0.8)
         self.assertEqual(snapshot["visible_artwork_updates_per_second"], 1.6)
         self.assertEqual(snapshot["requests_deduplicated"], 2)
+        self.assertEqual(snapshot["requests_completed"], 3)
+        self.assertEqual(snapshot["requests_errors"], 1)
+        self.assertEqual(snapshot["requests_retries"], 2)
+        self.assertEqual(snapshot["requests_cancelled"], 1)
+        self.assertEqual(snapshot["requests_offline"], 1)
+        self.assertEqual(snapshot["requests_invalidated"], 1)
+        self.assertEqual(snapshot["requests_cache_hits"], 4)
+        self.assertEqual(snapshot["requests_cache_stale"], 2)
+        self.assertEqual(snapshot["requests_cache_misses"], 1)
+        self.assertEqual(snapshot["requests_cache_memory_hits"], 3)
+        self.assertEqual(snapshot["requests_cache_disk_hits"], 3)
+        self.assertEqual(snapshot["requests_workers_peak"], 3)
+        self.assertEqual(snapshot["requests_workers_current"], 0)
 
     def test_unavailable_milestones_remain_explicit(self):
         tracker = ResourcePerformanceTracker(lambda: 10.0)

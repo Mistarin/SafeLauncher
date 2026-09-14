@@ -12,9 +12,12 @@ from PyQt6.QtWidgets import (
 
 from core.network_policy import automatic_network_allowed
 from core.profile_models import HANDLE_RE, load_profile_settings, normalize_social_snapshot
-from core.profile_service import ProfileServiceClient, ProfileServiceError, get_profile_service_url
+from core.profile_service import ProfileServiceError, get_profile_service_url
+from core.profile_resource_service import ProfileResourceService
+from core.cache_policy import cache_policy
 from core.safe_thread import TaskSupervisor
-from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+from core.request_contracts import RequestPriority, ResourceStatus
+from ui.resource_binding import ResourceBinding, bind_request
 from ui.components.popup_shell import PopupDialog
 from ui.icons import get_icon
 from ui.theme import SEMANTIC_ERROR, SEMANTIC_SUCCESS, TEXT_PRIMARY, TEXT_SECONDARY
@@ -30,7 +33,6 @@ class FriendsDialog(PopupDialog):
 
     open_profile_requested = pyqtSignal(str)
     open_owner_profile_requested = pyqtSignal()
-    _managed_remote_done = pyqtSignal(object)
 
     def __init__(self, settings: QSettings | None = None, auth_session=None,
                  parent=None, worker_registry=None, focus_find: bool = False, request_manager=None):
@@ -39,8 +41,8 @@ class FriendsDialog(PopupDialog):
         self.auth_session = auth_session
         self._tasks = TaskSupervisor(self, worker_registry=worker_registry)
         self.request_manager = request_manager
-        self._managed_handles: dict[str, tuple[Any, Any, Any]] = {}
-        self._managed_remote_done.connect(self._on_managed_remote_done)
+        self.profile_resources = ProfileResourceService(self.auth_session)
+        self._resource_bindings: dict[str, ResourceBinding] = {}
         self._focus_find = bool(focus_find)
         self._social_loading = False
         self._social_mutating = False
@@ -244,7 +246,9 @@ class FriendsDialog(PopupDialog):
                 handle = str(item.get("handle", ""))
                 self._add_row(self.friends_layout, item, [
                     ("View profile", lambda h=handle: self.open_profile_requested.emit(h)),
-                    ("Remove", lambda h=handle: self._mutate(lambda c, owner: c.remove_friend(owner, h), "Friend removed.")),
+                    ("Remove", lambda h=handle: self._mutate(
+                        "remove_friend", "Friend removed.", target_handle=h
+                    )),
                 ])
         if not friends:
             self._add_info(self.friends_layout, "No friends yet. Use Find Friends to add someone by @handle.")
@@ -255,9 +259,17 @@ class FriendsDialog(PopupDialog):
                 handle = str(item.get("handle", ""))
                 self._add_row(self.requests_layout, item, [
                     ("View", lambda h=handle: self.open_profile_requested.emit(h)),
-                    ("Accept", lambda r=request_id: self._mutate(lambda c, owner: c.respond_friend_request(owner, r, "accept"), "Friend request accepted.")),
-                    ("Decline", lambda r=request_id: self._mutate(lambda c, owner: c.respond_friend_request(owner, r, "decline"), "Request declined.")),
-                    ("Block", lambda h=handle: self._mutate(lambda c, owner: c.block_user(owner, h), "Profile blocked.")),
+                    ("Accept", lambda r=request_id: self._mutate(
+                        "respond_friend_request", "Friend request accepted.",
+                        request_id=r, action="accept"
+                    )),
+                    ("Decline", lambda r=request_id: self._mutate(
+                        "respond_friend_request", "Request declined.",
+                        request_id=r, action="decline"
+                    )),
+                    ("Block", lambda h=handle: self._mutate(
+                        "block_user", "Profile blocked.", target_handle=h
+                    )),
                 ])
         for item in outgoing if isinstance(outgoing, list) else []:
             if isinstance(item, dict):
@@ -265,12 +277,17 @@ class FriendsDialog(PopupDialog):
                 handle = str(item.get("handle", ""))
                 self._add_row(self.requests_layout, item, [
                     ("View", lambda h=handle: self.open_profile_requested.emit(h)),
-                    ("Cancel", lambda r=request_id: self._mutate(lambda c, owner: c.respond_friend_request(owner, r, "cancel"), "Request canceled.")),
+                    ("Cancel", lambda r=request_id: self._mutate(
+                        "respond_friend_request", "Request canceled.",
+                        request_id=r, action="cancel"
+                    )),
                 ])
         for handle in blocked if isinstance(blocked, list) else []:
             value = str(handle or "")
             self._add_row(self.requests_layout, {"display_name": "Blocked profile", "handle": value}, [
-                ("Unblock", lambda h=value: self._mutate(lambda c, owner: c.unblock_user(owner, h), "Profile unblocked.")),
+                ("Unblock", lambda h=value: self._mutate(
+                    "unblock_user", "Profile unblocked.", target_handle=h
+                )),
             ])
         if not incoming and not outgoing and not blocked:
             self._add_info(self.requests_layout, "No pending requests or blocked profiles.")
@@ -298,14 +315,21 @@ class FriendsDialog(PopupDialog):
         service_url = get_profile_service_url()
 
         def work():
-            with ProfileServiceClient(service_url, auth_session=self.auth_session) as client:
-                return client.get_social(handle)
+            return self.profile_resources.get_social(handle, service_url)
 
         if self._start_managed_remote(
-            RequestKey("friends-dialog-refresh", f"{service_url}:{handle}"),
-            work,
+            self.profile_resources.request_spec(
+                self.profile_resources.request_key(
+                    "profile-social", handle, "friends-v1", service_url
+                ),
+                lambda token: (token.raise_if_cancelled(), work())[1],
+                priority=RequestPriority.NORMAL,
+                timeout_seconds=20,
+                tag="friends-dialog-refresh",
+            ),
             self._refresh_done,
             lambda error: self._refresh_done(ProfileServiceError(str(error), "social_refresh_failed")),
+            cache_policy_name="profile-social",
         ) is not None:
             return
 
@@ -323,38 +347,42 @@ class FriendsDialog(PopupDialog):
         self._snapshot = normalize_social_snapshot(result if isinstance(result, dict) else {})
         self._render()
 
-    def _start_managed_remote(self, key, loader, on_ready, on_error):
+    def _start_managed_remote(self, spec, on_ready, on_error, *, cache_policy_name: str = ""):
         if self.request_manager is None:
             return None
-        handle = self.request_manager.request(
-            key,
-            lambda token: (token.raise_if_cancelled(), loader())[1],
-            priority=RequestPriority.NORMAL,
-            timeout_seconds=20,
-        )
-        self._managed_handles[handle.request_id] = (key, on_ready, on_error)
-        handle.future.add_done_callback(
-            lambda future, request_id=handle.request_id: self._managed_remote_done.emit(
-                (request_id, future)
+        cache = getattr(self.request_manager, "cache", None)
+        if cache is not None and cache_policy_name:
+            policy = cache_policy(cache_policy_name)
+            handle = self.request_manager.cached_request(
+                spec,
+                cache,
+                max_age_seconds=policy.max_age_seconds,
+                stale_while_revalidate=policy.stale_while_revalidate,
+                content_type=policy.content_type,
             )
+        else:
+            handle = self.request_manager.submit(spec)
+        request_id = handle.request_id
+
+        def _deliver(result):
+            if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                return
+            binding = self._resource_bindings.pop(request_id, None)
+            if binding is not None:
+                binding.close()
+            if result.status == ResourceStatus.READY:
+                on_ready(result.value)
+            elif result.status != ResourceStatus.CANCELLED:
+                on_error(result.error or result.status.value)
+
+        self._resource_bindings[request_id] = bind_request(
+            self.request_manager,
+            handle,
+            _deliver,
+            self,
+            cancel_on_close=True,
         )
         return handle
-
-    def _on_managed_remote_done(self, payload: object) -> None:
-        request_id, future = payload
-        callbacks = self._managed_handles.pop(request_id, None)
-        if callbacks is None:
-            return
-        _key, on_ready, on_error = callbacks
-        try:
-            result = future.result()
-        except Exception as error:
-            on_error(error)
-            return
-        if result.status == ResourceStatus.READY:
-            on_ready(result.value)
-        elif result.status != ResourceStatus.CANCELLED:
-            on_error(result.error or result.status.value)
 
     def _target(self) -> str:
         value = self.find_input.text().strip().lstrip("@").lower()
@@ -379,9 +407,19 @@ class FriendsDialog(PopupDialog):
         target = self._target()
         if not target or not self._update_gate():
             return
-        self._mutate(lambda client, owner: client.send_friend_request(owner, target), "Friend request sent.")
+        self._mutate(
+            "send_friend_request", "Friend request sent.", target_handle=target
+        )
 
-    def _mutate(self, operation: Callable[[ProfileServiceClient, str], Any], success: str) -> None:
+    def _mutate(
+        self,
+        operation: str,
+        success: str,
+        *,
+        target_handle: str = "",
+        request_id: str = "",
+        action: str = "",
+    ) -> None:
         if self._social_mutating or not self._update_gate():
             return
         self._social_mutating = True
@@ -392,12 +430,28 @@ class FriendsDialog(PopupDialog):
         service_url = get_profile_service_url()
 
         def work():
-            with ProfileServiceClient(service_url, auth_session=self.auth_session) as client:
-                return operation(client, owner)
+            return self.profile_resources.social_operation(
+                operation,
+                owner,
+                target_handle=target_handle,
+                request_id=request_id,
+                action=action,
+                service_url=service_url,
+            )
 
         if self._start_managed_remote(
-            RequestKey("friends-dialog-mutation", f"{owner}:{success}"),
-            work,
+            self.profile_resources.request_spec(
+                self.profile_resources.request_key(
+                    "profile-social-operation",
+                    f"{operation}:{owner}:{target_handle}:{request_id}:{action}",
+                    "friends-v1",
+                    service_url,
+                ),
+                lambda token: (token.raise_if_cancelled(), work())[1],
+                priority=RequestPriority.NORMAL,
+                timeout_seconds=20,
+                tag="friends-dialog-mutation",
+            ),
             lambda result: self._mutation_done(result, success),
             lambda error: self._mutation_done(ProfileServiceError(str(error), "social_operation_failed"), success),
         ) is not None:
@@ -422,3 +476,10 @@ class FriendsDialog(PopupDialog):
         if self._focus_find:
             self.find_input.setFocus()
         self.refresh()
+
+    def closeEvent(self, event) -> None:
+        for binding in tuple(self._resource_bindings.values()):
+            binding.close()
+        self._resource_bindings.clear()
+        self._tasks.cancel_all(100)
+        super().closeEvent(event)

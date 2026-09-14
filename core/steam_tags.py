@@ -3,6 +3,7 @@ from core.safe_thread import SafeQThread
 from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
 from core.steam_client import SteamClient
+from core.cache_policy import cache_policy
 
 logger = get_logger("SteamTags")
 
@@ -36,7 +37,7 @@ class SteamTagsFetcher(SafeQThread):
                 handle = self.request_manager.request_cached(
                     key,
                     loader,
-                    max_age_seconds=7 * 24 * 60 * 60,
+                    max_age_seconds=cache_policy("steam-tags").max_age_seconds,
                     priority=RequestPriority.NORMAL,
                     timeout_seconds=10,
                 )
@@ -56,7 +57,7 @@ class SteamTagsFetcher(SafeQThread):
             if usable.status in {ResourceStatus.READY, ResourceStatus.STALE} and usable.value and not self.isInterruptionRequested():
                 tags, app_id = usable.value
                 self._emit_if_active(tags, str(app_id))
-            elif result.status == ResourceStatus.ERROR:
+            elif result.status not in {ResourceStatus.READY, ResourceStatus.STALE, ResourceStatus.CANCELLED}:
                 logger.debug("Managed Steam tag request failed for %s: %s", self.game_name, result.error)
                 self._emit_if_active([], "")
             if self.steam_client is None:

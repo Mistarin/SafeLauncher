@@ -13,12 +13,15 @@ from typing import Any
 from PyQt6.QtCore import QStandardPaths
 
 from core.profile_models import normalize_avatar_asset_id, normalize_avatar_id
+from core.cache_policy import cache_policy
 
 
 MAX_AVATAR_CATALOG_ITEMS = 128
 MAX_AVATAR_LABEL_LENGTH = 80
 MAX_AVATAR_CATEGORY_LENGTH = 32
-AVATAR_CATALOG_CACHE_TTL = 24 * 60 * 60
+# Compatibility export for callers that still use the legacy disk catalog.
+# Managed ResourceCache callers use the same named policy directly.
+AVATAR_CATALOG_CACHE_TTL = cache_policy("profile-avatar-catalog").max_age_seconds
 # The approved catalog is small enough to keep on disk after the first batch
 # fetch. The in-memory QPixmap cache remains deliberately smaller.
 MAX_CACHED_AVATAR_FILES = 64

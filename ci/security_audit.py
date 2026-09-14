@@ -68,6 +68,16 @@ ALLOWED_CONVEX_FIXTURE_HOSTS = {
     "your-profile-service.convex.site",
     "your-project.convex.site",
 }
+# These deployments appeared in pre-gateway historical snapshots. They are
+# public endpoint origins, not credentials; current release inputs remain
+# forbidden from containing any concrete Convex origin. Keeping this separate
+# from fixture hosts makes the exception visible and prevents it from masking
+# accidental URLs in present-day source.
+ALLOWED_HISTORICAL_CONVEX_HOSTS = {
+    "moonlit-sockeye-565.convex.site",
+    "moonlit-sockeye-565.eu-west-1.convex.site",
+    "quiet-rooster-847.eu-west-1.convex.site",
+}
 PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
 TOKEN_LIKE = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|vercel_[A-Za-z0-9_]{20,})\b"
@@ -167,7 +177,7 @@ def audit_history(findings: list[str]) -> None:
             url_match = CONVEX_URL.search(snapshot_text)
             if url_match:
                 host = (urlsplit(url_match.group(0)).hostname or "").lower()
-                if host not in ALLOWED_CONVEX_FIXTURE_HOSTS:
+                if host not in ALLOWED_CONVEX_FIXTURE_HOSTS | ALLOWED_HISTORICAL_CONVEX_HOSTS:
                     findings.append(
                         f"history {commit[:12]}: unapproved concrete Convex URL in a reachable snapshot"
                     )
@@ -190,7 +200,7 @@ def audit_history(findings: list[str]) -> None:
     for record in log_result.stdout.split("\0"):
         for match in CONVEX_URL.finditer(record):
             host = (urlsplit(match.group(0)).hostname or "").lower()
-            if host not in ALLOWED_CONVEX_FIXTURE_HOSTS:
+            if host not in ALLOWED_CONVEX_FIXTURE_HOSTS | ALLOWED_HISTORICAL_CONVEX_HOSTS:
                 findings.append("history: unapproved concrete Convex URL in a commit message")
                 break
         for pattern, label in (

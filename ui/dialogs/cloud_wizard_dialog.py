@@ -1,7 +1,6 @@
 """Interactive setup wizard dialog for SafeLauncher private cloud saves."""
 
 import os
-import requests
 from pathlib import Path
 from urllib.parse import urlparse
 from PyQt6.QtWidgets import (
@@ -13,21 +12,12 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings, QUrl
 from PyQt6.QtGui import QDesktopServices
 
 from core.cloud_detector import discover_local_cloud_backend, inspect_system_compatibility
-from core.cloud_backend import get_site_url
-from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
+from core.cloud_account_service import CloudAccountService
+from core.cloud_backend import get_site_url, normalize_site_url
+from core.version import MIN_CONVEX_BACKEND_VERSION
 from core.safe_thread import TaskSupervisor
 from core.secret_store import get_secret, set_secret, delete_secret
 from ui.components.popup_shell import PopupDialog
-
-
-def _close_response(response) -> None:
-    """Close a short-lived wizard probe response on every path."""
-    if response is None:
-        return
-    try:
-        response.close()
-    except Exception:
-        pass
 
 
 class CloudWizardDialog(PopupDialog):
@@ -40,6 +30,7 @@ class CloudWizardDialog(PopupDialog):
         super().__init__("Cloud Save Setup Wizard", parent)
         self.resize(620, 520)
         self._task_supervisor = TaskSupervisor(self)
+        self.cloud_account_service = CloudAccountService()
         self._test_generation = 0
         self.setStyleSheet("""
             QDialog {
@@ -606,7 +597,9 @@ class CloudWizardDialog(PopupDialog):
         layout.addWidget(QLabel("<b>Convex Site URL:</b>"))
 
         settings = QSettings("SafeLauncher", "SafeLauncher")
-        existing_url = settings.value("convex_site_url", "", type=str) or get_site_url()
+        existing_url = normalize_site_url(
+            settings.value("convex_site_url", "", type=str) or get_site_url()
+        )
 
         self.edit_url = QLineEdit(existing_url)
         self.edit_url.setPlaceholderText("Your Convex deployment URL")
@@ -734,7 +727,7 @@ class CloudWizardDialog(PopupDialog):
             self._test_and_save()
 
     def _test_and_save(self):
-        url = self.edit_url.text().strip().rstrip("/")
+        url = normalize_site_url(self.edit_url.text())
         key = self.edit_key.text().strip()
 
         if not url:
@@ -790,41 +783,13 @@ class CloudWizardDialog(PopupDialog):
                         if not test_key:
                             return False, "Cloud Save secret setup returned no usable local key.", None
 
-                headers = {}
-                if test_key:
-                    headers["Authorization"] = f"Bearer {test_key}"
-                    headers["X-SafeLauncher-Key"] = test_key
-
-                resp = requests.get(f"{url}/api/health", headers=headers, timeout=6)
-                try:
-                    if resp.status_code == 404:
-                        return False, (
-                            "This is a legacy backend: /api/health is missing. "
-                            "Redeploy the backend with npm install and npx convex deploy --yes first."
-                        ), None
-                    if resp.status_code != 200:
-                        return False, f"Health check failed with HTTP {resp.status_code}", None
-                    health_data = resp.json() if resp.content else {}
-                finally:
-                    _close_response(resp)
-                backend_version = str(health_data.get("version") or "1.0.0").strip()
-                if is_version_outdated(backend_version, MIN_CONVEX_BACKEND_VERSION):
-                    return False, (
-                        f"Backend v{backend_version} is outdated; SafeLauncher requires "
-                        f"v{MIN_CONVEX_BACKEND_VERSION}. Redeploy it with npm install and npx convex deploy --yes."
-                    ), backend_version
-
-                resp_me = requests.get(f"{url}/api/me", headers=headers, timeout=6)
-                try:
-                    if resp_me.status_code in (401, 403):
-                        return False, "The backend requires a valid Secret Access Key. Enter the key configured in Convex.", None
-                    if resp_me.status_code == 200:
-                        data = resp_me.json()
-                        quota_mb = data.get("quotaBytes", 0) / (1024 * 1024)
-                        return True, f"Connected! Available quota: {quota_mb:.0f} MB", None
-                    return False, f"Backend is reachable, but account verification failed with HTTP {resp_me.status_code}.", None
-                finally:
-                    _close_response(resp_me)
+                probe = self.cloud_account_service.verify_connection(url, test_key)
+                outdated_version = (
+                    probe.version
+                    if probe.health and probe.health.get("is_outdated")
+                    else None
+                )
+                return probe.success, probe.message, outdated_version
             except Exception as e:
                 return False, str(e), None
 
@@ -842,7 +807,7 @@ class CloudWizardDialog(PopupDialog):
         self.btn_next.setEnabled(True)
         self.btn_back.setEnabled(True)
         if success:
-            url = self.edit_url.text().strip().rstrip("/")
+            url = normalize_site_url(self.edit_url.text())
             key = self.edit_key.text().strip() or get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
             settings = QSettings("SafeLauncher", "SafeLauncher")
             settings.setValue("cloud_mode", "convex")

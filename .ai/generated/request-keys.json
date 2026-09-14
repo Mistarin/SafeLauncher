@@ -1,19 +1,54 @@
 {
-  "generated_at": "2026-09-14T02:59:45+00:00",
+  "generated_at": "2026-09-14T19:01:21+00:00",
   "request_keys": [
     {
+      "file": "ci/performance_baseline.py",
+      "line": 89,
+      "resource": "baseline"
+    },
+    {
+      "file": "core/achievement_resource_service.py",
+      "line": 44,
+      "resource": "achievement-status"
+    },
+    {
       "file": "core/achievement_schema.py",
-      "line": 265,
+      "line": 298,
       "resource": "achievement-icons"
     },
     {
+      "file": "core/achievement_schema.py",
+      "line": 529,
+      "resource": "achievement-schema"
+    },
+    {
+      "file": "core/artwork_resource_service.py",
+      "line": 48,
+      "resource": "artwork-search"
+    },
+    {
+      "file": "core/artwork_resource_service.py",
+      "line": 55,
+      "resource": "artwork-banner"
+    },
+    {
       "file": "core/steam_build_tracker.py",
-      "line": 112,
+      "line": 113,
       "resource": "steam-build"
     },
     {
+      "file": "core/steam_resource_service.py",
+      "line": 34,
+      "resource": "steam-build"
+    },
+    {
+      "file": "core/steam_resource_service.py",
+      "line": 39,
+      "resource": "steam-tags"
+    },
+    {
       "file": "core/steam_tags.py",
-      "line": 33,
+      "line": 34,
       "resource": "steam-tags"
     },
     {
@@ -32,29 +67,74 @@
       "resource": "cloud-save-status"
     },
     {
-      "file": "tests/test_request_contracts.py",
-      "line": 24,
-      "resource": "artwork"
+      "file": "tests/test_library_achievement_coordinator.py",
+      "line": 15,
+      "resource": "achievement-status"
+    },
+    {
+      "file": "tests/test_library_artwork_coordinator.py",
+      "line": 18,
+      "resource": "artwork-"
+    },
+    {
+      "file": "tests/test_library_steam_metadata_coordinator.py",
+      "line": 14,
+      "resource": "steam-build"
+    },
+    {
+      "file": "tests/test_library_steam_metadata_coordinator.py",
+      "line": 18,
+      "resource": "steam-tags"
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "line": 35,
+      "resource": "large-library"
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "line": 49,
+      "resource": "duplicate-game"
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "line": 76,
+      "resource": "shutdown"
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "line": 79,
+      "resource": "shutdown"
     },
     {
       "file": "tests/test_request_contracts.py",
-      "line": 29,
+      "line": 27,
       "resource": "artwork"
     },
     {
       "file": "tests/test_request_contracts.py",
       "line": 32,
+      "resource": "artwork"
+    },
+    {
+      "file": "tests/test_request_contracts.py",
+      "line": 35,
       "resource": "library"
     },
     {
       "file": "tests/test_request_contracts.py",
-      "line": 47,
+      "line": 50,
       "resource": "library"
     },
     {
       "file": "tests/test_request_contracts.py",
-      "line": 81,
+      "line": 84,
       "resource": "data"
+    },
+    {
+      "file": "tests/test_request_contracts.py",
+      "line": 114,
+      "resource": "profile"
     },
     {
       "file": "tests/test_request_manager.py",
@@ -93,102 +173,122 @@
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 118,
+      "line": 122,
+      "resource": "profile"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 137,
+      "resource": "profile"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 156,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 134,
+      "line": 172,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 135,
+      "line": 173,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 168,
+      "line": 206,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 168,
+      "line": 206,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 191,
+      "line": 229,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 191,
+      "line": 229,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 200,
+      "line": 238,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 208,
+      "line": 246,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 220,
+      "line": 258,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 248,
+      "line": 286,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 249,
+      "line": 287,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 273,
+      "line": 311,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 299,
+      "line": 337,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 320,
+      "line": 358,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 328,
+      "line": 366,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 347,
+      "line": 385,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 371,
+      "line": 409,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_binding.py",
-      "line": 33,
+      "line": 19,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_binding.py",
-      "line": 60,
+      "line": 43,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_binding.py",
+      "line": 70,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_binding.py",
+      "line": 97,
       "resource": "data"
     },
     {
@@ -247,229 +347,39 @@
       "resource": "library"
     },
     {
-      "file": "ui/components/profile_page.py",
-      "line": 1084,
-      "resource": "profile-background"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 1154,
-      "resource": "profile-background"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 1227,
-      "resource": "profile-background"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 1514,
-      "resource": "profile-artwork"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 1535,
-      "resource": "profile-artwork"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 1548,
-      "resource": "profile-artwork"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 1646,
-      "resource": "profile-artwork"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 1927,
-      "resource": "profile-social"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 1992,
-      "resource": "profile-social-mutation"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 2235,
-      "resource": "profile-avatar-batch"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 2442,
-      "resource": "profile-handle-availability"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 2595,
-      "resource": "profile-sign-in"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 2785,
-      "resource": "profile-avatar-catalog"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 2925,
-      "resource": "profile-publish"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 3000,
-      "resource": "profile-unpublish"
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "line": 3052,
-      "resource": "profile-private-resync"
-    },
-    {
-      "file": "ui/dialogs/account_dialog.py",
-      "line": 263,
-      "resource": "cloud-account-task"
-    },
-    {
-      "file": "ui/dialogs/achievements_dialog.py",
-      "line": 841,
-      "resource": "achievement-resolution"
-    },
-    {
-      "file": "ui/dialogs/friends_dialog.py",
-      "line": 305,
-      "resource": "friends-dialog-refresh"
-    },
-    {
-      "file": "ui/dialogs/friends_dialog.py",
-      "line": 399,
-      "resource": "friends-dialog-mutation"
-    },
-    {
-      "file": "ui/dialogs/game_dialogs.py",
-      "line": 537,
-      "resource": "artwork-search"
-    },
-    {
-      "file": "ui/dialogs/game_dialogs.py",
-      "line": 651,
-      "resource": "artwork-banner"
-    },
-    {
-      "file": "ui/dialogs/settings_dialog.py",
-      "line": 1576,
-      "resource": "settings-task"
-    },
-    {
       "file": "ui/main_window.py",
-      "line": 2820,
-      "resource": "artwork-auto"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 2994,
-      "resource": "artwork-hero"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 3056,
-      "resource": "artwork-icon"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 3134,
+      "line": 3153,
       "resource": "window-task"
     },
     {
       "file": "ui/main_window.py",
-      "line": 3887,
-      "resource": "steam-build"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 4055,
-      "resource": "steam-build"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 4161,
-      "resource": "steam-tags"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 5866,
+      "line": 5730,
       "resource": "public-profile"
     },
     {
-      "file": "ui/main_window.py",
-      "line": 5946,
-      "resource": "cloud-profile"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 6321,
-      "resource": "cloud-game-metadata"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 6711,
-      "resource": "cloud-save-status"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 7028,
-      "resource": "achievement-status"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 7088,
-      "resource": "achievement-status"
-    },
-    {
       "file": "ui/threads.py",
-      "line": 35,
+      "line": 53,
       "resource": "artwork-search"
     },
     {
       "file": "ui/threads.py",
-      "line": 98,
+      "line": 116,
       "resource": "artwork-banner"
     },
     {
       "file": "ui/threads.py",
-      "line": 137,
+      "line": 155,
       "resource": "artwork-auto"
     },
     {
       "file": "ui/threads.py",
-      "line": 386,
+      "line": 404,
       "resource": "artwork-hero"
     },
     {
       "file": "ui/threads.py",
-      "line": 425,
+      "line": 443,
       "resource": "artwork-icon"
-    },
-    {
-      "file": "ui/threads.py",
-      "line": 464,
-      "resource": "cloud-save-status"
-    },
-    {
-      "file": "ui/threads.py",
-      "line": 548,
-      "resource": "cloud-save-status"
-    },
-    {
-      "file": "ui/threads.py",
-      "line": 677,
-      "resource": "achievement-status"
-    },
-    {
-      "file": "ui/threads.py",
-      "line": 797,
-      "resource": "achievement-status"
     }
   ]
 }

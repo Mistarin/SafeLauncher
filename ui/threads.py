@@ -1,3 +1,11 @@
+"""Compatibility QThread wrappers and explicit local/process workers.
+
+Manager-backed callers must use the resource services.  The remote worker
+classes in this module remain only for manager-less dialogs, plugins, and
+older embedded integrations; when a RequestManager is supplied they delegate
+to it.  The remaining workers are explicit file/process operations.
+"""
+
 import os
 import subprocess
 from typing import Optional
@@ -11,8 +19,18 @@ from database import _APP_DATA_DIR
 from core.disk_utils import get_dir_size, format_size, peek_dir_size
 from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
+from core.cache_policy import cache_policy
 
 logger = get_logger("UIThreads")
+
+# Machine-readable inventory used by architecture audits and downstream
+# embedders. These classes must not become a second production request pool.
+COMPATIBILITY_REMOTE_WORKERS = frozenset({
+    "BannerFetcher", "BannerDownloader", "BannerAutoFetcher",
+    "HeroFetcherThread", "IconAutoFetcherThread",
+    "CloudSaveStatusFetcherThread", "CloudSaveBatchQueueWorker",
+    "AchievementStatusFetcherThread", "AchievementBatchQueueWorker",
+})
 
 
 class BannerFetcher(SafeQThread):
@@ -38,7 +56,7 @@ class BannerFetcher(SafeQThread):
                     handle = self.request_manager.request_cached(
                         key,
                         loader,
-                        max_age_seconds=24 * 60 * 60,
+                        max_age_seconds=cache_policy("artwork-search").max_age_seconds,
                         priority=RequestPriority.NORMAL,
                         timeout_seconds=15,
                     )
@@ -459,37 +477,27 @@ class CloudSaveStatusFetcherThread(SafeQThread):
         if self.isInterruptionRequested() or not automatic_network_allowed():
             return
         if self.request_manager is not None:
-            from core.cloud_save_sync import cloud_context_fingerprint
-            from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
-            key = RequestKey(
-                "cloud-save-status",
-                f"{cloud_context_fingerprint()}:{self.game_id}",
-            )
+            from core.cloud_status_service import CloudStatusService, CloudStatusTarget
+            from core.request_contracts import ResourceStatus
 
-            def load(token):
-                token.raise_if_cancelled()
-                from core.cloud_operations import CloudSyncCoordinator
-                coordinator = self.coordinator or CloudSyncCoordinator()
-                result = coordinator.check_status(
+            service = CloudStatusService(
+                self.request_manager,
+                coordinator=self.coordinator,
+            )
+            handle = service.request_status(
+                CloudStatusTarget(
                     self.game_id, self.game_name, self.path, self.steam_id
                 )
-                token.raise_if_cancelled()
-                from core.cloud_save_sync import SyncStatus
-                return (
-                    result.status or SyncStatus.CLOUD_OFFLINE,
-                    result.local_stats,
-                    result.cloud_stats,
-                )
-
-            handle = self.request_manager.request(
-                key,
-                load,
-                priority=RequestPriority.NORMAL,
-                timeout_seconds=30,
             )
             result = handle.future.result()
-            if result.status == ResourceStatus.READY and result.value and not self.isInterruptionRequested():
-                status, local_stats, cloud_stats = result.value
+            if (
+                result.status == ResourceStatus.READY
+                and result.value is not None
+                and not self.isInterruptionRequested()
+            ):
+                status = result.value.status
+                local_stats = result.value.local_stats
+                cloud_stats = result.value.cloud_stats
                 self.save_status_calculated.emit(
                     self.game_id, status, local_stats, cloud_stats
                 )
@@ -516,7 +524,12 @@ class CloudSaveStatusFetcherThread(SafeQThread):
 
 
 class CloudSaveBatchQueueWorker(SafeQThread):
-    """Background worker that processes uncached game cloud save statuses with a concurrency pool of 3."""
+    """Compatibility worker for cloud-save status batches.
+
+    Managed callers use ``CloudStatusService``. Manager-less callers remain on
+    this owning worker thread and are processed cooperatively without a
+    second scheduler.
+    """
     game_status_ready = pyqtSignal(int, object, object, object)  # (game_id, status, local_stats, cloud_stats)
     batch_finished = pyqtSignal(list, list)  # (uploaded_names, newer_in_cloud_names)
 
@@ -532,30 +545,27 @@ class CloudSaveBatchQueueWorker(SafeQThread):
 
     def _safe_run_managed(self):
         from concurrent.futures import as_completed
-        from core.cloud_save_sync import SyncStatus, cloud_context_fingerprint
-        from core.cloud_operations import CloudSyncCoordinator
-        from core.request_contracts import RequestKey, RequestPriority, RequestSpec, ResourceStatus
+        from core.cloud_status_service import CloudStatusService, CloudStatusTarget
+        from core.cloud_save_sync import SyncStatus
+        from core.request_contracts import ResourceStatus
 
         uploaded_names = []
         newer_in_cloud_names = []
-        specs = []
-        games_by_key = {}
+        targets = []
         for game in self.games:
             if len(game) < 4:
                 continue
             game_id, name, path = game[0], game[1], game[2]
             steam_id = str(game[6]).strip() if len(game) >= 7 and game[6] else str(game[3]).strip()
-            key = RequestKey("cloud-save-status", f"{cloud_context_fingerprint()}:{game_id}")
-            games_by_key[key] = (game_id, name)
+            target = CloudStatusTarget(int(game_id), str(name), str(path or ""), steam_id)
+            targets.append(target)
 
-            def load(_token, game_id=game_id, name=name, path=path, steam_id=steam_id):
-                coordinator = self.coordinator or CloudSyncCoordinator()
-                result = coordinator.check_status(game_id, name, path, steam_id)
-                return result.status or SyncStatus.CLOUD_OFFLINE, result.local_stats, result.cloud_stats
-
-            specs.append(RequestSpec(key, load, priority=RequestPriority.NORMAL))
-
-        handles = self.request_manager.request_many(specs)
+        service = CloudStatusService(
+            self.request_manager,
+            coordinator=self.coordinator,
+        )
+        handles = service.request_many(targets)
+        target_by_key = {service.key_for(target): target for target in targets}
         future_to_handle = {item.future: item for item in handles}
         try:
             for future in as_completed(future_to_handle):
@@ -567,8 +577,13 @@ class CloudSaveBatchQueueWorker(SafeQThread):
                 result = future.result()
                 if result.status != ResourceStatus.READY or not result.value:
                     continue
-                gid, name = games_by_key[handle.key]
-                status, local_stats, cloud_stats = result.value
+                target = target_by_key.get(handle.key)
+                if target is None:
+                    continue
+                gid, name = target.game_id, target.game_name
+                status = result.value.status
+                local_stats = result.value.local_stats
+                cloud_stats = result.value.cloud_stats
                 if status == SyncStatus.LOCAL_NEWER:
                     uploaded_names.append(name)
                 elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
@@ -588,7 +603,6 @@ class CloudSaveBatchQueueWorker(SafeQThread):
             self._safe_run_managed()
             return
 
-        from concurrent.futures import ThreadPoolExecutor, as_completed
         from core.cloud_save_sync import SyncStatus, _get_cloud_listing
 
         try:
@@ -623,18 +637,19 @@ class CloudSaveBatchQueueWorker(SafeQThread):
                 logger.debug(f"CloudSaveBatchQueueWorker error for '{name}': {e}")
                 return None
 
-        with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="SafeLauncher-CloudQueue") as executor:
-            future_to_game = {executor.submit(_check_game, g): g for g in self.games}
-            for future in as_completed(future_to_game):
-                if self.isInterruptionRequested():
-                    break
-                try:
-                    res = future.result()
-                    if res and not self.isInterruptionRequested():
-                        gid, stat, l_stat, c_stat = res
-                        self.game_status_ready.emit(gid, stat, l_stat, c_stat)
-                except Exception as e:
-                    logger.debug(f"Failed processing game cloud status future: {e}")
+        # This branch is only for legacy callers that do not supply the
+        # application RequestManager. The owning SafeQThread already keeps
+        # the work off the UI thread, so do not create a second scheduler.
+        for game in self.games:
+            if self.isInterruptionRequested():
+                break
+            try:
+                res = _check_game(game)
+                if res and not self.isInterruptionRequested():
+                    gid, stat, l_stat, c_stat = res
+                    self.game_status_ready.emit(gid, stat, l_stat, c_stat)
+            except Exception as e:
+                logger.debug(f"Failed processing game cloud status: {e}")
 
         if not self.isInterruptionRequested():
             self.batch_finished.emit(uploaded_names, newer_in_cloud_names)
@@ -672,47 +687,23 @@ class AchievementStatusFetcherThread(SafeQThread):
         if self.isInterruptionRequested():
             return
         if self.request_manager is not None:
-            from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
-
-            key = RequestKey(
-                "achievement-status",
-                f"{self.steam_id}:{self.game_id}",
+            from core.achievement_resource_service import (
+                AchievementResourceService,
+                AchievementTarget,
             )
+            from core.request_contracts import RequestPriority, ResourceStatus
 
-            def load(token):
-                token.raise_if_cancelled()
-                from database import GameDatabase
-                from core.achievement_coordinator import coordinated_resolve
-                from core.achievement_persistence import persist_resolution
-
-                db = GameDatabase(self.db_path) if self.db_path else GameDatabase()
-                try:
-                    resolution = coordinated_resolve(
-                        self.steam_id,
-                        self.path,
-                        self.proton_path,
-                        request_manager=self.request_manager,
-                    )
-                    persist_resolution(db, self.game_id, self.steam_id, resolution)
-                    unlocked_cnt, total_cnt, pct = db.get_achievement_stats(self.game_id)
-                    if total_cnt == 0 and resolution.schema:
-                        db.save_achievement_schema(
-                            self.game_id, self.steam_id, resolution.schema
-                        )
-                        persist_resolution(db, self.game_id, self.steam_id, resolution)
-                        unlocked_cnt, total_cnt, pct = db.get_achievement_stats(self.game_id)
-                    recent = db.get_recent_unlocked_achievements(self.game_id, limit=5)
-                    token.raise_if_cancelled()
-                    return resolution, unlocked_cnt, total_cnt, pct, recent
-                finally:
-                    db.close()
-
-            handle = self.request_manager.request(
-                key,
-                load,
+            service = AchievementResourceService(self.request_manager)
+            handle = service.request_status(
+                AchievementTarget(
+                    self.game_id,
+                    self.steam_id,
+                    self.path,
+                    self.proton_path,
+                ),
+                db_path=self.db_path,
                 priority=RequestPriority.NORMAL,
-                metadata={"allow_offline": True},
-                timeout_seconds=60,
+                tag="compatibility-worker",
             )
             result = handle.future.result()
             if result.status == ResourceStatus.READY and result.value and not self.isInterruptionRequested():
@@ -766,7 +757,11 @@ class AchievementStatusFetcherThread(SafeQThread):
 
 
 class AchievementBatchQueueWorker(SafeQThread):
-    """Background queue worker that concurrently fetches/syncs achievement schemas and unlocks across library games."""
+    """Compatibility worker for achievement batches.
+
+    Managed callers use ``AchievementResourceService``. Manager-less callers
+    remain on this owning worker thread without a second scheduler.
+    """
     game_status_ready = pyqtSignal(int, int, int, float, list)  # (game_id, unlocked_count, total_count, pct, recent_unlocked)
     batch_finished = pyqtSignal(int, int)  # (games_with_achievements_count, total_unlocked_count)
 
@@ -782,47 +777,33 @@ class AchievementBatchQueueWorker(SafeQThread):
 
     def _safe_run_managed(self):
         from concurrent.futures import as_completed
-        from core.request_contracts import RequestKey, RequestPriority, RequestSpec, ResourceStatus
+        from core.achievement_resource_service import (
+            AchievementResourceService,
+            AchievementTarget,
+        )
+        from core.request_contracts import ResourceStatus
 
-        specs = []
-        games_by_key = {}
+        targets = []
         for game in self.games:
             if len(game) < 3:
                 continue
-            game_id, name, path = game[0], game[1], game[2]
+            game_id, path = game[0], game[2]
             steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
             proton_path = str(game[12]).strip() if len(game) > 12 and game[12] else ""
             if not steam_id:
                 continue
-            key = RequestKey("achievement-status", f"{steam_id}:{game_id}")
-            games_by_key[key] = game_id
+            targets.append(
+                AchievementTarget(
+                    int(game_id), steam_id, str(path or ""), proton_path
+                )
+            )
 
-            def load(_token, game_id=game_id, path=path, steam_id=steam_id, proton_path=proton_path, name=name):
-                from database import GameDatabase
-                from core.achievement_coordinator import coordinated_resolve
-                from core.achievement_persistence import persist_resolution
-                db = GameDatabase(self.db_path) if self.db_path else GameDatabase()
-                try:
-                    resolution = coordinated_resolve(
-                        steam_id, path, proton_path,
-                        request_manager=self.request_manager,
-                    )
-                    persist_resolution(db, game_id, steam_id, resolution)
-                    unlocked_cnt, total_cnt, pct = db.get_achievement_stats(game_id)
-                    if total_cnt == 0 and resolution.schema:
-                        persist_resolution(db, game_id, steam_id, resolution)
-                        unlocked_cnt, total_cnt, pct = db.get_achievement_stats(game_id)
-                    recent = db.get_recent_unlocked_achievements(game_id, limit=5)
-                    return unlocked_cnt, total_cnt, pct, recent
-                finally:
-                    db.close()
-
-            specs.append(RequestSpec(
-                key, load, priority=RequestPriority.NORMAL,
-                metadata={"allow_offline": True},
-            ))
-
-        handles = self.request_manager.request_many(specs)
+        service = AchievementResourceService(self.request_manager)
+        handles = service.request_many(
+            targets,
+            db_path=self.db_path,
+        )
+        target_by_key = {service.key_for(target): target for target in targets}
         total_games_with_achs = 0
         total_unlocked_overall = 0
         future_to_handle = {item.future: item for item in handles}
@@ -836,7 +817,10 @@ class AchievementBatchQueueWorker(SafeQThread):
                 result = future.result()
                 if result.status != ResourceStatus.READY or not result.value:
                     continue
-                gid = games_by_key[handle.key]
+                target = target_by_key.get(handle.key)
+                if target is None:
+                    continue
+                gid = target.game_id
                 unlocked_cnt, total_cnt, pct, recent = result.value
                 if total_cnt > 0:
                     total_games_with_achs += 1
@@ -858,7 +842,6 @@ class AchievementBatchQueueWorker(SafeQThread):
             self._safe_run_managed()
             return
 
-        from concurrent.futures import ThreadPoolExecutor, as_completed
         from database import GameDatabase
         from core.achievement_coordinator import coordinated_resolve
         from core.achievement_persistence import persist_resolution
@@ -906,21 +889,21 @@ class AchievementBatchQueueWorker(SafeQThread):
                 return None
 
 
-        with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="SafeLauncher-AchQueue") as executor:
-            future_to_game = {executor.submit(_sync_game_achievements, g): g for g in self.games}
-            for future in as_completed(future_to_game):
-                if self.isInterruptionRequested():
-                    break
-                try:
-                    res = future.result()
-                    if res and not self.isInterruptionRequested():
-                        gid, unlocked_cnt, total_cnt, pct, recent = res
-                        if total_cnt > 0:
-                            total_games_with_achs += 1
-                            total_unlocked_overall += unlocked_cnt
-                        self.game_status_ready.emit(gid, unlocked_cnt, total_cnt, pct, recent)
-                except Exception as e:
-                    logger.debug(f"Failed processing game achievements future: {e}")
+        # Manager-less compatibility mode remains on this worker's thread.
+        # Managed callers use AchievementResourceService.request_many above.
+        for game in self.games:
+            if self.isInterruptionRequested():
+                break
+            try:
+                res = _sync_game_achievements(game)
+                if res and not self.isInterruptionRequested():
+                    gid, unlocked_cnt, total_cnt, pct, recent = res
+                    if total_cnt > 0:
+                        total_games_with_achs += 1
+                        total_unlocked_overall += unlocked_cnt
+                    self.game_status_ready.emit(gid, unlocked_cnt, total_cnt, pct, recent)
+            except Exception as e:
+                logger.debug(f"Failed processing game achievements: {e}")
 
         if not self.isInterruptionRequested():
             self.batch_finished.emit(total_games_with_achs, total_unlocked_overall)

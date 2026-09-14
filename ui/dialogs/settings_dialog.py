@@ -20,6 +20,7 @@ from database import _APP_DATA_DIR
 from core.desktop_integration import install_safelauncher_desktop_entry, is_desktop_entry_installed
 from core.security_diagnostics import inspect_security_health, run_live_sandbox_verification
 from core.launch_diagnostics import diagnostics_directory
+from core.runtime_diagnostics import build_runtime_diagnostics, export_runtime_diagnostics
 from core.date_formatting import date_format_choices, format_datetime_timestamp, get_date_format_key
 from core.screenshot_capture import capture_desktop_screenshot, get_available_screens
 from core.plugins.gpu_screen_recorder import (
@@ -41,7 +42,8 @@ from ui.profile_theme import normalize_profile_theme, profile_theme_choices, pro
 
 from core.version import APP_VERSION, MIN_CONVEX_BACKEND_VERSION
 from core.updater import check_for_updates, download_and_apply_appimage_update, restart_application, is_appimage
-from core.cloud_backend import check_backend_health
+from core.cloud_account_service import CloudAccountService
+from core.cloud_backend import normalize_site_url
 from core.cloud_detector import detect_local_cloud_installation
 from core.safe_thread import TaskSupervisor
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
@@ -52,6 +54,7 @@ from core.network_policy import (
     offline_status_text,
     set_offline_mode,
 )
+from ui.resource_binding import ResourceBinding, bind_request
 from core.logger import get_logger
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtCore import QUrl
@@ -75,7 +78,6 @@ class UserSettingsDialog(PopupDialog):
     profile_auth_requested = pyqtSignal()
     profile_publish_requested = pyqtSignal()
     profile_resync_requested = pyqtSignal()
-    _managed_task_done = pyqtSignal(object)
 
     def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", profile_theme: str = "grey", request_manager=None):
         super().__init__("Settings", parent)
@@ -92,8 +94,10 @@ class UserSettingsDialog(PopupDialog):
         self._profile_theme_original = self.profile_theme
         self._task_supervisor = TaskSupervisor(self, logger)
         self.request_manager = request_manager
-        self._managed_tasks: dict[str, tuple[Any, Any, Any]] = {}
-        self._managed_task_done.connect(self._on_managed_task_done)
+        self.cloud_account_service = getattr(parent, "cloud_account_service", None) or CloudAccountService(
+            request_manager=request_manager,
+        )
+        self._resource_bindings: dict[str, ResourceBinding] = {}
         self._account_probe_generation = 0
         self._health_probe_generation = 0
         self._profile_action_status_custom = False
@@ -789,6 +793,13 @@ class UserSettingsDialog(PopupDialog):
         btn_open_diag.clicked.connect(lambda: self._open_folder(diag_dir))
         log_btns.addWidget(btn_open_diag)
 
+        btn_export_runtime = QPushButton("Export Runtime Diagnostics")
+        btn_export_runtime.setToolTip(
+            "Export version, platform, and request performance counters without secrets or game paths"
+        )
+        btn_export_runtime.clicked.connect(self._export_runtime_diagnostics)
+        log_btns.addWidget(btn_export_runtime)
+
         btn_clear_diag = QPushButton("Clear Saved Reports")
         btn_clear_diag.clicked.connect(self._clear_diagnostics)
         log_btns.addWidget(btn_clear_diag)
@@ -823,7 +834,7 @@ class UserSettingsDialog(PopupDialog):
         layout.addWidget(sec_account)
 
         from core.cloud_save_sync import cloud_mode as current_cloud_mode
-        from core.cloud_backend import get_site_url
+        from core.cloud_backend import get_site_url, normalize_site_url
         settings = QSettings("SafeLauncher", "SafeLauncher")
 
         form_mode = QFormLayout()
@@ -1376,6 +1387,38 @@ class UserSettingsDialog(PopupDialog):
                     pass
             self.lbl_diag_info.setText("0 saved launch reports (0 B)")
 
+    def _export_runtime_diagnostics(self):
+        """Export support-safe request/resource health counters."""
+        target, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export Runtime Diagnostics",
+            os.path.join(os.path.expanduser("~"), "safelauncher-runtime-diagnostics.json"),
+            "JSON files (*.json)",
+        )
+        if not target:
+            return
+        request_metrics = None
+        if self.request_manager is not None:
+            try:
+                request_metrics = self.request_manager.metrics()
+            except Exception:
+                request_metrics = None
+        report = build_runtime_diagnostics(
+            app_version=APP_VERSION,
+            request_metrics=request_metrics,
+            offline=not self._dialog_network_allowed(),
+        )
+        try:
+            export_runtime_diagnostics(target, report)
+        except (OSError, TypeError, ValueError) as error:
+            QMessageBox.warning(self, "Diagnostics Export Failed", str(error))
+            return
+        QMessageBox.information(
+            self,
+            "Diagnostics Exported",
+            "Runtime diagnostics were exported without credentials, game paths, or resource contents.",
+        )
+
     def _add_to_start_screen(self, button: QPushButton):
         success, msg = install_safelauncher_desktop_entry()
         if success:
@@ -1393,7 +1436,7 @@ class UserSettingsDialog(PopupDialog):
     def _save(self):
         if self.name_input.text().strip():
             settings = QSettings("SafeLauncher", "SafeLauncher")
-            url = self.edit_convex_url.text().strip().rstrip("/")
+            url = normalize_site_url(self.edit_convex_url.text())
             if url and not url.startswith(("http://", "https://")):
                 url = "https://" + url
             settings.setValue("convex_site_url", url)
@@ -1518,7 +1561,13 @@ class UserSettingsDialog(PopupDialog):
         """Launch the full profile/quota/version manager dialog."""
         try:
             from ui.dialogs.account_dialog import AccountDialog
-            dialog = AccountDialog(self, request_manager=self.request_manager)
+            parent = self.parent()
+            dialog = AccountDialog(
+                self,
+                request_manager=self.request_manager,
+                cloud_account_service=getattr(parent, "cloud_account_service", None),
+                cloud_operation_service=getattr(parent, "cloud_operation_service", None),
+            )
             dialog.exec()
             self._refresh_account_status()  # picker may have changed session/state
             self._refresh_backend_health()
@@ -1527,7 +1576,7 @@ class UserSettingsDialog(PopupDialog):
 
     def _cloud_connect(self):
         """Test and save Convex cloud backend connection."""
-        url = self.edit_convex_url.text().strip().rstrip("/")
+        url = normalize_site_url(self.edit_convex_url.text())
         key = self.edit_cloud_secret_key.text().strip()
         if not url:
             QMessageBox.warning(self, "Cloud Setup", "Please enter your Convex Site URL.")
@@ -1573,7 +1622,7 @@ class UserSettingsDialog(PopupDialog):
             )
 
         if self.request_manager is not None:
-            key = RequestKey("settings-task", f"{name}:{id(work)}")
+            key = self.cloud_account_service.request_key("settings-task", name)
             handle = self.request_manager.request(
                 key,
                 lambda token: (token.raise_if_cancelled(), work(), token.raise_if_cancelled())[1],
@@ -1583,11 +1632,35 @@ class UserSettingsDialog(PopupDialog):
             if operation is not None:
                 operation.cancel = handle.cancel
                 operation.retry = lambda: self._start_managed_task(name, work, on_complete)
-            self._managed_tasks[handle.request_id] = (operation, on_complete, key)
-            handle.future.add_done_callback(
-                lambda future, request_id=handle.request_id: self._managed_task_done.emit(
-                    (request_id, future)
-                )
+            request_id = handle.request_id
+
+            def _deliver(result):
+                if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                    return
+                binding = self._resource_bindings.pop(request_id, None)
+                if binding is not None:
+                    binding.close()
+                if result.status == ResourceStatus.CANCELLED:
+                    if operation is not None:
+                        operation_registry = getattr(self.parent(), "operation_registry", None)
+                        if operation_registry is not None:
+                            operation_registry.finish(operation.operation_id, state="cancelled")
+                    return
+                value = result.value if result.status == ResourceStatus.READY else {
+                    "error": str(result.error or result.status.value)
+                }
+                if operation is not None:
+                    operation_registry = getattr(self.parent(), "operation_registry", None)
+                    if operation_registry is not None:
+                        operation_registry.finish_result(operation.operation_id, value)
+                on_complete(value)
+
+            self._resource_bindings[request_id] = bind_request(
+                self.request_manager,
+                handle,
+                _deliver,
+                self,
+                cancel_on_close=True,
             )
             return handle
 
@@ -1605,42 +1678,12 @@ class UserSettingsDialog(PopupDialog):
             )
         return worker
 
-    def _on_managed_task_done(self, payload: object) -> None:
-        request_id, future = payload
-        task = self._managed_tasks.pop(request_id, None)
-        if task is None:
-            return
-        operation, on_complete, _key = task
-        try:
-            result = future.result()
-        except Exception as error:
-            if operation is not None:
-                registry = getattr(self.parent(), "operation_registry", None)
-                if registry is not None:
-                    registry.fail(operation.operation_id, str(error))
-            return
-        if result.status == ResourceStatus.CANCELLED:
-            if operation is not None:
-                registry = getattr(self.parent(), "operation_registry", None)
-                if registry is not None:
-                    registry.finish(operation.operation_id, state="cancelled")
-            return
-        if result.status != ResourceStatus.READY:
-            value = {"error": str(result.error or result.status.value)}
-        else:
-            value = result.value
-        if operation is not None:
-            registry = getattr(self.parent(), "operation_registry", None)
-            if registry is not None:
-                registry.finish_result(operation.operation_id, value)
-        on_complete(value)
-
     def closeEvent(self, event):
         """Keep Qt workers alive until their cooperative cancellation completes."""
         if self.request_manager is not None:
-            for _request_id, (_operation, _callback, key) in list(self._managed_tasks.items()):
-                self.request_manager.cancel(key)
-            self._managed_tasks.clear()
+            for binding in tuple(self._resource_bindings.values()):
+                binding.close()
+            self._resource_bindings.clear()
         self._task_supervisor.cancel_all(100)
         if self._task_supervisor.has_running_tasks():
             QTimer.singleShot(100, self.close)
@@ -1658,13 +1701,11 @@ class UserSettingsDialog(PopupDialog):
 
         def _probe():
             try:
-                from core.cloud_client import CloudClient
                 from core.cloud_backend import get_site_url
                 site = get_site_url()
                 if not site:
                     return "Not connected."
-                backend = CloudClient()
-                overview = backend.account()
+                overview = self.cloud_account_service.account()
                 used = overview.get("bytesUsed", 0)
                 quota = overview.get("quotaBytes", 1)
                 games = len(overview.get("games", []))
@@ -1694,7 +1735,7 @@ class UserSettingsDialog(PopupDialog):
                 "Offline mode is enabled; backend health is not probed."
             )
             return
-        url = self.edit_convex_url.text().strip().rstrip("/")
+        url = normalize_site_url(self.edit_convex_url.text())
         key = self.edit_cloud_secret_key.text().strip()
         if not url:
             from core.cloud_backend import get_site_url
@@ -1705,7 +1746,7 @@ class UserSettingsDialog(PopupDialog):
         self.lbl_health_latency.setStyleSheet("background: #27272A; color: #A1A1AA; padding: 3px 8px; border-radius: 4px; font-size: 11px;")
 
         def _worker():
-            return check_backend_health(url, key)
+            return self.cloud_account_service.health(url, key)
 
         def _apply_if_current(result, expected=generation):
             if expected == self._health_probe_generation:

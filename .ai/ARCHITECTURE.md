@@ -8,7 +8,7 @@ main.py
       └─ MainWindow
           ├─ GameDatabase (local authority)
           ├─ RequestManager ── ResourceCache
-          │       ├─ CloudClient ── SafeLauncherCloud
+          │       ├─ CloudAccountService / CloudClient ── SafeLauncherCloud
           │       ├─ SteamClient ── Steam services
           │       ├─ ArtworkClient ── SteamGridDBClient
           │       └─ Profile/resource adapters
@@ -18,6 +18,13 @@ main.py
 ```
 
 The authoritative source files are mapped in [MODULES.md](MODULES.md) and [maps/module-map.md](maps/module-map.md).
+
+The private SafeLauncherCloud backend is an external companion component. In
+the normal development layout its checkout is the sibling directory
+`SafeLauncher/../SafeLauncherDatabase/`, although discovery also
+supports a `SafeLauncherCloud` sibling or another configured path. This is a
+backend deployment checkout, not the client's local SQLite database. See
+[external-components.md](architecture/external-components.md).
 
 ## Ownership boundaries
 
@@ -29,6 +36,10 @@ The authoritative source files are mapped in [MODULES.md](MODULES.md) and [maps/
 - Compatibility workers remain for manager-less dialogs, plugins, tests, and older integrations.
 
 Details: [ownership-and-boundaries.md](architecture/ownership-and-boundaries.md), [manager-ownership-map.md](maps/manager-ownership-map.md).
+
+Account-level cloud reads, setup probes, device administration, and explicit
+generation deletion are documented in
+[cloud-account-services.md](architecture/cloud-account-services.md).
 
 ## Data boundaries
 

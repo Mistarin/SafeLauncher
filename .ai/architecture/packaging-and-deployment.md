@@ -1,6 +1,6 @@
 # Packaging and Deployment
 
-Source launch is supported through setup and launcher scripts. AppImage packaging is defined under `packaging/`. The profile gateway and profile cloud are separate deployable TypeScript services. Cloud setup can discover/configure/deploy a private Convex backend through the CLI wizard.
+Source launch is supported through setup and launcher scripts. AppImage packaging is defined under `packaging/`. The profile gateway and profile cloud are separate deployable TypeScript services. Cloud setup can discover/configure/deploy the external private SafeLauncherCloud Convex backend through the CLI wizard. In the normal development layout, that backend checkout is the sibling `SafeLauncher/../SafeLauncherDatabase/` directory; it is not the client's SQLite database and is not bundled into the launcher runtime.
 
 Changes to Python runtime modules should be checked against source launch, tests, and AppImage packaging assumptions. Changes to profile service routes require gateway and Convex validation separately.
 

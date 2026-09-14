@@ -28,6 +28,7 @@ from core.request_contracts import (
     RetryPolicy,
     ResourceResult,
     ResourceStatus,
+    resource_status_for_error,
 )
 from core.resource_cache import ResourceCache
 
@@ -104,9 +105,11 @@ class RequestManager:
             "duration_seconds_total": 0.0,
             "duration_seconds_max": 0.0,
             "active_peak": 0,
+            "workers_peak": 0,
             "workers_configured": self.max_workers,
         }
         self._sequence = 0
+        self._workers_active = 0
         self._closed = False
         self._workers = [
             threading.Thread(
@@ -415,6 +418,7 @@ class RequestManager:
         with self._condition:
             snapshot = dict(self._metrics)
             snapshot["active_current"] = len(self._active)
+            snapshot["workers_current"] = self._workers_active
         cache_lookups = (
             snapshot.get("cache_hits", 0)
             + snapshot.get("cache_stale", 0)
@@ -621,8 +625,15 @@ class RequestManager:
                 self._queue.task_done()
                 return
             try:
+                with self._condition:
+                    self._workers_active += 1
+                    self._metrics["workers_peak"] = max(
+                        self._metrics["workers_peak"], self._workers_active
+                    )
                 self._run_record(record)
             finally:
+                with self._condition:
+                    self._workers_active = max(0, self._workers_active - 1)
                 self._queue.task_done()
 
     def _run_record(self, record: _RequestRecord) -> None:
@@ -668,7 +679,7 @@ class RequestManager:
                 if record.token.timed_out:
                     self._finish(record, ResourceResult(
                         key=record.spec.key,
-                        status=ResourceStatus.ERROR,
+                        status=resource_status_for_error(exc),
                         error=exc,
                         request_id=record.request_id,
                         generation=record.spec.generation,
@@ -684,7 +695,7 @@ class RequestManager:
                 if attempt + 1 >= policy.max_attempts or not retryable:
                     self._finish(record, ResourceResult(
                         key=record.spec.key,
-                        status=ResourceStatus.ERROR,
+                        status=resource_status_for_error(exc),
                         error=exc,
                         request_id=record.request_id,
                         generation=record.spec.generation,
@@ -704,7 +715,7 @@ class RequestManager:
                         if record.token.timed_out and not record.token.cancelled:
                             self._finish(record, ResourceResult(
                                 key=record.spec.key,
-                                status=ResourceStatus.ERROR,
+                                status=resource_status_for_error(RequestTimeout("Request exceeded its timeout during retry backoff")),
                                 error=RequestTimeout("Request exceeded its timeout during retry backoff"),
                                 request_id=record.request_id,
                                 generation=record.spec.generation,
@@ -744,7 +755,14 @@ class RequestManager:
             listener_result = result
             stale_entry = record.spec.metadata.get("__stale_cache_entry")
             if is_current_generation:
-                if stale_entry is not None and result.status in {ResourceStatus.ERROR, ResourceStatus.OFFLINE}:
+                if stale_entry is not None and result.status in {
+                    ResourceStatus.ERROR,
+                    ResourceStatus.OFFLINE,
+                    ResourceStatus.UNAVAILABLE,
+                    ResourceStatus.AUTHENTICATION_REQUIRED,
+                    ResourceStatus.PERMISSION_DENIED,
+                    ResourceStatus.CONFLICT,
+                }:
                     listener_result = ResourceResult(
                         key=record.spec.key,
                         status=ResourceStatus.STALE,

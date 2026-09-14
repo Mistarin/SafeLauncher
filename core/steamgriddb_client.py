@@ -5,11 +5,13 @@ import requests
 import hashlib
 from pathlib import Path
 from typing import Any, Optional, List, Dict
+from core.asset_cache import AssetCacheBudget, prune_asset_cache
 
 # [M2 FIX] XDG-compliant cache directory: ~/.cache/safelauncher/banners/
 # Owner-only permissions (700 on dir, 600 on files) to prevent other local users
 # from reading cached cover art files.
 _LEGACY_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".banner_cache")
+_ASSET_CACHE_BUDGET = AssetCacheBudget(max_files=2048, max_bytes=256 * 1024 * 1024)
 
 
 def _default_cache_dir() -> str:
@@ -231,14 +233,13 @@ class SteamGridDBClient:
                     return None
                 chunks.append(chunk)
 
-            with open(cache_file, 'wb') as f:
-                for chunk in chunks:
-                    f.write(chunk)
+            self._write_chunks_atomic(cache_file, chunks)
             # [M2 FIX] Restrict cached file to owner-only (rw-------)
             try:
                 cache_file.chmod(0o600)
             except Exception:
                 pass
+            prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
             return str(cache_file.resolve())
         except Exception as e:
             print(f"Error downloading banner: {type(e).__name__}")
@@ -385,6 +386,7 @@ class SteamGridDBClient:
                                     shutil.copyfile(str(canonical_file), str(legacy_file))
                                 except Exception:
                                     pass
+                            prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                             return str(canonical_file.resolve())
                         else:
                             canonical_file.unlink()
@@ -470,6 +472,7 @@ class SteamGridDBClient:
                                                 shutil.copyfile(str(canonical_file), str(legacy_file))
                                             except Exception:
                                                 pass
+                                        prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                                         return str(canonical_file.resolve())
                                     else:
                                         canonical_file.unlink()
@@ -480,6 +483,7 @@ class SteamGridDBClient:
                                             shutil.copyfile(str(canonical_file), str(legacy_file))
                                         except Exception:
                                             pass
+                                    prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                                     return str(canonical_file.resolve())
                 except Exception:
                     continue
@@ -546,6 +550,7 @@ class SteamGridDBClient:
                                 shutil.copyfile(str(cache_file), str(legacy_file))
                             except Exception:
                                 pass
+                        prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                         return str(cache_file.resolve())
                     except Exception:
                         pass
@@ -608,6 +613,7 @@ class SteamGridDBClient:
                                 shutil.copyfile(str(cache_file), str(legacy_file))
                             except Exception:
                                 pass
+                        prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                         return str(cache_file.resolve())
             except Exception:
                 continue

@@ -46,32 +46,11 @@ jobs:
           mkdir -p "$XDG_DATA_HOME"
           mkdir -p "$RUNNER_TEMP/safelauncher-smoke"
 
-      - name: Run security boundary audit
-        run: python ci/security_audit.py
-
-      - name: Run core smoke phase
-        timeout-minutes: 6
+      - name: Run canonical release-readiness gate
+        timeout-minutes: 25
         run: |
           set -o pipefail
-          python ci/smoke_phase.py core 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/core.log"
-
-      - name: Run cloud smoke phase
-        timeout-minutes: 6
-        run: |
-          set -o pipefail
-          python ci/smoke_phase.py cloud 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/cloud.log"
-
-      - name: Run achievement smoke phase
-        timeout-minutes: 6
-        run: |
-          set -o pipefail
-          python ci/smoke_phase.py achievements 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/achievements.log"
-
-      - name: Run UI smoke phase
-        timeout-minutes: 6
-        run: |
-          set -o pipefail
-          python ci/smoke_phase.py ui 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/ui.log"
+          python ci/release_readiness.py 2>&1 | tee "$RUNNER_TEMP/safelauncher-smoke/release-readiness.log"
 
       - name: Upload smoke phase logs
         if: always()

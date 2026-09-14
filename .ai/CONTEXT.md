@@ -14,6 +14,7 @@ SafeLauncher is a PyQt6 desktop launcher for Linux games. It manages a local SQL
 - Source code is authoritative when this cache disagrees with it.
 - SQLite is the authoritative local projection for library, playtime, and achievement state.
 - SafeLauncherCloud is a private synchronization backend, not the public profile backend.
+- The private backend source is an external companion repository. In the normal local layout it is checked out as the sibling directory `SafeLauncher/../SafeLauncherDatabase/`; this directory name is historical and refers to the SafeLauncherCloud deployment checkout, not the client's SQLite database. See [external-components.md](architecture/external-components.md).
 - The public profile service receives a curated projection and does not receive installation paths, device state, or private cloud state.
 - `.ai/generated/` is disposable output from `.ai/tools/build_manifest.py`.
 

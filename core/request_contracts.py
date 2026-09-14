@@ -33,6 +33,10 @@ class ResourceStatus(StrEnum):
     READY = "ready"
     STALE = "stale"
     OFFLINE = "offline"
+    UNAVAILABLE = "unavailable"
+    AUTHENTICATION_REQUIRED = "authentication-required"
+    PERMISSION_DENIED = "permission-denied"
+    CONFLICT = "conflict"
     ERROR = "error"
     CANCELLED = "cancelled"
 
@@ -40,6 +44,22 @@ class ResourceStatus(StrEnum):
 # Public plan/API terminology. Keep ResourceStatus as the implementation name
 # for backwards compatibility with the first request-manager phases.
 ResourceState = ResourceStatus
+
+
+class RemoteErrorCategory(StrEnum):
+    """Transport-neutral failure categories shared by all remote services."""
+
+    OFFLINE = "offline"
+    TIMEOUT = "timeout"
+    RATE_LIMITED = "rate_limited"
+    TRANSIENT = "transient"
+    AUTHENTICATION_REQUIRED = "authentication_required"
+    PERMISSION_DENIED = "permission_denied"
+    CONFLICT = "conflict"
+    VALIDATION = "validation"
+    CANCELLED = "cancelled"
+    UNAVAILABLE = "unavailable"
+    UNEXPECTED = "unexpected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +126,113 @@ class RetryableRequestError(RuntimeError):
     """Transport-neutral marker for a failure that is safe to retry."""
 
 
+def _http_status(error: BaseException) -> int:
+    status = getattr(error, "status_code", None) or getattr(error, "status", None)
+    response = getattr(error, "response", None)
+    if not status and response is not None:
+        status = getattr(response, "status_code", None)
+    try:
+        return int(status or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def classify_remote_error(error: BaseException | str | None) -> RemoteErrorCategory:
+    """Return the stable category used by UI, diagnostics, and retry policy.
+
+    Adapters may expose ``category`` or ``code`` without importing this
+    module.  HTTP status is used as a fallback, keeping this contract free of
+    a dependency on requests or any particular cloud backend.
+    """
+    if error is None:
+        return RemoteErrorCategory.UNEXPECTED
+    if isinstance(error, RequestCancelled):
+        return RemoteErrorCategory.CANCELLED
+    if isinstance(error, RequestTimeout) or isinstance(error, TimeoutError):
+        return RemoteErrorCategory.TIMEOUT
+
+    raw = str(
+        error
+        if isinstance(error, str)
+        else getattr(error, "category", "") or getattr(error, "code", "") or ""
+    )
+    normalized = raw.strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "offline": RemoteErrorCategory.OFFLINE,
+        "timeout": RemoteErrorCategory.TIMEOUT,
+        "timed_out": RemoteErrorCategory.TIMEOUT,
+        "rate_limit": RemoteErrorCategory.RATE_LIMITED,
+        "rate_limited": RemoteErrorCategory.RATE_LIMITED,
+        "too_many_requests": RemoteErrorCategory.RATE_LIMITED,
+        "transient": RemoteErrorCategory.TRANSIENT,
+        "retryable": RemoteErrorCategory.TRANSIENT,
+        "backend_unavailable": RemoteErrorCategory.UNAVAILABLE,
+        "unavailable": RemoteErrorCategory.UNAVAILABLE,
+        "not_found": RemoteErrorCategory.UNAVAILABLE,
+        "endpoint_missing": RemoteErrorCategory.UNAVAILABLE,
+        "unreachable": RemoteErrorCategory.TRANSIENT,
+        "network": RemoteErrorCategory.TRANSIENT,
+        "authentication": RemoteErrorCategory.AUTHENTICATION_REQUIRED,
+        "authentication_required": RemoteErrorCategory.AUTHENTICATION_REQUIRED,
+        "unauthorized": RemoteErrorCategory.AUTHENTICATION_REQUIRED,
+        "not_signed_in": RemoteErrorCategory.AUTHENTICATION_REQUIRED,
+        "owner_token_missing": RemoteErrorCategory.AUTHENTICATION_REQUIRED,
+        "permission": RemoteErrorCategory.PERMISSION_DENIED,
+        "permission_denied": RemoteErrorCategory.PERMISSION_DENIED,
+        "forbidden": RemoteErrorCategory.PERMISSION_DENIED,
+        "conflict": RemoteErrorCategory.CONFLICT,
+        "revision_conflict": RemoteErrorCategory.CONFLICT,
+        "validation": RemoteErrorCategory.VALIDATION,
+        "invalid": RemoteErrorCategory.VALIDATION,
+        "invalid_handle": RemoteErrorCategory.VALIDATION,
+        "invalid_operation": RemoteErrorCategory.VALIDATION,
+        "invalid_response": RemoteErrorCategory.VALIDATION,
+        "invalid_profile": RemoteErrorCategory.VALIDATION,
+        "invalid_avatar": RemoteErrorCategory.VALIDATION,
+        "invalid_avatar_response": RemoteErrorCategory.VALIDATION,
+        "invalid_action": RemoteErrorCategory.VALIDATION,
+        "invalid_token": RemoteErrorCategory.AUTHENTICATION_REQUIRED,
+        "unconfigured": RemoteErrorCategory.UNAVAILABLE,
+        "payload_too_large": RemoteErrorCategory.VALIDATION,
+        "save_too_large": RemoteErrorCategory.VALIDATION,
+        "cancelled": RemoteErrorCategory.CANCELLED,
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+
+    status = _http_status(error)
+    if status == 401:
+        return RemoteErrorCategory.AUTHENTICATION_REQUIRED
+    if status == 403:
+        return RemoteErrorCategory.PERMISSION_DENIED
+    if status == 404:
+        return RemoteErrorCategory.UNAVAILABLE
+    if status == 409:
+        return RemoteErrorCategory.CONFLICT
+    if status == 429:
+        return RemoteErrorCategory.RATE_LIMITED
+    if 400 <= status <= 499:
+        return RemoteErrorCategory.VALIDATION
+    if 500 <= status <= 599:
+        return RemoteErrorCategory.TRANSIENT
+    if isinstance(error, RetryableRequestError) or isinstance(error, (ConnectionError, OSError)):
+        return RemoteErrorCategory.TRANSIENT
+    return RemoteErrorCategory.UNEXPECTED
+
+
+def resource_status_for_error(error: BaseException | None) -> ResourceStatus:
+    """Map a categorized failure to the user-visible resource state."""
+    category = classify_remote_error(error)
+    return {
+        RemoteErrorCategory.OFFLINE: ResourceStatus.OFFLINE,
+        RemoteErrorCategory.AUTHENTICATION_REQUIRED: ResourceStatus.AUTHENTICATION_REQUIRED,
+        RemoteErrorCategory.PERMISSION_DENIED: ResourceStatus.PERMISSION_DENIED,
+        RemoteErrorCategory.CONFLICT: ResourceStatus.CONFLICT,
+        RemoteErrorCategory.UNAVAILABLE: ResourceStatus.UNAVAILABLE,
+        RemoteErrorCategory.CANCELLED: ResourceStatus.CANCELLED,
+    }.get(category, ResourceStatus.ERROR)
+
+
 def is_transient_error(error: BaseException) -> bool:
     """Classify common transient transport failures without owning HTTP.
 
@@ -117,19 +244,21 @@ def is_transient_error(error: BaseException) -> bool:
     """
     if isinstance(error, (RequestCancelled, ValueError, TypeError, KeyError)):
         return False
+    category = classify_remote_error(error)
+    if category in {
+        RemoteErrorCategory.TRANSIENT,
+        RemoteErrorCategory.RATE_LIMITED,
+        RemoteErrorCategory.TIMEOUT,
+    }:
+        return True
+    if category != RemoteErrorCategory.UNEXPECTED:
+        return False
     if isinstance(error, RetryableRequestError):
         return True
     if isinstance(error, (RequestTimeout, TimeoutError, ConnectionError, OSError)):
         return True
 
-    status = getattr(error, "status_code", None) or getattr(error, "status", None)
-    response = getattr(error, "response", None)
-    if not status and response is not None:
-        status = getattr(response, "status_code", None)
-    try:
-        status = int(status or 0)
-    except (TypeError, ValueError, OverflowError):
-        status = 0
+    status = _http_status(error)
     if status == 429 or 500 <= status <= 599:
         return True
 
@@ -220,3 +349,20 @@ class ResourceResult(Generic[T]):
             ResourceStatus.READY,
             ResourceStatus.STALE,
         }
+
+    @property
+    def error_category(self) -> str:
+        """Stable machine-readable category for the result's failure."""
+        if self.status == ResourceStatus.OFFLINE:
+            return RemoteErrorCategory.OFFLINE.value
+        if self.status == ResourceStatus.CANCELLED:
+            return RemoteErrorCategory.CANCELLED.value
+        if self.status == ResourceStatus.AUTHENTICATION_REQUIRED:
+            return RemoteErrorCategory.AUTHENTICATION_REQUIRED.value
+        if self.status == ResourceStatus.PERMISSION_DENIED:
+            return RemoteErrorCategory.PERMISSION_DENIED.value
+        if self.status == ResourceStatus.CONFLICT:
+            return RemoteErrorCategory.CONFLICT.value
+        if self.status == ResourceStatus.UNAVAILABLE:
+            return RemoteErrorCategory.UNAVAILABLE.value
+        return classify_remote_error(self.error).value

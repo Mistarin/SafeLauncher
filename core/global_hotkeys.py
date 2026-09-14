@@ -224,6 +224,12 @@ class GlobalHotkeyListener(QObject):
                 except Exception:
                     pass
 
+            # update_bindings() runs before the listener thread starts, so the
+            # initial bind must consume that pending change. Otherwise the
+            # loop immediately performs the same bind a second time and logs
+            # every hotkey twice on each normal launch.
+            with self._bindings_lock:
+                self._dirty = False
             _rebind_keys()
 
             while self._running:

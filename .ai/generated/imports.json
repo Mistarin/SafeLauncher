@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T02:59:45+00:00",
+  "generated_at": "2026-09-14T19:01:21+00:00",
   "imports": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -65,6 +65,106 @@
       "file": ".ai/tools/validate_cache.py",
       "import": "pathlib",
       "line": 9
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "__future__",
+      "line": 9
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "argparse",
+      "line": 11
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "json",
+      "line": 12
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "statistics",
+      "line": 13
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "sys",
+      "line": 14
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "time",
+      "line": 15
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "pathlib",
+      "line": 16
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "core.library_controller",
+      "line": 22
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "core.performance_gates",
+      "line": 23
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "core.request_manager",
+      "line": 24
+    },
+    {
+      "file": "ci/performance_baseline.py",
+      "import": "core.request_contracts",
+      "line": 25
+    },
+    {
+      "file": "ci/release_readiness.py",
+      "import": "__future__",
+      "line": 15
+    },
+    {
+      "file": "ci/release_readiness.py",
+      "import": "argparse",
+      "line": 17
+    },
+    {
+      "file": "ci/release_readiness.py",
+      "import": "dataclasses",
+      "line": 18
+    },
+    {
+      "file": "ci/release_readiness.py",
+      "import": "os",
+      "line": 19
+    },
+    {
+      "file": "ci/release_readiness.py",
+      "import": "pathlib",
+      "line": 20
+    },
+    {
+      "file": "ci/release_readiness.py",
+      "import": "subprocess",
+      "line": 21
+    },
+    {
+      "file": "ci/release_readiness.py",
+      "import": "sys",
+      "line": 22
+    },
+    {
+      "file": "ci/release_readiness.py",
+      "import": "tempfile",
+      "line": 23
+    },
+    {
+      "file": "ci/release_readiness.py",
+      "import": "typing",
+      "line": 24
     },
     {
       "file": "ci/security_audit.py",
@@ -162,6 +262,26 @@
       "line": 108
     },
     {
+      "file": "ci/worker_audit.py",
+      "import": "__future__",
+      "line": 13
+    },
+    {
+      "file": "ci/worker_audit.py",
+      "import": "pathlib",
+      "line": 15
+    },
+    {
+      "file": "ci/worker_audit.py",
+      "import": "re",
+      "line": 16
+    },
+    {
+      "file": "ci/worker_audit.py",
+      "import": "sys",
+      "line": 17
+    },
+    {
       "file": "core/achievement_coordinator.py",
       "import": "__future__",
       "line": 9
@@ -215,6 +335,21 @@
       "file": "core/achievement_persistence.py",
       "import": "__future__",
       "line": 3
+    },
+    {
+      "file": "core/achievement_persistence_service.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "core/achievement_persistence_service.py",
+      "import": "dataclasses",
+      "line": 5
+    },
+    {
+      "file": "core/achievement_persistence_service.py",
+      "import": "core.achievement_persistence",
+      "line": 7
     },
     {
       "file": "core/achievement_providers.py",
@@ -289,112 +424,167 @@
     {
       "file": "core/achievement_providers.py",
       "import": "requests",
-      "line": 111
+      "line": 112
     },
     {
       "file": "core/achievement_providers.py",
       "import": "core.achievement_watcher",
-      "line": 156
+      "line": 157
+    },
+    {
+      "file": "core/achievement_resource_service.py",
+      "import": "__future__",
+      "line": 9
+    },
+    {
+      "file": "core/achievement_resource_service.py",
+      "import": "dataclasses",
+      "line": 11
+    },
+    {
+      "file": "core/achievement_resource_service.py",
+      "import": "typing",
+      "line": 12
+    },
+    {
+      "file": "core/achievement_resource_service.py",
+      "import": "core.achievement_coordinator",
+      "line": 14
+    },
+    {
+      "file": "core/achievement_resource_service.py",
+      "import": "core.achievement_persistence",
+      "line": 15
+    },
+    {
+      "file": "core/achievement_resource_service.py",
+      "import": "core.request_contracts",
+      "line": 16
+    },
+    {
+      "file": "core/achievement_resource_service.py",
+      "import": "database",
+      "line": 53
     },
     {
       "file": "core/achievement_schema.py",
       "import": "__future__",
-      "line": 8
-    },
-    {
-      "file": "core/achievement_schema.py",
-      "import": "os",
-      "line": 10
-    },
-    {
-      "file": "core/achievement_schema.py",
-      "import": "re",
-      "line": 11
-    },
-    {
-      "file": "core/achievement_schema.py",
-      "import": "json",
-      "line": 12
-    },
-    {
-      "file": "core/achievement_schema.py",
-      "import": "threading",
       "line": 13
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "time",
-      "line": 14
-    },
-    {
-      "file": "core/achievement_schema.py",
-      "import": "tempfile",
+      "import": "os",
       "line": 15
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "xml.etree.ElementTree",
+      "import": "re",
       "line": 16
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "pathlib",
+      "import": "json",
       "line": 17
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "typing",
+      "import": "threading",
       "line": 18
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "concurrent.futures",
+      "import": "time",
       "line": 19
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "requests",
+      "import": "tempfile",
+      "line": 20
+    },
+    {
+      "file": "core/achievement_schema.py",
+      "import": "xml.etree.ElementTree",
       "line": 21
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "requests.adapters",
+      "import": "pathlib",
       "line": 22
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "PyQt6.QtCore",
+      "import": "typing",
       "line": 23
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "core.safe_thread",
+      "import": "requests",
       "line": 25
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "core.logger",
+      "import": "requests.adapters",
       "line": 26
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "core.network_policy",
+      "import": "PyQt6.QtCore",
       "line": 27
     },
     {
       "file": "core/achievement_schema.py",
-      "import": "bs4",
-      "line": 87
+      "import": "core.safe_thread",
+      "line": 29
+    },
+    {
+      "file": "core/achievement_schema.py",
+      "import": "core.logger",
+      "line": 30
+    },
+    {
+      "file": "core/achievement_schema.py",
+      "import": "core.network_policy",
+      "line": 31
+    },
+    {
+      "file": "core/achievement_schema.py",
+      "import": "core.cache_policy",
+      "line": 32
+    },
+    {
+      "file": "core/achievement_schema.py",
+      "import": "core.asset_cache",
+      "line": 33
     },
     {
       "file": "core/achievement_schema.py",
       "import": "core.request_contracts",
-      "line": 260
+      "line": 34
+    },
+    {
+      "file": "core/achievement_schema.py",
+      "import": "bs4",
+      "line": 94
+    },
+    {
+      "file": "core/achievement_schema.py",
+      "import": "core.request_contracts",
+      "line": 293
     },
     {
       "file": "core/achievement_schema.py",
       "import": "core.achievement_coordinator",
-      "line": 667
+      "line": 736
+    },
+    {
+      "file": "core/achievement_state_store.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "core/achievement_state_store.py",
+      "import": "time",
+      "line": 5
     },
     {
       "file": "core/achievement_watcher.py",
@@ -537,6 +727,51 @@
       "line": 8
     },
     {
+      "file": "core/artwork_resource_service.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "core/artwork_resource_service.py",
+      "import": "dataclasses",
+      "line": 5
+    },
+    {
+      "file": "core/artwork_resource_service.py",
+      "import": "hashlib",
+      "line": 6
+    },
+    {
+      "file": "core/artwork_resource_service.py",
+      "import": "core.artwork_client",
+      "line": 8
+    },
+    {
+      "file": "core/artwork_resource_service.py",
+      "import": "core.cache_policy",
+      "line": 9
+    },
+    {
+      "file": "core/artwork_resource_service.py",
+      "import": "core.request_contracts",
+      "line": 10
+    },
+    {
+      "file": "core/asset_cache.py",
+      "import": "__future__",
+      "line": 8
+    },
+    {
+      "file": "core/asset_cache.py",
+      "import": "dataclasses",
+      "line": 10
+    },
+    {
+      "file": "core/asset_cache.py",
+      "import": "pathlib",
+      "line": 11
+    },
+    {
       "file": "core/bootstrap.py",
       "import": "sys",
       "line": 1
@@ -585,6 +820,16 @@
       "file": "core/bootstrap.py",
       "import": "core.logger",
       "line": 13
+    },
+    {
+      "file": "core/cache_policy.py",
+      "import": "__future__",
+      "line": 12
+    },
+    {
+      "file": "core/cache_policy.py",
+      "import": "dataclasses",
+      "line": 14
     },
     {
       "file": "core/central_auth.py",
@@ -642,6 +887,66 @@
       "line": 23
     },
     {
+      "file": "core/central_auth.py",
+      "import": "core.request_contracts",
+      "line": 24
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "__future__",
+      "line": 12
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "hashlib",
+      "line": 14
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "dataclasses",
+      "line": 15
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "threading",
+      "line": 16
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "typing",
+      "line": 17
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "core.cloud_backend",
+      "line": 19
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "core.cloud_client",
+      "line": 24
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "core.cloud_context",
+      "line": 25
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "core.request_contracts",
+      "line": 26
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "core.version",
+      "line": 33
+    },
+    {
+      "file": "core/cloud_account_service.py",
+      "import": "core.cloud_backend",
+      "line": 104
+    },
+    {
       "file": "core/cloud_backend.py",
       "import": "hashlib",
       "line": 14
@@ -693,43 +998,53 @@
     },
     {
       "file": "core/cloud_backend.py",
-      "import": "core",
-      "line": 26
+      "import": "urllib.parse",
+      "line": 25
     },
     {
       "file": "core/cloud_backend.py",
-      "import": "core.logger",
+      "import": "core",
       "line": 27
     },
     {
       "file": "core/cloud_backend.py",
-      "import": "core.version",
+      "import": "core.logger",
       "line": 28
     },
     {
       "file": "core/cloud_backend.py",
-      "import": "core.secret_store",
+      "import": "core.version",
       "line": 29
     },
     {
       "file": "core/cloud_backend.py",
+      "import": "core.secret_store",
+      "line": 30
+    },
+    {
+      "file": "core/cloud_backend.py",
+      "import": "core.request_contracts",
+      "line": 31
+    },
+    {
+      "file": "core/cloud_backend.py",
       "import": "core.cloud_detector",
-      "line": 98
+      "line": 136
     },
     {
       "file": "core/cloud_backend.py",
       "import": "platform",
-      "line": 107
+      "line": 145
     },
     {
       "file": "core/cloud_backend.py",
       "import": "uuid",
-      "line": 108
+      "line": 146
     },
     {
       "file": "core/cloud_backend.py",
       "import": "core.zip_backup",
-      "line": 542
+      "line": 580
     },
     {
       "file": "core/cloud_cli_wizard.py",
@@ -839,57 +1154,97 @@
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "core.cloud_backend",
-      "line": 170
+      "line": 31
+    },
+    {
+      "file": "core/cloud_cli_wizard.py",
+      "import": "core.cloud_backend",
+      "line": 190
     },
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "shutil",
-      "line": 674
+      "line": 694
     },
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "subprocess",
-      "line": 675
+      "line": 695
     },
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "tempfile",
-      "line": 676
+      "line": 696
     },
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "zipfile",
-      "line": 677
+      "line": 697
     },
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "pathlib",
-      "line": 678
+      "line": 698
     },
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "shutil",
-      "line": 769
+      "line": 789
     },
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "subprocess",
-      "line": 770
+      "line": 790
     },
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "pathlib",
-      "line": 771
+      "line": 791
     },
     {
       "file": "core/cloud_cli_wizard.py",
       "import": "core.cloud_detector",
-      "line": 916
+      "line": 936
     },
     {
       "file": "core/cloud_client.py",
       "import": "core.cloud_backend",
       "line": 8
+    },
+    {
+      "file": "core/cloud_context.py",
+      "import": "__future__",
+      "line": 8
+    },
+    {
+      "file": "core/cloud_context.py",
+      "import": "dataclasses",
+      "line": 10
+    },
+    {
+      "file": "core/cloud_context.py",
+      "import": "typing",
+      "line": 11
+    },
+    {
+      "file": "core/cloud_context.py",
+      "import": "core.network_policy",
+      "line": 13
+    },
+    {
+      "file": "core/cloud_context.py",
+      "import": "core.request_contracts",
+      "line": 14
+    },
+    {
+      "file": "core/cloud_context.py",
+      "import": "core.cloud_save_sync",
+      "line": 34
+    },
+    {
+      "file": "core/cloud_context.py",
+      "import": "core.cloud_backend",
+      "line": 40
     },
     {
       "file": "core/cloud_detector.py",
@@ -910,6 +1265,66 @@
       "file": "core/cloud_detector.py",
       "import": "typing",
       "line": 6
+    },
+    {
+      "file": "core/cloud_exit_sync_service.py",
+      "import": "__future__",
+      "line": 8
+    },
+    {
+      "file": "core/cloud_exit_sync_service.py",
+      "import": "dataclasses",
+      "line": 10
+    },
+    {
+      "file": "core/cloud_exit_sync_service.py",
+      "import": "core.cloud_operation_service",
+      "line": 12
+    },
+    {
+      "file": "core/cloud_exit_sync_service.py",
+      "import": "core.request_contracts",
+      "line": 13
+    },
+    {
+      "file": "core/cloud_metadata_service.py",
+      "import": "__future__",
+      "line": 9
+    },
+    {
+      "file": "core/cloud_metadata_service.py",
+      "import": "dataclasses",
+      "line": 11
+    },
+    {
+      "file": "core/cloud_metadata_service.py",
+      "import": "threading",
+      "line": 12
+    },
+    {
+      "file": "core/cloud_metadata_service.py",
+      "import": "typing",
+      "line": 13
+    },
+    {
+      "file": "core/cloud_metadata_service.py",
+      "import": "core.cloud_context",
+      "line": 15
+    },
+    {
+      "file": "core/cloud_metadata_service.py",
+      "import": "core.cloud_metadata_sync",
+      "line": 16
+    },
+    {
+      "file": "core/cloud_metadata_service.py",
+      "import": "core.request_contracts",
+      "line": 17
+    },
+    {
+      "file": "core/cloud_metadata_service.py",
+      "import": "database",
+      "line": 113
     },
     {
       "file": "core/cloud_metadata_sync.py",
@@ -1025,6 +1440,76 @@
       "file": "core/cloud_metadata_sync.py",
       "import": "core.cloud_save_sync",
       "line": 651
+    },
+    {
+      "file": "core/cloud_operation_records.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "core/cloud_operation_records.py",
+      "import": "dataclasses",
+      "line": 5
+    },
+    {
+      "file": "core/cloud_operation_records.py",
+      "import": "enum",
+      "line": 6
+    },
+    {
+      "file": "core/cloud_operation_records.py",
+      "import": "core.request_contracts",
+      "line": 8
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "__future__",
+      "line": 9
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "time",
+      "line": 11
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "dataclasses",
+      "line": 12
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "threading",
+      "line": 13
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "typing",
+      "line": 14
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "core.cloud_context",
+      "line": 16
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "core.cloud_operations",
+      "line": 17
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "core.cloud_save_sync",
+      "line": 23
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "core.cloud_operation_records",
+      "line": 24
+    },
+    {
+      "file": "core/cloud_operation_service.py",
+      "import": "core.request_contracts",
+      "line": 25
     },
     {
       "file": "core/cloud_operations.py",
@@ -1219,12 +1704,112 @@
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 819
+      "line": 829
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 873
+      "line": 889
+    },
+    {
+      "file": "core/cloud_status_polling_service.py",
+      "import": "__future__",
+      "line": 9
+    },
+    {
+      "file": "core/cloud_status_polling_service.py",
+      "import": "threading",
+      "line": 11
+    },
+    {
+      "file": "core/cloud_status_polling_service.py",
+      "import": "threading",
+      "line": 12
+    },
+    {
+      "file": "core/cloud_status_polling_service.py",
+      "import": "typing",
+      "line": 13
+    },
+    {
+      "file": "core/cloud_status_polling_service.py",
+      "import": "core.cloud_status_service",
+      "line": 15
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "__future__",
+      "line": 9
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "json",
+      "line": 11
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "os",
+      "line": 12
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "tempfile",
+      "line": 13
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "time",
+      "line": 14
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "dataclasses",
+      "line": 15
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "pathlib",
+      "line": 16
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "threading",
+      "line": 17
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "typing",
+      "line": 18
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "core.cloud_context",
+      "line": 20
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "core.cloud_operations",
+      "line": 21
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "core.save_state",
+      "line": 22
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "core.request_contracts",
+      "line": 23
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "core.cloud_save_sync",
+      "line": 204
+    },
+    {
+      "file": "core/cloud_status_service.py",
+      "import": "core.cloud_save_sync",
+      "line": 447
     },
     {
       "file": "core/cloud_sync_queue.py",
@@ -1270,6 +1855,16 @@
       "file": "core/cloud_sync_queue.py",
       "import": "database",
       "line": 13
+    },
+    {
+      "file": "core/compatibility_worker_index.py",
+      "import": "__future__",
+      "line": 8
+    },
+    {
+      "file": "core/compatibility_worker_index.py",
+      "import": "collections.abc",
+      "line": 10
     },
     {
       "file": "core/date_formatting.py",
@@ -1632,6 +2227,91 @@
       "line": 7
     },
     {
+      "file": "core/launch_policy.py",
+      "import": "__future__",
+      "line": 9
+    },
+    {
+      "file": "core/launch_policy.py",
+      "import": "dataclasses",
+      "line": 11
+    },
+    {
+      "file": "core/launch_policy.py",
+      "import": "enum",
+      "line": 12
+    },
+    {
+      "file": "core/launch_session_coordinator.py",
+      "import": "__future__",
+      "line": 8
+    },
+    {
+      "file": "core/launch_session_coordinator.py",
+      "import": "dataclasses",
+      "line": 10
+    },
+    {
+      "file": "core/launch_session_coordinator.py",
+      "import": "time",
+      "line": 11
+    },
+    {
+      "file": "core/launch_session_coordinator.py",
+      "import": "typing",
+      "line": 12
+    },
+    {
+      "file": "core/library_achievement_coordinator.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "core/library_achievement_coordinator.py",
+      "import": "dataclasses",
+      "line": 5
+    },
+    {
+      "file": "core/library_achievement_coordinator.py",
+      "import": "typing",
+      "line": 6
+    },
+    {
+      "file": "core/library_achievement_coordinator.py",
+      "import": "core.achievement_resource_service",
+      "line": 8
+    },
+    {
+      "file": "core/library_achievement_coordinator.py",
+      "import": "core.request_contracts",
+      "line": 9
+    },
+    {
+      "file": "core/library_artwork_coordinator.py",
+      "import": "__future__",
+      "line": 13
+    },
+    {
+      "file": "core/library_artwork_coordinator.py",
+      "import": "dataclasses",
+      "line": 15
+    },
+    {
+      "file": "core/library_artwork_coordinator.py",
+      "import": "typing",
+      "line": 16
+    },
+    {
+      "file": "core/library_artwork_coordinator.py",
+      "import": "core.artwork_resource_service",
+      "line": 18
+    },
+    {
+      "file": "core/library_artwork_coordinator.py",
+      "import": "core.request_contracts",
+      "line": 19
+    },
+    {
       "file": "core/library_controller.py",
       "import": "__future__",
       "line": 8
@@ -1662,6 +2342,76 @@
       "line": 15
     },
     {
+      "file": "core/library_metadata_state.py",
+      "import": "__future__",
+      "line": 10
+    },
+    {
+      "file": "core/library_metadata_state.py",
+      "import": "json",
+      "line": 12
+    },
+    {
+      "file": "core/library_metadata_state.py",
+      "import": "os",
+      "line": 13
+    },
+    {
+      "file": "core/library_metadata_state.py",
+      "import": "tempfile",
+      "line": 14
+    },
+    {
+      "file": "core/library_metadata_state.py",
+      "import": "time",
+      "line": 15
+    },
+    {
+      "file": "core/library_metadata_state.py",
+      "import": "pathlib",
+      "line": 16
+    },
+    {
+      "file": "core/library_metadata_state.py",
+      "import": "core.logger",
+      "line": 148
+    },
+    {
+      "file": "core/library_service.py",
+      "import": "__future__",
+      "line": 9
+    },
+    {
+      "file": "core/library_service.py",
+      "import": "dataclasses",
+      "line": 11
+    },
+    {
+      "file": "core/library_service.py",
+      "import": "time",
+      "line": 12
+    },
+    {
+      "file": "core/library_service.py",
+      "import": "typing",
+      "line": 13
+    },
+    {
+      "file": "core/library_service.py",
+      "import": "core.game_status",
+      "line": 15
+    },
+    {
+      "file": "core/library_service.py",
+      "import": "core.library_controller",
+      "line": 16
+    },
+    {
+      "file": "core/library_service.py",
+      "import": "core.library_state",
+      "line": 17
+    },
+    {
       "file": "core/library_state.py",
       "import": "__future__",
       "line": 8
@@ -1680,6 +2430,31 @@
       "file": "core/library_state.py",
       "import": "core.library_controller",
       "line": 13
+    },
+    {
+      "file": "core/library_steam_metadata_coordinator.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "core/library_steam_metadata_coordinator.py",
+      "import": "dataclasses",
+      "line": 5
+    },
+    {
+      "file": "core/library_steam_metadata_coordinator.py",
+      "import": "typing",
+      "line": 6
+    },
+    {
+      "file": "core/library_steam_metadata_coordinator.py",
+      "import": "core.request_contracts",
+      "line": 8
+    },
+    {
+      "file": "core/library_steam_metadata_coordinator.py",
+      "import": "core.steam_resource_service",
+      "line": 9
     },
     {
       "file": "core/logger.py",
@@ -1907,6 +2682,26 @@
       "line": 15
     },
     {
+      "file": "core/performance_gates.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "core/performance_gates.py",
+      "import": "math",
+      "line": 5
+    },
+    {
+      "file": "core/performance_gates.py",
+      "import": "dataclasses",
+      "line": 6
+    },
+    {
+      "file": "core/performance_gates.py",
+      "import": "typing",
+      "line": 7
+    },
+    {
       "file": "core/performance_metrics.py",
       "import": "__future__",
       "line": 3
@@ -2072,6 +2867,16 @@
       "line": 214
     },
     {
+      "file": "core/presentation_cache.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "core/presentation_cache.py",
+      "import": "collections",
+      "line": 5
+    },
+    {
       "file": "core/profile_avatar_catalog.py",
       "import": "__future__",
       "line": 3
@@ -2120,6 +2925,11 @@
       "file": "core/profile_avatar_catalog.py",
       "import": "core.profile_models",
       "line": 15
+    },
+    {
+      "file": "core/profile_avatar_catalog.py",
+      "import": "core.cache_policy",
+      "line": 16
     },
     {
       "file": "core/profile_models.py",
@@ -2177,6 +2987,41 @@
       "line": 20
     },
     {
+      "file": "core/profile_resource_service.py",
+      "import": "__future__",
+      "line": 10
+    },
+    {
+      "file": "core/profile_resource_service.py",
+      "import": "hashlib",
+      "line": 12
+    },
+    {
+      "file": "core/profile_resource_service.py",
+      "import": "typing",
+      "line": 13
+    },
+    {
+      "file": "core/profile_resource_service.py",
+      "import": "requests",
+      "line": 15
+    },
+    {
+      "file": "core/profile_resource_service.py",
+      "import": "core.profile_models",
+      "line": 17
+    },
+    {
+      "file": "core/profile_resource_service.py",
+      "import": "core.profile_service",
+      "line": 18
+    },
+    {
+      "file": "core/profile_resource_service.py",
+      "import": "core.request_contracts",
+      "line": 23
+    },
+    {
       "file": "core/profile_service.py",
       "import": "__future__",
       "line": 9
@@ -2213,13 +3058,18 @@
     },
     {
       "file": "core/profile_service.py",
-      "import": "core.profile_models",
+      "import": "core.request_contracts",
       "line": 19
     },
     {
       "file": "core/profile_service.py",
+      "import": "core.profile_models",
+      "line": 20
+    },
+    {
+      "file": "core/profile_service.py",
       "import": "core.profile_avatar_catalog",
-      "line": 27
+      "line": 28
     },
     {
       "file": "core/proton_manager.py",
@@ -2374,7 +3224,7 @@
     {
       "file": "core/request_manager.py",
       "import": "core.resource_cache",
-      "line": 32
+      "line": 33
     },
     {
       "file": "core/resource_cache.py",
@@ -2440,6 +3290,56 @@
       "file": "core/resource_cache.py",
       "import": "core.request_contracts",
       "line": 17
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "__future__",
+      "line": 9
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "json",
+      "line": 11
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "math",
+      "line": 12
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "os",
+      "line": 13
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "platform",
+      "line": 14
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "tempfile",
+      "line": 15
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "time",
+      "line": 16
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "pathlib",
+      "line": 17
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "typing",
+      "line": 18
+    },
+    {
+      "file": "core/runtime_diagnostics.py",
+      "import": "core.version",
+      "line": 20
     },
     {
       "file": "core/runtime_inventory.py",
@@ -2828,8 +3728,13 @@
     },
     {
       "file": "core/steam_build_tracker.py",
+      "import": "core.cache_policy",
+      "line": 9
+    },
+    {
+      "file": "core/steam_build_tracker.py",
       "import": "core.request_contracts",
-      "line": 110
+      "line": 111
     },
     {
       "file": "core/steam_client.py",
@@ -2845,6 +3750,36 @@
       "file": "core/steam_client.py",
       "import": "requests",
       "line": 11
+    },
+    {
+      "file": "core/steam_client.py",
+      "import": "core.request_contracts",
+      "line": 13
+    },
+    {
+      "file": "core/steam_resource_service.py",
+      "import": "__future__",
+      "line": 7
+    },
+    {
+      "file": "core/steam_resource_service.py",
+      "import": "typing",
+      "line": 9
+    },
+    {
+      "file": "core/steam_resource_service.py",
+      "import": "core.cache_policy",
+      "line": 11
+    },
+    {
+      "file": "core/steam_resource_service.py",
+      "import": "core.request_contracts",
+      "line": 12
+    },
+    {
+      "file": "core/steam_resource_service.py",
+      "import": "core.steam_client",
+      "line": 18
     },
     {
       "file": "core/steam_tags.py",
@@ -2873,8 +3808,13 @@
     },
     {
       "file": "core/steam_tags.py",
+      "import": "core.cache_policy",
+      "line": 6
+    },
+    {
+      "file": "core/steam_tags.py",
       "import": "core.request_contracts",
-      "line": 30
+      "line": 31
     },
     {
       "file": "core/steamgriddb_client.py",
@@ -2913,23 +3853,28 @@
     },
     {
       "file": "core/steamgriddb_client.py",
-      "import": "PIL",
-      "line": 259
+      "import": "core.asset_cache",
+      "line": 8
     },
     {
       "file": "core/steamgriddb_client.py",
       "import": "PIL",
-      "line": 379
+      "line": 260
     },
     {
       "file": "core/steamgriddb_client.py",
       "import": "PIL",
-      "line": 464
+      "line": 380
+    },
+    {
+      "file": "core/steamgriddb_client.py",
+      "import": "PIL",
+      "line": 466
     },
     {
       "file": "core/steamgriddb_client.py",
       "import": "core.icon_extractor",
-      "line": 525
+      "line": 529
     },
     {
       "file": "core/system_inspector.py",
@@ -3224,7 +4169,7 @@
     {
       "file": "database.py",
       "import": "core.achievement_models",
-      "line": 1165
+      "line": 1177
     },
     {
       "file": "main.py",
@@ -3804,282 +4749,592 @@
     {
       "file": "test.py",
       "import": "ui.dialogs.cloud_wizard_dialog",
-      "line": 1374
+      "line": 1382
     },
     {
       "file": "test.py",
       "import": "ui.dialogs.settings_dialog",
-      "line": 1388
+      "line": 1396
     },
     {
       "file": "test.py",
       "import": "traceback",
-      "line": 1397
+      "line": 1405
     },
     {
       "file": "test.py",
       "import": "pathlib",
-      "line": 1406
-    },
-    {
-      "file": "test.py",
-      "import": "json",
-      "line": 1407
-    },
-    {
-      "file": "test.py",
-      "import": "core.achievement_schema",
-      "line": 1408
-    },
-    {
-      "file": "test.py",
-      "import": "core.achievement_watcher",
-      "line": 1409
-    },
-    {
-      "file": "test.py",
-      "import": "ui.components.achievement_toast",
       "line": 1414
     },
     {
       "file": "test.py",
-      "import": "ui.dialogs.achievements_dialog",
+      "import": "json",
       "line": 1415
     },
     {
       "file": "test.py",
+      "import": "core.achievement_schema",
+      "line": 1416
+    },
+    {
+      "file": "test.py",
+      "import": "core.achievement_watcher",
+      "line": 1417
+    },
+    {
+      "file": "test.py",
+      "import": "ui.components.achievement_toast",
+      "line": 1422
+    },
+    {
+      "file": "test.py",
+      "import": "ui.dialogs.achievements_dialog",
+      "line": 1423
+    },
+    {
+      "file": "test.py",
       "import": "ui.threads",
-      "line": 1628
+      "line": 1636
     },
     {
       "file": "test.py",
       "import": "core.disk_utils",
-      "line": 1667
+      "line": 1675
     },
     {
       "file": "test.py",
       "import": "core.achievement_schema",
-      "line": 1706
+      "line": 1714
     },
     {
       "file": "test.py",
       "import": "PyQt6.QtCore",
-      "line": 1725
+      "line": 1733
     },
     {
       "file": "test.py",
       "import": "ui.components.virtual_grid",
-      "line": 1726
+      "line": 1734
     },
     {
       "file": "test.py",
       "import": "traceback",
-      "line": 1775
+      "line": 1783
     },
     {
       "file": "test.py",
       "import": "unittest.mock",
-      "line": 1784
-    },
-    {
-      "file": "test.py",
-      "import": "hashlib",
-      "line": 1785
-    },
-    {
-      "file": "test.py",
-      "import": "core.cloud_backend",
-      "line": 1786
-    },
-    {
-      "file": "test.py",
-      "import": "core.cloud_save_sync",
-      "line": 1787
-    },
-    {
-      "file": "test.py",
-      "import": "ui.dialogs.save_manager_dialog",
       "line": 1792
     },
     {
       "file": "test.py",
-      "import": "ui.dialogs.game_properties_dialog",
+      "import": "hashlib",
       "line": 1793
     },
     {
       "file": "test.py",
-      "import": "core.cloud_save_sync",
-      "line": 1800
-    },
-    {
-      "file": "test.py",
-      "import": "core.cloud_save_sync",
-      "line": 1866
-    },
-    {
-      "file": "test.py",
-      "import": "traceback",
-      "line": 1911
-    },
-    {
-      "file": "test.py",
-      "import": "core.cloud_save_sync",
-      "line": 1920
-    },
-    {
-      "file": "test.py",
-      "import": "ui.dialogs.save_conflict_dialog",
-      "line": 1921
-    },
-    {
-      "file": "test.py",
       "import": "core.cloud_backend",
-      "line": 1922
-    },
-    {
-      "file": "test.py",
-      "import": "unittest.mock",
-      "line": 1923
-    },
-    {
-      "file": "test.py",
-      "import": "core.cloud_backend",
-      "line": 1982
-    },
-    {
-      "file": "test.py",
-      "import": "traceback",
-      "line": 1996
-    },
-    {
-      "file": "test.py",
-      "import": "requests",
-      "line": 2005
-    },
-    {
-      "file": "test.py",
-      "import": "unittest.mock",
-      "line": 2006
-    },
-    {
-      "file": "test.py",
-      "import": "core.cloud_backend",
-      "line": 2007
+      "line": 1794
     },
     {
       "file": "test.py",
       "import": "core.cloud_save_sync",
-      "line": 2008
+      "line": 1795
     },
     {
       "file": "test.py",
       "import": "ui.dialogs.save_manager_dialog",
-      "line": 2015
-    },
-    {
-      "file": "test.py",
-      "import": "core.cloud_detector",
-      "line": 2016
-    },
-    {
-      "file": "test.py",
-      "import": "core.cloud_save_sync",
-      "line": 2072
-    },
-    {
-      "file": "test.py",
-      "import": "ui.components.virtual_grid",
-      "line": 2090
-    },
-    {
-      "file": "test.py",
-      "import": "core.cloud_save_sync",
-      "line": 2091
-    },
-    {
-      "file": "test.py",
-      "import": "PyQt6.QtGui",
-      "line": 2092
-    },
-    {
-      "file": "test.py",
-      "import": "PyQt6.QtCore",
-      "line": 2093
-    },
-    {
-      "file": "test.py",
-      "import": "ui.library_list",
-      "line": 2105
+      "line": 1800
     },
     {
       "file": "test.py",
       "import": "ui.dialogs.game_properties_dialog",
-      "line": 2127
+      "line": 1801
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_save_sync",
+      "line": 1808
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_save_sync",
+      "line": 1874
     },
     {
       "file": "test.py",
       "import": "traceback",
-      "line": 2142
+      "line": 1919
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_save_sync",
+      "line": 1928
+    },
+    {
+      "file": "test.py",
+      "import": "ui.dialogs.save_conflict_dialog",
+      "line": 1929
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_backend",
+      "line": 1930
+    },
+    {
+      "file": "test.py",
+      "import": "unittest.mock",
+      "line": 1931
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_backend",
+      "line": 1990
+    },
+    {
+      "file": "test.py",
+      "import": "traceback",
+      "line": 2004
+    },
+    {
+      "file": "test.py",
+      "import": "requests",
+      "line": 2013
+    },
+    {
+      "file": "test.py",
+      "import": "unittest.mock",
+      "line": 2014
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_backend",
+      "line": 2015
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_save_sync",
+      "line": 2016
+    },
+    {
+      "file": "test.py",
+      "import": "ui.dialogs.save_manager_dialog",
+      "line": 2023
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_detector",
+      "line": 2024
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_save_sync",
+      "line": 2080
+    },
+    {
+      "file": "test.py",
+      "import": "ui.components.virtual_grid",
+      "line": 2098
+    },
+    {
+      "file": "test.py",
+      "import": "core.cloud_save_sync",
+      "line": 2099
     },
     {
       "file": "test.py",
       "import": "PyQt6.QtGui",
-      "line": 2151
-    },
-    {
-      "file": "test.py",
-      "import": "ui.components.compact_game_page",
-      "line": 2152
+      "line": 2100
     },
     {
       "file": "test.py",
       "import": "PyQt6.QtCore",
-      "line": 2240
+      "line": 2101
     },
     {
       "file": "test.py",
-      "import": "PyQt6.QtWidgets",
-      "line": 2258
+      "import": "ui.library_list",
+      "line": 2113
     },
     {
       "file": "test.py",
-      "import": "PyQt6.QtWidgets",
-      "line": 2322
+      "import": "ui.dialogs.game_properties_dialog",
+      "line": 2135
     },
     {
       "file": "test.py",
-      "import": "PyQt6.QtWidgets",
-      "line": 2339
+      "import": "traceback",
+      "line": 2150
     },
     {
       "file": "test.py",
-      "import": "datetime",
-      "line": 2407
+      "import": "PyQt6.QtGui",
+      "line": 2159
     },
     {
       "file": "test.py",
       "import": "ui.components.compact_game_page",
-      "line": 2408
+      "line": 2160
+    },
+    {
+      "file": "test.py",
+      "import": "PyQt6.QtCore",
+      "line": 2248
+    },
+    {
+      "file": "test.py",
+      "import": "PyQt6.QtWidgets",
+      "line": 2266
+    },
+    {
+      "file": "test.py",
+      "import": "PyQt6.QtWidgets",
+      "line": 2330
+    },
+    {
+      "file": "test.py",
+      "import": "PyQt6.QtWidgets",
+      "line": 2347
+    },
+    {
+      "file": "test.py",
+      "import": "datetime",
+      "line": 2415
+    },
+    {
+      "file": "test.py",
+      "import": "ui.components.compact_game_page",
+      "line": 2416
     },
     {
       "file": "test.py",
       "import": "traceback",
-      "line": 2479
+      "line": 2487
     },
     {
       "file": "test.py",
       "import": "core.steamgriddb_client",
-      "line": 2488
+      "line": 2496
     },
     {
       "file": "test.py",
       "import": "tempfile",
-      "line": 2489
+      "line": 2497
     },
     {
       "file": "test.py",
       "import": "traceback",
-      "line": 2551
+      "line": 2559
+    },
+    {
+      "file": "tests/test_achievement_persistence_service.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_achievement_persistence_service.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_achievement_persistence_service.py",
+      "import": "core.achievement_persistence_service",
+      "line": 7
+    },
+    {
+      "file": "tests/test_achievement_persistence_service.py",
+      "import": "core.achievement_providers",
+      "line": 8
+    },
+    {
+      "file": "tests/test_achievement_persistence_service.py",
+      "import": "database",
+      "line": 9
+    },
+    {
+      "file": "tests/test_achievement_state_store.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_achievement_state_store.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_achievement_state_store.py",
+      "import": "core.achievement_state_store",
+      "line": 7
+    },
+    {
+      "file": "tests/test_asset_cache.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_asset_cache.py",
+      "import": "os",
+      "line": 5
+    },
+    {
+      "file": "tests/test_asset_cache.py",
+      "import": "pathlib",
+      "line": 6
+    },
+    {
+      "file": "tests/test_asset_cache.py",
+      "import": "tempfile",
+      "line": 7
+    },
+    {
+      "file": "tests/test_asset_cache.py",
+      "import": "unittest",
+      "line": 8
+    },
+    {
+      "file": "tests/test_asset_cache.py",
+      "import": "core.asset_cache",
+      "line": 10
+    },
+    {
+      "file": "tests/test_cache_policy.py",
+      "import": "unittest",
+      "line": 1
+    },
+    {
+      "file": "tests/test_cache_policy.py",
+      "import": "core.cache_policy",
+      "line": 3
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "unittest",
+      "line": 1
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "unittest.mock",
+      "line": 2
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "core.cloud_account_service",
+      "line": 4
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "core.cloud_backend",
+      "line": 5
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "core.cloud_context",
+      "line": 6
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "core.request_contracts",
+      "line": 7
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "core.request_manager",
+      "line": 8
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "core.cloud_backend",
+      "line": 54
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "core.cloud_cli_wizard",
+      "line": 69
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "import": "core.cloud_cli_wizard",
+      "line": 82
+    },
+    {
+      "file": "tests/test_cloud_metadata_service.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_cloud_metadata_service.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_cloud_metadata_service.py",
+      "import": "concurrent.futures",
+      "line": 6
+    },
+    {
+      "file": "tests/test_cloud_metadata_service.py",
+      "import": "unittest.mock",
+      "line": 7
+    },
+    {
+      "file": "tests/test_cloud_metadata_service.py",
+      "import": "core.cloud_context",
+      "line": 9
+    },
+    {
+      "file": "tests/test_cloud_metadata_service.py",
+      "import": "core.cloud_metadata_service",
+      "line": 10
+    },
+    {
+      "file": "tests/test_cloud_metadata_service.py",
+      "import": "core.request_contracts",
+      "line": 14
+    },
+    {
+      "file": "tests/test_cloud_metadata_service.py",
+      "import": "core.request_manager",
+      "line": 15
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "threading",
+      "line": 6
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "core.cloud_context",
+      "line": 8
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "core.cloud_operations",
+      "line": 9
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "core.cloud_operation_service",
+      "line": 10
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "core.cloud_exit_sync_service",
+      "line": 11
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "core.cloud_operation_records",
+      "line": 12
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "core.cloud_save_sync",
+      "line": 13
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "core.save_models",
+      "line": 14
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "core.request_contracts",
+      "line": 15
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "import": "core.request_manager",
+      "line": 16
+    },
+    {
+      "file": "tests/test_cloud_status_polling_service.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_cloud_status_polling_service.py",
+      "import": "time",
+      "line": 5
+    },
+    {
+      "file": "tests/test_cloud_status_polling_service.py",
+      "import": "unittest",
+      "line": 6
+    },
+    {
+      "file": "tests/test_cloud_status_polling_service.py",
+      "import": "types",
+      "line": 7
+    },
+    {
+      "file": "tests/test_cloud_status_polling_service.py",
+      "import": "core.cloud_status_polling_service",
+      "line": 9
+    },
+    {
+      "file": "tests/test_cloud_status_polling_service.py",
+      "import": "core.cloud_status_service",
+      "line": 10
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "tempfile",
+      "line": 5
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "unittest",
+      "line": 6
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "core.cloud_context",
+      "line": 8
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "core.cloud_operations",
+      "line": 9
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "core.cloud_status_service",
+      "line": 10
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "core.cloud_save_sync",
+      "line": 11
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "core.request_contracts",
+      "line": 12
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "core.request_manager",
+      "line": 13
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "import": "core.save_models",
+      "line": 119
     },
     {
       "file": "tests/test_cloud_sync_queue.py",
@@ -4107,6 +5362,61 @@
       "line": 9
     },
     {
+      "file": "tests/test_compatibility_worker_index.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_compatibility_worker_index.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_compatibility_worker_index.py",
+      "import": "core.compatibility_worker_index",
+      "line": 7
+    },
+    {
+      "file": "tests/test_cross_device_matrix.py",
+      "import": "__future__",
+      "line": 8
+    },
+    {
+      "file": "tests/test_cross_device_matrix.py",
+      "import": "tempfile",
+      "line": 10
+    },
+    {
+      "file": "tests/test_cross_device_matrix.py",
+      "import": "unittest",
+      "line": 11
+    },
+    {
+      "file": "tests/test_cross_device_matrix.py",
+      "import": "pathlib",
+      "line": 12
+    },
+    {
+      "file": "tests/test_cross_device_matrix.py",
+      "import": "unittest.mock",
+      "line": 13
+    },
+    {
+      "file": "tests/test_cross_device_matrix.py",
+      "import": "core.cloud_metadata_sync",
+      "line": 15
+    },
+    {
+      "file": "tests/test_cross_device_matrix.py",
+      "import": "database",
+      "line": 16
+    },
+    {
+      "file": "tests/test_cross_device_matrix.py",
+      "import": "core.cloud_context",
+      "line": 108
+    },
+    {
       "file": "tests/test_global_hotkeys.py",
       "import": "__future__",
       "line": 3
@@ -4124,6 +5434,181 @@
     {
       "file": "tests/test_global_hotkeys.py",
       "import": "core.global_hotkeys",
+      "line": 8
+    },
+    {
+      "file": "tests/test_launch_policy.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_launch_policy.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_launch_policy.py",
+      "import": "core.launch_policy",
+      "line": 7
+    },
+    {
+      "file": "tests/test_launch_session_coordinator.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_launch_session_coordinator.py",
+      "import": "types",
+      "line": 5
+    },
+    {
+      "file": "tests/test_launch_session_coordinator.py",
+      "import": "unittest",
+      "line": 6
+    },
+    {
+      "file": "tests/test_launch_session_coordinator.py",
+      "import": "core.launch_session_coordinator",
+      "line": 8
+    },
+    {
+      "file": "tests/test_library_achievement_coordinator.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_library_achievement_coordinator.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_library_achievement_coordinator.py",
+      "import": "core.achievement_resource_service",
+      "line": 7
+    },
+    {
+      "file": "tests/test_library_achievement_coordinator.py",
+      "import": "core.library_achievement_coordinator",
+      "line": 8
+    },
+    {
+      "file": "tests/test_library_achievement_coordinator.py",
+      "import": "core.request_contracts",
+      "line": 9
+    },
+    {
+      "file": "tests/test_library_artwork_coordinator.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_library_artwork_coordinator.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_library_artwork_coordinator.py",
+      "import": "core.artwork_resource_service",
+      "line": 7
+    },
+    {
+      "file": "tests/test_library_artwork_coordinator.py",
+      "import": "core.library_artwork_coordinator",
+      "line": 8
+    },
+    {
+      "file": "tests/test_library_artwork_coordinator.py",
+      "import": "core.request_contracts",
+      "line": 9
+    },
+    {
+      "file": "tests/test_library_metadata_state.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_library_metadata_state.py",
+      "import": "json",
+      "line": 5
+    },
+    {
+      "file": "tests/test_library_metadata_state.py",
+      "import": "tempfile",
+      "line": 6
+    },
+    {
+      "file": "tests/test_library_metadata_state.py",
+      "import": "unittest",
+      "line": 7
+    },
+    {
+      "file": "tests/test_library_metadata_state.py",
+      "import": "pathlib",
+      "line": 8
+    },
+    {
+      "file": "tests/test_library_metadata_state.py",
+      "import": "core.achievement_state_store",
+      "line": 10
+    },
+    {
+      "file": "tests/test_library_metadata_state.py",
+      "import": "core.library_metadata_state",
+      "line": 11
+    },
+    {
+      "file": "tests/test_library_service.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_library_service.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_library_service.py",
+      "import": "core.library_controller",
+      "line": 7
+    },
+    {
+      "file": "tests/test_library_service.py",
+      "import": "core.library_service",
+      "line": 8
+    },
+    {
+      "file": "tests/test_library_service.py",
+      "import": "core.library_state",
+      "line": 9
+    },
+    {
+      "file": "tests/test_library_service.py",
+      "import": "core.game_status",
+      "line": 10
+    },
+    {
+      "file": "tests/test_library_service.py",
+      "import": "database",
+      "line": 11
+    },
+    {
+      "file": "tests/test_library_steam_metadata_coordinator.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_library_steam_metadata_coordinator.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_library_steam_metadata_coordinator.py",
+      "import": "core.library_steam_metadata_coordinator",
+      "line": 7
+    },
+    {
+      "file": "tests/test_library_steam_metadata_coordinator.py",
+      "import": "core.request_contracts",
       "line": 8
     },
     {
@@ -4162,6 +5647,36 @@
       "line": 67
     },
     {
+      "file": "tests/test_performance_baseline.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_performance_baseline.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_performance_baseline.py",
+      "import": "ci.performance_baseline",
+      "line": 7
+    },
+    {
+      "file": "tests/test_performance_gates.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_performance_gates.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_performance_gates.py",
+      "import": "core.performance_gates",
+      "line": 7
+    },
+    {
       "file": "tests/test_performance_metrics.py",
       "import": "__future__",
       "line": 3
@@ -4174,6 +5689,101 @@
     {
       "file": "tests/test_performance_metrics.py",
       "import": "core.performance_metrics",
+      "line": 7
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "import": "threading",
+      "line": 5
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "import": "time",
+      "line": 6
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "import": "unittest",
+      "line": 7
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "import": "core.request_contracts",
+      "line": 9
+    },
+    {
+      "file": "tests/test_phase8_reliability.py",
+      "import": "core.request_manager",
+      "line": 10
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "threading",
+      "line": 5
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "unittest",
+      "line": 6
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "core.cloud_context",
+      "line": 8
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "core.cloud_operations",
+      "line": 9
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "core.cloud_save_sync",
+      "line": 10
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "core.cloud_status_service",
+      "line": 11
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "core.library_controller",
+      "line": 12
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "core.library_state",
+      "line": 13
+    },
+    {
+      "file": "tests/test_phase8_stress.py",
+      "import": "core.request_manager",
+      "line": 14
+    },
+    {
+      "file": "tests/test_presentation_cache.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_presentation_cache.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_presentation_cache.py",
+      "import": "core.presentation_cache",
       "line": 7
     },
     {
@@ -4317,6 +5927,66 @@
       "line": 322
     },
     {
+      "file": "tests/test_profile_resource_service.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_profile_resource_service.py",
+      "import": "tempfile",
+      "line": 5
+    },
+    {
+      "file": "tests/test_profile_resource_service.py",
+      "import": "unittest",
+      "line": 6
+    },
+    {
+      "file": "tests/test_profile_resource_service.py",
+      "import": "core.profile_resource_service",
+      "line": 8
+    },
+    {
+      "file": "tests/test_profile_resource_service.py",
+      "import": "core.request_contracts",
+      "line": 9
+    },
+    {
+      "file": "tests/test_profile_resource_service.py",
+      "import": "core.request_manager",
+      "line": 10
+    },
+    {
+      "file": "tests/test_profile_resource_service.py",
+      "import": "core.resource_cache",
+      "line": 11
+    },
+    {
+      "file": "tests/test_release_readiness.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_release_readiness.py",
+      "import": "pathlib",
+      "line": 5
+    },
+    {
+      "file": "tests/test_release_readiness.py",
+      "import": "tempfile",
+      "line": 6
+    },
+    {
+      "file": "tests/test_release_readiness.py",
+      "import": "unittest",
+      "line": 7
+    },
+    {
+      "file": "tests/test_release_readiness.py",
+      "import": "ci.release_readiness",
+      "line": 9
+    },
+    {
       "file": "tests/test_request_contracts.py",
       "import": "__future__",
       "line": 3
@@ -4445,6 +6115,91 @@
       "file": "tests/test_resource_cache.py",
       "import": "core.resource_cache",
       "line": 12
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "unittest",
+      "line": 5
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "unittest.mock",
+      "line": 6
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "core.achievement_providers",
+      "line": 8
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "core.achievement_resource_service",
+      "line": 9
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "core.artwork_resource_service",
+      "line": 10
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "core.request_contracts",
+      "line": 11
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "core.request_manager",
+      "line": 12
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "core.resource_cache",
+      "line": 13
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "import": "core.steam_resource_service",
+      "line": 14
+    },
+    {
+      "file": "tests/test_runtime_diagnostics.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_runtime_diagnostics.py",
+      "import": "json",
+      "line": 5
+    },
+    {
+      "file": "tests/test_runtime_diagnostics.py",
+      "import": "stat",
+      "line": 6
+    },
+    {
+      "file": "tests/test_runtime_diagnostics.py",
+      "import": "tempfile",
+      "line": 7
+    },
+    {
+      "file": "tests/test_runtime_diagnostics.py",
+      "import": "unittest",
+      "line": 8
+    },
+    {
+      "file": "tests/test_runtime_diagnostics.py",
+      "import": "pathlib",
+      "line": 9
+    },
+    {
+      "file": "tests/test_runtime_diagnostics.py",
+      "import": "core.runtime_diagnostics",
+      "line": 11
     },
     {
       "file": "tests/test_security_and_threads.py",
@@ -4998,83 +6753,93 @@
     },
     {
       "file": "ui/components/profile_page.py",
-      "import": "core.profile_avatar_catalog",
+      "import": "core.profile_resource_service",
       "line": 28
     },
     {
       "file": "ui/components/profile_page.py",
+      "import": "core.cache_policy",
+      "line": 29
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "import": "core.profile_avatar_catalog",
+      "line": 30
+    },
+    {
+      "file": "ui/components/profile_page.py",
       "import": "core.central_auth",
-      "line": 34
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "import": "core.secret_store",
-      "line": 35
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "import": "core.safe_thread",
       "line": 36
     },
     {
       "file": "ui/components/profile_page.py",
-      "import": "core.network_policy",
+      "import": "core.secret_store",
       "line": 37
     },
     {
       "file": "ui/components/profile_page.py",
-      "import": "core.request_contracts",
+      "import": "core.safe_thread",
       "line": 38
     },
     {
       "file": "ui/components/profile_page.py",
-      "import": "core.resource_cache",
+      "import": "core.network_policy",
       "line": 39
     },
     {
       "file": "ui/components/profile_page.py",
-      "import": "ui.resource_binding",
+      "import": "core.request_contracts",
       "line": 40
     },
     {
       "file": "ui/components/profile_page.py",
-      "import": "ui.icons",
+      "import": "core.resource_cache",
       "line": 41
     },
     {
       "file": "ui/components/profile_page.py",
-      "import": "ui.dialogs.profile_avatar_dialog",
+      "import": "core.presentation_cache",
       "line": 42
     },
     {
       "file": "ui/components/profile_page.py",
-      "import": "ui.theme",
+      "import": "ui.resource_binding",
       "line": 43
     },
     {
       "file": "ui/components/profile_page.py",
+      "import": "ui.icons",
+      "line": 49
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "import": "ui.dialogs.profile_avatar_dialog",
+      "line": 50
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "import": "ui.theme",
+      "line": 51
+    },
+    {
+      "file": "ui/components/profile_page.py",
       "import": "ui.profile_theme",
-      "line": 47
-    },
-    {
-      "file": "ui/components/profile_page.py",
-      "import": "requests",
-      "line": 65
+      "line": 55
     },
     {
       "file": "ui/components/profile_page.py",
       "import": "database",
-      "line": 2867
+      "line": 2971
     },
     {
       "file": "ui/components/profile_page.py",
       "import": "database",
-      "line": 3043
+      "line": 3118
     },
     {
       "file": "ui/components/profile_page.py",
       "import": "core.cloud_metadata_sync",
-      "line": 3044
+      "line": 3119
     },
     {
       "file": "ui/components/responsive_grid.py",
@@ -5228,103 +6993,103 @@
     },
     {
       "file": "ui/dialogs/account_dialog.py",
-      "import": "core.request_contracts",
+      "import": "core.cloud_account_service",
       "line": 26
     },
     {
       "file": "ui/dialogs/account_dialog.py",
-      "import": "core.date_formatting",
+      "import": "core.cloud_operation_service",
       "line": 27
     },
     {
       "file": "ui/dialogs/account_dialog.py",
+      "import": "core.request_contracts",
+      "line": 28
+    },
+    {
+      "file": "ui/dialogs/account_dialog.py",
+      "import": "core.date_formatting",
+      "line": 29
+    },
+    {
+      "file": "ui/dialogs/account_dialog.py",
+      "import": "ui.resource_binding",
+      "line": 30
+    },
+    {
+      "file": "ui/dialogs/account_dialog.py",
       "import": "ui.dialogs.save_conflict_dialog",
-      "line": 32
+      "line": 35
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 100
-    },
-    {
-      "file": "ui/dialogs/account_dialog.py",
-      "import": "core.cloud_client",
-      "line": 345
+      "line": 112
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_backend",
-      "line": 346
+      "line": 403
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_backend",
-      "line": 362
+      "line": 417
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_backend",
-      "line": 392
+      "line": 447
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_backend",
-      "line": 404
-    },
-    {
-      "file": "ui/dialogs/account_dialog.py",
-      "import": "core.cloud_client",
-      "line": 472
+      "line": 459
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "database",
-      "line": 543
+      "line": 613
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 544
+      "line": 614
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_operations",
-      "line": 583
-    },
-    {
-      "file": "ui/dialogs/account_dialog.py",
-      "import": "core.cloud_client",
-      "line": 628
+      "line": 686
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_backend",
-      "line": 683
+      "line": 801
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 692
+      "line": 810
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "PyQt6.QtCore",
-      "line": 694
+      "line": 812
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.secret_store",
-      "line": 695
+      "line": 813
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "ui.dialogs.cloud_wizard_dialog",
-      "line": 703
+      "line": 821
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 710
+      "line": 828
     },
     {
       "file": "ui/dialogs/achievement_profile_dialog.py",
@@ -5428,53 +7193,53 @@
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
-      "import": "core.logger",
+      "import": "core.achievement_resource_service",
       "line": 31
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
-      "import": "core.date_formatting",
+      "import": "core.logger",
       "line": 32
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
-      "import": "core.request_contracts",
+      "import": "core.date_formatting",
       "line": 33
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
-      "import": "ui.icons",
+      "import": "core.request_contracts",
       "line": 34
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
-      "import": "ui.components.popup_shell",
+      "import": "ui.icons",
       "line": 35
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
-      "import": "ui.resource_binding",
+      "import": "ui.components.popup_shell",
       "line": 36
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
+      "import": "ui.resource_binding",
+      "line": 37
+    },
+    {
+      "file": "ui/dialogs/achievements_dialog.py",
       "import": "core.achievement_coordinator",
-      "line": 814
+      "line": 830
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
       "import": "core.network_policy",
-      "line": 826
-    },
-    {
-      "file": "ui/dialogs/achievements_dialog.py",
-      "import": "core.achievement_coordinator",
-      "line": 859
+      "line": 842
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
       "import": "core.achievement_persistence",
-      "line": 932
+      "line": 942
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
@@ -5483,37 +7248,37 @@
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
-      "import": "requests",
+      "import": "pathlib",
       "line": 4
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
-      "import": "pathlib",
+      "import": "urllib.parse",
       "line": 5
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
-      "import": "urllib.parse",
+      "import": "PyQt6.QtWidgets",
       "line": 6
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
-      "import": "PyQt6.QtWidgets",
-      "line": 7
-    },
-    {
-      "file": "ui/dialogs/cloud_wizard_dialog.py",
       "import": "PyQt6.QtCore",
-      "line": 12
+      "line": 11
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
       "import": "PyQt6.QtGui",
-      "line": 13
+      "line": 12
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
       "import": "core.cloud_detector",
+      "line": 14
+    },
+    {
+      "file": "ui/dialogs/cloud_wizard_dialog.py",
+      "import": "core.cloud_account_service",
       "line": 15
     },
     {
@@ -5544,22 +7309,22 @@
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
       "import": "shutil",
-      "line": 535
+      "line": 526
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
       "import": "subprocess",
-      "line": 536
+      "line": 527
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
       "import": "sys",
-      "line": 537
+      "line": 528
     },
     {
       "file": "ui/dialogs/cloud_wizard_dialog.py",
       "import": "core.cloud_cli_wizard",
-      "line": 782
+      "line": 775
     },
     {
       "file": "ui/dialogs/deploy_key_wizard_dialog.py",
@@ -5668,28 +7433,43 @@
     },
     {
       "file": "ui/dialogs/friends_dialog.py",
-      "import": "core.safe_thread",
+      "import": "core.profile_resource_service",
       "line": 16
     },
     {
       "file": "ui/dialogs/friends_dialog.py",
-      "import": "core.request_contracts",
+      "import": "core.cache_policy",
       "line": 17
     },
     {
       "file": "ui/dialogs/friends_dialog.py",
-      "import": "ui.components.popup_shell",
+      "import": "core.safe_thread",
       "line": 18
     },
     {
       "file": "ui/dialogs/friends_dialog.py",
-      "import": "ui.icons",
+      "import": "core.request_contracts",
       "line": 19
     },
     {
       "file": "ui/dialogs/friends_dialog.py",
-      "import": "ui.theme",
+      "import": "ui.resource_binding",
       "line": 20
+    },
+    {
+      "file": "ui/dialogs/friends_dialog.py",
+      "import": "ui.components.popup_shell",
+      "line": 21
+    },
+    {
+      "file": "ui/dialogs/friends_dialog.py",
+      "import": "ui.icons",
+      "line": 22
+    },
+    {
+      "file": "ui/dialogs/friends_dialog.py",
+      "import": "ui.theme",
+      "line": 23
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
@@ -5728,103 +7508,113 @@
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "core.archive_extractor",
+      "import": "core.artwork_resource_service",
       "line": 14
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "core.launch_diagnostics",
+      "import": "core.archive_extractor",
       "line": 15
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "core.date_formatting",
+      "import": "core.launch_diagnostics",
       "line": 16
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "ui.icons",
+      "import": "core.date_formatting",
       "line": 17
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "ui.threads",
+      "import": "ui.icons",
       "line": 18
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "ui.components.sidebar",
+      "import": "ui.threads",
       "line": 19
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "ui.components.popup_shell",
+      "import": "ui.components.sidebar",
       "line": 20
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "ui.components.check_field",
+      "import": "ui.components.popup_shell",
       "line": 21
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "core.request_contracts",
+      "import": "ui.components.check_field",
       "line": 22
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
-      "import": "ui.resource_binding",
+      "import": "core.request_contracts",
       "line": 23
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
+      "import": "core.cache_policy",
+      "line": 24
+    },
+    {
+      "file": "ui/dialogs/game_dialogs.py",
+      "import": "ui.resource_binding",
+      "line": 25
+    },
+    {
+      "file": "ui/dialogs/game_dialogs.py",
       "import": "core.archive_installer",
-      "line": 470
+      "line": 477
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "core.disk_utils",
-      "line": 474
+      "line": 481
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "time",
-      "line": 1103
+      "line": 1106
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "shutil",
-      "line": 1356
+      "line": 1359
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "time",
-      "line": 1356
+      "line": 1359
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "html",
-      "line": 1414
+      "line": 1417
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "time",
-      "line": 1577
+      "line": 1580
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "core.plugins.gpu_screen_recorder",
-      "line": 1584
+      "line": 1587
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "core.plugins.gpu_screen_recorder",
-      "line": 1614
+      "line": 1617
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "time",
-      "line": 1632
+      "line": 1635
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
@@ -5923,58 +7713,83 @@
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
-      "import": "core.performance_env",
+      "import": "core.cloud_operation_service",
       "line": 26
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
+      "import": "core.request_contracts",
+      "line": 27
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "import": "ui.resource_binding",
+      "line": 28
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "import": "core.performance_env",
+      "line": 29
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 579
+      "line": 585
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 747
+      "line": 756
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 748
+      "line": 757
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "ui.dialogs.save_conflict_dialog",
-      "line": 791
+      "line": 800
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.game_status",
-      "line": 792
+      "line": 801
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "ui.dialogs.save_conflict_dialog",
-      "line": 831
+      "line": 840
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 832
+      "line": 841
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "import": "core.save_models",
+      "line": 921
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 898
+      "line": 936
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "import": "core.save_models",
+      "line": 984
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 951
+      "line": 1049
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 1023
+      "line": 1138
     },
     {
       "file": "ui/dialogs/profile_avatar_dialog.py",
@@ -6178,28 +7993,43 @@
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
-      "import": "core.zip_backup",
+      "import": "core.cloud_operation_service",
       "line": 32
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
-      "import": "core.safe_thread",
+      "import": "core.request_contracts",
       "line": 33
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
-      "import": "core.logger",
+      "import": "core.zip_backup",
       "line": 34
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
-      "import": "core.date_formatting",
+      "import": "core.safe_thread",
       "line": 35
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
+      "import": "core.logger",
+      "line": 36
+    },
+    {
+      "file": "ui/dialogs/save_manager_dialog.py",
+      "import": "core.date_formatting",
+      "line": 37
+    },
+    {
+      "file": "ui/dialogs/save_manager_dialog.py",
+      "import": "ui.resource_binding",
+      "line": 38
+    },
+    {
+      "file": "ui/dialogs/save_manager_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 946
+      "line": 1082
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
@@ -6288,253 +8118,263 @@
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.date_formatting",
+      "import": "core.runtime_diagnostics",
       "line": 23
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.screenshot_capture",
+      "import": "core.date_formatting",
       "line": 24
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.plugins.gpu_screen_recorder",
+      "import": "core.screenshot_capture",
       "line": 25
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.icons",
-      "line": 30
+      "import": "core.plugins.gpu_screen_recorder",
+      "line": 26
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "typing",
+      "import": "ui.icons",
       "line": 31
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.icons",
+      "import": "typing",
       "line": 32
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.components.sidebar",
+      "import": "ui.icons",
       "line": 33
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.components.popup_shell",
+      "import": "ui.components.sidebar",
       "line": 34
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.components.check_field",
+      "import": "ui.components.popup_shell",
       "line": 35
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.maintenance_dialogs",
+      "import": "ui.components.check_field",
       "line": 36
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.dialogs.game_dialogs",
+      "import": "ui.maintenance_dialogs",
       "line": 37
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.dialogs.save_conflict_dialog",
+      "import": "ui.dialogs.game_dialogs",
       "line": 38
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.profile_theme",
+      "import": "ui.dialogs.save_conflict_dialog",
       "line": 39
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.version",
-      "line": 42
+      "import": "ui.profile_theme",
+      "line": 40
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.updater",
+      "import": "core.version",
       "line": 43
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.cloud_backend",
+      "import": "core.updater",
       "line": 44
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.cloud_detector",
+      "import": "core.cloud_account_service",
       "line": 45
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.safe_thread",
+      "import": "core.cloud_backend",
       "line": 46
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.request_contracts",
+      "import": "core.cloud_detector",
       "line": 47
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.secret_store",
+      "import": "core.safe_thread",
       "line": 48
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.network_policy",
+      "import": "core.request_contracts",
       "line": 49
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.logger",
-      "line": 55
+      "import": "core.secret_store",
+      "line": 50
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "PyQt6.QtGui",
-      "line": 56
+      "import": "core.network_policy",
+      "line": 51
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "PyQt6.QtCore",
+      "import": "ui.resource_binding",
       "line": 57
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.cloud_save_sync",
-      "line": 88
+      "import": "core.logger",
+      "line": 58
+    },
+    {
+      "file": "ui/dialogs/settings_dialog.py",
+      "import": "PyQt6.QtGui",
+      "line": 59
+    },
+    {
+      "file": "ui/dialogs/settings_dialog.py",
+      "import": "PyQt6.QtCore",
+      "line": 60
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 825
+      "line": 90
+    },
+    {
+      "file": "ui/dialogs/settings_dialog.py",
+      "import": "core.cloud_save_sync",
+      "line": 836
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 826
+      "line": 837
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 935
+      "line": 946
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "re",
-      "line": 1098
+      "line": 1109
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1110
+      "line": 1121
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "re",
-      "line": 1126
+      "line": 1137
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "PyQt6.QtWidgets",
-      "line": 1352
+      "line": 1363
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1413
+      "line": 1456
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.profile_models",
-      "line": 1436
+      "line": 1479
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1471
+      "line": 1514
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "ui.dialogs.cloud_wizard_dialog",
-      "line": 1477
-    },
-    {
-      "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.cloud_backend",
-      "line": 1480
-    },
-    {
-      "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.dialogs.deploy_key_wizard_dialog",
-      "line": 1494
-    },
-    {
-      "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.dialogs.account_dialog",
       "line": 1520
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
+      "import": "core.cloud_backend",
+      "line": 1523
+    },
+    {
+      "file": "ui/dialogs/settings_dialog.py",
+      "import": "ui.dialogs.deploy_key_wizard_dialog",
+      "line": 1537
+    },
+    {
+      "file": "ui/dialogs/settings_dialog.py",
+      "import": "ui.dialogs.account_dialog",
+      "line": 1563
+    },
+    {
+      "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1547
+      "line": 1596
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1557
-    },
-    {
-      "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.cloud_client",
-      "line": 1661
+      "line": 1606
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1662
+      "line": 1704
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1676
+      "line": 1717
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1700
+      "line": 1741
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_cli_wizard",
-      "line": 1819
+      "line": 1860
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "pathlib",
-      "line": 1820
+      "line": 1861
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_cli_wizard",
-      "line": 1846
+      "line": 1887
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "PyQt6.QtWidgets",
-      "line": 2144
+      "line": 2185
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.logger",
-      "line": 2301
+      "line": 2342
     },
     {
       "file": "ui/dialogs/welcome_wizard.py",
@@ -6698,643 +8538,608 @@
     },
     {
       "file": "ui/main_window.py",
-      "import": "tempfile",
+      "import": "dataclasses",
       "line": 6
     },
     {
       "file": "ui/main_window.py",
-      "import": "dataclasses",
+      "import": "html",
       "line": 7
     },
     {
       "file": "ui/main_window.py",
-      "import": "html",
+      "import": "typing",
       "line": 8
     },
     {
       "file": "ui/main_window.py",
-      "import": "typing",
-      "line": 9
-    },
-    {
-      "file": "ui/main_window.py",
       "import": "PyQt6.QtWidgets",
-      "line": 11
+      "line": 10
     },
     {
       "file": "ui/main_window.py",
       "import": "PyQt6.QtCore",
-      "line": 19
+      "line": 18
     },
     {
       "file": "ui/main_window.py",
       "import": "PyQt6.QtGui",
-      "line": 23
+      "line": 22
     },
     {
       "file": "ui/main_window.py",
       "import": "core.interfaces",
-      "line": 24
+      "line": 23
     },
     {
       "file": "ui/main_window.py",
       "import": "core.artwork_client",
+      "line": 24
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.playtime_tracker",
       "line": 25
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.playtime_tracker",
+      "import": "core.steam_tags",
       "line": 26
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.steam_tags",
+      "import": "core.steam_build_tracker",
       "line": 27
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.steam_build_tracker",
-      "line": 28
-    },
-    {
-      "file": "ui/main_window.py",
       "import": "core.date_formatting",
-      "line": 34
+      "line": 33
     },
     {
       "file": "ui/main_window.py",
       "import": "core.disk_utils",
-      "line": 35
+      "line": 34
     },
     {
       "file": "ui/main_window.py",
       "import": "core.discord_rpc",
+      "line": 35
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.host_process",
       "line": 36
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.host_process",
+      "import": "core.archive_extractor",
       "line": 37
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.archive_extractor",
-      "line": 38
-    },
-    {
-      "file": "ui/main_window.py",
       "import": "core.archive_installer",
-      "line": 42
+      "line": 41
     },
     {
       "file": "ui/main_window.py",
       "import": "core.proton_manager",
+      "line": 42
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "database",
       "line": 43
     },
     {
       "file": "ui/main_window.py",
-      "import": "database",
+      "import": "core.logger",
       "line": 44
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.logger",
+      "import": "core.launch_diagnostics",
       "line": 45
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.launch_diagnostics",
+      "import": "core.library_state",
       "line": 46
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.library_state",
+      "import": "core.library_controller",
       "line": 47
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.library_controller",
+      "import": "core.library_service",
       "line": 48
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.game_status",
+      "import": "core.library_metadata_state",
       "line": 49
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.save_state",
+      "import": "core.game_status",
       "line": 50
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.cloud_operations",
+      "import": "core.launch_session_coordinator",
       "line": 51
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.game_status",
+      "import": "core.launch_policy",
       "line": 52
     },
     {
       "file": "ui/main_window.py",
-      "import": "ui.icons",
+      "import": "core.compatibility_worker_index",
       "line": 53
     },
     {
       "file": "ui/main_window.py",
-      "import": "ui.maintenance_dialogs",
-      "line": 57
+      "import": "core.cloud_exit_sync_service",
+      "line": 54
     },
     {
       "file": "ui/main_window.py",
-      "import": "ui.dialogs.achievements_dialog",
-      "line": 58
+      "import": "core.achievement_persistence_service",
+      "line": 55
     },
     {
       "file": "ui/main_window.py",
-      "import": "html",
-      "line": 59
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.threads",
-      "line": 63
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.archive_installer",
-      "line": 69
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.host_process",
-      "line": 70
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.plugins.gpu_screen_recorder",
-      "line": 71
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.global_hotkeys",
-      "line": 76
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.overlay_hud",
-      "line": 77
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.banner_card",
-      "line": 78
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.virtual_grid",
-      "line": 79
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.library_view_host",
-      "line": 80
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.hero_background",
-      "line": 81
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.extraction_spinner",
-      "line": 82
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.sidebar",
-      "line": 83
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.dialogs.proton_dialogs",
-      "line": 84
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.dialogs.game_dialogs",
-      "line": 85
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.dialogs.settings_dialog",
-      "line": 90
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.dialogs.game_properties_dialog",
-      "line": 91
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.dialogs.save_manager_dialog",
-      "line": 92
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.dialogs.save_conflict_dialog",
-      "line": 93
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 94
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.performance_env",
-      "line": 95
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.theme",
-      "line": 96
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.profile_theme",
-      "line": 101
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "getpass",
-      "line": 104
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.playtime_tracker",
-      "line": 105
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.game_session",
-      "line": 106
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.safe_thread",
-      "line": 107
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.operation_registry",
-      "line": 108
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.secret_store",
-      "line": 109
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.network_policy",
-      "line": 110
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.activity_drawer",
-      "line": 111
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.profile_page",
-      "line": 112
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.central_auth",
-      "line": 113
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.profile_service",
-      "line": 114
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.profile_models",
-      "line": 115
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.request_contracts",
-      "line": 116
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.request_manager",
-      "line": 117
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.resource_cache",
-      "line": 118
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.performance_metrics",
-      "line": 119
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.steam_client",
-      "line": 120
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.resource_binding",
-      "line": 121
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.prefix_sanitizer",
-      "line": 298
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.updater",
-      "line": 1519
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_backend",
-      "line": 1538
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.secret_store",
-      "line": 1546
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_backend",
-      "line": 1551
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.updater",
-      "line": 1646
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.updater",
-      "line": 1700
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.dialogs.welcome_wizard",
-      "line": 1704
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 1864
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "subprocess",
-      "line": 2025
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.screenshot_capture",
-      "line": 3636
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "time",
-      "line": 3789
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "time",
-      "line": 4217
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "json",
-      "line": 4466
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "time",
-      "line": 4467
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 4468
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 4478
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "json",
-      "line": 4541
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "time",
-      "line": 4542
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 4543
+      "import": "core.save_state",
+      "line": 56
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_operations",
-      "line": 4728
+      "line": 57
     },
     {
       "file": "ui/main_window.py",
-      "import": "time",
-      "line": 4801
+      "import": "core.cloud_operation_service",
+      "line": 58
     },
     {
       "file": "ui/main_window.py",
-      "import": "time",
-      "line": 4903
+      "import": "core.cloud_metadata_service",
+      "line": 59
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 4904
+      "import": "core.cloud_account_service",
+      "line": 60
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.achievement_watcher",
-      "line": 5551
+      "import": "core.cloud_status_service",
+      "line": 61
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.achievement_schema",
-      "line": 5568
+      "import": "core.cloud_status_polling_service",
+      "line": 62
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.achievement_resource_service",
+      "line": 63
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.achievement_state_store",
+      "line": 64
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.library_achievement_coordinator",
+      "line": 65
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.artwork_resource_service",
+      "line": 66
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.library_artwork_coordinator",
+      "line": 67
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.steam_resource_service",
+      "line": 68
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.library_steam_metadata_coordinator",
+      "line": 69
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.cache_policy",
+      "line": 70
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.game_status",
+      "line": 71
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.icons",
+      "line": 72
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.maintenance_dialogs",
+      "line": 76
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.achievements_dialog",
-      "line": 5733
+      "line": 77
     },
     {
       "file": "ui/main_window.py",
-      "import": "ui.dialogs.friends_dialog",
-      "line": 5796
+      "import": "html",
+      "line": 78
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 5943
+      "import": "ui.threads",
+      "line": 82
     },
     {
       "file": "ui/main_window.py",
-      "import": "database",
-      "line": 5949
+      "import": "core.archive_installer",
+      "line": 88
     },
     {
       "file": "ui/main_window.py",
-      "import": "core.cloud_metadata_sync",
-      "line": 5950
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.achievement_toast",
-      "line": 6043
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "ui.components.achievement_toast",
-      "line": 6051
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.achievement_persistence",
-      "line": 6107
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "time",
-      "line": 6255
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "database",
-      "line": 6293
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_metadata_sync",
-      "line": 6294
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 6320
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "time",
-      "line": 6498
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 6499
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "time",
-      "line": 6613
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 6614
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "time",
-      "line": 6653
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 6654
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 6706
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.request_contracts",
-      "line": 6732
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.cloud_save_sync",
-      "line": 6880
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "database",
-      "line": 6914
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.achievement_coordinator",
-      "line": 6915
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.achievement_persistence",
-      "line": 6916
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.achievement_coordinator",
-      "line": 7086
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "core.achievement_coordinator",
-      "line": 7108
-    },
-    {
-      "file": "ui/main_window.py",
-      "import": "time",
-      "line": 7224
+      "import": "core.host_process",
+      "line": 89
     },
     {
       "file": "ui/main_window.py",
       "import": "core.plugins.gpu_screen_recorder",
-      "line": 7343
+      "line": 90
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.global_hotkeys",
+      "line": 95
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.overlay_hud",
+      "line": 96
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.banner_card",
+      "line": 97
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.virtual_grid",
+      "line": 98
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.library_view_host",
+      "line": 99
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.hero_background",
+      "line": 100
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.extraction_spinner",
+      "line": 101
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.sidebar",
+      "line": 102
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.dialogs.proton_dialogs",
+      "line": 103
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.dialogs.game_dialogs",
+      "line": 104
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.dialogs.settings_dialog",
+      "line": 109
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.dialogs.game_properties_dialog",
+      "line": 110
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.dialogs.save_manager_dialog",
+      "line": 111
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.dialogs.save_conflict_dialog",
+      "line": 112
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 7406
+      "line": 113
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.performance_env",
+      "line": 114
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.theme",
+      "line": 115
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.profile_theme",
+      "line": 120
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "getpass",
+      "line": 123
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.playtime_tracker",
+      "line": 124
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.game_session",
+      "line": 125
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.safe_thread",
+      "line": 126
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.operation_registry",
+      "line": 127
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.secret_store",
+      "line": 128
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.network_policy",
+      "line": 129
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.activity_drawer",
+      "line": 130
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.profile_page",
+      "line": 131
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.central_auth",
+      "line": 132
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.profile_service",
+      "line": 133
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.profile_resource_service",
+      "line": 134
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.profile_models",
+      "line": 135
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.request_contracts",
+      "line": 136
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.request_manager",
+      "line": 137
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.resource_cache",
+      "line": 138
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.performance_metrics",
+      "line": 139
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.steam_client",
+      "line": 140
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.resource_binding",
+      "line": 141
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.prefix_sanitizer",
+      "line": 367
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.updater",
+      "line": 1586
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.cloud_backend",
+      "line": 1605
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.secret_store",
+      "line": 1613
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.updater",
+      "line": 1713
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.updater",
+      "line": 1767
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.dialogs.welcome_wizard",
+      "line": 1771
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.cloud_save_sync",
+      "line": 1931
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "subprocess",
+      "line": 2090
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.screenshot_capture",
+      "line": 3655
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "time",
+      "line": 3808
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "time",
+      "line": 4221
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.cloud_operations",
+      "line": 4595
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "time",
+      "line": 4657
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "time",
+      "line": 4759
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.achievement_watcher",
+      "line": 5412
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_schema",
-      "line": 7418
+      "line": 5429
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.dialogs.achievements_dialog",
+      "line": 5599
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.dialogs.friends_dialog",
+      "line": 5662
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.achievement_toast",
+      "line": 5903
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "ui.components.achievement_toast",
+      "line": 5911
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.cloud_save_sync",
+      "line": 6463
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.cloud_save_sync",
+      "line": 6497
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.cloud_save_sync",
+      "line": 6743
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.achievement_coordinator",
+      "line": 6938
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "time",
+      "line": 7057
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.plugins.gpu_screen_recorder",
+      "line": 7179
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.cloud_save_sync",
+      "line": 7242
+    },
+    {
+      "file": "ui/main_window.py",
+      "import": "core.achievement_schema",
+      "line": 7254
     },
     {
       "file": "ui/maintenance_dialogs.py",
@@ -7414,247 +9219,212 @@
     {
       "file": "ui/threads.py",
       "import": "os",
-      "line": 1
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "subprocess",
-      "line": 2
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "typing",
-      "line": 3
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "PyQt6.QtCore",
-      "line": 4
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.safe_thread",
-      "line": 6
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.steamgriddb_client",
-      "line": 7
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.archive_extractor",
-      "line": 8
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.proton_manager",
       "line": 9
     },
     {
       "file": "ui/threads.py",
-      "import": "database",
+      "import": "subprocess",
       "line": 10
     },
     {
       "file": "ui/threads.py",
-      "import": "core.disk_utils",
+      "import": "typing",
       "line": 11
     },
     {
       "file": "ui/threads.py",
-      "import": "core.logger",
+      "import": "PyQt6.QtCore",
       "line": 12
     },
     {
       "file": "ui/threads.py",
+      "import": "core.safe_thread",
+      "line": 14
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "core.steamgriddb_client",
+      "line": 15
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "core.archive_extractor",
+      "line": 16
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "core.proton_manager",
+      "line": 17
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "database",
+      "line": 18
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "core.disk_utils",
+      "line": 19
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "core.logger",
+      "line": 20
+    },
+    {
+      "file": "ui/threads.py",
       "import": "core.network_policy",
-      "line": 13
+      "line": 21
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "core.cache_policy",
+      "line": 22
     },
     {
       "file": "ui/threads.py",
       "import": "core.request_contracts",
-      "line": 34
+      "line": 52
     },
     {
       "file": "ui/threads.py",
       "import": "core.request_contracts",
-      "line": 96
+      "line": 114
     },
     {
       "file": "ui/threads.py",
       "import": "core.request_contracts",
-      "line": 136
+      "line": 154
     },
     {
       "file": "ui/threads.py",
       "import": "core.request_contracts",
-      "line": 384
+      "line": 402
     },
     {
       "file": "ui/threads.py",
       "import": "core.request_contracts",
-      "line": 423
+      "line": 441
     },
     {
       "file": "ui/threads.py",
-      "import": "core.cloud_save_sync",
-      "line": 462
+      "import": "core.cloud_status_service",
+      "line": 480
     },
     {
       "file": "ui/threads.py",
       "import": "core.request_contracts",
-      "line": 463
+      "line": 481
     },
     {
       "file": "ui/threads.py",
       "import": "core.cloud_operations",
-      "line": 471
+      "line": 512
     },
     {
       "file": "ui/threads.py",
       "import": "core.cloud_save_sync",
-      "line": 477
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.cloud_operations",
-      "line": 504
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.cloud_save_sync",
-      "line": 505
+      "line": 513
     },
     {
       "file": "ui/threads.py",
       "import": "PyQt6.QtCore",
-      "line": 527
+      "line": 540
     },
     {
       "file": "ui/threads.py",
       "import": "concurrent.futures",
-      "line": 534
+      "line": 547
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "core.cloud_status_service",
+      "line": 548
     },
     {
       "file": "ui/threads.py",
       "import": "core.cloud_save_sync",
-      "line": 535
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.cloud_operations",
-      "line": 536
+      "line": 549
     },
     {
       "file": "ui/threads.py",
       "import": "core.request_contracts",
-      "line": 537
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "concurrent.futures",
-      "line": 591
+      "line": 550
     },
     {
       "file": "ui/threads.py",
       "import": "core.cloud_save_sync",
-      "line": 592
+      "line": 606
     },
     {
       "file": "ui/threads.py",
       "import": "core.cloud_operations",
-      "line": 611
+      "line": 625
     },
     {
       "file": "ui/threads.py",
       "import": "core.cloud_save_sync",
-      "line": 612
+      "line": 626
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "core.achievement_resource_service",
+      "line": 690
     },
     {
       "file": "ui/threads.py",
       "import": "core.request_contracts",
-      "line": 675
+      "line": 694
     },
     {
       "file": "ui/threads.py",
       "import": "database",
-      "line": 684
+      "line": 724
     },
     {
       "file": "ui/threads.py",
       "import": "core.achievement_coordinator",
-      "line": 685
+      "line": 725
     },
     {
       "file": "ui/threads.py",
       "import": "core.achievement_persistence",
-      "line": 686
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "database",
-      "line": 733
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.achievement_coordinator",
-      "line": 734
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.achievement_persistence",
-      "line": 735
+      "line": 726
     },
     {
       "file": "ui/threads.py",
       "import": "PyQt6.QtCore",
+      "line": 774
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "concurrent.futures",
       "line": 779
     },
     {
       "file": "ui/threads.py",
-      "import": "concurrent.futures",
-      "line": 784
+      "import": "core.achievement_resource_service",
+      "line": 780
     },
     {
       "file": "ui/threads.py",
       "import": "core.request_contracts",
-      "line": 785
+      "line": 784
     },
     {
       "file": "ui/threads.py",
       "import": "database",
-      "line": 801
+      "line": 845
     },
     {
       "file": "ui/threads.py",
       "import": "core.achievement_coordinator",
-      "line": 802
+      "line": 846
     },
     {
       "file": "ui/threads.py",
       "import": "core.achievement_persistence",
-      "line": 803
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "concurrent.futures",
-      "line": 861
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "database",
-      "line": 862
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.achievement_coordinator",
-      "line": 863
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.achievement_persistence",
-      "line": 864
+      "line": 847
     }
   ]
 }

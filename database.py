@@ -710,6 +710,18 @@ class GameDatabase:
         except Exception as e:
             logger.error(f"Failed to checkpoint playtime session {session_id}: {e}")
 
+    def get_playtime_session_game_id(self, session_id: str) -> Optional[int]:
+        """Return the owning game for one session-ledger event."""
+        try:
+            row = self.conn.execute(
+                "SELECT game_id FROM playtime_sessions WHERE session_id = ?",
+                (str(session_id or ""),),
+            ).fetchone()
+            return int(row[0]) if row else None
+        except Exception as e:
+            logger.error(f"Failed to resolve playtime session {session_id}: {e}")
+            return None
+
     def get_playtime_sessions(self, game_id: int) -> List[dict]:
         try:
             rows = self.conn.execute(

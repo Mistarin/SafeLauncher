@@ -16,6 +16,7 @@ import requests
 from PyQt6.QtCore import QSettings
 
 from core.central_auth import CentralAuthError, CentralAuthSession
+from core.request_contracts import classify_remote_error
 from core.profile_models import (
     HANDLE_RE,
     normalize_avatar_asset_id,
@@ -50,6 +51,9 @@ class ProfileServiceError(RuntimeError):
         self.status = status
         self.status_code = status
         self.extra = extra or {}
+        # Keep ``code`` for API compatibility while exposing the common
+        # transport-neutral category to managed resource consumers.
+        self.category = classify_remote_error(self).value
 
 
 def get_profile_service_url() -> str:

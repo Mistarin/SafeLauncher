@@ -21,6 +21,7 @@ import requests
 from PyQt6.QtCore import QSettings
 
 from core.secret_store import delete_secret, get_secret, set_secret
+from core.request_contracts import classify_remote_error
 
 
 OFFICIAL_AUTH0_ISSUER = "https://dev-712dm7e8q0c2tie3.us.auth0.com"
@@ -34,6 +35,7 @@ class CentralAuthError(RuntimeError):
     def __init__(self, message: str, code: str = "auth_error"):
         super().__init__(message)
         self.code = code
+        self.category = classify_remote_error(self).value
 
 
 @dataclass(frozen=True)

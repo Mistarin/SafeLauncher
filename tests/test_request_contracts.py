@@ -13,9 +13,12 @@ from core.request_contracts import (
     ResourceResult,
     ResourceState,
     ResourceStatus,
+    RemoteErrorCategory,
     RetryPolicy,
     RetryableRequestError,
+    classify_remote_error,
     is_transient_error,
+    resource_status_for_error,
 )
 
 
@@ -82,6 +85,47 @@ class RequestContractTests(unittest.TestCase):
 
     def test_resource_state_is_the_public_alias(self):
         self.assertIs(ResourceState, ResourceStatus)
+
+    def test_remote_errors_have_stable_categories_and_states(self):
+        class HttpError(RuntimeError):
+            def __init__(self, status_code):
+                super().__init__(f"HTTP {status_code}")
+                self.status_code = status_code
+
+        cases = (
+            (HttpError(401), RemoteErrorCategory.AUTHENTICATION_REQUIRED, ResourceStatus.AUTHENTICATION_REQUIRED),
+            (HttpError(403), RemoteErrorCategory.PERMISSION_DENIED, ResourceStatus.PERMISSION_DENIED),
+            (HttpError(404), RemoteErrorCategory.UNAVAILABLE, ResourceStatus.UNAVAILABLE),
+            (HttpError(409), RemoteErrorCategory.CONFLICT, ResourceStatus.CONFLICT),
+            (HttpError(429), RemoteErrorCategory.RATE_LIMITED, ResourceStatus.ERROR),
+            (HttpError(503), RemoteErrorCategory.TRANSIENT, ResourceStatus.ERROR),
+            (ValueError("bad payload"), RemoteErrorCategory.UNEXPECTED, ResourceStatus.ERROR),
+        )
+        for error, category, state in cases:
+            self.assertEqual(classify_remote_error(error), category)
+            self.assertEqual(resource_status_for_error(error), state)
+
+        self.assertEqual(
+            classify_remote_error(RetryableRequestError("try again")),
+            RemoteErrorCategory.TRANSIENT,
+        )
+
+    def test_resource_result_exposes_error_category(self):
+        key = RequestKey("profile", "owner")
+
+        class AuthError(RuntimeError):
+            status_code = 401
+
+        result = ResourceResult(key, ResourceStatus.AUTHENTICATION_REQUIRED, error=AuthError("expired"))
+        self.assertEqual(result.error_category, RemoteErrorCategory.AUTHENTICATION_REQUIRED.value)
+        self.assertEqual(
+            ResourceResult(key, ResourceStatus.OFFLINE).error_category,
+            RemoteErrorCategory.OFFLINE.value,
+        )
+
+    def test_string_error_categories_are_normalized(self):
+        self.assertEqual(classify_remote_error("backend_unavailable").value, "unavailable")
+        self.assertEqual(classify_remote_error("revision-conflict").value, "conflict")
 
 
 if __name__ == "__main__":

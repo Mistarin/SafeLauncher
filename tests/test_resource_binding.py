@@ -10,10 +10,20 @@ from PyQt6.QtWidgets import QApplication
 
 from core.request_contracts import RequestKey, ResourceStatus
 from core.request_manager import RequestManager
-from ui.resource_binding import ResourceBinding
+from ui.resource_binding import ResourceBinding, ResourceBindingRegistry, bind_request
 
 
 class ResourceBindingTests(unittest.TestCase):
+    def test_registry_only_owns_binding_lifetimes(self):
+        registry = ResourceBindingRegistry()
+        key = RequestKey("data", "one")
+        binding = object()
+        registry[key] = binding
+        self.assertIn(key, registry)
+        self.assertIs(registry[key], binding)
+        self.assertEqual(registry.take_all(), (binding,))
+        self.assertNotIn(key, registry)
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -80,6 +90,34 @@ class ResourceBindingTests(unittest.TestCase):
             self.assertFalse(any(item.status == ResourceStatus.READY for item in seen))
         finally:
             binding.close()
+            manager.shutdown()
+
+    def test_request_binding_rejects_later_generation_for_same_key(self):
+        manager = RequestManager(max_workers=1)
+        key = RequestKey("data", "generation-bound")
+        seen = []
+        binding = None
+        try:
+            first = manager.request(key, lambda _token: "first")
+            binding = bind_request(manager, first, seen.append, cancel_on_close=False)
+            binding.state_changed.connect(lambda result: seen.append(result))
+            self.assertEqual(first.future.result(timeout=2).status, ResourceStatus.READY)
+            self.assertTrue(self._process_until(lambda: any(
+                result.status == ResourceStatus.READY and result.value == "first"
+                for result in seen
+            )))
+
+            manager.invalidate(key)
+            second = manager.request(key, lambda _token: "second")
+            self.assertEqual(second.future.result(timeout=2).status, ResourceStatus.READY)
+            self._process_until(lambda: True, timeout=0.05)
+            self.assertFalse(any(
+                result.status == ResourceStatus.READY and result.value == "second"
+                for result in seen
+            ))
+        finally:
+            if binding is not None:
+                binding.close()
             manager.shutdown()
 
 

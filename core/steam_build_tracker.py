@@ -6,6 +6,7 @@ from core.safe_thread import SafeQThread
 from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
 from core.steam_client import SteamClient, SteamClientError
+from core.cache_policy import cache_policy
 
 logger = get_logger("SteamBuildTracker")
 
@@ -115,7 +116,7 @@ class SteamBuildFetcher(SafeQThread):
                 handle = self.request_manager.request_cached(
                     key,
                     loader,
-                    max_age_seconds=15 * 60,
+                    max_age_seconds=cache_policy("steam-build").max_age_seconds,
                     priority=RequestPriority.BACKGROUND,
                     timeout_seconds=15,
                 )
@@ -135,7 +136,7 @@ class SteamBuildFetcher(SafeQThread):
             if usable.status in {ResourceStatus.READY, ResourceStatus.STALE} and usable.value and not self.isInterruptionRequested():
                 latest_build_id, latest_build_date = usable.value
                 self._emit_build_result(latest_build_id, latest_build_date)
-            elif result.status == ResourceStatus.ERROR:
+            elif result.status not in {ResourceStatus.READY, ResourceStatus.STALE, ResourceStatus.CANCELLED}:
                 logger.debug("Managed Steam build request failed for %s: %s", self.steam_id, result.error)
                 self._fail(f"Steam check failed: {result.error}")
             if self.steam_client is None:

@@ -23,8 +23,11 @@ from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
 from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
+from core.cloud_account_service import CloudAccountService
+from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.date_formatting import format_datetime_timestamp
+from ui.resource_binding import ResourceBinding, bind_request
 
 logger = get_logger("AccountDialog")
 
@@ -59,9 +62,15 @@ class AccountDialog(PopupDialog):
 
     _data_ready = pyqtSignal(object)   # {'ok': {...}} | {'error': str}
     _op_done = pyqtSignal(object)
-    _managed_task_done = pyqtSignal(object)
 
-    def __init__(self, parent=None, request_manager=None):
+    def __init__(
+        self,
+        parent=None,
+        request_manager=None,
+        *,
+        cloud_account_service=None,
+        cloud_operation_service=None,
+    ):
         super().__init__("Cloud Account", parent)
         self.setFixedSize(780, 560)
         self._games = []
@@ -69,8 +78,11 @@ class AccountDialog(PopupDialog):
         self._busy = False
         self._task_supervisor = TaskSupervisor(self, logger)
         self.request_manager = request_manager
-        self._managed_tasks: dict[str, tuple[Any, Any, Any]] = {}
-        self._managed_task_done.connect(self._on_managed_task_done)
+        self.cloud_account_service = cloud_account_service or CloudAccountService()
+        self.cloud_operation_service = cloud_operation_service or (
+            CloudOperationService(request_manager) if request_manager is not None else None
+        )
+        self._resource_bindings: dict[str, ResourceBinding] = {}
 
         body_layout = self.popup_layout(margins=(20, 16, 20, 16), spacing=12)
 
@@ -260,7 +272,7 @@ class AccountDialog(PopupDialog):
             )
 
         if self.request_manager is not None:
-            key = RequestKey("cloud-account-task", f"{name}:{id(work)}")
+            key = self.cloud_account_service.request_key("cloud-account-task", name)
             handle = self.request_manager.request(
                 key,
                 lambda token: (token.raise_if_cancelled(), work(), token.raise_if_cancelled())[1],
@@ -270,11 +282,22 @@ class AccountDialog(PopupDialog):
             if operation is not None:
                 operation.cancel = handle.cancel
                 operation.retry = lambda: self._start_task(name, work, on_complete)
-            self._managed_tasks[handle.request_id] = (operation, on_complete, key)
-            handle.future.add_done_callback(
-                lambda future, request_id=handle.request_id: self._managed_task_done.emit(
-                    (request_id, future)
-                )
+            request_id = handle.request_id
+
+            def _deliver(result):
+                if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                    return
+                binding = self._resource_bindings.pop(request_id, None)
+                if binding is not None:
+                    binding.close()
+                self._deliver_managed_result(operation, on_complete, result)
+
+            self._resource_bindings[request_id] = bind_request(
+                self.request_manager,
+                handle,
+                _deliver,
+                self,
+                cancel_on_close=True,
             )
             return handle
 
@@ -292,14 +315,10 @@ class AccountDialog(PopupDialog):
             )
         return worker
 
-    def _on_managed_task_done(self, payload: object) -> None:
-        request_id, future = payload
-        task = self._managed_tasks.pop(request_id, None)
-        if task is None:
-            return
-        operation, on_complete, _key = task
+    def _deliver_managed_result(self, operation, on_complete, result) -> None:
         try:
-            result = future.result()
+            if isinstance(result, Exception):
+                result = {"error": str(result)}
         except Exception as error:
             result = {"error": str(error)}
         if hasattr(result, "status"):
@@ -321,11 +340,50 @@ class AccountDialog(PopupDialog):
                 operation_registry.finish_result(operation.operation_id, value)
         on_complete(value)
 
+    def _bind_cloud_operation(self, name, handle, on_complete, transform):
+        """Deliver a managed cloud-operation result through the dialog UI bridge."""
+        registry = getattr(self.parent(), "operation_registry", None)
+        operation = None
+        if registry is not None:
+            operation = registry.start(
+                name.replace("SafeLauncher-", "").replace("-", " ").strip(),
+                category="Cloud Account",
+            )
+            operation.cancel = handle.cancel
+        request_id = handle.request_id
+
+        def _deliver(result):
+            if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                return
+            binding = self._resource_bindings.pop(request_id, None)
+            if binding is not None:
+                binding.close()
+            if result.status == ResourceStatus.CANCELLED:
+                if operation is not None:
+                    registry.finish(operation.operation_id, state="cancelled")
+                return
+            if result.status == ResourceStatus.READY:
+                value = transform(result.value)
+            else:
+                value = {"error": str(result.error or result.status.value)}
+            if operation is not None:
+                registry.finish_result(operation.operation_id, value)
+            on_complete(value)
+
+        self._resource_bindings[request_id] = bind_request(
+            self.request_manager,
+            handle,
+            _deliver,
+            self,
+            cancel_on_close=True,
+        )
+        return handle
+
     def closeEvent(self, event):
         if self.request_manager is not None:
-            for _request_id, (_operation, _callback, key) in list(self._managed_tasks.items()):
-                self.request_manager.cancel(key)
-            self._managed_tasks.clear()
+            for binding in tuple(self._resource_bindings.values()):
+                binding.close()
+            self._resource_bindings.clear()
         self._task_supervisor.cancel_all(100)
         if self._task_supervisor.has_running_tasks():
             QTimer.singleShot(100, self.close)
@@ -342,19 +400,16 @@ class AccountDialog(PopupDialog):
 
     def _load_worker(self):
         try:
-            from core.cloud_client import CloudClient
             from core.cloud_backend import get_site_url
             site = get_site_url()
             if not site:
                 return {"ok": None}   # not connected state
-            backend = CloudClient()
-            listing = backend.list_games()
-            overview = backend.account()
+            snapshot = self.cloud_account_service.snapshot()
             return {
                 "ok": {
-                    "email": overview.get("email") or "SafeLauncher Cloud",
-                    "listing": listing,
-                    "overview": overview,
+                    "email": snapshot.overview.get("email") or "SafeLauncher Cloud",
+                    "listing": snapshot.listing,
+                    "overview": snapshot.overview,
                 },
             }
         except Exception as e:
@@ -467,10 +522,25 @@ class AccountDialog(PopupDialog):
             return
         self.btn_revoke_device.setEnabled(False)
 
+        if self.request_manager is not None and self.cloud_account_service.request_manager is not None:
+            handle = self.cloud_account_service.request_revoke_device(
+                device_id,
+                priority=RequestPriority.NORMAL,
+                tag="account_device_revoke",
+            )
+            self._bind_cloud_operation(
+                "SafeLauncher-DeviceRevoke",
+                handle,
+                self._op_done.emit,
+                lambda revoked: {"revoked": device_id} if revoked else {
+                    "error": "The device could not be revoked.",
+                },
+            )
+            return
+
         def _work():
             try:
-                from core.cloud_client import CloudClient
-                CloudClient().revoke_device(device_id)
+                self.cloud_account_service.revoke_device(device_id)
             except Exception as e:
                 logger.warning(f"Device revocation failed: {e}")
             return {"revoked": device_id}
@@ -578,6 +648,39 @@ class AccountDialog(PopupDialog):
         self._busy = True
         self.lbl_quota_text.setText(f"Restoring generation v{version} for '{matched_game.name}'…")
 
+        if self.cloud_operation_service is not None:
+            target = CloudOperationTarget(
+                matched_game.id,
+                matched_game.name,
+                matched_game.path,
+                matched_game.steam_id or "",
+            )
+            handle = self.cloud_operation_service.request_restore(
+                target,
+                target_version=int(version),
+                tag="account-history",
+            )
+
+            def _restore_result(result):
+                if result.success:
+                    return {
+                        "restored": f"Successfully restored generation v{version} for '{matched_game.name}'.",
+                        "name": matched_game.name,
+                    }
+                return {
+                    "error": result.error or f"Failed to restore generation v{version} for '{matched_game.name}'.",
+                    "guidance": result.guidance,
+                    "category": result.category,
+                }
+
+            self._bind_cloud_operation(
+                "SafeLauncher-SaveRestore",
+                handle,
+                self._op_done.emit,
+                _restore_result,
+            )
+            return
+
         def _work():
             try:
                 from core.cloud_operations import CloudOperationCoordinator
@@ -623,10 +726,25 @@ class AccountDialog(PopupDialog):
             return
         self._busy = True
 
+        if self.request_manager is not None and self.cloud_account_service.request_manager is not None:
+            handle = self.cloud_account_service.request_delete_generation(
+                name_key,
+                int(version),
+                priority=RequestPriority.NORMAL,
+                tag="account_generation_delete",
+            )
+            self._bind_cloud_operation(
+                "SafeLauncher-SaveDelete",
+                handle,
+                self._op_done.emit,
+                lambda deleted: {"deleted": bool(deleted), "name": name_key}
+                if deleted else {"error": "The cloud generation could not be deleted."},
+            )
+            return
+
         def _work():
             try:
-                from core.cloud_client import CloudClient
-                deleted = CloudClient().delete_generation(name_key, version)
+                deleted = self.cloud_account_service.delete_generation(name_key, version)
                 return {"deleted": deleted, "name": name_key}
             except Exception as e:
                 return {"error": str(e)}

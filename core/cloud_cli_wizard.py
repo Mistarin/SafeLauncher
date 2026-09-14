@@ -28,6 +28,7 @@ from core.cloud_detector import (
 )
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 from core.secret_store import get_secret, set_secret, delete_secret
+from core.cloud_backend import normalize_site_url
 
 
 _SENSITIVE_ENV_KEY_FRAGMENTS = (
@@ -160,15 +161,34 @@ def _deployment_name_from_site_url(site_url: str) -> str:
     return ""
 
 
+def _site_url_from_deploy_output(output: str) -> str:
+    """Extract the Convex HTTP-function origin printed by the deploy CLI.
+
+    The CLI target is authoritative for the push that just completed. Saved
+    settings can point at another deployment, so post-deploy verification must
+    prefer the URL emitted by Convex. Only public Convex hostnames are accepted;
+    credentials and arbitrary URLs are never extracted.
+    """
+    pattern = re.compile(
+        r"https?://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.convex\.(?:cloud|site)(?::\d+)?",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(str(output or "")):
+        candidate = normalize_site_url(match.group(0))
+        if candidate:
+            return candidate
+    return ""
+
+
 def _configured_site_url() -> str:
     """Read the saved Convex site URL without requiring a project checkout."""
     settings = QSettings("SafeLauncher", "SafeLauncher")
     configured = str(settings.value("convex_site_url", "", type=str) or "").strip()
     if configured:
-        return configured
+        return normalize_site_url(configured)
     try:
         from core.cloud_backend import get_site_url
-        return get_site_url().strip()
+        return normalize_site_url(get_site_url().strip())
     except Exception:
         return ""
 
@@ -190,7 +210,7 @@ def _cloud_env_context(
     env.pop("CONVEX_DEPLOY_KEY", None)
     env.pop("SAFELAUNCHER_SECRET_KEY", None)
 
-    requested_url = str(site_url or "").strip() or _site_url_from_backend_checkout(server_dir)
+    requested_url = normalize_site_url(str(site_url or "").strip()) or _site_url_from_backend_checkout(server_dir)
     requested_url = requested_url or _configured_site_url()
     deployment_name = _deployment_name_from_site_url(requested_url)
     if deployment_name:
@@ -654,9 +674,9 @@ def _site_url_from_backend_checkout(server_dir: Path) -> str:
                     continue
                 value = value.strip().strip('"').strip("'")
                 if key == "CONVEX_SITE_URL" and value:
-                    return value.rstrip("/")
+                    return normalize_site_url(value)
                 if key == "CONVEX_URL" and value:
-                    return value.replace(".convex.cloud", ".convex.site").rstrip("/")
+                    return normalize_site_url(value)
         except OSError:
             continue
     return ""
@@ -908,16 +928,28 @@ def deploy_convex_backend(
         if assume_yes:
             deploy_command.append("--yes")
         print(f"  [Deploy] Deploying backend functions with '{' '.join(deploy_command)}'...")
-        run_deploy_command(deploy_command, timeout=300)
+        deploy_result = run_deploy_command(deploy_command, timeout=300)
     except Exception as e:
         print(f"  [✖] Deployment encountered an error: {e}")
         return None
 
     from core.cloud_detector import detect_local_cloud_installation
     info = detect_local_cloud_installation()
-    site_url = expected_site_url.strip().rstrip("/") or _site_url_from_backend_checkout(server_dir)
+    deploy_output = "\n".join(
+        part for part in (
+            getattr(deploy_result, "stdout", ""),
+            getattr(deploy_result, "stderr", ""),
+        ) if part
+    )
+    # Verify the deployment Convex actually selected. A previously saved URL
+    # is only a fallback because it may refer to another deployment.
+    site_url = (
+        _site_url_from_deploy_output(deploy_output)
+        or normalize_site_url(expected_site_url)
+        or _site_url_from_backend_checkout(server_dir)
+    )
     if not site_url and info and info.get("site_url"):
-        site_url = info["site_url"].rstrip("/")
+        site_url = normalize_site_url(info["site_url"])
     if site_url:
         # Deploy keys intentionally cannot read or mutate Convex environment
         # variables. Complete the separate SafeLauncher API-secret setup via
@@ -1208,7 +1240,7 @@ def run_cloud_setup_wizard() -> int:
         print(f"\n  {RED}✖ Site URL cannot be empty. Setup aborted.{RESET}\n")
         return 1
 
-    site_url = site_url.rstrip("/")
+    site_url = normalize_site_url(site_url)
     if not site_url.startswith("http://") and not site_url.startswith("https://"):
         site_url = "https://" + site_url
 

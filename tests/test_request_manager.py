@@ -112,6 +112,44 @@ class RequestManagerTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_http_authentication_failure_has_explicit_resource_state(self):
+        class AuthFailure(RuntimeError):
+            status_code = 401
+
+        manager = RequestManager(max_workers=1)
+        try:
+            result = manager.request(
+                RequestKey("profile", "auth"),
+                lambda _token: (_ for _ in ()).throw(AuthFailure("expired")),
+            ).future.result(timeout=2)
+            self.assertEqual(result.status, ResourceStatus.AUTHENTICATION_REQUIRED)
+            self.assertEqual(result.error_category, "authentication_required")
+        finally:
+            manager.shutdown()
+
+    def test_stale_cache_survives_unavailable_refresh_with_category(self):
+        class MissingService(RuntimeError):
+            status_code = 404
+
+        cache = ResourceCache()
+        manager = RequestManager(max_workers=1, cache=cache)
+        try:
+            key = RequestKey("profile", "stale")
+            cache.put(key, {"name": "cached"}, stored_at=0)
+            result = manager.request_cached(
+                key,
+                lambda _token: (_ for _ in ()).throw(MissingService("gone")),
+                max_age_seconds=0,
+            ).future.result(timeout=2)
+            # The future reports the transport outcome; subscribers/state use
+            # the stale projection so the UI keeps usable cached data.
+            self.assertEqual(result.status, ResourceStatus.UNAVAILABLE)
+            self.assertEqual(manager.state(key).status, ResourceStatus.STALE)
+            self.assertEqual(manager.state(key).value, {"name": "cached"})
+            self.assertEqual(manager.state(key).error_category, "unavailable")
+        finally:
+            manager.shutdown()
+
     def test_state_reports_loading_then_ready(self):
         manager = RequestManager(max_workers=1)
         try:

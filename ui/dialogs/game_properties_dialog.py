@@ -23,6 +23,9 @@ from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp, format_timestamp
 from core.steam_build_tracker import has_resolved_build_reference
 from core.safe_thread import TaskSupervisor
+from core.cloud_operation_service import CloudOperationTarget
+from core.request_contracts import RequestPriority, ResourceStatus
+from ui.resource_binding import ResourceBinding, bind_request
 from core.performance_env import (
     ENABLE_GAMEMODE,
     GAMEMODE_MODE,
@@ -51,6 +54,9 @@ class GamePropertiesDialog(PopupDialog):
         self.game = game
         self.parent_window = parent
         self._task_supervisor = TaskSupervisor(self, logger)
+        self.cloud_operation_service = getattr(parent, "cloud_operation_service", None)
+        self.request_manager = getattr(parent, "request_manager", None)
+        self._resource_bindings: dict[str, ResourceBinding] = {}
 
         # Extract game record fields
         self.game_id = game[0]
@@ -733,6 +739,9 @@ class GamePropertiesDialog(PopupDialog):
         return worker
 
     def closeEvent(self, event):
+        for binding in tuple(self._resource_bindings.values()):
+            binding.close()
+        self._resource_bindings.clear()
         self._task_supervisor.cancel_all(100)
         if self._task_supervisor.has_running_tasks():
             QTimer.singleShot(100, self.close)
@@ -894,6 +903,35 @@ class GamePropertiesDialog(PopupDialog):
 
         self.btn_restore_selected.setEnabled(False)
 
+        if self.cloud_operation_service is not None:
+            target = CloudOperationTarget(
+                self.game_id, self.game_name, self.game_path, str(self.steam_id or "")
+            )
+            handle = self.cloud_operation_service.request_restore(
+                target,
+                priority=RequestPriority.CRITICAL,
+                tag="properties_generation_restore",
+                target_version=int(version),
+            )
+
+            def _deliver(resource):
+                result = resource.value if resource.status == ResourceStatus.READY else None
+                error = str(resource.error or "") if result is None else ""
+                if result is None:
+                    from core.save_models import SaveOperationResult
+                    result = SaveOperationResult(
+                        False,
+                        "Generation restore",
+                        self.game_name,
+                        error=error or "Cloud restore failed.",
+                        category="backend_unavailable",
+                        guidance="Check the cloud connection and try again.",
+                    )
+                self._gen_restore_done.emit(result, int(version or 0))
+
+            self._bind_cloud_operation(handle, _deliver)
+            return
+
         def _work():
             from core.cloud_operations import CloudOperationCoordinator
             result = CloudOperationCoordinator.restore_generation(
@@ -934,6 +972,49 @@ class GamePropertiesDialog(PopupDialog):
             elif hasattr(p, "request_cloud_recheck"):
                 p.request_cloud_recheck([self.game_id], "properties_cloud_sync")
 
+    def _operation_result_from_resource(self, future, operation: str):
+        """Adapt a managed resource completion to the dialog result model."""
+        try:
+            resource = future.result() if hasattr(future, "result") else future
+            if resource.status == ResourceStatus.READY:
+                return resource.value
+            error = str(resource.error or f"{operation} failed.")
+        except Exception as exc:
+            error = str(exc)
+        from core.save_models import SaveOperationResult
+        return SaveOperationResult(
+            False,
+            operation,
+            self.game_name,
+            error=error,
+            category="backend_unavailable",
+            guidance="Check the cloud connection and try again.",
+        )
+
+    def _bind_cloud_operation(self, handle, callback) -> ResourceBinding | None:
+        """Deliver one cloud operation on the dialog's Qt thread."""
+        if self.request_manager is None:
+            return None
+        request_id = handle.request_id
+
+        def _deliver(resource):
+            if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                return
+            binding = self._resource_bindings.pop(request_id, None)
+            if binding is not None:
+                binding.close()
+            callback(resource)
+
+        binding = bind_request(
+            self.request_manager,
+            handle,
+            _deliver,
+            self,
+            cancel_on_close=True,
+        )
+        self._resource_bindings[request_id] = binding
+        return binding
+
     def _sync_up_now(self):
         self.btn_sync_up.setEnabled(False)
         self.btn_sync_down.setEnabled(False)
@@ -946,6 +1027,23 @@ class GamePropertiesDialog(PopupDialog):
         prog.setMinimumDuration(0)
         prog.show()
         self._active_manual_sync_progress = prog
+
+        if self.cloud_operation_service is not None:
+            target = CloudOperationTarget(
+                self.game_id, self.game_name, self.game_path, str(self.steam_id or "")
+            )
+            handle = self.cloud_operation_service.request_upload(
+                target,
+                priority=RequestPriority.NORMAL,
+                tag="properties_upload",
+            )
+            self._bind_cloud_operation(
+                handle,
+                lambda resource: self._manual_sync_up_done.emit(
+                    self._operation_result_from_resource(resource, "Cloud upload")
+                ),
+            )
+            return
 
         def _work():
             from core.cloud_operations import CloudOperationCoordinator
@@ -1018,6 +1116,23 @@ class GamePropertiesDialog(PopupDialog):
         prog.setMinimumDuration(0)
         prog.show()
         self._active_manual_sync_progress = prog
+
+        if self.cloud_operation_service is not None:
+            target = CloudOperationTarget(
+                self.game_id, self.game_name, self.game_path, str(self.steam_id or "")
+            )
+            handle = self.cloud_operation_service.request_restore(
+                target,
+                priority=RequestPriority.CRITICAL,
+                tag="properties_restore",
+            )
+            self._bind_cloud_operation(
+                handle,
+                lambda resource: self._manual_sync_down_done.emit(
+                    self._operation_result_from_resource(resource, "Cloud restore")
+                ),
+            )
+            return
 
         def _work():
             from core.cloud_operations import CloudOperationCoordinator

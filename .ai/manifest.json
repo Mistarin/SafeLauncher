@@ -1,12 +1,12 @@
 {
   "counts": {
-    "connections": 1261,
-    "imports": 1531,
-    "request_keys": 94,
+    "connections": 1403,
+    "imports": 1885,
+    "request_keys": 76,
     "service_routes": 7,
-    "symbols": 2433,
+    "symbols": 3083,
     "tables": 33,
-    "tests": 121
+    "tests": 255
   },
   "excluded_runtime_data": [
     ".git",
@@ -17,7 +17,7 @@
     ".ai/generated",
     ".ai/manifest.json"
   ],
-  "generated_at": "2026-09-14T02:59:45+00:00",
+  "generated_at": "2026-09-14T19:01:21+00:00",
   "generated_files": [
     "connections.json",
     "database-schema.json",
@@ -31,5 +31,5 @@
   ],
   "repository": "SafeLauncher",
   "schema_version": 1,
-  "source_file_count": 266
+  "source_file_count": 341
 }
