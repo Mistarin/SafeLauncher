@@ -2146,14 +2146,6 @@ class CompactSidebarListWidget(QFrame):
                 width: 16px;
                 border: none;
             }
-            QComboBox::down-arrow {
-                image: none;
-                width: 0px;
-                height: 0px;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid #71717A;
-            }
             QComboBox QAbstractItemView {
                 background-color: #1C1C20;
                 color: #FFFFFF;

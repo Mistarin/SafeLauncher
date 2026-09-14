@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QAbstractButton, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QLineEdit,
     QMainWindow, QDialog, QGraphicsDropShadowEffect, QScrollArea, QWidget, QSlider, QToolButton
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPixmap
 
 from ui.icons import get_app_icon, get_icon, LOGO_PATH
@@ -519,8 +519,12 @@ class HeaderBar(QFrame):
             }
         """
 
-        # ── View Dropdown Menu with Library Submenu ──
-        self.btn_view = QPushButton("View ▾")
+        # ── View menu ──
+        # The menu indicator is intentionally hidden in the header style. Do
+        # not put a Unicode arrow in the label as well: on some Qt/platform
+        # font combinations it is rendered as a small square and looks like a
+        # broken control rather than a menu button.
+        self.btn_view = QPushButton("View")
         self.btn_view.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_view.setFixedHeight(28)
         self.btn_view.setStyleSheet(header_btn_style)
@@ -542,15 +546,11 @@ class HeaderBar(QFrame):
         act_profile = self.view_menu.addAction(get_icon("ph.user-circle-bold", color="#30D158"), "Profile")
         act_profile.triggered.connect(self.profile_requested.emit)
 
-        self.view_menu.addSeparator()
-        act_toggle_col = self.view_menu.addAction(get_icon("ph.folders-bold", color="#FFFFFF"), "Collapse Collections Panel")
-        act_toggle_col.triggered.connect(self.toggle_collections_requested.emit)
-
         self.btn_view.setMenu(self.view_menu)
         layout.addWidget(self.btn_view)
 
-        # ── Tools Dropdown Menu ──
-        self.btn_tools = QPushButton("Tools ▾")
+        # ── Tools menu ──
+        self.btn_tools = QPushButton("Tools")
         self.btn_tools.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tools.setFixedHeight(28)
         self.btn_tools.setStyleSheet(header_btn_style)
@@ -573,7 +573,12 @@ class HeaderBar(QFrame):
         act_box.triggered.connect(self.open_sandbox_requested.emit)
 
         act_disk = self.tools_menu.addAction(get_icon("ph.chart-pie-slice-bold", color="#FFFFFF"), "Disk Space Manager")
-        act_disk.triggered.connect(self.disk_manager_requested.emit)
+        # Let QMenu finish closing before opening another frameless modal
+        # window. This avoids a native compositor/Qt re-entrancy crash on
+        # Wayland and X11 when a modal dialog is opened from a menu action.
+        act_disk.triggered.connect(
+            lambda _checked=False: QTimer.singleShot(0, self.disk_manager_requested.emit)
+        )
 
         self.tools_menu.addSeparator()
 
@@ -586,7 +591,9 @@ class HeaderBar(QFrame):
         self.tools_menu.addSeparator()
 
         act_settings = self.tools_menu.addAction(get_icon("ph.gear-bold", color="#FFFFFF"), "Settings...")
-        act_settings.triggered.connect(self.settings_requested.emit)
+        act_settings.triggered.connect(
+            lambda _checked=False: QTimer.singleShot(0, self.settings_requested.emit)
+        )
 
         self.btn_tools.setMenu(self.tools_menu)
         layout.addWidget(self.btn_tools)
@@ -601,7 +608,9 @@ class HeaderBar(QFrame):
         act_find_friends.triggered.connect(self.public_profile_requested.emit)
         self.profile_menu.addSeparator()
         act_profile_settings = self.profile_menu.addAction(get_icon("ph.gear-bold", color="#FFFFFF"), "Settings…")
-        act_profile_settings.triggered.connect(self.settings_requested.emit)
+        act_profile_settings.triggered.connect(
+            lambda _checked=False: QTimer.singleShot(0, self.settings_requested.emit)
+        )
 
         profile_control_style = """
             QToolButton {

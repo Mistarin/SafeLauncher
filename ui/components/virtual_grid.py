@@ -80,6 +80,17 @@ class GameCardItemDelegate(QStyledItemDelegate):
             return
 
         painter.save()
+        try:
+            self._paint_card(painter, option, index)
+        except Exception:
+            # A malformed optional resource must not leak a painter state into
+            # QListView's next item. Qt otherwise reports saved painter states
+            # at QPainter::end() and some native styles can become unstable.
+            return
+        finally:
+            painter.restore()
+
+    def _paint_card(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
 
@@ -130,17 +141,18 @@ class GameCardItemDelegate(QStyledItemDelegate):
         )
         painter.setClipPath(cover_clip)
 
-        cover_pixmap = self._get_cached_cover(game_id, banner_path, name, is_missing)
-        if cover_pixmap and not cover_pixmap.isNull():
-            painter.drawPixmap(cover_rect, cover_pixmap)
+        try:
+            cover_pixmap = self._get_cached_cover(game_id, banner_path, name, is_missing)
+            if cover_pixmap and not cover_pixmap.isNull():
+                painter.drawPixmap(cover_rect, cover_pixmap)
 
-        # Missing game overlay or hover darkening
-        if is_missing:
-            painter.fillRect(cover_rect, QColor(20, 20, 20, 175))
-        elif is_hovered:
-            painter.fillRect(cover_rect, QColor(0, 0, 0, 70))
-
-        painter.restore()
+            # Missing game overlay or hover darkening
+            if is_missing:
+                painter.fillRect(cover_rect, QColor(20, 20, 20, 175))
+            elif is_hovered:
+                painter.fillRect(cover_rect, QColor(0, 0, 0, 70))
+        finally:
+            painter.restore()
 
         # 3. Badges on cover
         # Update indicator (top-left)
@@ -214,8 +226,6 @@ class GameCardItemDelegate(QStyledItemDelegate):
         painter.setPen(QColor("#A7ADB8"))
         playtime_str = _format_playtime_str(playtime_seconds)
         painter.drawText(playtime_rect, Qt.AlignmentFlag.AlignCenter, playtime_str)
-
-        painter.restore()
 
     def _draw_cloud_badge(self, painter: QPainter, cover_rect: QRect, status: Any) -> None:
         """Draw small cloud save status pill at bottom-right of cover."""

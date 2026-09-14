@@ -1861,14 +1861,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 111078,
-      "lines": 2583,
+      "bytes": 110790,
+      "lines": 2575,
       "path": "ui/components/compact_game_page.py",
       "suffix": ".py"
     },
     {
-      "bytes": 2560,
-      "lines": 82,
+      "bytes": 2582,
+      "lines": 83,
       "path": "ui/components/extraction_spinner.py",
       "suffix": ".py"
     },
@@ -1909,8 +1909,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 39227,
-      "lines": 905,
+      "bytes": 39650,
+      "lines": 914,
       "path": "ui/components/sidebar.py",
       "suffix": ".py"
     },
@@ -1921,8 +1921,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 23415,
-      "lines": 583,
+      "bytes": 23951,
+      "lines": 593,
       "path": "ui/components/virtual_grid.py",
       "suffix": ".py"
     },
@@ -2005,8 +2005,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 127291,
-      "lines": 2780,
+      "bytes": 130719,
+      "lines": 2858,
       "path": "ui/dialogs/settings_dialog.py",
       "suffix": ".py"
     },
@@ -2029,8 +2029,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 365815,
-      "lines": 7715,
+      "bytes": 365820,
+      "lines": 7717,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2065,5 +2065,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T20:22:44+00:00"
+  "generated_at": "2026-09-14T20:38:24+00:00"
 }

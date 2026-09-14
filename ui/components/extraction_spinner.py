@@ -43,6 +43,7 @@ class _SpinnerGlyph(QWidget):
             painter.rotate(index * 30)
             painter.drawLine(0, -7, 0, -11)
             painter.restore()
+        painter.end()
 
 
 class ExtractionSpinner(QFrame):

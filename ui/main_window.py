@@ -232,6 +232,7 @@ class MainWindow(QMainWindow):
         self.performance_tracker = ResourcePerformanceTracker()
         self.games = []
         self.selected_game = None
+        self._settings_dialog_active = False
         self.banner_widgets = {}
         self.auto_fetchers = CompatibilityWorkerIndex("artwork-active-fallback")
         self._pending_auto_fetchers = CompatibilityWorkerIndex("artwork-pending-fallback")
@@ -470,7 +471,6 @@ class MainWindow(QMainWindow):
         self.title_bar.public_profile_requested.connect(self._open_public_profile_prompt)
         self.title_bar.friends_requested.connect(self._open_friends_popup)
         self.title_bar.settings_requested.connect(self._open_settings)
-        self.title_bar.toggle_collections_requested.connect(self._toggle_collections_panel)
         self.title_bar.sync_requested.connect(self._on_sync_sandbox)
         self.title_bar.install_archive_requested.connect(self._on_install_zip_archive)
         self.title_bar.check_updates_requested.connect(self._check_all_steam_updates)
@@ -1080,14 +1080,6 @@ class MainWindow(QMainWindow):
                 subcontrol-position: top right;
                 width: 18px;
                 border: none;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                width: 0px;
-                height: 0px;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid {TEXT_MUTED};
             }}
             QComboBox QAbstractItemView {{
                 background-color: {SURFACE_ELEVATED};
@@ -1810,6 +1802,16 @@ class MainWindow(QMainWindow):
         )
 
     def _open_settings(self):
+        """Open Settings once at a time and keep menu/dialog lifecycles separate."""
+        if self._settings_dialog_active:
+            return
+        self._settings_dialog_active = True
+        try:
+            self._open_settings_dialog()
+        finally:
+            self._settings_dialog_active = False
+
+    def _open_settings_dialog(self):
         """Open launcher preferences and persist profile changes."""
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
         offline_before = is_offline_mode(self.settings)
