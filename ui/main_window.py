@@ -47,7 +47,7 @@ from core.library_state import LibraryStateStore
 from core.library_controller import LibraryController, LibraryQuery, LibrarySnapshot
 from core.library_service import LibraryService
 from core.library_metadata_state import LibraryMetadataState
-from core.game_status import GameStatusState, cloud_indicator
+from core.game_status import GameStatusState, cloud_indicator, is_cloud_conflict
 from core.launch_session_coordinator import LaunchSessionContext, LaunchSessionCoordinator
 from core.launch_policy import LaunchAction, LaunchPolicy
 from core.compatibility_worker_index import CompatibilityWorkerIndex
@@ -7928,6 +7928,14 @@ class MainWindow(QMainWindow):
             ("resolve", "Resolve conflict", "ph.warning-bold"),
         ):
             action = menu.addAction(get_icon(icon_name, color="#A1A1AA"), label)
+            if name == "resolve":
+                cached = self.cloud_save_status_cache.get(int(game_id))
+                action.setEnabled(is_cloud_conflict(cached))
+                action.setToolTip(
+                    "Open conflict resolution for this game"
+                    if action.isEnabled() else
+                    "Available when this game has a cloud-save conflict"
+                )
             action.triggered.connect(
                 lambda _checked=False, action_name=name, gid=int(game_id):
                 self._on_game_cloud_action(gid, action_name)

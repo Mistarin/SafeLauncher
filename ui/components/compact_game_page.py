@@ -36,7 +36,7 @@ from ui.components.sort_combo import SortComboBox
 from core.cloud_save_sync import SyncStatus
 from core.library_controller import LibrarySnapshot
 from core.date_formatting import format_timestamp, format_datetime_timestamp
-from core.game_status import cloud_indicator, update_indicator
+from core.game_status import cloud_indicator, is_cloud_conflict, update_indicator
 from core.logger import get_logger
 from core.steam_build_tracker import has_resolved_build_reference
 
@@ -466,10 +466,15 @@ class CompactActionBar(QFrame):
         self.btn_save.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.btn_save.setStyleSheet(quick_btn_style)
         cloud_menu = QMenu(self.btn_save)
+        self._resolve_conflict_action = None
         for action_name, label in (("upload", "Upload"), ("restore", "Restore"),
                                    ("history", "Save history"), ("resolve", "Resolve conflict"),
                                    ("center", "Open Cloud Center")):
             action = cloud_menu.addAction(label)
+            if action_name == "resolve":
+                self._resolve_conflict_action = action
+                action.setEnabled(False)
+                action.setToolTip("Available when this game has a cloud-save conflict")
             action.triggered.connect(lambda _checked=False, name=action_name: self.cloud_action_requested.emit(name))
         self.btn_save.setMenu(cloud_menu)
 
@@ -578,6 +583,13 @@ class CompactActionBar(QFrame):
     def update_cloud_status(self, status: Any, has_update: Optional[bool] = None):
         """Render independent cloud-save and game-release status columns."""
         self._cloud_status = status
+        if self._resolve_conflict_action is not None:
+            conflict = is_cloud_conflict(status)
+            self._resolve_conflict_action.setEnabled(conflict)
+            self._resolve_conflict_action.setToolTip(
+                "Open conflict resolution for this game"
+                if conflict else "Available when this game has a cloud-save conflict"
+            )
         if has_update is not None:
             self._update_available = bool(has_update)
         show_update = bool(getattr(self, "_update_available", False))

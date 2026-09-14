@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T22:00:31+00:00",
+  "generated_at": "2026-09-14T22:09:00+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -504,6 +504,18 @@
       "kind": "test_class",
       "line": 31,
       "name": "GameNameResolutionTests"
+    },
+    {
+      "file": "tests/test_game_status.py",
+      "kind": "test",
+      "line": 8,
+      "name": "test_only_conflict_status_enables_resolution"
+    },
+    {
+      "file": "tests/test_game_status.py",
+      "kind": "test_class",
+      "line": 5,
+      "name": "CloudConflictActionStateTests"
     },
     {
       "file": "tests/test_global_hotkeys.py",

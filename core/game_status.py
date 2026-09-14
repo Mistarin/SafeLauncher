@@ -89,4 +89,17 @@ def cloud_indicator(status: SyncStatus | None) -> StatusIndicator:
     return StatusIndicator(label, tooltip, icon, color)
 
 
-__all__ = ["GameStatusState", "StatusIndicator", "cloud_indicator", "update_indicator"]
+def is_cloud_conflict(status: Any) -> bool:
+    """Return whether a cached/managed status requires conflict resolution."""
+    if isinstance(status, (tuple, list)):
+        status = status[0] if status else None
+    if isinstance(status, GameStatusState):
+        status = status.cloud_status
+    value = getattr(status, "value", status)
+    return str(value or "").strip().lower() in {"conflict", "cloud_conflict", "revision_conflict"}
+
+
+__all__ = [
+    "GameStatusState", "StatusIndicator", "cloud_indicator", "is_cloud_conflict",
+    "update_indicator",
+]

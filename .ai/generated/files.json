@@ -25,8 +25,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 5181,
-      "lines": 69,
+      "bytes": 5559,
+      "lines": 74,
       "path": ".ai/STATUS.md",
       "suffix": ".md"
     },
@@ -1015,8 +1015,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 3381,
-      "lines": 93,
+      "bytes": 3852,
+      "lines": 106,
       "path": "core/game_status.py",
       "suffix": ".py"
     },
@@ -1699,6 +1699,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 642,
+      "lines": 18,
+      "path": "tests/test_game_status.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 975,
       "lines": 39,
       "path": "tests/test_global_hotkeys.py",
@@ -1897,8 +1903,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 113258,
-      "lines": 2625,
+      "bytes": 113924,
+      "lines": 2637,
       "path": "ui/components/compact_game_page.py",
       "suffix": ".py"
     },
@@ -2053,8 +2059,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 130875,
-      "lines": 2861,
+      "bytes": 136192,
+      "lines": 2964,
       "path": "ui/dialogs/settings_dialog.py",
       "suffix": ".py"
     },
@@ -2077,8 +2083,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 378347,
-      "lines": 7983,
+      "bytes": 378767,
+      "lines": 7991,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2113,5 +2119,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T22:00:31+00:00"
+  "generated_at": "2026-09-14T22:09:00+00:00"
 }

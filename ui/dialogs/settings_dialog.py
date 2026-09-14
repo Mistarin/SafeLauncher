@@ -8,7 +8,7 @@ from io import StringIO
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox, QSpinBox
+    QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox, QSpinBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QSize, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
@@ -101,6 +101,7 @@ class UserSettingsDialog(PopupDialog):
         self._account_probe_generation = 0
         self._health_probe_generation = 0
         self._profile_action_status_custom = False
+        self._settings_forms: list[QFormLayout] = []
 
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
         self.setMinimumSize(820, 600)
@@ -121,16 +122,53 @@ class UserSettingsDialog(PopupDialog):
                 color: #E4E4E7;
             }
             QLineEdit, QComboBox, QSpinBox {
-                background: #1B1B1F;
+                background: #111113;
                 color: #FFFFFF;
-                border: 1px solid #303037;
-                border-radius: 7px;
+                border: 1px solid #2D2D34;
+                border-top-color: #373740;
+                border-bottom-color: #24242A;
+                border-radius: 6px;
                 padding: 8px 10px;
                 font-size: 12px;
             }
             QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
                 border-color: #4B9FFF;
-                background: #202026;
+                background: #111113;
+            }
+            QKeySequenceEdit {
+                background: #111113;
+                color: #FFFFFF;
+                border: 1px solid #2D2D34;
+                border-top-color: #373740;
+                border-bottom-color: #24242A;
+                border-radius: 6px;
+                padding: 8px 10px;
+            }
+            QComboBox QAbstractItemView {
+                background: #1B1B1F;
+                color: #FFFFFF;
+                border: 1px solid #303037;
+                border-radius: 6px;
+                padding: 4px;
+            }
+            QLabel#settingsFieldLabel {
+                background: #1A1A1F;
+                color: #D4D4D8;
+                border: 1px solid #25252C;
+                border-top-color: #303039;
+                border-bottom-color: #202026;
+                border-radius: 6px;
+                padding: 7px 10px;
+                min-height: 18px;
+            }
+            QLabel#settingsValueLabel {
+                background: #111113;
+                color: #D4D4D8;
+                border: 1px solid #25252C;
+                border-top-color: #303039;
+                border-bottom-color: #202026;
+                border-radius: 6px;
+                padding: 7px 10px;
             }
             QPushButton {
                 background: #222228;
@@ -275,6 +313,59 @@ class UserSettingsDialog(PopupDialog):
             btn.setChecked(i == index)
         self.stack.setCurrentIndex(index)
 
+    def _polish_settings_form(self, form: QFormLayout) -> None:
+        """Apply one stable label/value rhythm to every settings form."""
+        if form not in self._settings_forms:
+            self._settings_forms.append(form)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        form.setHorizontalSpacing(18)
+        form.setVerticalSpacing(9)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        for row in range(form.rowCount()):
+            label_item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+            label = label_item.widget() if label_item is not None else None
+            if isinstance(label, QLabel) and label.text().strip():
+                label.setObjectName("settingsFieldLabel")
+                label.setMinimumWidth(210)
+                label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                label.setWordWrap(True)
+            field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+            field = field_item.widget() if field_item is not None else None
+            if field is not None and field.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed:
+                field.setSizePolicy(QSizePolicy.Policy.Expanding, field.sizePolicy().verticalPolicy())
+            elif field_item is not None and field_item.layout() is not None:
+                # Rows such as "Browse…" and the cloud-key rows use a layout
+                # as their field. Remove hidden margins and let their primary
+                # editor consume the available value column.
+                field_layout = field_item.layout()
+                field_layout.setContentsMargins(0, 0, 0, 0)
+                for index in range(field_layout.count()):
+                    child_item = field_layout.itemAt(index)
+                    child = child_item.widget() if child_item is not None else None
+                    if child is not None and child.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed:
+                        child.setSizePolicy(QSizePolicy.Policy.Expanding, child.sizePolicy().verticalPolicy())
+
+    def _polish_settings_grid(self, grid: QGridLayout) -> None:
+        """Align two-column diagnostic/property grids with form rows."""
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(9)
+        grid.setColumnMinimumWidth(0, 210)
+        grid.setColumnStretch(1, 1)
+        for row in range(grid.rowCount()):
+            label = grid.itemAtPosition(row, 0)
+            value = grid.itemAtPosition(row, 1)
+            label_widget = label.widget() if label is not None else None
+            value_widget = value.widget() if value is not None else None
+            if isinstance(label_widget, QLabel) and label_widget.text().strip():
+                label_widget.setObjectName("settingsFieldLabel")
+                label_widget.setMinimumWidth(210)
+                label_widget.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                label_widget.setWordWrap(True)
+            if isinstance(value_widget, QLabel) and value_widget.text().strip():
+                value_widget.setObjectName("settingsValueLabel")
+                value_widget.setWordWrap(True)
+
     def _on_profile_theme_changed(self, _index: int) -> None:
         self.profile_theme = normalize_profile_theme(self.combo_profile_theme.currentData())
         self._update_profile_theme_preview()
@@ -405,6 +496,7 @@ class UserSettingsDialog(PopupDialog):
         card_row.addStretch()
 
         card_form.addRow("Card Size:", card_row)
+        self._polish_settings_form(card_form)
         layout.addLayout(card_form)
 
         theme_form = QFormLayout()
@@ -417,6 +509,7 @@ class UserSettingsDialog(PopupDialog):
         self.combo_profile_theme.setCurrentIndex(max(0, theme_index))
         self.combo_profile_theme.currentIndexChanged.connect(self._on_profile_theme_changed)
         theme_form.addRow("Profile panels:", self.combo_profile_theme)
+        self._polish_settings_form(theme_form)
         layout.addLayout(theme_form)
 
         self.profile_theme_preview = QFrame()
@@ -495,6 +588,7 @@ class UserSettingsDialog(PopupDialog):
         date_index = self.combo_date_format.findData(self.date_format)
         self.combo_date_format.setCurrentIndex(max(0, date_index))
         date_form.addRow("Date Format:", self.combo_date_format)
+        self._polish_settings_form(date_form)
         layout.addLayout(date_form)
 
         sec_profile = QLabel("Profile & Paths")
@@ -520,6 +614,7 @@ class UserSettingsDialog(PopupDialog):
         proton_row.addWidget(browse_btn)
 
         form.addRow("Proton Path:", proton_row)
+        self._polish_settings_form(form)
         layout.addLayout(form)
 
         sec_desktop = QLabel("Desktop & Menu Integration")
@@ -666,6 +761,7 @@ class UserSettingsDialog(PopupDialog):
         grid.addWidget(QLabel("Active (Z: host drive removed, user folders isolated)"), 3, 1)
 
         layout.addLayout(grid)
+        self._polish_settings_grid(grid)
 
         # GPU Caches
         sec_gpu = QLabel("GPU Shader Cache Whitelists")
@@ -683,6 +779,7 @@ class UserSettingsDialog(PopupDialog):
             gpu_grid.addWidget(QLabel(status_str), i, 1)
 
         layout.addLayout(gpu_grid)
+        self._polish_settings_grid(gpu_grid)
 
         # Live probe test
         sec_probe = QLabel("Sandbox Verification")
@@ -775,6 +872,7 @@ class UserSettingsDialog(PopupDialog):
                 selected_ss_idx = i
         self.combo_screenshot_screen.setCurrentIndex(selected_ss_idx)
         form_disk.addRow("Screenshot Monitor / Display:", self.combo_screenshot_screen)
+        self._polish_settings_form(form_disk)
 
         # Cloud saves directory moved to the dedicated Cloud tab (index 3);
         # Storage keeps only local disk widgets.
@@ -992,6 +1090,7 @@ class UserSettingsDialog(PopupDialog):
             }
         """)
         form_mode.addRow("Quota:", self.bar_quota_settings)
+        self._polish_settings_form(form_mode)
         layout.addLayout(form_mode)
 
         acct_btns = QHBoxLayout()
@@ -1064,6 +1163,7 @@ class UserSettingsDialog(PopupDialog):
         self.lbl_health_version.setStyleSheet("color: #9CA3AF; font-weight: 500;")
         bh_grid.addWidget(self.lbl_health_version, 1, 1)
         bh_layout.addLayout(bh_grid)
+        self._polish_settings_grid(bh_grid)
 
         self.lbl_version_warning = QLabel("")
         self.lbl_version_warning.setWordWrap(True)
@@ -1314,8 +1414,9 @@ class UserSettingsDialog(PopupDialog):
         self.edit_hotkey = QKeySequenceEdit()
         self.edit_hotkey.setKeySequence(QKeySequence(self.gpu_config.capture_hotkey or "F9"))
         self.edit_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #1c1c20; color: #ffffff; border: 1px solid #333338;"
-            " border-radius: 4px; padding: 7px 10px; font-size: 12px; }"
+            "QKeySequenceEdit { background: #111113; color: #ffffff; border: 1px solid #2D2D34;"
+            " border-top-color: #373740; border-bottom-color: #24242A; border-radius: 6px;"
+            " padding: 8px 10px; font-size: 12px; }"
         )
         capture_mode_hint = QLabel()
         if self.gpu_config.mode == "replay_buffer":
@@ -1332,8 +1433,9 @@ class UserSettingsDialog(PopupDialog):
         self.edit_screenshot_hotkey = QKeySequenceEdit()
         self.edit_screenshot_hotkey.setKeySequence(QKeySequence(self.screenshot_hotkey or "F12"))
         self.edit_screenshot_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #1c1c20; color: #ffffff; border: 1px solid #333338;"
-            " border-radius: 4px; padding: 7px 10px; font-size: 12px; }"
+            "QKeySequenceEdit { background: #111113; color: #ffffff; border: 1px solid #2D2D34;"
+            " border-top-color: #373740; border-bottom-color: #24242A; border-radius: 6px;"
+            " padding: 8px 10px; font-size: 12px; }"
         )
         form.addRow("Screenshot Hotkey:", self.edit_screenshot_hotkey)
 
@@ -1349,6 +1451,7 @@ class UserSettingsDialog(PopupDialog):
         out_row.addWidget(browse_out)
         form.addRow("Recordings Folder:", out_row)
 
+        self._polish_settings_form(form)
         layout.addLayout(form)
         layout.addStretch()
 

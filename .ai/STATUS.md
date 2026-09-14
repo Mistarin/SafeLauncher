@@ -56,6 +56,11 @@ The generated index includes source hashes and generation metadata. Curated page
   generation provides provenance. Legacy generations use an unavailable label
   rather than rendering opaque device IDs; new uploads persist optional device
   provenance in SafeLauncherCloud.
+- Per-game `Resolve conflict` actions are disabled until the canonical cached
+  status is a real cloud conflict; the same guard is applied to compact and
+  full-library cloud menus. Settings forms use a shared aligned label column,
+  expanding value column, background-matched editors, and subtle beveled
+  surfaces so long names and paths remain readable without layout drift.
 - Cloud operation records and exit-sync results now normalize legacy backend
   categories into `RemoteErrorCategory` values for consistent diagnostics.
 - `ci/release_readiness.py` is the canonical local release gate. It creates
