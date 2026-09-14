@@ -18,7 +18,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Library query/state | [`core/library_controller.py`](../core/library_controller.py), [`core/library_state.py`](../core/library_state.py) | `LibraryController`, `LibraryStateStore` | active |
 | Local database | [`database.py`](../database.py) | `GameDatabase`, `GameRecord` | active |
 | Portable game naming | [`core/game_names.py`](../core/game_names.py) | `meaningful_game_name`, `preferred_game_name`, `local_profile_identity`, placeholder/fallback rules | active |
-| Library application service | [`core/library_service.py`](../core/library_service.py) | `LibraryService`, `LibraryProjection` | active |
+| Library application service | [`core/library_service.py`](../core/library_service.py) | `LibraryService`, `LibraryProjection`, archive/remove/purge actions | active |
 | Library metadata presentation state | [`core/library_metadata_state.py`](../core/library_metadata_state.py) | `LibraryMetadataState` | active; local projection and legacy migration adapter |
 | Cloud sync queue | [`core/cloud_sync_queue.py`](../core/cloud_sync_queue.py) | `PendingCloudSyncQueue` | active |
 | Cloud context/status service | [`core/cloud_context.py`](../core/cloud_context.py), [`core/cloud_status_service.py`](../core/cloud_status_service.py) | `CloudContext`, `CloudStatusService`, `CloudStatusTarget`, `CloudStatusPlan` | active |

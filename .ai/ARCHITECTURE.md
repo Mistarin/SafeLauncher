@@ -29,6 +29,11 @@ backend deployment checkout, not the client's local SQLite database. See
 ## Ownership boundaries
 
 - `GameDatabase` owns the local SQLite projection and local-first mutations.
+- Library lifecycle actions are explicit: archive preserves the local record;
+  remove-from-archive restores it; ordinary removal preserves append-only
+  profile history; delete-all-local-data purges the local record, history,
+  achievements, and playtime ledger. Remote cloud-save generations require a
+  separate explicit cloud operation.
 - Steam AppIDs are stable game identity (`steam:<appid>`); game titles are
   display metadata. A generated `Steam App <appid>` title is never treated as
   authoritative when a meaningful local, private-profile, or Steam title is

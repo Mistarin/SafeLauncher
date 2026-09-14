@@ -1315,6 +1315,48 @@ class GameDatabase:
             logger.error(f"Failed to remove game {game_id}: {e}")
             return False
 
+    def delete_all_game_data(self, game_id: int) -> bool:
+        """Permanently purge one game's local projection and history.
+
+        This is intentionally separate from :meth:`remove_game`, whose
+        append-only profile history is needed for cross-device reconciliation.
+        Cloud save generations are remote account data and require an explicit
+        cloud-save operation; they are never silently deleted here.
+        """
+        try:
+            with _ACHIEVEMENT_DB_LOCK, self.conn:
+                row = self.conn.execute(
+                    "SELECT name, steam_id FROM games WHERE id = ?", (int(game_id),)
+                ).fetchone()
+                if not row:
+                    return False
+                identity = self.profile_identity(row[0], row[1])
+                app_id = str(row[1] or "").strip()
+                self.conn.execute("DELETE FROM achievements WHERE game_id = ?", (int(game_id),))
+                self.conn.execute("DELETE FROM playtime_sessions WHERE game_id = ?", (int(game_id),))
+                self.conn.execute(
+                    "DELETE FROM profile_games WHERE identity_key = ?", (identity,)
+                )
+                # The account-wide achievement ledger is local persistence for
+                # this AppID. Only remove it when no other local projection
+                # still references the same Steam game.
+                if app_id and not self.conn.execute(
+                    "SELECT 1 FROM games WHERE id != ? AND steam_id = ? LIMIT 1",
+                    (int(game_id), app_id),
+                ).fetchone():
+                    self.conn.execute(
+                        "DELETE FROM achievement_profile WHERE app_id = ?", (app_id,)
+                    )
+                deleted = self.conn.execute(
+                    "DELETE FROM games WHERE id = ?", (int(game_id),)
+                ).rowcount
+                if deleted:
+                    logger.info("Deleted all local data for game %s", int(game_id))
+                return deleted == 1
+        except Exception as e:
+            logger.error(f"Failed to delete all local data for game {game_id}: {e}")
+            return False
+
     def save_achievement_schema(self, game_id: int, app_id: str, achievements: List[dict]) -> int:
         """Insert or update achievement schema definitions for a game, preserving existing unlocked state."""
         app_id = str(app_id or "").strip()

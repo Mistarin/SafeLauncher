@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T19:35:19+00:00",
+  "generated_at": "2026-09-14T20:03:47+00:00",
   "symbols": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -4283,60 +4283,72 @@
       "file": "core/library_service.py",
       "kind": "function",
       "line": 167,
-      "name": "remove_game"
+      "name": "remove_from_archive"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
       "line": 171,
+      "name": "remove_game"
+    },
+    {
+      "file": "core/library_service.py",
+      "kind": "function",
+      "line": 175,
+      "name": "delete_all_game_data"
+    },
+    {
+      "file": "core/library_service.py",
+      "kind": "function",
+      "line": 179,
       "name": "update_runtime_settings"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 188,
+      "line": 196,
       "name": "runtime_env_vars"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 193,
+      "line": 201,
       "name": "update_game_details"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 224,
+      "line": 232,
       "name": "upsert_game"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 257,
+      "line": 265,
       "name": "set_build_reference"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 263,
+      "line": 271,
       "name": "set_artwork_identity"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 280,
+      "line": 288,
       "name": "set_tags"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 283,
+      "line": 291,
       "name": "record_playtime_finished"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 289,
+      "line": 297,
       "name": "checkpoint_playtime_session"
     },
     {
@@ -7961,108 +7973,114 @@
       "file": "database.py",
       "kind": "function",
       "line": 1318,
+      "name": "delete_all_game_data"
+    },
+    {
+      "file": "database.py",
+      "kind": "function",
+      "line": 1360,
       "name": "save_achievement_schema"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1368,
+      "line": 1410,
       "name": "unlock_achievement"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1411,
+      "line": 1453,
       "name": "unlock_achievements_batch"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1471,
+      "line": 1513,
       "name": "claim_achievement_notification"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1487,
+      "line": 1529,
       "name": "arm_achievement_notification"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1501,
+      "line": 1543,
       "name": "merge_profile_unlocks"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1579,
+      "line": 1621,
       "name": "record_achievement_state"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1669,
+      "line": 1711,
       "name": "get_profile_unlocks"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1690,
+      "line": 1732,
       "name": "get_profile_unlock_records"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1715,
+      "line": 1757,
       "name": "collect_profile_from_games"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1730,
+      "line": 1772,
       "name": "project_profile_achievements"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1757,
+      "line": 1799,
       "name": "get_game_achievements"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1790,
+      "line": 1832,
       "name": "get_profile_achievement_rows"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1816,
+      "line": 1858,
       "name": "get_achievement_stats"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1837,
+      "line": 1879,
       "name": "get_global_achievement_stats"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1864,
+      "line": 1906,
       "name": "get_recent_unlocked_achievements"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1898,
+      "line": 1940,
       "name": "reset_game_achievements"
     },
     {
       "file": "database.py",
       "kind": "function",
-      "line": 1912,
+      "line": 1954,
       "name": "close"
     },
     {
@@ -9779,276 +9797,318 @@
       "file": "tests/test_profile.py",
       "kind": "function",
       "line": 300,
+      "name": "test_delete_all_game_data_purges_local_projection_and_history"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "function",
+      "line": 327,
       "name": "test_disk_removal_guard_rejects_root_symlink_and_deletes_only_target"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 321,
+      "line": 348,
       "name": "test_archive_action_removes_files_but_keeps_record_and_stats"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "class",
-      "line": 324,
+      "line": 351,
       "name": "LifecycleHost"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 325,
+      "line": 352,
       "name": "__init__"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 331,
+      "line": 358,
       "name": "_remove_game_files_from_disk"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 334,
+      "line": 361,
       "name": "_finish_game_lifecycle_change"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 337,
+      "line": 364,
       "name": "_show_toast"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 363,
+      "line": 390,
+      "name": "test_delete_all_data_action_removes_files_and_local_record"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "class",
+      "line": 393,
+      "name": "LifecycleHost"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "function",
+      "line": 394,
+      "name": "__init__"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "function",
+      "line": 400,
+      "name": "_remove_game_files_from_disk"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "function",
+      "line": 403,
+      "name": "_finish_game_lifecycle_change"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "function",
+      "line": 406,
+      "name": "_show_toast"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "function",
+      "line": 428,
       "name": "test_projection_groups_account_achievements_by_steam_app"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 384,
+      "line": 449,
       "name": "test_remote_document_rejects_bad_handle_and_keeps_only_public_shape"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 416,
+      "line": 481,
       "name": "test_public_bio_and_artwork_are_bounded_and_legacy_artwork_is_replaced"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 437,
+      "line": 502,
       "name": "test_steam_hero_background_is_derived_from_app_id"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 448,
+      "line": 513,
       "name": "test_owner_token_rotation_sends_new_token_without_returning_it"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 461,
+      "line": 526,
       "name": "test_social_snapshot_accepts_only_bounded_public_summaries"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 483,
+      "line": 548,
       "name": "test_username_handles_are_ascii_and_suggested_from_oidc_claims"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 488,
+      "line": 553,
       "name": "test_social_client_uses_owner_authentication_and_routes"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 515,
+      "line": 580,
       "name": "test_handle_availability_is_public_and_validates_response_shape"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 532,
+      "line": 597,
       "name": "test_avatar_catalog_client_validates_catalog_and_uses_gateway_path"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 555,
+      "line": 620,
       "name": "test_avatar_catalog_maps_legacy_slug_to_numeric_asset"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 570,
+      "line": 635,
       "name": "test_avatar_download_rejects_non_images_and_oversized_responses"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 580,
+      "line": 645,
       "name": "test_avatar_batch_reuses_one_client_and_skips_missing_entries"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 596,
+      "line": 661,
       "name": "test_v2_client_uses_central_bearer_and_never_sends_legacy_token"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 626,
+      "line": 691,
       "name": "test_client_rejects_mixing_legacy_routes_with_central_auth"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 632,
+      "line": 697,
       "name": "test_v2_client_refreshes_once_after_expired_access_token"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 649,
+      "line": 714,
       "name": "test_device_login_persists_refresh_token_and_requests_expected_audience"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 680,
+      "line": 745,
       "name": "test_forced_refresh_after_device_login_does_not_reuse_initial_token"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 706,
+      "line": 771,
       "name": "test_userinfo_uses_access_token_and_returns_oidc_claims"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 726,
+      "line": 791,
       "name": "test_resource_server_denial_has_actionable_auth0_guidance"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "class",
-      "line": 750,
+      "line": 815,
       "name": "ProfilePageTests"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 752,
+      "line": 817,
       "name": "setUpClass"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 755,
+      "line": 820,
       "name": "test_avatar_catalog_dialog_is_selectable_and_searchable"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 796,
+      "line": 861,
       "name": "test_avatar_decode_removes_only_bad_iccp_chunk"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 799,
+      "line": 864,
       "name": "chunk"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 808,
+      "line": 873,
       "name": "test_owner_and_public_views_share_one_persistent_page"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 832,
+      "line": 897,
       "name": "test_profile_owner_actions_are_unified_and_public_view_is_read_only"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 873,
+      "line": 938,
       "name": "test_profile_editor_bio_and_sixth_game_navigation"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 919,
+      "line": 984,
       "name": "test_header_uses_one_combined_identity_control"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "class",
-      "line": 920,
+      "line": 985,
       "name": "TestWindow"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 921,
+      "line": 986,
       "name": "_toggle_maximize"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 940,
+      "line": 1005,
       "name": "test_profile_settings_theme_preview_and_friends_popup_are_custom"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 972,
+      "line": 1037,
       "name": "test_edit_game_exposes_safe_lifecycle_action_without_form_save"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 996,
+      "line": 1061,
       "name": "test_profile_editor_shows_username_but_hides_service_details"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1027,
+      "line": 1092,
       "name": "test_profile_editor_saves_steam_hero_background_from_appid"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1054,
+      "line": 1119,
       "name": "test_profile_editor_previews_backgrounds_without_mutating_saved_profile"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1085,
+      "line": 1150,
       "name": "test_profile_editor_previews_steam_hero_behind_panels"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1112,
+      "line": 1177,
       "name": "test_nested_profile_panels_apply_opaque_and_glass_surface_modes"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1144,
+      "line": 1209,
       "name": "test_steam_hero_is_painted_as_background_independent_of_panel_theme"
     },
     {
@@ -14776,91 +14836,103 @@
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2172,
+      "line": 2202,
       "name": "_select_remove_library"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2176,
+      "line": 2206,
+      "name": "_select_remove_from_archive"
+    },
+    {
+      "file": "ui/dialogs/game_dialogs.py",
+      "kind": "function",
+      "line": 2210,
       "name": "_select_remove_disk"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2188,
+      "line": 2222,
       "name": "_select_archive"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
+      "kind": "function",
+      "line": 2235,
+      "name": "_select_delete_all_data"
+    },
+    {
+      "file": "ui/dialogs/game_dialogs.py",
       "kind": "class",
-      "line": 2202,
+      "line": 2250,
       "name": "ManageCollectionGamesDialog"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2204,
+      "line": 2252,
       "name": "__init__"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2325,
+      "line": 2373,
       "name": "_filter_list"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2331,
+      "line": 2379,
       "name": "_set_all_checked"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2336,
+      "line": 2384,
       "name": "get_selected_game_ids"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "class",
-      "line": 2340,
+      "line": 2388,
       "name": "CreateCollectionDialog"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2342,
+      "line": 2390,
       "name": "__init__"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2419,
+      "line": 2467,
       "name": "showEvent"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2423,
+      "line": 2471,
       "name": "_on_confirm"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2431,
+      "line": 2479,
       "name": "get_collection_name"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "class",
-      "line": 2437,
+      "line": 2485,
       "name": "RenameCollectionDialog"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "function",
-      "line": 2439,
+      "line": 2487,
       "name": "__init__"
     },
     {
@@ -18052,19 +18124,19 @@
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7629,
+      "line": 7655,
       "name": "_on_remove"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7642,
+      "line": 7668,
       "name": "_on_export"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7651,
+      "line": 7677,
       "name": "_on_import"
     },
     {

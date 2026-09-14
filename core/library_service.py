@@ -164,9 +164,17 @@ class LibraryService:
     def restore_game(self, game_id: int) -> bool:
         return bool(self.database.restore_game(int(game_id)))
 
+    def remove_from_archive(self, game_id: int) -> bool:
+        """Restore an archived record to the active library projection."""
+        return bool(self.database.restore_game(int(game_id)))
+
     def remove_game(self, game_id: int) -> bool:
         """Remove a local library row while preserving database authority."""
         return bool(self.database.remove_game(int(game_id)))
+
+    def delete_all_game_data(self, game_id: int) -> bool:
+        """Purge one game's local record, history, achievements, and sessions."""
+        return bool(self.database.delete_all_game_data(int(game_id)))
 
     def update_runtime_settings(
         self,

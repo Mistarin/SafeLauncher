@@ -7566,17 +7566,27 @@ class MainWindow(QMainWindow):
         if not game:
             return False
         action = str(action or "").strip().lower()
-        if action not in {"remove_library", "remove_disk", "archive"}:
+        if action not in {"remove_library", "remove_from_archive", "remove_disk", "archive", "delete_all_data"}:
             logger.warning(f"Ignoring unknown game lifecycle action: {action!r}")
             return False
 
         game_id = int(game[0])
         game_name = str(game[1] or "Game")
+        library_service = MainWindow._get_library_service(self)
+        if action == "remove_from_archive":
+            restored = library_service.remove_from_archive(game_id) if library_service else False
+            if not restored:
+                self._show_toast(f"Could not remove '{game_name}' from the archive.", is_error=True)
+                return False
+            self._finish_game_lifecycle_change(game_id)
+            if hasattr(self, "_sync_launcher_metadata_async"):
+                self._sync_launcher_metadata_async(game_id)
+            self._show_toast(f"Removed '{game_name}' from the archive and restored it to the library.")
+            return True
         if action == "archive":
             # Call through MainWindow so lightweight compatibility hosts that
             # invoke this helper without inheriting the class still receive
             # the same service boundary.
-            library_service = MainWindow._get_library_service(self)
             archived = library_service.archive_game(game_id) if library_service else False
             if not archived:
                 self._show_toast(f"Could not archive '{game_name}'.", is_error=True)
@@ -7599,16 +7609,32 @@ class MainWindow(QMainWindow):
                 "The record and statistics were preserved."
             )
         elif action == "remove_library":
-            if not self.library_service.remove_game(game_id):
+            if not library_service or not library_service.remove_game(game_id):
                 self._show_toast(f"Could not remove '{game_name}' from the library.", is_error=True)
                 return False
             self._show_toast(f"Removed '{game_name}' from the library. Files were kept on disk.")
+        elif action == "delete_all_data":
+            game_path = game[2] if len(game) > 2 else ""
+            if game_path:
+                deleted, error = self._remove_game_files_from_disk(game_path)
+                if not deleted:
+                    self._show_toast(error, is_error=True)
+                    return False
+            if not library_service or not library_service.delete_all_game_data(game_id):
+                self._show_toast(
+                    f"Could not delete all local data for '{game_name}'.",
+                    is_error=True,
+                )
+                return False
+            self._show_toast(
+                f"Deleted all local data for '{game_name}'. Remote cloud-save generations were kept."
+            )
         else:
             deleted, error = self._remove_game_files_from_disk(game[2] if len(game) > 2 else "")
             if not deleted:
                 self._show_toast(error, is_error=True)
                 return False
-            if not self.library_service.remove_game(game_id):
+            if not library_service or not library_service.remove_game(game_id):
                 # This is rare, but the user must know that the filesystem
                 # action completed while the database action did not.
                 logger.error(f"Game files removed but database row {game_id} could not be removed")
@@ -7622,7 +7648,7 @@ class MainWindow(QMainWindow):
         self._finish_game_lifecycle_change(game_id)
         if action == "archive" and hasattr(self, "_sync_launcher_metadata_async"):
             self._sync_launcher_metadata_async(game_id)
-        elif hasattr(self, "_sync_profile_metadata_async"):
+        elif action != "delete_all_data" and hasattr(self, "_sync_profile_metadata_async"):
             self._sync_profile_metadata_async()
         return True
 

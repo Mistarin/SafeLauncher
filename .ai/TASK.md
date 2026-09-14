@@ -29,3 +29,9 @@ Legacy non-Steam identities are now canonicalized to one `local:<slug>` form.
 `GameDatabase` repairs rows created by the old `local:local-<slug>` derivation
 at startup and during profile application, merging dependent achievements,
 playtime sessions, and profile history before removing redundant archived rows.
+
+Game lifecycle actions now distinguish restoring an archived record from
+deleting all local data. The destructive action requires confirmation, removes
+registered files with the existing symlink/protected-path guard, purges local
+history and ledgers, and intentionally leaves remote cloud-save generations
+for separate explicit management.

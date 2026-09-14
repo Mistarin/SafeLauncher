@@ -1,8 +1,8 @@
 {
   "files": [
     {
-      "bytes": 4189,
-      "lines": 77,
+      "bytes": 4530,
+      "lines": 82,
       "path": ".ai/ARCHITECTURE.md",
       "suffix": ".md"
     },
@@ -19,7 +19,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 11493,
+      "bytes": 11523,
       "lines": 86,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
@@ -31,8 +31,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 1738,
-      "lines": 32,
+      "bytes": 2079,
+      "lines": 38,
       "path": ".ai/TASK.md",
       "suffix": ".md"
     },
@@ -1069,8 +1069,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 11863,
-      "lines": 311,
+      "bytes": 12269,
+      "lines": 319,
       "path": "core/library_service.py",
       "suffix": ".py"
     },
@@ -1339,8 +1339,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 100244,
-      "lines": 1918,
+      "bytes": 102412,
+      "lines": 1960,
       "path": "database.py",
       "suffix": ".py"
     },
@@ -1759,8 +1759,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 56241,
-      "lines": 1182,
+      "bytes": 59225,
+      "lines": 1247,
       "path": "tests/test_profile.py",
       "suffix": ".py"
     },
@@ -1969,8 +1969,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 104547,
-      "lines": 2445,
+      "bytes": 106498,
+      "lines": 2493,
       "path": "ui/dialogs/game_dialogs.py",
       "suffix": ".py"
     },
@@ -2029,8 +2029,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 363072,
-      "lines": 7660,
+      "bytes": 364539,
+      "lines": 7686,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2065,5 +2065,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T19:35:19+00:00"
+  "generated_at": "2026-09-14T20:03:47+00:00"
 }

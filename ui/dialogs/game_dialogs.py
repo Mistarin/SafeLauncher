@@ -2072,7 +2072,7 @@ class CustomRemoveDialog(PopupDialog):
             }
         """)
 
-        self.choice = None  # 'remove_library', 'remove_disk', 'archive', or None
+        self.choice = None  # lifecycle action identifier or None
 
         layout = self.popup_layout(margins=(22, 20, 22, 20), spacing=14)
 
@@ -2088,7 +2088,12 @@ class CustomRemoveDialog(PopupDialog):
         btn_box = QVBoxLayout()
         btn_box.setSpacing(10)
 
-        btn_library = QPushButton(" Remove from Library (Keep Files on Disk)")
+        library_label = (
+            " Remove from Archive (Restore to Library)"
+            if is_archived else
+            " Remove from Library (Keep Files on Disk)"
+        )
+        btn_library = QPushButton(library_label)
         btn_library.setIcon(get_icon("ph.minus-circle-bold", color="#E5A93D"))
         btn_library.setStyleSheet("""
             QPushButton {
@@ -2103,9 +2108,13 @@ class CustomRemoveDialog(PopupDialog):
             }
         """)
         btn_library.setToolTip(
+            "Restore this archived record to the active library without deleting its history."
+            if is_archived else
             "Remove the SafeLauncher record but leave the game files and profile history untouched."
         )
-        btn_library.clicked.connect(self._select_remove_library)
+        btn_library.clicked.connect(
+            self._select_remove_from_archive if is_archived else self._select_remove_library
+        )
 
         btn_disk = QPushButton(" Remove from Disk (Delete Files & Record)")
         btn_disk.setIcon(get_icon("ph.trash-bold", color="#F05D6C"))
@@ -2148,6 +2157,26 @@ class CustomRemoveDialog(PopupDialog):
         else:
             btn_archive.clicked.connect(self._select_archive)
 
+        btn_delete_all = QPushButton(" Delete All Local Data")
+        btn_delete_all.setIcon(get_icon("ph.warning-bold", color="#FF7A85"))
+        btn_delete_all.setToolTip(
+            "Permanently delete the local record, achievements, playtime, and profile history. "
+            "Remote cloud-save generations are not deleted by this action."
+        )
+        btn_delete_all.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(180, 35, 52, 0.12);
+                color: #FF7A85;
+                border: 1px solid rgba(240, 93, 108, 0.42);
+            }
+            QPushButton:hover {
+                background-color: rgba(240, 93, 108, 0.24);
+                border-color: #FF7A85;
+                color: #FFFFFF;
+            }
+        """)
+        btn_delete_all.clicked.connect(self._select_delete_all_data)
+
         btn_cancel = QPushButton("Cancel")
         btn_cancel.setStyleSheet("""
             QPushButton {
@@ -2166,11 +2195,16 @@ class CustomRemoveDialog(PopupDialog):
         btn_box.addWidget(btn_library)
         btn_box.addWidget(btn_disk)
         btn_box.addWidget(btn_archive)
+        btn_box.addWidget(btn_delete_all)
         btn_box.addWidget(btn_cancel)
         layout.addLayout(btn_box)
 
     def _select_remove_library(self):
         self.choice = 'remove_library'
+        self.accept()
+
+    def _select_remove_from_archive(self):
+        self.choice = 'remove_from_archive'
         self.accept()
 
     def _select_remove_disk(self):
@@ -2196,6 +2230,20 @@ class CustomRemoveDialog(PopupDialog):
         ) != QMessageBox.StandardButton.Yes:
             return
         self.choice = 'archive'
+        self.accept()
+
+    def _select_delete_all_data(self):
+        if QMessageBox.warning(
+            self,
+            "Delete all local data?",
+            "This permanently deletes the local library record, achievements, playtime, "
+            "profile history, and any registered game files. Remote cloud-save generations "
+            "are not deleted by this action. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.choice = 'delete_all_data'
         self.accept()
 
 

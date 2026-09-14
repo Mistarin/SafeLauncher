@@ -297,6 +297,33 @@ class ProfileModelTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_delete_all_game_data_purges_local_projection_and_history(self):
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game("Purge Game", "/private/purge/path", "game.exe", "umu", steam_id="67890")
+            db.add_playtime(game_id, 900)
+            db.create_playtime_session(game_id, started_at=100, session_id="purge-session")
+            db.checkpoint_playtime_session("purge-session", 120, finalized=True, ended_at=220)
+            db.toggle_favorite(game_id)
+            db.save_achievement_schema(game_id, "67890", [{"api_name": "PURGE_ME", "display_name": "Purge me"}])
+            db.record_achievement_state(game_id, "67890", {"PURGE_ME": 1_700_000_001})
+
+            self.assertTrue(db.delete_all_game_data(game_id))
+            self.assertEqual(db.get_all_games(), [])
+            self.assertEqual(db.get_profile_games(), [])
+            self.assertEqual(db.get_profile_unlock_records(), {})
+            self.assertEqual(db.get_playtime_sessions(game_id), [])
+            self.assertEqual(
+                db.conn.execute("SELECT COUNT(*) FROM achievements WHERE game_id = ?", (game_id,)).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                db.conn.execute("SELECT COUNT(*) FROM achievement_profile WHERE app_id = '67890'").fetchone()[0],
+                0,
+            )
+        finally:
+            db.close()
+
     def test_disk_removal_guard_rejects_root_symlink_and_deletes_only_target(self):
         from ui.main_window import MainWindow
 
@@ -354,6 +381,44 @@ class ProfileModelTests(unittest.TestCase):
                 self.assertTrue(archived[17])
                 self.assertEqual(archived[7], 3600)
                 self.assertTrue(archived[8])
+                self.assertFalse(game_path.exists())
+                self.assertEqual(host.finished, [game_id])
+                self.assertFalse(host.toasts[-1][1])
+        finally:
+            db.close()
+
+    def test_delete_all_data_action_removes_files_and_local_record(self):
+        from ui.main_window import MainWindow
+
+        class LifecycleHost:
+            def __init__(self, db):
+                self.db = db
+                self.finished = []
+                self.toasts = []
+
+            @staticmethod
+            def _remove_game_files_from_disk(path):
+                return MainWindow._remove_game_files_from_disk(path)
+
+            def _finish_game_lifecycle_change(self, game_id):
+                self.finished.append(game_id)
+
+            def _show_toast(self, message, is_error=False):
+                self.toasts.append((message, is_error))
+
+        db = GameDatabase(":memory:")
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                game_path = Path(directory) / "purge-game"
+                game_path.mkdir()
+                (game_path / "save.dat").write_text("save", encoding="utf-8")
+                game_id = db.add_game("Purge Game", str(game_path), "game.exe", "umu", steam_id="78902")
+                db.toggle_favorite(game_id)
+                host = LifecycleHost(db)
+
+                self.assertTrue(MainWindow._apply_game_lifecycle_action(host, db.get_all_games()[0], "delete_all_data"))
+                self.assertEqual(db.get_all_games(), [])
+                self.assertEqual(db.get_profile_games(), [])
                 self.assertFalse(game_path.exists())
                 self.assertEqual(host.finished, [game_id])
                 self.assertFalse(host.toasts[-1][1])

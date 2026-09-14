@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T19:35:19+00:00",
+  "generated_at": "2026-09-14T20:03:47+00:00",
   "imports": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -4189,7 +4189,7 @@
     {
       "file": "database.py",
       "import": "core.achievement_models",
-      "line": 1543
+      "line": 1585
     },
     {
       "file": "main.py",
@@ -5999,12 +5999,17 @@
     {
       "file": "tests/test_profile.py",
       "import": "ui.main_window",
-      "line": 301
+      "line": 328
     },
     {
       "file": "tests/test_profile.py",
       "import": "ui.main_window",
-      "line": 322
+      "line": 349
+    },
+    {
+      "file": "tests/test_profile.py",
+      "import": "ui.main_window",
+      "line": 391
     },
     {
       "file": "tests/test_profile_resource_service.py",

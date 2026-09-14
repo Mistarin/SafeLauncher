@@ -27,25 +27,25 @@
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 39,
+      "line": 44,
       "value": "RequestManager"
     },
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 40,
+      "line": 45,
       "value": "ResourceCache"
     },
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 53,
+      "line": 58,
       "value": "CloudMetadataSync"
     },
     {
       "file": ".ai/ARCHITECTURE.md",
       "kind": "architecture_symbol",
-      "line": 62,
+      "line": 67,
       "value": "RequestManager"
     },
     {
@@ -5679,73 +5679,79 @@
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2108,
+      "line": 2115,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2125,
+      "line": 2134,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2149,
+      "line": 2158,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2164,
+      "line": 2178,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2275,
+      "line": 2193,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2307,
+      "line": 2323,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2309,
+      "line": 2355,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2315,
+      "line": 2357,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2320,
+      "line": 2363,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2373,
+      "line": 2368,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2395,
+      "line": 2421,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "kind": "qt_connection",
-      "line": 2413,
+      "line": 2443,
+      "value": "connect"
+    },
+    {
+      "file": "ui/dialogs/game_dialogs.py",
+      "kind": "qt_connection",
+      "line": 2461,
       "value": "connect"
     },
     {
@@ -8485,5 +8491,5 @@
       "value": "cancel"
     }
   ],
-  "generated_at": "2026-09-14T19:35:19+00:00"
+  "generated_at": "2026-09-14T20:03:47+00:00"
 }
