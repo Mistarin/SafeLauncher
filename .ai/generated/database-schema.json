@@ -1,0 +1,379 @@
+{
+  "generated_at": "2026-09-14T02:59:45+00:00",
+  "schema": [
+    {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "TEXT"
+        },
+        {
+          "name": "path",
+          "type": "TEXT"
+        },
+        {
+          "name": "executable",
+          "type": "TEXT"
+        },
+        {
+          "name": "mode",
+          "type": "TEXT"
+        },
+        {
+          "name": "banner_url",
+          "type": "TEXT"
+        },
+        {
+          "name": "steam_id",
+          "type": "TEXT"
+        }
+      ],
+      "line": 249,
+      "table": "games"
+    },
+    {
+      "columns": [
+        {
+          "name": "name",
+          "type": "TEXT"
+        }
+      ],
+      "line": 298,
+      "table": "collections"
+    },
+    {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "game_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "app_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "api_name",
+          "type": "TEXT"
+        },
+        {
+          "name": "display_name",
+          "type": "TEXT"
+        },
+        {
+          "name": "description",
+          "type": "TEXT"
+        },
+        {
+          "name": "icon_path",
+          "type": "TEXT"
+        },
+        {
+          "name": "icongray_path",
+          "type": "TEXT"
+        },
+        {
+          "name": "unlocked",
+          "type": "INTEGER"
+        },
+        {
+          "name": "unlock_time",
+          "type": "REAL"
+        },
+        {
+          "name": "hidden",
+          "type": "INTEGER"
+        }
+      ],
+      "line": 304,
+      "table": "achievements"
+    },
+    {
+      "columns": [
+        {
+          "name": "app_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "api_name",
+          "type": "TEXT"
+        },
+        {
+          "name": "unlock_time",
+          "type": "REAL"
+        },
+        {
+          "name": "first_seen_at",
+          "type": "REAL"
+        },
+        {
+          "name": "last_seen_at",
+          "type": "REAL"
+        },
+        {
+          "name": "provenance",
+          "type": "TEXT"
+        },
+        {
+          "name": "verified",
+          "type": "INTEGER"
+        },
+        {
+          "name": "validation_state",
+          "type": "TEXT"
+        },
+        {
+          "name": "source_format",
+          "type": "TEXT"
+        },
+        {
+          "name": "source_path",
+          "type": "TEXT"
+        }
+      ],
+      "line": 336,
+      "table": "achievement_profile"
+    },
+    {
+      "columns": [
+        {
+          "name": "identity_key",
+          "type": "TEXT"
+        },
+        {
+          "name": "app_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "favorite",
+          "type": "INTEGER"
+        },
+        {
+          "name": "favorite_changed_at",
+          "type": "REAL"
+        },
+        {
+          "name": "favorite_change_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "playtime_baseline_seconds",
+          "type": "INTEGER"
+        },
+        {
+          "name": "last_played",
+          "type": "INTEGER"
+        },
+        {
+          "name": "first_seen_at",
+          "type": "REAL"
+        }
+      ],
+      "line": 394,
+      "table": "profile_games"
+    },
+    {
+      "columns": [
+        {
+          "name": "session_id",
+          "type": "TEXT"
+        },
+        {
+          "name": "game_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "started_at",
+          "type": "INTEGER"
+        },
+        {
+          "name": "ended_at",
+          "type": "INTEGER"
+        },
+        {
+          "name": "duration_seconds",
+          "type": "INTEGER"
+        },
+        {
+          "name": "finalized",
+          "type": "INTEGER"
+        },
+        {
+          "name": "updated_at",
+          "type": "INTEGER"
+        }
+      ],
+      "line": 408,
+      "table": "playtime_sessions"
+    },
+    {
+      "added_column": "banner_url",
+      "line": 265,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "steam_id",
+      "line": 267,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "playtime_seconds",
+      "line": 269,
+      "table": "games",
+      "type": "INTEGER"
+    },
+    {
+      "added_column": "is_favorite",
+      "line": 271,
+      "table": "games",
+      "type": "INTEGER"
+    },
+    {
+      "added_column": "last_played",
+      "line": 273,
+      "table": "games",
+      "type": "INTEGER"
+    },
+    {
+      "added_column": "tags",
+      "line": 275,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "build_id",
+      "line": 277,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "proton_path",
+      "line": 279,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "collection",
+      "line": 281,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "install_date",
+      "line": 283,
+      "table": "games",
+      "type": "INTEGER"
+    },
+    {
+      "added_column": "version_override",
+      "line": 285,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "patch_notes_url",
+      "line": 287,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "is_archived",
+      "line": 289,
+      "table": "games",
+      "type": "INTEGER"
+    },
+    {
+      "added_column": "icon_url",
+      "line": 291,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "env_vars",
+      "line": 293,
+      "table": "games",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "build_date",
+      "line": 295,
+      "table": "games",
+      "type": "INTEGER"
+    },
+    {
+      "added_column": "unlock_provenance",
+      "line": 325,
+      "table": "achievements",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "unlock_verified",
+      "line": 327,
+      "table": "achievements",
+      "type": "INTEGER"
+    },
+    {
+      "added_column": "unlock_source_format",
+      "line": 329,
+      "table": "achievements",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "unlock_source_path",
+      "line": 331,
+      "table": "achievements",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "notification_sent",
+      "line": 333,
+      "table": "achievements",
+      "type": "INTEGER"
+    },
+    {
+      "added_column": "last_seen_at",
+      "line": 354,
+      "table": "achievement_profile",
+      "type": "REAL"
+    },
+    {
+      "added_column": "provenance",
+      "line": 356,
+      "table": "achievement_profile",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "verified",
+      "line": 358,
+      "table": "achievement_profile",
+      "type": "INTEGER"
+    },
+    {
+      "added_column": "validation_state",
+      "line": 360,
+      "table": "achievement_profile",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "source_format",
+      "line": 362,
+      "table": "achievement_profile",
+      "type": "TEXT"
+    },
+    {
+      "added_column": "source_path",
+      "line": 364,
+      "table": "achievement_profile",
+      "type": "TEXT"
+    }
+  ]
+}

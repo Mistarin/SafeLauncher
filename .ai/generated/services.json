@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-09-14T02:59:45+00:00",
+  "routes": [
+    {
+      "file": "services/profile_cloud/convex/http.ts",
+      "line": 205,
+      "route": "/api/health"
+    },
+    {
+      "file": "services/profile_cloud/convex/http.ts",
+      "line": 213,
+      "route": "/api/profile/v2/avatars"
+    },
+    {
+      "file": "services/profile_cloud/convex/http.ts",
+      "line": 261,
+      "route": "/api/telemetry/ping"
+    },
+    {
+      "file": "services/profile_cloud/convex/http.ts",
+      "line": 289,
+      "route": "/api/profile/v2/me"
+    },
+    {
+      "file": "services/profile_cloud/convex/http.ts",
+      "line": 444,
+      "route": "/api/profile/v2/me/claim"
+    },
+    {
+      "file": "services/profile_cloud/convex/http.ts",
+      "line": 462,
+      "route": "/api/profile/v1"
+    },
+    {
+      "file": "services/profile_cloud/convex/http.ts",
+      "line": 732,
+      "route": "http.route"
+    }
+  ]
+}

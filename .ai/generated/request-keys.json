@@ -1,0 +1,475 @@
+{
+  "generated_at": "2026-09-14T02:59:45+00:00",
+  "request_keys": [
+    {
+      "file": "core/achievement_schema.py",
+      "line": 265,
+      "resource": "achievement-icons"
+    },
+    {
+      "file": "core/steam_build_tracker.py",
+      "line": 112,
+      "resource": "steam-build"
+    },
+    {
+      "file": "core/steam_tags.py",
+      "line": 33,
+      "resource": "steam-tags"
+    },
+    {
+      "file": "docs/request_manager.md",
+      "line": 33,
+      "resource": "steam-build"
+    },
+    {
+      "file": "docs/request_manager.md",
+      "line": 34,
+      "resource": "profile-artwork"
+    },
+    {
+      "file": "docs/request_manager.md",
+      "line": 35,
+      "resource": "cloud-save-status"
+    },
+    {
+      "file": "tests/test_request_contracts.py",
+      "line": 24,
+      "resource": "artwork"
+    },
+    {
+      "file": "tests/test_request_contracts.py",
+      "line": 29,
+      "resource": "artwork"
+    },
+    {
+      "file": "tests/test_request_contracts.py",
+      "line": 32,
+      "resource": "library"
+    },
+    {
+      "file": "tests/test_request_contracts.py",
+      "line": 47,
+      "resource": "library"
+    },
+    {
+      "file": "tests/test_request_contracts.py",
+      "line": 81,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 28,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 44,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 49,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 52,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 75,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 93,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 108,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 118,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 134,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 135,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 168,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 168,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 191,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 191,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 200,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 208,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 220,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 248,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 249,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 273,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 299,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 320,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 328,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 347,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 371,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_binding.py",
+      "line": 33,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_binding.py",
+      "line": 60,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 18,
+      "resource": "asset"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 28,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 29,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 30,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 31,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 36,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 45,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 56,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 73,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 92,
+      "resource": "library"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 112,
+      "resource": "library"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 1084,
+      "resource": "profile-background"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 1154,
+      "resource": "profile-background"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 1227,
+      "resource": "profile-background"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 1514,
+      "resource": "profile-artwork"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 1535,
+      "resource": "profile-artwork"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 1548,
+      "resource": "profile-artwork"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 1646,
+      "resource": "profile-artwork"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 1927,
+      "resource": "profile-social"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 1992,
+      "resource": "profile-social-mutation"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 2235,
+      "resource": "profile-avatar-batch"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 2442,
+      "resource": "profile-handle-availability"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 2595,
+      "resource": "profile-sign-in"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 2785,
+      "resource": "profile-avatar-catalog"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 2925,
+      "resource": "profile-publish"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 3000,
+      "resource": "profile-unpublish"
+    },
+    {
+      "file": "ui/components/profile_page.py",
+      "line": 3052,
+      "resource": "profile-private-resync"
+    },
+    {
+      "file": "ui/dialogs/account_dialog.py",
+      "line": 263,
+      "resource": "cloud-account-task"
+    },
+    {
+      "file": "ui/dialogs/achievements_dialog.py",
+      "line": 841,
+      "resource": "achievement-resolution"
+    },
+    {
+      "file": "ui/dialogs/friends_dialog.py",
+      "line": 305,
+      "resource": "friends-dialog-refresh"
+    },
+    {
+      "file": "ui/dialogs/friends_dialog.py",
+      "line": 399,
+      "resource": "friends-dialog-mutation"
+    },
+    {
+      "file": "ui/dialogs/game_dialogs.py",
+      "line": 537,
+      "resource": "artwork-search"
+    },
+    {
+      "file": "ui/dialogs/game_dialogs.py",
+      "line": 651,
+      "resource": "artwork-banner"
+    },
+    {
+      "file": "ui/dialogs/settings_dialog.py",
+      "line": 1576,
+      "resource": "settings-task"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 2820,
+      "resource": "artwork-auto"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 2994,
+      "resource": "artwork-hero"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 3056,
+      "resource": "artwork-icon"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 3134,
+      "resource": "window-task"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 3887,
+      "resource": "steam-build"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 4055,
+      "resource": "steam-build"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 4161,
+      "resource": "steam-tags"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 5866,
+      "resource": "public-profile"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 5946,
+      "resource": "cloud-profile"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 6321,
+      "resource": "cloud-game-metadata"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 6711,
+      "resource": "cloud-save-status"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 7028,
+      "resource": "achievement-status"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 7088,
+      "resource": "achievement-status"
+    },
+    {
+      "file": "ui/threads.py",
+      "line": 35,
+      "resource": "artwork-search"
+    },
+    {
+      "file": "ui/threads.py",
+      "line": 98,
+      "resource": "artwork-banner"
+    },
+    {
+      "file": "ui/threads.py",
+      "line": 137,
+      "resource": "artwork-auto"
+    },
+    {
+      "file": "ui/threads.py",
+      "line": 386,
+      "resource": "artwork-hero"
+    },
+    {
+      "file": "ui/threads.py",
+      "line": 425,
+      "resource": "artwork-icon"
+    },
+    {
+      "file": "ui/threads.py",
+      "line": 464,
+      "resource": "cloud-save-status"
+    },
+    {
+      "file": "ui/threads.py",
+      "line": 548,
+      "resource": "cloud-save-status"
+    },
+    {
+      "file": "ui/threads.py",
+      "line": 677,
+      "resource": "achievement-status"
+    },
+    {
+      "file": "ui/threads.py",
+      "line": 797,
+      "resource": "achievement-status"
+    }
+  ]
+}
