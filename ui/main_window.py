@@ -4423,7 +4423,7 @@ class MainWindow(QMainWindow):
         """Repair archived/cloud-only Steam titles through cached App Details."""
         if self.request_manager is None or not hasattr(self, "steam_resource_service"):
             return
-        for game in self.db.get_all_games():
+        for game in self.library_service.read_games():
             app_id = str(game.steam_id or "").strip()
             if not app_id or app_id == "0" or not is_placeholder_game_name(game.name, app_id):
                 continue
@@ -4455,10 +4455,10 @@ class MainWindow(QMainWindow):
             if name:
                 app_id = key.identity.rsplit(":", 1)[-1]
                 changed = False
-                for game in self.db.get_all_games():
+                for game in self.library_service.read_games():
                     if str(game.steam_id or "").strip() != app_id:
                         continue
-                    changed = self.db.update_game_name_from_metadata(game.id, name) or changed
+                    changed = self.library_service.apply_metadata_name(game.id, name) or changed
                 if changed:
                     self._refresh_library()
             return

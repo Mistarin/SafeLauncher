@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T21:26:19+00:00",
+  "generated_at": "2026-09-14T21:36:20+00:00",
   "symbols": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -160,43 +160,43 @@
     {
       "file": "ci/security_audit.py",
       "kind": "function",
-      "line": 111,
+      "line": 114,
       "name": "tracked_paths"
     },
     {
       "file": "ci/security_audit.py",
       "kind": "function",
-      "line": 121,
+      "line": 124,
       "name": "read_text"
     },
     {
       "file": "ci/security_audit.py",
       "kind": "function",
-      "line": 131,
+      "line": 134,
       "name": "is_release_input"
     },
     {
       "file": "ci/security_audit.py",
       "kind": "function",
-      "line": 136,
+      "line": 139,
       "name": "line_number"
     },
     {
       "file": "ci/security_audit.py",
       "kind": "function",
-      "line": 140,
+      "line": 143,
       "name": "historical_commits"
     },
     {
       "file": "ci/security_audit.py",
       "kind": "function",
-      "line": 151,
+      "line": 154,
       "name": "audit_history"
     },
     {
       "file": "ci/security_audit.py",
       "kind": "function",
-      "line": 218,
+      "line": 221,
       "name": "main"
     },
     {
@@ -4511,36 +4511,42 @@
       "file": "core/library_service.py",
       "kind": "function",
       "line": 232,
+      "name": "apply_metadata_name"
+    },
+    {
+      "file": "core/library_service.py",
+      "kind": "function",
+      "line": 239,
       "name": "upsert_game"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 265,
+      "line": 272,
       "name": "set_build_reference"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 271,
+      "line": 278,
       "name": "set_artwork_identity"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 288,
+      "line": 295,
       "name": "set_tags"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 291,
+      "line": 298,
       "name": "record_playtime_finished"
     },
     {
       "file": "core/library_service.py",
       "kind": "function",
-      "line": 297,
+      "line": 304,
       "name": "checkpoint_playtime_session"
     },
     {
@@ -9798,6 +9804,12 @@
       "kind": "function",
       "line": 76,
       "name": "test_launch_adjacent_mutations_stay_inside_library_service"
+    },
+    {
+      "file": "tests/test_library_service.py",
+      "kind": "function",
+      "line": 111,
+      "name": "test_verified_metadata_name_update_stays_inside_library_service"
     },
     {
       "file": "tests/test_library_steam_metadata_coordinator.py",

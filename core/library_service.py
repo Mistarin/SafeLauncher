@@ -229,6 +229,13 @@ class LibraryService:
                 str(patch_notes_url or ""),
             )
 
+    def apply_metadata_name(self, game_id: int, name: str) -> bool:
+        """Apply one verified remote display name to the local projection."""
+        value = str(name or "").strip()
+        if not value:
+            return False
+        return bool(self.database.update_game_name_from_metadata(int(game_id), value))
+
     def upsert_game(
         self,
         name: str,

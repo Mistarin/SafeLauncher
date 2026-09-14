@@ -83,7 +83,7 @@ class CloudCenterServiceTests(unittest.TestCase):
     def _context(*, network_allowed=True, generation=3):
         return CloudContext(
             mode="convex",
-            endpoint="https://private.example.convex.site",
+            endpoint="https://cloud.invalid",
             fingerprint="opaque-account-fingerprint",
             generation=generation,
             network_allowed=network_allowed,

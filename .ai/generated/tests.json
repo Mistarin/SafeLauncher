@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T21:26:19+00:00",
+  "generated_at": "2026-09-14T21:36:20+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -684,6 +684,12 @@
       "kind": "test",
       "line": 75,
       "name": "test_launch_adjacent_mutations_stay_inside_library_service"
+    },
+    {
+      "file": "tests/test_library_service.py",
+      "kind": "test",
+      "line": 110,
+      "name": "test_verified_metadata_name_update_stays_inside_library_service"
     },
     {
       "file": "tests/test_library_service.py",

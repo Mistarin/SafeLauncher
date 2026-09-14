@@ -108,6 +108,17 @@ class LibraryServiceTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_verified_metadata_name_update_stays_inside_library_service(self):
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game("Steam App 480", "", "", "steam", "", "480")
+            service = LibraryService(db, LibraryStateStore())
+            self.assertFalse(service.apply_metadata_name(game_id, ""))
+            self.assertTrue(service.apply_metadata_name(game_id, "Spacewar"))
+            self.assertEqual(db.get_all_games()[0][1], "Spacewar")
+        finally:
+            db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

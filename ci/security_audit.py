@@ -80,6 +80,9 @@ ALLOWED_HISTORICAL_CONVEX_HOSTS = {
     "moonlit-sockeye-565.convex.site",
     "moonlit-sockeye-565.eu-west-1.convex.site",
     "quiet-rooster-847.eu-west-1.convex.site",
+    # Historical test fixture from the Cloud Center implementation; it was
+    # never a deployment origin or credential-bearing value.
+    "private.example.convex.site",
 }
 PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
 TOKEN_LIKE = re.compile(

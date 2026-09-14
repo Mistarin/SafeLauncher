@@ -25,7 +25,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 4705,
+      "bytes": 4556,
       "lines": 60,
       "path": ".ai/STATUS.md",
       "suffix": ".md"
@@ -313,6 +313,12 @@
       "suffix": ".md"
     },
     {
+      "bytes": 1433,
+      "lines": 30,
+      "path": ".ai/phase-10-status.md",
+      "suffix": ".md"
+    },
+    {
       "bytes": 2211,
       "lines": 32,
       "path": ".ai/phase-2-status.md",
@@ -370,6 +376,12 @@
       "bytes": 4597,
       "lines": 84,
       "path": ".ai/phase-8-status.md",
+      "suffix": ".md"
+    },
+    {
+      "bytes": 1425,
+      "lines": 33,
+      "path": ".ai/phase-9-status.md",
       "suffix": ".md"
     },
     {
@@ -715,8 +727,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 10538,
-      "lines": 290,
+      "bytes": 10709,
+      "lines": 293,
       "path": "ci/security_audit.py",
       "suffix": ".py"
     },
@@ -1075,8 +1087,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 12269,
-      "lines": 319,
+      "bytes": 12590,
+      "lines": 326,
       "path": "core/library_service.py",
       "suffix": ".py"
     },
@@ -1627,7 +1639,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 6567,
+      "bytes": 6553,
       "lines": 180,
       "path": "tests/test_cloud_center_service.py",
       "suffix": ".py"
@@ -1717,8 +1729,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 5064,
-      "lines": 114,
+      "bytes": 5592,
+      "lines": 125,
       "path": "tests/test_library_service.py",
       "suffix": ".py"
     },
@@ -2053,7 +2065,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 376626,
+      "bytes": 376648,
       "lines": 7950,
       "path": "ui/main_window.py",
       "suffix": ".py"
@@ -2089,5 +2101,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T21:26:19+00:00"
+  "generated_at": "2026-09-14T21:36:20+00:00"
 }

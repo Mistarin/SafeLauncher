@@ -4,9 +4,9 @@
     "imports": 1943,
     "request_keys": 77,
     "service_routes": 7,
-    "symbols": 3227,
+    "symbols": 3229,
     "tables": 34,
-    "tests": 275
+    "tests": 276
   },
   "excluded_runtime_data": [
     ".git",
@@ -17,7 +17,7 @@
     ".ai/generated",
     ".ai/manifest.json"
   ],
-  "generated_at": "2026-09-14T21:26:19+00:00",
+  "generated_at": "2026-09-14T21:36:20+00:00",
   "generated_files": [
     "connections.json",
     "database-schema.json",
@@ -31,5 +31,5 @@
   ],
   "repository": "SafeLauncher",
   "schema_version": 1,
-  "source_file_count": 348
+  "source_file_count": 350
 }
