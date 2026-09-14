@@ -35,6 +35,7 @@ from core.save_validation import (
     validate_save_locations,
 )
 from core.zip_backup import ZipBackupManager, _MANIFEST_NAME
+from core.save_history import history_device_metadata
 from database import _APP_DATA_DIR
 from core.logger import get_logger
 
@@ -1268,6 +1269,7 @@ class CloudSaveSyncEngine:
                         "mtime": v_mtime,
                         "size_bytes": int(v.get("sizeBytes", 0)),
                         "is_active": is_active,
+                        **history_device_metadata(v),
                         "raw": v,
                     })
 

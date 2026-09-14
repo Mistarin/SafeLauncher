@@ -35,6 +35,7 @@ from core.zip_backup import ZipBackupManager
 from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
+from core.save_history import history_device_text
 from ui.resource_binding import ResourceBinding, bind_request
 
 logger = get_logger("SaveManagerDialog")
@@ -1018,8 +1019,13 @@ class SaveManagerDialog(PopupDialog):
             active_badge = " · [Active on this PC]" if is_active else ""
 
             title = v.get("display_name", f"Save {v_num}")
-            item = QListWidgetItem(f"{title}\nDate: {date_str}  ·  Size: {sz_str}{active_badge}")
-            item.setToolTip(f"{title}\nDate: {date_str}\nSize: {sz_str}")
+            device_str = history_device_text(v)
+            item = QListWidgetItem(
+                f"{title}\nDate: {date_str}  ·  Size: {sz_str}  ·  {device_str}{active_badge}"
+            )
+            item.setToolTip(
+                f"{title}\nDate: {date_str}\nSize: {sz_str}\nDevice: {device_str}"
+            )
             item.setData(Qt.ItemDataRole.UserRole, v)
             self.lst_history.addItem(item)
 

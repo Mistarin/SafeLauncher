@@ -25,8 +25,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 4917,
-      "lines": 65,
+      "bytes": 5181,
+      "lines": 69,
       "path": ".ai/STATUS.md",
       "suffix": ".md"
     },
@@ -865,8 +865,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 28772,
-      "lines": 709,
+      "bytes": 29179,
+      "lines": 716,
       "path": "core/cloud_backend.py",
       "suffix": ".py"
     },
@@ -937,8 +937,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 61641,
-      "lines": 1308,
+      "bytes": 61749,
+      "lines": 1310,
       "path": "core/cloud_save_sync.py",
       "suffix": ".py"
     },
@@ -1258,6 +1258,12 @@
       "bytes": 2700,
       "lines": 76,
       "path": "core/save_crypto.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 2139,
+      "lines": 61,
+      "path": "core/save_history.py",
       "suffix": ".py"
     },
     {
@@ -1837,6 +1843,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 1714,
+      "lines": 46,
+      "path": "tests/test_save_history.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 6635,
       "lines": 164,
       "path": "tests/test_security_and_threads.py",
@@ -2011,8 +2023,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 58685,
-      "lines": 1278,
+      "bytes": 58807,
+      "lines": 1280,
       "path": "ui/dialogs/game_properties_dialog.py",
       "suffix": ".py"
     },
@@ -2035,8 +2047,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 56146,
-      "lines": 1343,
+      "bytes": 56344,
+      "lines": 1349,
       "path": "ui/dialogs/save_manager_dialog.py",
       "suffix": ".py"
     },
@@ -2101,5 +2113,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T21:52:14+00:00"
+  "generated_at": "2026-09-14T22:00:31+00:00"
 }

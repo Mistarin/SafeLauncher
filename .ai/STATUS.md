@@ -52,6 +52,10 @@ The generated index includes source hashes and generation metadata. Curated page
   visible drag handle, and responsive grid column changes apply immediately so
   resizing cannot compete with long-running reflow animations. Card hover
   transitions are debounced across overlay buttons.
+- Save history rows display creation/upload device names when the cloud
+  generation provides provenance. Legacy generations use an unavailable label
+  rather than rendering opaque device IDs; new uploads persist optional device
+  provenance in SafeLauncherCloud.
 - Cloud operation records and exit-sync results now normalize legacy backend
   categories into `RemoteErrorCategory` values for consistent diagnostics.
 - `ci/release_readiness.py` is the canonical local release gate. It creates

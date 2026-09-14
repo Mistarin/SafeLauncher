@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T21:52:14+00:00",
+  "generated_at": "2026-09-14T22:00:31+00:00",
   "imports": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -1044,7 +1044,7 @@
     {
       "file": "core/cloud_backend.py",
       "import": "core.zip_backup",
-      "line": 580
+      "line": 587
     },
     {
       "file": "core/cloud_center_service.py",
@@ -1683,93 +1683,98 @@
     },
     {
       "file": "core/cloud_save_sync.py",
-      "import": "database",
+      "import": "core.save_history",
       "line": 38
     },
     {
       "file": "core/cloud_save_sync.py",
-      "import": "core.logger",
+      "import": "database",
       "line": 39
     },
     {
       "file": "core/cloud_save_sync.py",
+      "import": "core.logger",
+      "line": 40
+    },
+    {
+      "file": "core/cloud_save_sync.py",
       "import": "threading",
-      "line": 131
+      "line": 132
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 138
+      "line": 139
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 159
+      "line": 160
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.secret_store",
-      "line": 165
+      "line": 166
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 187
+      "line": 188
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.secret_store",
-      "line": 189
+      "line": 190
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_client",
-      "line": 200
+      "line": 201
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 218
+      "line": 219
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "time",
-      "line": 222
+      "line": 223
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "re",
-      "line": 273
+      "line": 274
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 302
+      "line": 303
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 358
+      "line": 359
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "database",
-      "line": 728
+      "line": 729
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "database",
-      "line": 749
+      "line": 750
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 829
+      "line": 830
     },
     {
       "file": "core/cloud_save_sync.py",
       "import": "core.cloud_backend",
-      "line": 889
+      "line": 890
     },
     {
       "file": "core/cloud_status_polling_service.py",
@@ -3505,6 +3510,21 @@
       "file": "core/save_crypto.py",
       "import": "core.logger",
       "line": 20
+    },
+    {
+      "file": "core/save_history.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "core/save_history.py",
+      "import": "re",
+      "line": 5
+    },
+    {
+      "file": "core/save_history.py",
+      "import": "typing",
+      "line": 6
     },
     {
       "file": "core/save_models.py",
@@ -6397,6 +6417,16 @@
       "line": 11
     },
     {
+      "file": "tests/test_save_history.py",
+      "import": "unittest",
+      "line": 1
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "import": "core.save_history",
+      "line": 3
+    },
+    {
       "file": "tests/test_security_and_threads.py",
       "import": "__future__",
       "line": 3
@@ -8033,28 +8063,33 @@
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
-      "import": "core.save_models",
-      "line": 921
-    },
-    {
-      "file": "ui/dialogs/game_properties_dialog.py",
-      "import": "core.cloud_operations",
-      "line": 936
+      "import": "core.save_history",
+      "line": 842
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.save_models",
-      "line": 984
+      "line": 923
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 1049
+      "line": 938
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "import": "core.save_models",
+      "line": 986
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 1138
+      "line": 1051
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "import": "core.cloud_operations",
+      "line": 1140
     },
     {
       "file": "ui/dialogs/profile_avatar_dialog.py",
@@ -8288,13 +8323,18 @@
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
-      "import": "ui.resource_binding",
+      "import": "core.save_history",
       "line": 38
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
+      "import": "ui.resource_binding",
+      "line": 39
+    },
+    {
+      "file": "ui/dialogs/save_manager_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1082
+      "line": 1088
     },
     {
       "file": "ui/dialogs/settings_dialog.py",

@@ -839,6 +839,7 @@ class GamePropertiesDialog(PopupDialog):
         """Show retained cloud generations with multi-version selector & restore action."""
         from ui.dialogs.save_conflict_dialog import format_bytes
         from core.cloud_save_sync import get_active_save_version
+        from core.save_history import history_device_text
         self._cloud_versions = list(versions or [])
         if not self._cloud_versions:
             self._backup_version = None
@@ -865,7 +866,8 @@ class GamePropertiesDialog(PopupDialog):
                 selected_idx = idx
             source_label = "Cloud" if v.get("source") == "cloud" else "Local backup"
             tag = " [Active on this PC]" if is_active else (" [Latest Cloud]" if idx == 0 and source_label == "Cloud" else "")
-            display_str = f"{source_label} · {d} · {sz}{tag}"
+            device_str = history_device_text(v)
+            display_str = f"{source_label} · {d} · {sz} · {device_str}{tag}"
             self.combo_cloud_versions.addItem(display_str, v_num)
 
         self.combo_cloud_versions.setCurrentIndex(selected_idx)

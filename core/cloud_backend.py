@@ -418,6 +418,7 @@ class ConvexSaveBackend:
         except OSError as e:
             raise CloudBackendError(f"Could not read staged save: {e}") from e
         plain_sha = hashlib.sha256(plaintext).hexdigest()
+        device_id, device_name, device_platform = get_device_identity()
 
         if len(plaintext) > MAX_SAVE_BYTES:
             raise CloudBackendError(
@@ -448,6 +449,12 @@ class ConvexSaveBackend:
                     "plainSha256": plain_sha,
                     "sourceMaxMtime": int(source_max_mtime),
                     "declaredSizeBytes": declared,
+                    "createdDeviceId": device_id,
+                    "createdDeviceName": device_name,
+                    "createdDevicePlatform": device_platform,
+                    "uploadedDeviceId": device_id,
+                    "uploadedDeviceName": device_name,
+                    "uploadedDevicePlatform": device_platform,
                 },
             ),
             "Upload init",

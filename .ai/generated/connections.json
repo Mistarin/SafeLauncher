@@ -1077,7 +1077,7 @@
     {
       "file": "core/cloud_save_sync.py",
       "kind": "architecture_symbol",
-      "line": 506,
+      "line": 507,
       "value": "CloudSaveSyncEngine"
     },
     {
@@ -6471,12 +6471,6 @@
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "signal_declaration",
-      "line": 58,
-      "value": "pyqtSignal"
-    },
-    {
-      "file": "ui/dialogs/save_manager_dialog.py",
-      "kind": "signal_declaration",
       "line": 59,
       "value": "pyqtSignal"
     },
@@ -6488,9 +6482,9 @@
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
-      "kind": "qt_connection",
-      "line": 82,
-      "value": "connect"
+      "kind": "signal_declaration",
+      "line": 61,
+      "value": "pyqtSignal"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
@@ -6507,103 +6501,109 @@
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 148,
+      "line": 85,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 151,
+      "line": 149,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 154,
+      "line": 152,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 157,
+      "line": 155,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 160,
+      "line": 158,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 225,
+      "line": 161,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 270,
+      "line": 226,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 291,
+      "line": 271,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 318,
+      "line": 292,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 345,
+      "line": 319,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 382,
+      "line": 346,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 407,
+      "line": 383,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 441,
+      "line": 408,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 446,
+      "line": 442,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 484,
+      "line": 447,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "qt_connection",
-      "line": 702,
+      "line": 485,
+      "value": "connect"
+    },
+    {
+      "file": "ui/dialogs/save_manager_dialog.py",
+      "kind": "qt_connection",
+      "line": 703,
       "value": "connect"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "architecture_symbol",
-      "line": 803,
+      "line": 804,
       "value": "CloudSaveSyncEngine"
     },
     {
@@ -8809,5 +8809,5 @@
       "value": "cancel"
     }
   ],
-  "generated_at": "2026-09-14T21:52:14+00:00"
+  "generated_at": "2026-09-14T22:00:31+00:00"
 }
