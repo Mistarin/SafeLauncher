@@ -119,6 +119,79 @@ class GameNameResolutionTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_cloud_only_local_alias_is_consolidated_into_steam_identity(self):
+        db = GameDatabase(":memory:")
+        try:
+            local_id = db.add_game("Dub Together", "", "", "linux")
+            steam_id = db.add_game("Dub Together", "", "", "linux", steam_id="5020310")
+            db.archive_game(local_id, True)
+            db.archive_game(steam_id, True)
+            db.add_playtime(local_id, 2164)
+            db.toggle_favorite(local_id)
+
+            removed = db.consolidate_duplicate_games(force=True)
+
+            self.assertEqual(removed, 1)
+            games = db.get_all_games()
+            self.assertEqual(len(games), 1)
+            self.assertEqual(games[0].id, steam_id)
+            self.assertEqual(games[0].steam_id, "5020310")
+            self.assertEqual(games[0].playtime_seconds, 2164)
+            self.assertTrue(games[0].is_favorite)
+            self.assertEqual(
+                db.conn.execute(
+                    "SELECT COUNT(*) FROM profile_games WHERE identity_key = 'local:dub-together'"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(db.get_profile_games()[0]["identity_key"], "steam:5020310")
+        finally:
+            db.close()
+
+    def test_profile_merge_collapses_local_alias_into_unique_steam_title(self):
+        merged = _merge_profiles({}, {
+            "games": {
+                "local:dub-together": {
+                    "app_id": "",
+                    "name": "Dub Together",
+                    "favorite": True,
+                    "playtime_baseline_seconds": 100,
+                },
+                "steam:5020310": {
+                    "app_id": "5020310",
+                    "name": "Dub Together",
+                    "playtime_baseline_seconds": 200,
+                },
+            },
+            "achievements": {},
+        })
+        self.assertEqual(set(merged["games"]), {"steam:5020310"})
+        self.assertEqual(merged["games"]["steam:5020310"]["app_id"], "5020310")
+        self.assertTrue(merged["games"]["steam:5020310"]["favorite"])
+        self.assertEqual(merged["games"]["steam:5020310"]["playtime_baseline_seconds"], 200)
+
+    def test_profile_apply_does_not_rematerialize_alias_pair(self):
+        db = GameDatabase(":memory:")
+        try:
+            CloudMetadataSync._apply_profile(db, {
+                "games": {
+                    "local:dub-together": {
+                        "app_id": "",
+                        "name": "Dub Together",
+                    },
+                    "steam:5020310": {
+                        "app_id": "5020310",
+                        "name": "Dub Together",
+                    },
+                },
+                "achievements": {},
+            })
+            self.assertEqual(len(db.get_all_games()), 1)
+            self.assertEqual(db.get_all_games()[0].steam_id, "5020310")
+            self.assertEqual(db.get_all_games()[0].name, "Dub Together")
+        finally:
+            db.close()
+
     def test_profile_game_migration_recovers_steam_title(self):
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "library.db")

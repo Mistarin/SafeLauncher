@@ -39,8 +39,13 @@ backend deployment checkout, not the client's local SQLite database. See
   authoritative when a meaningful local, private-profile, or Steam title is
   available. Local identities are canonicalized (`local:<slug>`), and startup
   repair consolidates legacy duplicate rows while preserving achievements,
-  playtime sessions, and profile history. See
+  playtime sessions, and profile history. A pathless archived local alias is
+  also reconciled into a unique later-known Steam identity by matching the
+  meaningful title; installed local games are not merged by title alone. See
   [game-name-resolution.md](architecture/game-name-resolution.md).
+- Archived library records use a neutral archive icon and do not schedule,
+  load, or accept late game-artwork results. Artwork fetching remains an
+  active-game concern.
 - `RequestManager` owns scheduling, deduplication, cancellation, retry, generation ordering, and request state notification.
 - `ResourceCache` owns reusable resource retention and freshness.
 - Transport clients own HTTP sessions, authentication headers, encryption transport, response validation, and parsing.

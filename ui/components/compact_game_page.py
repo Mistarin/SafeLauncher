@@ -1855,6 +1855,7 @@ class CompactSidebarListItemWidget(QWidget):
         self.executable = game_tuple[3] if len(game_tuple) > 3 else ""
         self.steam_id = game_tuple[6] if len(game_tuple) > 6 and game_tuple[6] else ""
         self.icon_url = game_tuple[18] if len(game_tuple) > 18 and game_tuple[18] else ""
+        self.is_archived = bool(game_tuple[17]) if len(game_tuple) > 17 and game_tuple[17] else False
         self.cache_dir = cache_dir
         self.cloud_status = cloud_status
         self.is_favorite = is_favorite
@@ -1923,6 +1924,11 @@ class CompactSidebarListItemWidget(QWidget):
         self.cloud_lbl.setToolTip(meta.tooltip)
 
     def _load_icon(self):
+        if self.is_archived:
+            self.icon_lbl.setPixmap(
+                get_icon("ph.archive-bold", color="#6F7682").pixmap(20, 20)
+            )
+            return
         pix: Optional[QPixmap] = None
         if self.icon_url and os.path.exists(self.icon_url) and os.path.getsize(self.icon_url) > 0:
             loaded = QPixmap(self.icon_url)

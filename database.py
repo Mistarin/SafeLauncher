@@ -11,6 +11,7 @@ from core.logger import get_logger
 from core.game_names import (
     MAX_GAME_NAME_LENGTH,
     fallback_game_name,
+    display_name_key,
     is_identity_placeholder_name,
     local_profile_identity,
     meaningful_game_name,
@@ -1048,15 +1049,49 @@ class GameDatabase:
             logger.error(f"Failed to fetch games list: {e}")
             return []
 
+    def _merge_profile_identity_alias(self, source_identity: str, target_identity: str, app_id: str) -> None:
+        """Move one legacy profile alias onto a canonical identity.
+
+        Profile history is append-only for ordinary removal, but an identity
+        alias is not a separate game.  Merge it before deleting the alias so
+        favorites, playtime baselines, and causal favorite markers survive.
+        """
+        if not source_identity or not target_identity or source_identity == target_identity:
+            return
+        source = self.conn.execute(
+            """SELECT display_name, favorite, favorite_changed_at,
+                      favorite_change_id, playtime_baseline_seconds, last_played
+               FROM profile_games WHERE identity_key = ?""",
+            (source_identity,),
+        ).fetchone()
+        if not source:
+            return
+        self.merge_profile_game({
+            "identity_key": target_identity,
+            "app_id": app_id,
+            "name": source[0] or fallback_game_name("", source_identity),
+            "display_name": source[0] or "",
+            "favorite": bool(source[1]),
+            "favorite_changed_at": source[2] or 0,
+            "favorite_change_id": source[3] or "",
+            "playtime_baseline_seconds": source[4] or 0,
+            "last_played": source[5] or 0,
+        })
+        self.conn.execute(
+            "DELETE FROM profile_games WHERE identity_key = ?",
+            (source_identity,),
+        )
+
     def consolidate_duplicate_games(self, *, force: bool = False) -> int:
         """Consolidate rows that resolve to the same portable game identity.
 
         Older cloud-only materialization treated ``local:<slug>`` as a title,
-        then derived ``local:local-<slug>`` on the next pass.  That made every
-        sync create another archived row.  This repair runs once per persistent
-        database during startup and can be forced by a sync pass.  It keeps the
-        best row, merges dependent achievement/session ledgers, preserves
-        profile history, and only then removes redundant rows.
+        then derived ``local:local-<slug>`` on the next pass.  It could also
+        leave a non-Steam placeholder beside the later-known Steam identity.
+        This repair runs once per persistent database during startup and can be
+        forced by a sync pass.  It keeps the best row, merges dependent
+        achievement/session ledgers, preserves profile history, and only then
+        removes redundant rows.
         """
         repair_key = self.db_path
         if not force and repair_key != ":memory:" and repair_key in _DUPLICATE_REPAIR_DONE:
@@ -1098,6 +1133,63 @@ class GameDatabase:
                         (old_identity,),
                     )
 
+                # A cloud-only record may have been materialized before the
+                # backend knew its Steam AppID.  Reconcile only records that
+                # are unmistakably placeholders: archived, pathless, and
+                # executable-less.  An installed local game with the same
+                # title must never be merged solely by name.
+                games_before_alias_repair = self.get_all_games()
+                steam_games = [
+                    game for game in games_before_alias_repair
+                    if str(game.steam_id or "").strip() not in ("", "0", "None")
+                ]
+                local_aliases = [
+                    game for game in games_before_alias_repair
+                    if not str(game.steam_id or "").strip()
+                    and bool(game.is_archived)
+                    and not str(game.path or "").strip()
+                    and not str(game.executable or "").strip()
+                ]
+                profile_names = {
+                    str(row[0]): str(row[2] or "")
+                    for row in self.conn.execute(
+                        "SELECT identity_key, app_id, display_name FROM profile_games"
+                    ).fetchall()
+                }
+                preferred_steam_row_ids = set()
+                for local_game in local_aliases:
+                    local_identity = self.profile_identity(local_game.name, "")
+                    local_name = display_name_key(
+                        profile_names.get(local_identity) or local_game.name,
+                        "",
+                    )
+                    if not local_name:
+                        continue
+                    matches = []
+                    for steam_game in steam_games:
+                        app_id = str(steam_game.steam_id or "").strip()
+                        steam_identity = self.profile_identity(steam_game.name, app_id)
+                        steam_name = display_name_key(
+                            profile_names.get(steam_identity) or steam_game.name,
+                            app_id,
+                        )
+                        if steam_name and steam_name == local_name:
+                            matches.append((steam_game, app_id, steam_identity))
+                    if len(matches) != 1:
+                        continue
+                    steam_game, app_id, steam_identity = matches[0]
+                    preferred_steam_row_ids.add(int(steam_game.id))
+                    self._merge_profile_identity_alias(
+                        local_identity,
+                        steam_identity,
+                        app_id,
+                    )
+                    with self.conn:
+                        self.conn.execute(
+                            "UPDATE games SET steam_id = ? WHERE id = ?",
+                            (app_id, local_game.id),
+                        )
+
                 games_by_identity = {}
                 for game in self.get_all_games():
                     identity = self.profile_identity(game.name, game.steam_id)
@@ -1112,7 +1204,9 @@ class GameDatabase:
                     def _rank(game):
                         installed = bool(not game.is_archived and game.path)
                         meaningful = bool(meaningful_game_name(game.name, game.steam_id))
-                        return (installed, meaningful, bool(game.path), -int(game.id))
+                        has_steam_identity = bool(str(game.steam_id or "").strip())
+                        preferred_steam_row = int(game.id) in preferred_steam_row_ids
+                        return (installed, preferred_steam_row, has_steam_identity, meaningful, bool(game.path), -int(game.id))
 
                     ordered = sorted(rows, key=_rank, reverse=True)
                     canonical = ordered[0]

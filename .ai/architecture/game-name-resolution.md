@@ -25,6 +25,14 @@ idempotent consolidation pass at startup and before profile materialization;
 it keeps the best installed/meaningful row, merges achievements, playtime
 sessions, and profile history, then removes only redundant game rows.
 
+When a cloud-only local row later gains a Steam AppID, the repair also matches
+an archived, pathless, executable-less local row to exactly one Steam row with
+the same meaningful title. The Steam row remains canonical. Ambiguous titles
+and installed local records are left untouched.
+
+Archived records use a neutral archive icon. Their cached icons and artwork are
+not read or fetched, and late artwork callbacks are ignored.
+
 ## Persistence
 
 `profile_games.display_name` stores the last meaningful local title for

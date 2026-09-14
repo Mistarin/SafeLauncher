@@ -1,8 +1,8 @@
 {
   "files": [
     {
-      "bytes": 4530,
-      "lines": 82,
+      "bytes": 4884,
+      "lines": 87,
       "path": ".ai/ARCHITECTURE.md",
       "suffix": ".md"
     },
@@ -19,7 +19,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 11523,
+      "bytes": 11601,
       "lines": 86,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
@@ -31,8 +31,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 2079,
-      "lines": 38,
+      "bytes": 2507,
+      "lines": 45,
       "path": ".ai/TASK.md",
       "suffix": ".md"
     },
@@ -91,8 +91,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 2369,
-      "lines": 54,
+      "bytes": 2795,
+      "lines": 62,
       "path": ".ai/architecture/game-name-resolution.md",
       "suffix": ".md"
     },
@@ -895,8 +895,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 37805,
-      "lines": 758,
+      "bytes": 40161,
+      "lines": 819,
       "path": "core/cloud_metadata_sync.py",
       "suffix": ".py"
     },
@@ -985,8 +985,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 3404,
-      "lines": 90,
+      "bytes": 4006,
+      "lines": 104,
       "path": "core/game_names.py",
       "suffix": ".py"
     },
@@ -1339,8 +1339,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 102412,
-      "lines": 1960,
+      "bytes": 107063,
+      "lines": 2054,
       "path": "database.py",
       "suffix": ".py"
     },
@@ -1663,8 +1663,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 7398,
-      "lines": 178,
+      "bytes": 10379,
+      "lines": 251,
       "path": "tests/test_game_name_resolution.py",
       "suffix": ".py"
     },
@@ -1759,8 +1759,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 59225,
-      "lines": 1247,
+      "bytes": 60241,
+      "lines": 1266,
       "path": "tests/test_profile.py",
       "suffix": ".py"
     },
@@ -1861,8 +1861,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 110801,
-      "lines": 2577,
+      "bytes": 111078,
+      "lines": 2583,
       "path": "ui/components/compact_game_page.py",
       "suffix": ".py"
     },
@@ -2023,14 +2023,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 19920,
-      "lines": 489,
+      "bytes": 20199,
+      "lines": 495,
       "path": "ui/library_list.py",
       "suffix": ".py"
     },
     {
-      "bytes": 364539,
-      "lines": 7686,
+      "bytes": 365815,
+      "lines": 7715,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2065,5 +2065,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T20:03:47+00:00"
+  "generated_at": "2026-09-14T20:22:44+00:00"
 }

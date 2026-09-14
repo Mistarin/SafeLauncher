@@ -51,6 +51,7 @@ class LibraryListItemWidget(QWidget):
         self.tags = game_tuple[10] if len(game_tuple) > 10 else ""
         self.version = str(game_tuple[15]).strip() if len(game_tuple) > 15 and game_tuple[15] else ""
         self.icon_url = game_tuple[18] if len(game_tuple) > 18 and game_tuple[18] else ""
+        self.is_archived = bool(game_tuple[17]) if len(game_tuple) > 17 and game_tuple[17] else False
         self.is_missing = is_missing
         self.playtime_seconds = playtime_seconds
         self.is_favorite = is_favorite
@@ -258,6 +259,11 @@ class LibraryListItemWidget(QWidget):
     def _load_game_icon(self):
 
         """Render the authentic game .exe icon on the left of each row in list view."""
+        if self.is_archived:
+            self.icon_label.setPixmap(
+                get_icon("ph.archive-bold", color="#6F7682").pixmap(40, 40)
+            )
+            return
         pix: Optional[QPixmap] = None
 
         # 1. Try explicit icon_url from DB

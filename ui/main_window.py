@@ -2659,9 +2659,10 @@ class MainWindow(QMainWindow):
                 banner_url = g[5] if len(g) > 5 and g[5] else ""
                 steam_id = g[6] if len(g) > 6 and g[6] else ""
                 icon_url = g[18] if len(g) > 18 and g[18] else ""
+                is_archived = bool(len(g) > 17 and g[17])
                 banner_missing = not banner_url or not os.path.exists(banner_url)
                 icon_missing = not icon_url or not os.path.exists(icon_url)
-                if self._automatic_network_allowed() and (banner_missing or icon_missing):
+                if self._automatic_network_allowed() and not is_archived and (banner_missing or icon_missing):
                     full_exe = os.path.join(path, executable) if (path and executable) else ""
                     self._start_auto_artwork_fetch(
                         game_id,
@@ -2713,7 +2714,8 @@ class MainWindow(QMainWindow):
                 
                 banner_missing = not banner_url or not os.path.exists(banner_url)
                 icon_missing = not icon_url or not os.path.exists(icon_url)
-                if self._automatic_network_allowed() and (banner_missing or icon_missing):
+                is_archived = bool(len(g) > 17 and g[17])
+                if self._automatic_network_allowed() and not is_archived and (banner_missing or icon_missing):
                     full_exe = os.path.join(path, executable) if (path and executable) else ""
                     self._start_auto_artwork_fetch(
                         game_id,
@@ -2755,6 +2757,10 @@ class MainWindow(QMainWindow):
 
         # Prefetch 16:9 hero artwork and game icons through the shared manager.
         for game in self.games:
+            if len(game) > 17 and game[17]:
+                # Archived records are intentionally presentation-only. They
+                # use a neutral archive icon and must not start artwork work.
+                continue
             g_id = game[0]
             g_name = game[1] if len(game) > 1 else ""
             g_path = game[2] if len(game) > 2 else ""
@@ -2797,8 +2803,27 @@ class MainWindow(QMainWindow):
         arch_games = [g for g in self.games if (len(g) > 17 and g[17])]
         self.sidebar.update_counts(len(active_games), len(inst_games), len(fav_games), len(arch_games))
 
+    def _is_archived_game_id(self, game_id: int) -> bool:
+        """Return the current archive state before accepting artwork results."""
+        for game in getattr(self, "games", ()):
+            if game and int(game[0]) == int(game_id):
+                return bool(len(game) > 17 and game[17])
+        database = getattr(self, "db", None)
+        connection = getattr(database, "conn", None)
+        if connection is None:
+            return False
+        try:
+            row = connection.execute(
+                "SELECT is_archived FROM games WHERE id = ?", (int(game_id),)
+            ).fetchone()
+            return bool(row and row[0])
+        except Exception:
+            return False
+
     def _on_icon_downloaded(self, game_id: int, icon_path: str):
         """Save downloaded game icon path in DB and update card and compact list."""
+        if self._is_archived_game_id(game_id):
+            return
         if game_id in self.banner_widgets or (self.selected_game and self.selected_game[0] == game_id):
             self.performance_tracker.mark_visible_artwork()
         self.library_service.set_artwork_identity(game_id, icon_url=icon_path)
@@ -2962,6 +2987,8 @@ class MainWindow(QMainWindow):
 
     def _on_auto_banner_downloaded(self, game_id: int, image_path: str, steam_id: int = 0, icon_path: str = ""):
         """Update DB and widget when background auto-fetch completes"""
+        if self._is_archived_game_id(game_id):
+            return
         if image_path and (game_id in self.banner_widgets or (self.selected_game and self.selected_game[0] == game_id)):
             self.performance_tracker.mark_visible_artwork()
         self.library_service.set_artwork_identity(
@@ -4589,6 +4616,8 @@ class MainWindow(QMainWindow):
             self.tags_layout.addWidget(badge)
 
     def _on_hero_downloaded(self, game_id: int, image_path: str):
+        if self._is_archived_game_id(game_id):
+            return
         if self.selected_game and self.selected_game[0] == game_id:
             self.performance_tracker.mark_visible_artwork()
             self.hero_bg.set_hero_image(image_path)

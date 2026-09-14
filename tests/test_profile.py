@@ -42,6 +42,8 @@ from core.central_auth import (
     get_central_auth_config,
 )
 from ui.components.profile_page import ProfilePageWidget
+from ui.library_list import LibraryListItemWidget
+from ui.components.compact_game_page import CompactSidebarListItemWidget
 from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
 from ui.dialogs.friends_dialog import FriendsDialog
 from ui.dialogs.game_dialogs import CustomRemoveDialog, EditGameDialog
@@ -816,6 +818,23 @@ class ProfilePageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_archived_library_icons_are_neutral_and_do_not_read_artwork_cache(self):
+        game = (
+            901, "Archived Game", "", "", "linux", "", "12345", 0, 0,
+            0, "", "", "", "", 0, "", "", 1, "/tmp/should-not-load.png", "{}", 0,
+        )
+        with patch("core.steamgriddb_client.SteamGridDBClient.get_artwork_key") as artwork_key:
+            list_item = LibraryListItemWidget(game, is_missing=True, cache_dir="/tmp/cache")
+            compact_item = CompactSidebarListItemWidget(game, is_missing=True, cache_dir="/tmp/cache")
+
+        artwork_key.assert_not_called()
+        self.assertTrue(list_item.is_archived)
+        self.assertTrue(compact_item.is_archived)
+        self.assertFalse(list_item.icon_label.pixmap().isNull())
+        self.assertFalse(compact_item.icon_lbl.pixmap().isNull())
+        list_item.deleteLater()
+        compact_item.deleteLater()
 
     def test_avatar_catalog_dialog_is_selectable_and_searchable(self):
         catalog = [{

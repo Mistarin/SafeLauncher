@@ -17,7 +17,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | UI presentation cache | [`core/presentation_cache.py`](../core/presentation_cache.py) | `PresentationCache` | active; bounded decoded-value LRU only |
 | Library query/state | [`core/library_controller.py`](../core/library_controller.py), [`core/library_state.py`](../core/library_state.py) | `LibraryController`, `LibraryStateStore` | active |
 | Local database | [`database.py`](../database.py) | `GameDatabase`, `GameRecord` | active |
-| Portable game naming | [`core/game_names.py`](../core/game_names.py) | `meaningful_game_name`, `preferred_game_name`, `local_profile_identity`, placeholder/fallback rules | active |
+| Portable game naming | [`core/game_names.py`](../core/game_names.py) | `meaningful_game_name`, `preferred_game_name`, `local_profile_identity`, `display_name_key`, placeholder/fallback rules | active |
 | Library application service | [`core/library_service.py`](../core/library_service.py) | `LibraryService`, `LibraryProjection`, archive/remove/purge actions | active |
 | Library metadata presentation state | [`core/library_metadata_state.py`](../core/library_metadata_state.py) | `LibraryMetadataState` | active; local projection and legacy migration adapter |
 | Cloud sync queue | [`core/cloud_sync_queue.py`](../core/cloud_sync_queue.py) | `PendingCloudSyncQueue` | active |
@@ -61,7 +61,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Concept | Source | Main API/symbols | Status |
 |---|---|---|---|
 | Steam metadata | [`core/steam_client.py`](../core/steam_client.py), [`core/steam_resource_service.py`](../core/steam_resource_service.py), [`core/steam_build_tracker.py`](../core/steam_build_tracker.py), [`core/steam_tags.py`](../core/steam_tags.py) | `SteamClient`, `SteamResourceService`, fetchers | active / compatibility |
-| Artwork | [`core/artwork_client.py`](../core/artwork_client.py), [`core/artwork_resource_service.py`](../core/artwork_resource_service.py), [`core/steamgriddb_client.py`](../core/steamgriddb_client.py) | `ArtworkClient`, `ArtworkResourceService`, `SteamGridDBClient` | active / compatibility |
+| Artwork | [`core/artwork_client.py`](../core/artwork_client.py), [`core/artwork_resource_service.py`](../core/artwork_resource_service.py), [`core/steamgriddb_client.py`](../core/steamgriddb_client.py) | `ArtworkClient`, `ArtworkResourceService`, `SteamGridDBClient`; archived records use neutral icons and skip artwork work | active / compatibility |
 | Achievement resolution | [`core/achievement_coordinator.py`](../core/achievement_coordinator.py), [`core/achievement_providers.py`](../core/achievement_providers.py) | provider registry and resolution | active |
 | Achievement persistence | [`core/achievement_persistence.py`](../core/achievement_persistence.py), [`database.py`](../database.py) | local schema/unlock persistence | active |
 | Achievement file watcher | [`core/achievement_watcher.py`](../core/achievement_watcher.py) | `AchievementWatcher` | active |

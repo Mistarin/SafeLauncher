@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T20:03:47+00:00",
+  "generated_at": "2026-09-14T20:22:44+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -443,12 +443,30 @@
       "file": "tests/test_game_name_resolution.py",
       "kind": "test",
       "line": 121,
+      "name": "test_cloud_only_local_alias_is_consolidated_into_steam_identity"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 150,
+      "name": "test_profile_merge_collapses_local_alias_into_unique_steam_title"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 172,
+      "name": "test_profile_apply_does_not_rematerialize_alias_pair"
+    },
+    {
+      "file": "tests/test_game_name_resolution.py",
+      "kind": "test",
+      "line": 194,
       "name": "test_profile_game_migration_recovers_steam_title"
     },
     {
       "file": "tests/test_game_name_resolution.py",
       "kind": "test",
-      "line": 161,
+      "line": 234,
       "name": "test_steam_app_details_are_cached_and_deduplicated"
     },
     {
@@ -802,319 +820,325 @@
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 54,
+      "line": 56,
       "name": "test_cloud_library_materializes_history_and_reuses_it_on_install"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 91,
+      "line": 93,
       "name": "test_offline_private_profile_sync_records_a_digest_only_retry"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 108,
+      "line": 110,
       "name": "test_profile_panel_themes_are_bounded"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 122,
+      "line": 124,
       "name": "test_numeric_appearance_references_round_trip"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 143,
+      "line": 145,
       "name": "test_official_central_auth_defaults_are_configured"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 155,
+      "line": 157,
       "name": "test_avatar_references_are_ids_and_catalog_data_is_bounded"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 172,
+      "line": 174,
       "name": "test_avatar_cache_is_hash_bound_and_rejects_path_traversal"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 182,
+      "line": 184,
       "name": "test_settings_round_trip_is_bounded_and_json_safe"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 196,
+      "line": 198,
       "name": "test_legacy_embedded_avatar_is_removed_from_settings"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 205,
+      "line": 207,
       "name": "test_projection_excludes_installation_details"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 230,
+      "line": 232,
       "name": "test_archived_games_remain_in_library_archive_and_public_projection"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 281,
+      "line": 283,
       "name": "test_remove_game_keeps_append_only_profile_history"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 299,
+      "line": 301,
       "name": "test_delete_all_game_data_purges_local_projection_and_history"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 326,
+      "line": 328,
       "name": "test_disk_removal_guard_rejects_root_symlink_and_deletes_only_target"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 347,
+      "line": 349,
       "name": "test_archive_action_removes_files_but_keeps_record_and_stats"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 389,
+      "line": 391,
       "name": "test_delete_all_data_action_removes_files_and_local_record"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 427,
+      "line": 429,
       "name": "test_projection_groups_account_achievements_by_steam_app"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 448,
+      "line": 450,
       "name": "test_remote_document_rejects_bad_handle_and_keeps_only_public_shape"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 480,
+      "line": 482,
       "name": "test_public_bio_and_artwork_are_bounded_and_legacy_artwork_is_replaced"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 501,
+      "line": 503,
       "name": "test_steam_hero_background_is_derived_from_app_id"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 512,
+      "line": 514,
       "name": "test_owner_token_rotation_sends_new_token_without_returning_it"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 525,
+      "line": 527,
       "name": "test_social_snapshot_accepts_only_bounded_public_summaries"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 547,
+      "line": 549,
       "name": "test_username_handles_are_ascii_and_suggested_from_oidc_claims"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 552,
+      "line": 554,
       "name": "test_social_client_uses_owner_authentication_and_routes"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 579,
+      "line": 581,
       "name": "test_handle_availability_is_public_and_validates_response_shape"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 596,
+      "line": 598,
       "name": "test_avatar_catalog_client_validates_catalog_and_uses_gateway_path"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 619,
+      "line": 621,
       "name": "test_avatar_catalog_maps_legacy_slug_to_numeric_asset"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 634,
+      "line": 636,
       "name": "test_avatar_download_rejects_non_images_and_oversized_responses"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 644,
+      "line": 646,
       "name": "test_avatar_batch_reuses_one_client_and_skips_missing_entries"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 660,
+      "line": 662,
       "name": "test_v2_client_uses_central_bearer_and_never_sends_legacy_token"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 690,
+      "line": 692,
       "name": "test_client_rejects_mixing_legacy_routes_with_central_auth"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 696,
+      "line": 698,
       "name": "test_v2_client_refreshes_once_after_expired_access_token"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 713,
+      "line": 715,
       "name": "test_device_login_persists_refresh_token_and_requests_expected_audience"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 744,
+      "line": 746,
       "name": "test_forced_refresh_after_device_login_does_not_reuse_initial_token"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 770,
+      "line": 772,
       "name": "test_userinfo_uses_access_token_and_returns_oidc_claims"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 790,
+      "line": 792,
       "name": "test_resource_server_denial_has_actionable_auth0_guidance"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 819,
+      "line": 821,
+      "name": "test_archived_library_icons_are_neutral_and_do_not_read_artwork_cache"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "test",
+      "line": 838,
       "name": "test_avatar_catalog_dialog_is_selectable_and_searchable"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 860,
+      "line": 879,
       "name": "test_avatar_decode_removes_only_bad_iccp_chunk"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 872,
+      "line": 891,
       "name": "test_owner_and_public_views_share_one_persistent_page"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 896,
+      "line": 915,
       "name": "test_profile_owner_actions_are_unified_and_public_view_is_read_only"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 937,
+      "line": 956,
       "name": "test_profile_editor_bio_and_sixth_game_navigation"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 983,
+      "line": 1002,
       "name": "test_header_uses_one_combined_identity_control"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1004,
+      "line": 1023,
       "name": "test_profile_settings_theme_preview_and_friends_popup_are_custom"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1036,
+      "line": 1055,
       "name": "test_edit_game_exposes_safe_lifecycle_action_without_form_save"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1060,
+      "line": 1079,
       "name": "test_profile_editor_shows_username_but_hides_service_details"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1091,
+      "line": 1110,
       "name": "test_profile_editor_saves_steam_hero_background_from_appid"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1118,
+      "line": 1137,
       "name": "test_profile_editor_previews_backgrounds_without_mutating_saved_profile"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1149,
+      "line": 1168,
       "name": "test_profile_editor_previews_steam_hero_behind_panels"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1176,
+      "line": 1195,
       "name": "test_nested_profile_panels_apply_opaque_and_glass_surface_modes"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1208,
+      "line": 1227,
       "name": "test_steam_hero_is_painted_as_background_independent_of_panel_theme"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test_class",
-      "line": 51,
+      "line": 53,
       "name": "ProfileModelTests"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test_class",
-      "line": 813,
+      "line": 815,
       "name": "ProfilePageTests"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test_class",
-      "line": 985,
+      "line": 1004,
       "name": "TestWindow"
     },
     {

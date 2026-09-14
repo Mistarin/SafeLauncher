@@ -77,9 +77,23 @@ def preferred_game_name(app_id: object, *values: object) -> str:
     return ""
 
 
+def display_name_key(value: object, app_id: object = "") -> str:
+    """Return a conservative comparison key for matching display aliases.
+
+    This is intentionally a presentation comparison, never a replacement for
+    the portable identity.  It is used only when a non-Steam archived
+    cloud-only placeholder can be reconciled with a later Steam identity.
+    """
+    candidate = meaningful_game_name(value, app_id)
+    if not candidate and not str(app_id or "").strip():
+        candidate = fallback_game_name("", value)
+    return clean_game_name(candidate).casefold()
+
+
 __all__ = [
     "MAX_GAME_NAME_LENGTH",
     "clean_game_name",
+    "display_name_key",
     "fallback_game_name",
     "is_placeholder_game_name",
     "is_identity_placeholder_name",

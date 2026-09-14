@@ -27,7 +27,7 @@ from core.profile_models import (
     normalize_profile_settings,
     save_profile_settings,
 )
-from core.game_names import local_profile_identity, preferred_game_name
+from core.game_names import display_name_key, local_profile_identity, preferred_game_name
 
 logger = get_logger("CloudMetadata")
 _PROFILE_SYNC_LOCK = threading.Lock()
@@ -111,6 +111,8 @@ def _normalise_profile(profile: dict) -> dict:
         identity = str(raw_identity).strip()
         if identity and len(identity) <= 256 and isinstance(raw_value, dict):
             raw_app_id = str(raw_value.get("app_id", "") or "").strip()[:32]
+            if not raw_app_id and identity.casefold().startswith("steam:"):
+                raw_app_id = identity.split(":", 1)[1].strip()[:32]
             # Normalize legacy local identities before they reach the merge
             # path.  Otherwise ``local:local-dub-together`` survives in the
             # remote document and can be materialized as a second archive row.
@@ -133,7 +135,11 @@ def _normalise_profile(profile: dict) -> dict:
             record = {
                 "identity_key": identity,
                 "app_id": raw_app_id,
-                "name": str(raw_value.get("name", "") or "")[:120],
+                "name": preferred_game_name(
+                    raw_app_id,
+                    raw_value.get("name"),
+                    raw_value.get("display_name"),
+                )[:120],
                 "banner_url": str(raw_value.get("banner_url", "") or "")[:1024],
                 "mode": str(raw_value.get("mode", "") or "")[:32],
                 "executable": str(raw_value.get("executable", "") or "")[:256],
@@ -149,7 +155,12 @@ def _normalise_profile(profile: dict) -> dict:
             }
             existing = games.get(identity)
             games[identity] = _merge_normalized_game_records(existing, record, identity) if existing else record
-    return {"format_version": PRIVATE_PROFILE_VERSION, "profile": profile_settings, "games": games, "achievements": achievements}
+    return {
+        "format_version": PRIVATE_PROFILE_VERSION,
+        "profile": profile_settings,
+        "games": _collapse_profile_game_aliases(games),
+        "achievements": achievements,
+    }
 
 
 def _normalise_devices(value) -> dict:
@@ -252,6 +263,64 @@ def _merge_normalized_game_records(left: Optional[dict], right: dict, identity: 
         "last_played": max(_safe_int(left.get("last_played")), _safe_int(right.get("last_played"))),
         "devices": _merge_devices(left.get("devices"), right.get("devices")),
     }
+
+
+def _collapse_profile_game_aliases(games: dict) -> dict:
+    """Collapse a legacy local alias into one unambiguous Steam record.
+
+    A title match is accepted only between a local identity without an AppID
+    and exactly one Steam identity with the same meaningful display name.  If
+    there is no unique match, both records are retained to avoid conflating
+    unrelated local and Steam games with similar names.
+    """
+    collapsed = dict(games or {})
+    steam_records = [
+        (str(identity), value)
+        for identity, value in collapsed.items()
+        if str(identity).casefold().startswith("steam:") and isinstance(value, dict)
+    ]
+    for local_identity in sorted(tuple(collapsed)):
+        if not str(local_identity).casefold().startswith("local:"):
+            continue
+        local_value = collapsed.get(local_identity)
+        if not isinstance(local_value, dict) or str(local_value.get("app_id", "") or "").strip():
+            continue
+        # A local profile entry that still describes an installed executable
+        # is a real non-Steam game, not a cloud-only identity alias.
+        if str(local_value.get("executable", "") or "").strip():
+            continue
+        if any(
+            bool(state.get("installed"))
+            for state in _normalise_devices(local_value.get("devices")).values()
+        ):
+            continue
+        local_name = display_name_key(
+            local_value.get("name") or local_value.get("display_name"),
+            "",
+        )
+        if not local_name:
+            continue
+        matches = []
+        for steam_identity, steam_value in steam_records:
+            app_id = str(steam_value.get("app_id", "") or "").strip()
+            if not app_id:
+                app_id = steam_identity.split(":", 1)[1].strip()
+            steam_name = display_name_key(
+                steam_value.get("name") or steam_value.get("display_name"),
+                app_id,
+            )
+            if app_id and steam_name and steam_name == local_name:
+                matches.append((steam_identity, steam_value))
+        if len(matches) != 1:
+            continue
+        steam_identity, steam_value = matches[0]
+        collapsed[steam_identity] = _merge_normalized_game_records(
+            steam_value,
+            local_value,
+            steam_identity,
+        )
+        collapsed.pop(local_identity, None)
+    return collapsed
 
 
 def _merge_profiles(local: dict, remote: dict) -> dict:
@@ -466,20 +535,9 @@ class CloudMetadataSync:
                 )
                 games[item["identity_key"]] = item
         # If a previously local game has now been assigned an AppID, carry
-        # its profile history into the stable Steam identity.  The old local
-        # record remains as a harmless alias until the next cleanup pass.
-        for game in db.get_all_games():
-            app_id = str(game.steam_id or "").strip()
-            if not app_id:
-                continue
-            steam_identity = db.profile_identity(game.name, app_id)
-            local_identity = db.profile_identity(game.name, "")
-            if local_identity in games and local_identity != steam_identity:
-                migrated = _merge_profiles(
-                    {"games": {steam_identity: games.get(steam_identity, {})}},
-                    {"games": {steam_identity: games[local_identity]}},
-                )["games"][steam_identity]
-                games[steam_identity] = migrated
+        # its profile history into the stable Steam identity and omit the
+        # obsolete local alias from the outbound document.
+        games = _collapse_profile_game_aliases(games)
         settings = QSettings("SafeLauncher", "SafeLauncher")
         fallback_name = str(settings.value("user_name", "Player", type=str) or "Player")
         return {
@@ -506,6 +564,9 @@ class CloudMetadataSync:
         # this profile.  ``force`` is intentional: duplicates can be created
         # by a previous process after startup repair has already run.
         db.consolidate_duplicate_games(force=True)
+        # Callers normally pass a merged document, but normalize here too so
+        # legacy integrations cannot re-materialize a local/Steam alias pair.
+        profile = _normalise_profile(profile)
         profile_settings = profile.get("profile")
         if isinstance(profile_settings, dict):
             save_profile_settings(

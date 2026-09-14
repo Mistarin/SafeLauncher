@@ -29,6 +29,13 @@ Legacy non-Steam identities are now canonicalized to one `local:<slug>` form.
 `GameDatabase` repairs rows created by the old `local:local-<slug>` derivation
 at startup and during profile application, merging dependent achievements,
 playtime sessions, and profile history before removing redundant archived rows.
+It also merges a pathless archived local placeholder into a unique matching
+Steam identity once an AppID is known, while leaving ambiguous or installed
+same-title games separate. Profile payload normalization removes the obsolete
+alias before materialization or upload.
+
+Archived rows render a neutral archive icon and are excluded from icon/banner
+fetching, cache reads, executable extraction, and late artwork result updates.
 
 Game lifecycle actions now distinguish restoring an archived record from
 deleting all local data. The destructive action requires confirmation, removes
