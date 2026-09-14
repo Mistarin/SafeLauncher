@@ -73,6 +73,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 ## UI entrypoints
 
 - Main shell: [`ui/main_window.py`](../ui/main_window.py)
+- Shared sort control: [`ui/components/sort_combo.py`](../ui/components/sort_combo.py) (`SortComboBox` uses a platform-independent chevron and native popup)
 - Library views: [`ui/library_list.py`](../ui/library_list.py), [`ui/components/library_view_host.py`](../ui/components/library_view_host.py), [`ui/components/compact_game_page.py`](../ui/components/compact_game_page.py), [`ui/components/virtual_grid.py`](../ui/components/virtual_grid.py)
 - Profile: [`ui/components/profile_page.py`](../ui/components/profile_page.py)
 - Account/settings: [`ui/dialogs/account_dialog.py`](../ui/dialogs/account_dialog.py), [`ui/dialogs/settings_dialog.py`](../ui/dialogs/settings_dialog.py)

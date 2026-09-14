@@ -19,8 +19,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 11601,
-      "lines": 86,
+      "bytes": 11758,
+      "lines": 87,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
     },
@@ -1861,8 +1861,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 110790,
-      "lines": 2575,
+      "bytes": 110978,
+      "lines": 2581,
       "path": "ui/components/compact_game_page.py",
       "suffix": ".py"
     },
@@ -1909,9 +1909,15 @@
       "suffix": ".py"
     },
     {
-      "bytes": 39650,
-      "lines": 914,
+      "bytes": 40870,
+      "lines": 943,
       "path": "ui/components/sidebar.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 1416,
+      "lines": 42,
+      "path": "ui/components/sort_combo.py",
       "suffix": ".py"
     },
     {
@@ -2029,8 +2035,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 365820,
-      "lines": 7717,
+      "bytes": 369725,
+      "lines": 7807,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2065,5 +2071,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T20:38:24+00:00"
+  "generated_at": "2026-09-14T20:56:11+00:00"
 }

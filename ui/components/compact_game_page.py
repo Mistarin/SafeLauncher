@@ -32,6 +32,7 @@ from PyQt6.QtGui import (
 )
 
 from ui.icons import get_icon
+from ui.components.sort_combo import SortComboBox
 from core.cloud_save_sync import SyncStatus
 from core.library_controller import LibrarySnapshot
 from core.date_formatting import format_timestamp, format_datetime_timestamp
@@ -2121,7 +2122,7 @@ class CompactSidebarListWidget(QFrame):
         sort_row.setContentsMargins(2, 2, 2, 2)
         sort_row.setSpacing(6)
 
-        self.sort_combo = QComboBox()
+        self.sort_combo = SortComboBox()
         self.sort_combo.setAccessibleName("Sort games")
         self.sort_combo.addItems(["Sort: A–Z Title", "Sort: Most Played", "Sort: Recently Added", "Sort: Disk Size", "Sort: Runner"])
         self.sort_combo.setFixedHeight(24)
@@ -2143,8 +2144,13 @@ class CompactSidebarListWidget(QFrame):
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
-                width: 16px;
+                width: 0px;
                 border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                width: 0px;
+                height: 0px;
             }
             QComboBox QAbstractItemView {
                 background-color: #1C1C20;

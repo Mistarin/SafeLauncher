@@ -3,8 +3,8 @@ from PyQt6.QtWidgets import (
     QAbstractButton, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QLineEdit,
     QMainWindow, QDialog, QGraphicsDropShadowEffect, QScrollArea, QWidget, QSlider, QToolButton
 )
-from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QColor, QPixmap
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QPointF
+from PyQt6.QtGui import QFont, QColor, QPixmap, QPainter, QPen
 
 from ui.icons import get_app_icon, get_icon, LOGO_PATH
 from ui.theme import BG_APP, SURFACE_ELEVATED, TEXT_PRIMARY, TEXT_SECONDARY, ACCENT_PRIMARY
@@ -18,6 +18,28 @@ def add_soft_shadow(widget, blur=18, y=4, alpha=80):
     shadow.setXOffset(0)
     shadow.setColor(QColor(0, 0, 0, alpha))
     widget.setGraphicsEffect(shadow)
+
+
+class _ProfileMenuButton(QToolButton):
+    """Profile menu button with a deliberately aligned menu chevron."""
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt virtual method
+        super().paintEvent(event)
+        if self.menu() is None:
+            return
+        painter = QPainter(self)
+        if not painter.isActive():
+            return
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setPen(QPen(QColor("#8E8E93"), 1.25, Qt.PenStyle.SolidLine,
+                                Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            x = float(self.width() - 10)
+            y = float(self.height() / 2)
+            painter.drawLine(QPointF(x - 3, y - 1), QPointF(x, y + 2))
+            painter.drawLine(QPointF(x, y + 2), QPointF(x + 3, y - 1))
+        finally:
+            painter.end()
 
 
 class LeftSidebarWidget(QFrame):
@@ -124,7 +146,11 @@ class LeftSidebarWidget(QFrame):
         self.nav_favorites = QPushButton("Favorites")
         self.nav_favorites.setIcon(get_icon("ph.heart-bold", color="#FFFFFF"))
         self.nav_favorites.setCheckable(True)
-        self.nav_favorites.setStyleSheet(nav_style)
+        # The heart glyph sits one pixel high in the icon font. Preserve the
+        # button height while correcting its optical baseline.
+        self.nav_favorites.setStyleSheet(nav_style.replace(
+            "padding: 6px 10px;", "padding: 7px 10px 5px 10px;"
+        ))
         self.nav_favorites.setVisible(False)
         self.nav_favorites.clicked.connect(lambda: self._on_filter_click("favorites"))
         layout.addWidget(self.nav_favorites)
@@ -622,6 +648,9 @@ class HeaderBar(QFrame):
                 margin: 0;
                 text-align: left;
             }
+            QToolButton::menu-indicator {
+                image: none;
+            }
             QToolButton:hover {
                 background: #202633;
                 color: #FFFFFF;
@@ -648,7 +677,7 @@ class HeaderBar(QFrame):
         # One atomic identity control sits immediately beside the native window
         # controls. Keeping the avatar, display name, and menu on the same
         # button avoids the old dead-label/active-icon split hit target.
-        self.btn_profile = QToolButton()
+        self.btn_profile = _ProfileMenuButton()
         self.btn_profile.setIcon(get_icon("ph.user-circle-bold", color="#8E8E93"))
         self.btn_profile.setIconSize(QSize(17, 17))
         self.btn_profile.setText("Player")

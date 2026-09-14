@@ -100,6 +100,7 @@ from ui.components.virtual_grid import BannerProxy
 from ui.components.library_view_host import LibraryViewHost
 from ui.components.hero_background import HeroBackgroundWidget
 from ui.components.extraction_spinner import ExtractionSpinner
+from ui.components.sort_combo import SortComboBox
 from ui.components.sidebar import LeftSidebarWidget, CustomTitleBar, DialogTitleBar, add_soft_shadow
 from ui.dialogs.proton_dialogs import ProtonSetupWizard, ProtonManagerDialog, UmuRuntimeManagerDialog
 from ui.dialogs.game_dialogs import (
@@ -1058,8 +1059,54 @@ class MainWindow(QMainWindow):
         self.grid_search_input.textChanged.connect(self._on_search_query_changed)
         header_layout.addWidget(self.grid_search_input)
 
+        # List/grid views keep the high-frequency library filters beside the
+        # search field. Compact has its own sidebar filter bar.
+        self.library_filter_buttons = {}
+        filter_specs = (
+            ("all", "All", "ph.squares-four-bold"),
+            ("installed", "Installed", "ph.check-circle-bold"),
+            ("favorites", "Favorites", "ph.heart-bold"),
+            ("archived", "Archived", "ph.archive-bold"),
+        )
+        filter_button_style = f"""
+            QPushButton {{
+                background: {SURFACE};
+                color: {TEXT_SECONDARY};
+                border: 1px solid {BORDER};
+                border-radius: 6px;
+                padding: 0 9px;
+                font-size: 10px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: {SURFACE_ELEVATED};
+                color: {TEXT_PRIMARY};
+            }}
+            QPushButton:checked {{
+                background: {SURFACE_ELEVATED};
+                color: {TEXT_PRIMARY};
+                border-color: {TEXT_MUTED};
+            }}
+        """
+        for filter_mode, label, icon_name in filter_specs:
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setIcon(get_icon(icon_name, color=TEXT_SECONDARY))
+            button.setIconSize(QSize(14, 14))
+            button.setFixedHeight(30)
+            button.setMinimumWidth(58 if filter_mode == "all" else 78)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setAccessibleName(f"Show {label.lower()} games")
+            button.setStyleSheet(filter_button_style)
+            button.clicked.connect(
+                lambda _checked=False, mode=filter_mode: self._set_filter(mode)
+            )
+            self.library_filter_buttons[filter_mode] = button
+            header_layout.addWidget(button)
+        self._update_library_filter_buttons()
+
         # Sorting ComboBox
-        self.sort_combo = QComboBox()
+        self.sort_combo = SortComboBox()
         self.sort_combo.addItems(["Sort: A–Z Title", "Sort: Most Played", "Sort: Recently Added", "Sort: Disk Size", "Sort: Runner"])
         self.sort_combo.setFixedHeight(30)
         self.sort_combo.setStyleSheet(f"""
@@ -1078,8 +1125,13 @@ class MainWindow(QMainWindow):
             QComboBox::drop-down {{
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
-                width: 18px;
+                width: 0px;
                 border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                width: 0px;
+                height: 0px;
             }}
             QComboBox QAbstractItemView {{
                 background-color: {SURFACE_ELEVATED};
@@ -2221,15 +2273,31 @@ class MainWindow(QMainWindow):
 
     def _set_filter(self, filter_mode: str):
         """Set active filter mode (all, installed, favorites, archived) and refresh view."""
+        if filter_mode not in {"all", "installed", "favorites", "archived"}:
+            return
         self.current_filter = filter_mode
+        self.collection_filter = ""
+        self._update_library_filter_buttons()
         if hasattr(self, "compact_container"):
             self.compact_container.set_filter(filter_mode)
         self._refresh_library()
+
+    def _update_library_filter_buttons(self) -> None:
+        """Keep the desktop filter segment synchronized with the active view."""
+        buttons = getattr(self, "library_filter_buttons", None)
+        if not buttons:
+            return
+        active = getattr(self, "current_filter", "all")
+        for mode, button in buttons.items():
+            button.blockSignals(True)
+            button.setChecked(mode == active)
+            button.blockSignals(False)
 
     def _set_collection_filter(self, col_name: str):
         """Filter library to a specific collection and update banner."""
         self.collection_filter = col_name.strip()
         self.current_filter = "" if self.collection_filter else "all"
+        self._update_library_filter_buttons()
         self._refresh_library()
 
     def _on_add_collection(self):
@@ -3620,6 +3688,14 @@ class MainWindow(QMainWindow):
             self.detail_panel.setContentsMargins(0, 0, 0, 0)
             self.btn_reveal_detail.setVisible(False)
 
+    def _panel_animation_progress(self) -> float:
+        """Return the current inspector animation value, safely normalized."""
+        value = self.panel_anim.currentValue()
+        try:
+            return min(1.0, max(0.0, float(value)))
+        except (TypeError, ValueError):
+            return 1.0 if self.detail_panel.isVisible() else 0.0
+
     def _animate_left_panel(self, expand: bool):
         """Smoothly swipe and fade in/out the right detail inspector panel from the right edge."""
         if self.library_view_mode in ("compact", "steam"):
@@ -3627,22 +3703,36 @@ class MainWindow(QMainWindow):
             self.btn_reveal_detail.setVisible(False)
             return
         if expand:
-            if not self.detail_panel.isVisible() or self.panel_anim.state() == QAbstractAnimation.State.Running:
-                self._panel_expanding = True
-                self.btn_reveal_detail.setVisible(False)
-                self.detail_panel.setVisible(True)
+            if self.panel_anim.state() == QAbstractAnimation.State.Running:
+                # Resource refreshes may update the inspector while it is
+                # opening. Restarting the same animation makes the splitter
+                # jump and appear to move on its own.
+                if self._panel_expanding:
+                    return
+                start_value = self._panel_animation_progress()
                 self.panel_anim.stop()
-                self.panel_anim.setDuration(280)
-                self.panel_anim.setStartValue(0.0)
-                self.panel_anim.setEndValue(1.0)
-                self.panel_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-                self.panel_anim.start()
+            elif self.detail_panel.isVisible() and self.splitter.sizes()[1] >= self.detail_panel.minimumWidth():
+                return
+            else:
+                start_value = self._panel_animation_progress()
+            self._panel_expanding = True
+            self.btn_reveal_detail.setVisible(False)
+            self.detail_panel.setVisible(True)
+            self.panel_anim.stop()
+            self.panel_anim.setDuration(280)
+            self.panel_anim.setStartValue(start_value)
+            self.panel_anim.setEndValue(1.0)
+            self.panel_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self.panel_anim.start()
         else:
             if self.detail_panel.isVisible():
+                start_value = self._panel_animation_progress()
+                if self.panel_anim.state() == QAbstractAnimation.State.Running and not self._panel_expanding:
+                    return
                 self._panel_expanding = False
                 self.panel_anim.stop()
                 self.panel_anim.setDuration(220)
-                self.panel_anim.setStartValue(1.0)
+                self.panel_anim.setStartValue(start_value)
                 self.panel_anim.setEndValue(0.0)
                 self.panel_anim.setEasingCurve(QEasingCurve.Type.InCubic)
                 self.panel_anim.start()
