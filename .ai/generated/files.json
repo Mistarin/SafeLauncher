@@ -2041,7 +2041,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 64689,
+      "bytes": 64648,
       "lines": 1415,
       "path": "ui/dialogs/game_properties_dialog.py",
       "suffix": ".py"
@@ -2131,5 +2131,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-15T07:55:01+00:00"
+  "generated_at": "2026-09-15T08:09:53+00:00"
 }

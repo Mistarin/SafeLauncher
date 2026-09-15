@@ -756,7 +756,7 @@ class GamePropertiesDialog(PopupDialog):
         super().closeEvent(event)
 
     def _load_save_stats_async(self):
-        """Asynchronously load save detection & cloud status on worker thread."""
+        """Load save detection and history through managed resources."""
         self._save_stats_generation += 1
         load_generation = self._save_stats_generation
 
@@ -804,7 +804,7 @@ class GamePropertiesDialog(PopupDialog):
                     state["operation_result"],
                 )
 
-            def bind_read(handle, name: str, callback) -> None:
+            def bind_read(handle, callback) -> None:
                 request_id = handle.request_id
 
                 def deliver(resource):
@@ -851,7 +851,7 @@ class GamePropertiesDialog(PopupDialog):
                         generation=self.cloud_status_service.current_context().generation,
                     )
 
-            bind_read(status_handle, "status", apply_status)
+            bind_read(status_handle, apply_status)
 
             if self.cloud_center_service is not None:
                 history_handle = self.cloud_center_service.request_save_history(
@@ -880,7 +880,7 @@ class GamePropertiesDialog(PopupDialog):
                 elif isinstance(value, list):
                     state["versions"] = value
 
-            bind_read(history_handle, "history", apply_history)
+            bind_read(history_handle, apply_history)
             return
 
         def _worker():

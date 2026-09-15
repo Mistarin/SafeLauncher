@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-15T07:55:01+00:00",
+  "generated_at": "2026-09-15T08:09:53+00:00",
   "hashes": {
     ".ai/ARCHITECTURE.md": "34ea71fb54b0b33be03272f9b7cb5878b3f3fafdf3d787b2e46c164175319b8b",
     ".ai/CONTEXT.md": "9ea9cff3d0c75075d8b6344d6b1bf2cac437ca72a212d80792be6159e41e1e45",
@@ -341,7 +341,7 @@
     "ui/dialogs/deploy_key_wizard_dialog.py": "c23dbc64572ffa6046189ae47eb9d5d35c02ed520635552116421f7d397c87f0",
     "ui/dialogs/friends_dialog.py": "80ebbff7a51a234226b7016077dbc88abfe8806921c432111c2e9d682646aba9",
     "ui/dialogs/game_dialogs.py": "b3b69c273553af1c1e42366d0bbc5763d176fb8674aa19f660eef0d9e9db6bec",
-    "ui/dialogs/game_properties_dialog.py": "42bd2d65f420e5c0e50ced620f122f1cb56cb8f93b01ee62d3e37a5b3e874c21",
+    "ui/dialogs/game_properties_dialog.py": "630257192344ca205451920b5bf58f73cc7e9f38f77da3ac06ee1bd6d5b8ce57",
     "ui/dialogs/profile_avatar_dialog.py": "246c6262168d74095cc0bdfd0a68dfecb269f98e0a948fb3be3d303e9596aa90",
     "ui/dialogs/proton_dialogs.py": "c9e8d93f5ea80d32b6cb2733852e46f4c4157a2451990682651f4c75f3c27825",
     "ui/dialogs/save_conflict_dialog.py": "82a3295be51ba7a64088d1f8571fb53b4e2577874afdbd412e25c6cb15a85c92",
