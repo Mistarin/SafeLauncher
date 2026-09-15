@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-15T08:09:53+00:00",
+  "generated_at": "2026-09-15T08:32:09+00:00",
   "symbols": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -6838,26 +6838,86 @@
     {
       "file": "core/save_history.py",
       "kind": "function",
-      "line": 13,
+      "line": 21,
+      "name": "_timestamp"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "function",
+      "line": 32,
+      "name": "_first_timestamp"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "function",
+      "line": 40,
       "name": "_safe_device_name"
     },
     {
       "file": "core/save_history.py",
       "kind": "function",
-      "line": 20,
+      "line": 47,
       "name": "_first_name"
     },
     {
       "file": "core/save_history.py",
       "kind": "function",
-      "line": 28,
+      "line": 55,
       "name": "history_device_metadata"
     },
     {
       "file": "core/save_history.py",
       "kind": "function",
-      "line": 45,
+      "line": 72,
       "name": "history_device_text"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "class",
+      "line": 88,
+      "name": "HistoryEntry"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "function",
+      "line": 106,
+      "name": "source_label"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "function",
+      "line": 110,
+      "name": "date_key"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "function",
+      "line": 116,
+      "name": "date_label"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "function",
+      "line": 122,
+      "name": "time_label"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "function",
+      "line": 128,
+      "name": "version_label"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "function",
+      "line": 134,
+      "name": "_entry_identity"
+    },
+    {
+      "file": "core/save_history.py",
+      "kind": "function",
+      "line": 146,
+      "name": "normalize_history_entries"
     },
     {
       "file": "core/save_models.py",
@@ -11236,38 +11296,56 @@
     {
       "file": "tests/test_save_history.py",
       "kind": "class",
-      "line": 6,
+      "line": 10,
       "name": "SaveHistoryDeviceTests"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "function",
-      "line": 7,
+      "line": 11,
       "name": "test_explicit_creation_and_upload_devices_are_distinguished"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "function",
-      "line": 22,
+      "line": 26,
       "name": "test_single_compatibility_device_is_used_for_both_roles"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "function",
-      "line": 28,
+      "line": 32,
       "name": "test_legacy_cloud_entry_does_not_render_an_opaque_id"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "function",
-      "line": 34,
+      "line": 38,
       "name": "test_local_fork_is_identified_as_local"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "function",
-      "line": 37,
+      "line": 41,
       "name": "test_device_name_is_single_line_and_bounded"
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "kind": "function",
+      "line": 47,
+      "name": "test_history_prefers_upload_time_then_creation_time"
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "kind": "function",
+      "line": 55,
+      "name": "test_cloud_and_local_entries_share_one_stable_timeline"
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "kind": "function",
+      "line": 66,
+      "name": "test_missing_timestamp_is_sorted_after_dated_entries"
     },
     {
       "file": "tests/test_security_and_threads.py",
@@ -13754,6 +13832,120 @@
       "name": "closeEvent"
     },
     {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 22,
+      "name": "_format_bytes"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "class",
+      "line": 31,
+      "name": "_HistoryItemCompatibilityView"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 34,
+      "name": "__init__"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 37,
+      "name": "text"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 40,
+      "name": "data"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "class",
+      "line": 49,
+      "name": "SaveHistoryTimeline"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 54,
+      "name": "__init__"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 78,
+      "name": "set_message"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 95,
+      "name": "set_entries"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 128,
+      "name": "entries"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 131,
+      "name": "selected_entry"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 137,
+      "name": "count"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 140,
+      "name": "item"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 146,
+      "name": "currentItem"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 149,
+      "name": "select_identity"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 154,
+      "name": "_date_divider"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 172,
+      "name": "_entry_button"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 203,
+      "name": "_on_button_clicked"
+    },
+    {
+      "file": "ui/components/save_history_timeline.py",
+      "kind": "function",
+      "line": 210,
+      "name": "_select"
+    },
+    {
       "file": "ui/components/sidebar.py",
       "kind": "function",
       "line": 13,
@@ -14182,25 +14374,25 @@
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 37,
+      "line": 38,
       "name": "format_bytes"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 46,
+      "line": 47,
       "name": "_relative_time"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "class",
-      "line": 60,
+      "line": 61,
       "name": "AccountDialog"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 66,
+      "line": 67,
       "name": "__init__"
     },
     {
@@ -14296,79 +14488,85 @@
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 586,
+      "line": 588,
       "name": "_on_game_selected"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 601,
+      "line": 613,
+      "name": "_on_history_entry_selected"
+    },
+    {
+      "file": "ui/dialogs/account_dialog.py",
+      "kind": "function",
+      "line": 618,
       "name": "_restore_selected_version"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 664,
+      "line": 681,
       "name": "_restore_result"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 684,
+      "line": 701,
       "name": "_work"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 707,
+      "line": 724,
       "name": "_delete_selected_version"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 745,
+      "line": 762,
       "name": "_work"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 754,
+      "line": 771,
       "name": "_apply_op"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 779,
+      "line": 796,
       "name": "_show_toast_like"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 782,
+      "line": 799,
       "name": "_notify_ancestor_cloud_changed"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 792,
+      "line": 809,
       "name": "_notify_ancestor_poll"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 800,
+      "line": 817,
       "name": "_auth_action"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 827,
+      "line": 844,
       "name": "_on_backend_changed"
     },
     {
       "file": "ui/dialogs/account_dialog.py",
       "kind": "function",
-      "line": 831,
+      "line": 848,
       "name": "_style_avatar"
     },
     {
@@ -15700,253 +15898,271 @@
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "class",
-      "line": 45,
+      "line": 47,
       "name": "GamePropertiesDialog"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 53,
+      "line": 55,
       "name": "__init__"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 183,
+      "line": 186,
       "name": "_create_general_tab"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 323,
+      "line": 326,
       "name": "_create_presets_tab"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 536,
+      "line": 539,
       "name": "_create_saves_tab"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 722,
+      "line": 705,
       "name": "_start_managed_task"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 733,
+      "line": 716,
       "name": "_complete"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 747,
+      "line": 730,
       "name": "closeEvent"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 758,
+      "line": 741,
       "name": "_load_save_stats_async"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 794,
+      "line": 777,
       "name": "finish_if_ready"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 807,
+      "line": 790,
       "name": "bind_read"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 810,
+      "line": 793,
       "name": "deliver"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 835,
+      "line": 818,
       "name": "apply_status"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 871,
+      "line": 854,
       "name": "apply_history"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 886,
+      "line": 869,
       "name": "_worker"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 913,
+      "line": 896,
       "name": "_on_save_stats_ready"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 970,
+      "line": 953,
       "name": "_render_generations"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1019,
+      "line": 983,
+      "name": "_on_history_entry_selected"
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "kind": "function",
+      "line": 986,
       "name": "_restore_selected_version_now"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1052,
+      "line": 1014,
+      "name": "_restore_fork"
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "kind": "function",
+      "line": 1036,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1070,
+      "line": 1054,
       "name": "_work"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1083,
+      "line": 1067,
+      "name": "_on_local_history_restore_done"
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "kind": "function",
+      "line": 1076,
       "name": "_restore_backup_now"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1087,
+      "line": 1080,
       "name": "_on_gen_restore_done"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1100,
+      "line": 1093,
       "name": "_notify_parent_cloud_changed"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1110,
+      "line": 1103,
       "name": "_operation_result_from_resource"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1129,
+      "line": 1122,
       "name": "_bind_cloud_operation"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1135,
+      "line": 1128,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1153,
+      "line": 1146,
       "name": "_sync_up_now"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1184,
+      "line": 1177,
       "name": "_work"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1194,
+      "line": 1187,
       "name": "_on_manual_sync_up_done"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1217,
+      "line": 1210,
       "name": "_is_game_running"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1235,
+      "line": 1228,
       "name": "_sync_down_now"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1274,
+      "line": 1267,
       "name": "_work"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1284,
+      "line": 1277,
       "name": "_on_manual_sync_down_done"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1308,
+      "line": 1301,
       "name": "_add_variable_row"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1314,
+      "line": 1307,
       "name": "_remove_variable_row"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1319,
+      "line": 1312,
       "name": "_save_and_close"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1369,
+      "line": 1362,
       "name": "_update_runtime_label"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1379,
+      "line": 1372,
       "name": "_select_proton_runtime"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1392,
+      "line": 1385,
       "name": "_reset_proton_runtime"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1401,
+      "line": 1394,
       "name": "_open_prefix_maintenance"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1404,
+      "line": 1397,
       "name": "_open_game_directory"
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "kind": "function",
-      "line": 1411,
+      "line": 1404,
       "name": "_open_save_manager"
     },
     {
@@ -16252,235 +16468,235 @@
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 468,
+      "line": 453,
       "name": "_start_managed_task"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 478,
+      "line": 463,
       "name": "_complete"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 492,
+      "line": 477,
       "name": "_show_recovery"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 507,
+      "line": 492,
       "name": "_hide_recovery"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 512,
+      "line": 497,
       "name": "_rescan_and_revalidate"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 517,
+      "line": 502,
       "name": "_retry_last_operation"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 524,
+      "line": 509,
       "name": "_validate_selected_locations"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 552,
+      "line": 537,
       "name": "_save_operation_from_cloud_result"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 556,
+      "line": 541,
       "name": "_resource_operation_result"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 576,
+      "line": 561,
       "name": "_bind_cloud_operation"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 583,
+      "line": 568,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 603,
+      "line": 588,
       "name": "_close_resource_bindings"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 608,
+      "line": 593,
       "name": "_open_cloud_settings"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 614,
+      "line": 599,
       "name": "_copy_error_details"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 629,
+      "line": 614,
       "name": "_open_operation_logs"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 635,
+      "line": 620,
       "name": "closeEvent"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 646,
+      "line": 631,
       "name": "_scan_saves"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 743,
+      "line": 728,
       "name": "_update_export_state"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 749,
+      "line": 734,
       "name": "_upload_selected"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 805,
+      "line": 790,
       "name": "_worker"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 828,
+      "line": 813,
       "name": "_on_upload_done"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 850,
+      "line": 835,
       "name": "_export_selected"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 898,
+      "line": 883,
       "name": "_import_snapshot"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 920,
+      "line": 905,
       "name": "_notify_parent_changed"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 933,
+      "line": 918,
       "name": "_on_tab_changed"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 937,
+      "line": 922,
       "name": "_on_history_selection_changed"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 941,
+      "line": 926,
       "name": "_load_history"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 959,
+      "line": 951,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 987,
+      "line": 979,
       "name": "_work"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 997,
+      "line": 989,
       "name": "_on_history_loaded"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1039,
+      "line": 1006,
       "name": "_restore_selected_history_save"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1077,
+      "line": 1045,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1087,
+      "line": 1055,
       "name": "_worker"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1121,
+      "line": 1089,
       "name": "_restore_from_cloud"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1151,
+      "line": 1119,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1169,
+      "line": 1137,
       "name": "_preflight"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1198,
+      "line": 1166,
       "name": "_on_restore_done"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1268,
+      "line": 1236,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1278,
+      "line": 1246,
       "name": "_worker"
     },
     {

@@ -19,14 +19,14 @@
       "suffix": ".md"
     },
     {
-      "bytes": 12317,
-      "lines": 89,
+      "bytes": 12604,
+      "lines": 90,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
     },
     {
-      "bytes": 6466,
-      "lines": 87,
+      "bytes": 6782,
+      "lines": 92,
       "path": ".ai/STATUS.md",
       "suffix": ".md"
     },
@@ -139,8 +139,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 953,
-      "lines": 8,
+      "bytes": 1482,
+      "lines": 10,
       "path": ".ai/architecture/save-management.md",
       "suffix": ".md"
     },
@@ -937,8 +937,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 61749,
-      "lines": 1310,
+      "bytes": 62042,
+      "lines": 1314,
       "path": "core/cloud_save_sync.py",
       "suffix": ".py"
     },
@@ -1261,8 +1261,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 2139,
-      "lines": 61,
+      "bytes": 7497,
+      "lines": 214,
       "path": "core/save_history.py",
       "suffix": ".py"
     },
@@ -1855,8 +1855,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 1714,
-      "lines": 46,
+      "bytes": 3222,
+      "lines": 77,
       "path": "tests/test_save_history.py",
       "suffix": ".py"
     },
@@ -1963,6 +1963,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 8499,
+      "lines": 221,
+      "path": "ui/components/save_history_timeline.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 43194,
       "lines": 984,
       "path": "ui/components/sidebar.py",
@@ -1993,8 +1999,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 35846,
-      "lines": 838,
+      "bytes": 36765,
+      "lines": 855,
       "path": "ui/dialogs/account_dialog.py",
       "suffix": ".py"
     },
@@ -2041,8 +2047,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 64648,
-      "lines": 1415,
+      "bytes": 64574,
+      "lines": 1408,
       "path": "ui/dialogs/game_properties_dialog.py",
       "suffix": ".py"
     },
@@ -2065,8 +2071,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 56423,
-      "lines": 1351,
+      "bytes": 55536,
+      "lines": 1319,
       "path": "ui/dialogs/save_manager_dialog.py",
       "suffix": ".py"
     },
@@ -2131,5 +2137,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-15T08:09:53+00:00"
+  "generated_at": "2026-09-15T08:32:09+00:00"
 }

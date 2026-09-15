@@ -1,6 +1,10 @@
 import unittest
 
-from core.save_history import history_device_metadata, history_device_text
+from core.save_history import (
+    history_device_metadata,
+    history_device_text,
+    normalize_history_entries,
+)
 
 
 class SaveHistoryDeviceTests(unittest.TestCase):
@@ -39,6 +43,33 @@ class SaveHistoryDeviceTests(unittest.TestCase):
         self.assertTrue(text.startswith("Created and uploaded on Desk"))
         self.assertNotIn("\n", text)
         self.assertLessEqual(len(text), 120)
+
+    def test_history_prefers_upload_time_then_creation_time(self):
+        entries = normalize_history_entries([
+            {"source": "cloud", "version": 1, "createdAt": 2_000_000_000_000, "sourceMaxMtime": 9_000},
+            {"source": "cloud", "version": 2, "createdAt": 1_000_000_000_000, "uploadedAt": 3_000_000_000_000},
+        ])
+        self.assertEqual([entry.version for entry in entries], ["2", "1"])
+        self.assertEqual(entries[0].event_at, 3_000_000_000)
+
+    def test_cloud_and_local_entries_share_one_stable_timeline(self):
+        entries = normalize_history_entries([
+            {"source": "fork", "path": "/tmp/save_forks/a.zip", "mtime": 200, "size_bytes": 4},
+            {"source": "cloud", "version": 3, "createdAt": 300_000, "sizeBytes": 8},
+            {"source": "cloud", "version": 3, "createdAt": 300_000, "sizeBytes": 8},
+        ])
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0].source, "cloud")
+        self.assertEqual(entries[1].source, "fork")
+        self.assertEqual(entries[0].date_key, "1970-01-04")
+
+    def test_missing_timestamp_is_sorted_after_dated_entries(self):
+        entries = normalize_history_entries([
+            {"source": "cloud", "version": 1},
+            {"source": "cloud", "version": 2, "createdAt": 100_000},
+        ])
+        self.assertEqual([entry.version for entry in entries], ["2", "1"])
+        self.assertEqual(entries[-1].date_label, "Date unavailable")
 
 
 if __name__ == "__main__":

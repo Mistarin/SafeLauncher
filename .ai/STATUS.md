@@ -74,6 +74,11 @@ The generated index includes source hashes and generation metadata. Curated page
 - Game Properties uses managed status and history resources on the normal
   desktop path. Its local coordinator/engine branches are retained only for
   manager-less hosts and are not production schedulers.
+- Save history is now normalized once in `core.save_history` and rendered by a
+  shared date-grouped timeline in Save Manager, Game Properties, and the
+  compatibility Account Manager route. Cloud generations and local safety
+  forks are interleaved chronologically, deduplicated, and show safe device
+  provenance.
 - Cloud operation records and exit-sync results now normalize legacy backend
   categories into `RemoteErrorCategory` values for consistent diagnostics.
 - `ci/release_readiness.py` is the canonical local release gate. It creates

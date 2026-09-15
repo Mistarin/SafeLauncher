@@ -26,7 +26,9 @@ from core.safe_thread import TaskSupervisor
 from core.cloud_operation_service import CloudOperationTarget
 from core.cloud_status_service import CloudStatusTarget
 from core.request_contracts import RequestPriority, ResourceStatus
+from core.zip_backup import ZipBackupManager
 from ui.resource_binding import ResourceBinding, bind_request
+from ui.components.save_history_timeline import SaveHistoryTimeline
 from core.performance_env import (
     ENABLE_GAMEMODE,
     GAMEMODE_MODE,
@@ -61,6 +63,7 @@ class GamePropertiesDialog(PopupDialog):
         self.request_manager = getattr(parent, "request_manager", None)
         self._resource_bindings: dict[str, ResourceBinding] = {}
         self._save_stats_generation = 0
+        self.backup_mgr = ZipBackupManager()
 
         # Extract game record fields
         self.game_id = game[0]
@@ -620,35 +623,15 @@ class GamePropertiesDialog(PopupDialog):
         lbl_ver_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #F5F7FA;")
         self.ver_selector_layout.addWidget(lbl_ver_title)
 
-        combo_row = QHBoxLayout()
-        combo_row.setSpacing(8)
-
-        self.combo_cloud_versions = QComboBox()
-        self.combo_cloud_versions.setFixedHeight(32)
-        self.combo_cloud_versions.setStyleSheet("""
-            QComboBox {
-                background: #161A22;
-                color: #F5F7FA;
-                border: none;
-                border-radius: 6px;
-                padding: 4px 10px;
-                font-size: 11px;
-            }
-            QComboBox:hover {
-                background: #202633;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox QAbstractItemView {
-                background: #18181B;
-                color: #F5F7FA;
-                selection-background-color: #3B9FE8;
-                border: none;
-            }
-        """)
-        combo_row.addWidget(self.combo_cloud_versions, 1)
+        timeline_row = QVBoxLayout()
+        timeline_row.setSpacing(8)
+        self.history_timeline = SaveHistoryTimeline()
+        # Read-only compatibility alias for callers that used to locate the
+        # version selector by its old combo-box name.
+        self.combo_cloud_versions = self.history_timeline
+        self.history_timeline.setMinimumHeight(150)
+        self.history_timeline.entry_selected.connect(self._on_history_entry_selected)
+        timeline_row.addWidget(self.history_timeline)
 
         self.btn_restore_selected = QPushButton(" Restore Selected")
         self.btn_restore_selected.setIcon(get_icon("ph.clock-counter-clockwise-bold"))
@@ -673,9 +656,9 @@ class GamePropertiesDialog(PopupDialog):
         """)
         self.btn_restore_selected.clicked.connect(self._restore_selected_version_now)
         self.btn_restore_backup = self.btn_restore_selected  # Backwards compatibility
-        combo_row.addWidget(self.btn_restore_selected)
+        timeline_row.addWidget(self.btn_restore_selected)
 
-        self.ver_selector_layout.addLayout(combo_row)
+        self.ver_selector_layout.addLayout(timeline_row)
 
         self.lbl_generations = QLabel("")
         self.lbl_generations.setStyleSheet("font-size: 11px; color: #A7ADB8;")
@@ -968,65 +951,50 @@ class GamePropertiesDialog(PopupDialog):
         self._render_generations(versions, local_exists=local_stats.exists)
 
     def _render_generations(self, versions, local_exists: bool = True):
-        """Show retained cloud generations with multi-version selector & restore action."""
-        from ui.dialogs.save_conflict_dialog import format_bytes
+        """Show retained cloud generations and local forks in one timeline."""
         from core.cloud_save_sync import get_active_save_version
-        from core.save_history import history_device_text
         self._cloud_versions = list(versions or [])
         if not self._cloud_versions:
             self._backup_version = None
+            self.history_timeline.set_message("No saved generations or local safety backups found.")
             self.ver_selector_widget.hide()
             self.btn_restore_selected.setEnabled(False)
             return
 
         active_ver = get_active_save_version(self.game_name)
-        self.combo_cloud_versions.blockSignals(True)
-        self.combo_cloud_versions.clear()
+        for v in self._cloud_versions:
+            v_num = v.get("version")
+            if local_exists and active_ver is not None and v_num == active_ver:
+                v["is_active"] = True
+        self.history_timeline.set_entries(self._cloud_versions)
 
-        selected_idx = 0
-        for idx, v in enumerate(self._cloud_versions):
-            v_num = v.get("version", 0)
-            # Cloud generations and local safety forks use different wire
-            # field names. Normalize both here so retained backups never show
-            # an empty date or zero size.
-            raw_mtime = v.get("mtime", v.get("sourceMaxMtime", 0)) or 0
-            d = format_datetime_timestamp(float(raw_mtime), "%H:%M")
-            raw_size = v.get("size_bytes", v.get("sizeBytes", 0)) or 0
-            sz = format_bytes(int(raw_size))
-            is_active = local_exists and ((active_ver is not None and v_num == active_ver) or (active_ver is None and idx == 0))
-            if is_active:
-                selected_idx = idx
-            source_label = "Cloud" if v.get("source") == "cloud" else "Local backup"
-            tag = " [Active on this PC]" if is_active else (" [Latest Cloud]" if idx == 0 and source_label == "Cloud" else "")
-            device_str = history_device_text(v)
-            display_str = f"{source_label} · {d} · {sz} · {device_str}{tag}"
-            self.combo_cloud_versions.addItem(display_str, v_num)
-
-        self.combo_cloud_versions.setCurrentIndex(selected_idx)
-        self.combo_cloud_versions.blockSignals(False)
-
-        if len(self._cloud_versions) >= 2:
-            self._backup_version = self._cloud_versions[1].get("version")
+        normalized = self.history_timeline.entries()
+        if len(normalized) >= 2:
+            self._backup_version = normalized[1].raw.get("version")
         else:
             self._backup_version = None
 
-        count_str = f"{len(self._cloud_versions)} generation(s) safely retained in cloud history."
+        count_str = f"{len(normalized)} dated cloud generation(s) and local safety backup(s)."
         self.lbl_generations.setText(f"<font color='#6F7682'>History:</font> {count_str}")
         self.lbl_generations.show()
-        self.btn_restore_selected.setEnabled(True)
+        self.btn_restore_selected.setEnabled(self.history_timeline.selected_entry() is not None)
         self.ver_selector_widget.show()
 
+    def _on_history_entry_selected(self, entry) -> None:
+        self.btn_restore_selected.setEnabled(entry is not None)
+
     def _restore_selected_version_now(self):
-        idx = self.combo_cloud_versions.currentIndex()
-        if idx < 0 or idx >= len(self._cloud_versions):
+        selected = self.history_timeline.selected_entry()
+        if selected is None:
             return
-        version = self.combo_cloud_versions.currentData()
-        if version is None:
-            return
+        entry = selected.raw
+        version = entry.get("version")
+        source_label = "cloud generation" if selected.source == "cloud" else "local safety backup"
+        title = selected.title
 
         answer = QMessageBox.question(
-            self, "Restore Cloud Generation",
-            f"Restore save generation v{version} for '{self.game_name}'?\n\n"
+            self, "Restore Save History Entry",
+            f"Restore this {source_label} for '{self.game_name}'?\n\n"
             f"Target Directory: {self.game_path}\n\n"
             "Your existing local save will be preserved in your local backups before overwriting.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1036,6 +1004,22 @@ class GamePropertiesDialog(PopupDialog):
             return
 
         self.btn_restore_selected.setEnabled(False)
+
+        if selected.source != "cloud":
+            fork_path = str(entry.get("path") or "")
+            target_dest = os.path.join(self.game_path, "prefix")
+            if not os.path.isdir(target_dest):
+                target_dest = self.game_path
+
+            def _restore_fork():
+                return self.backup_mgr.import_save(fork_path, target_dest, game_path=self.game_path)
+
+            self._start_managed_task(
+                f"SafeLauncher-ForkRestore-{self.game_id}",
+                _restore_fork,
+                lambda success: self._on_local_history_restore_done(bool(success), title),
+            )
+            return
 
         if self.cloud_center_service is not None or self.cloud_operation_service is not None:
             target = CloudOperationTarget(
@@ -1079,6 +1063,15 @@ class GamePropertiesDialog(PopupDialog):
             _work,
             lambda result: self._gen_restore_done.emit(*result),
         )
+
+    def _on_local_history_restore_done(self, success: bool, title: str) -> None:
+        self.btn_restore_selected.setEnabled(True)
+        if success:
+            QMessageBox.information(self, "Save History", f"'{title}' was restored successfully.")
+            self._notify_parent_cloud_changed()
+        else:
+            QMessageBox.critical(self, "Save History", f"Could not restore '{title}'.")
+        self._load_save_stats_async()
 
     def _restore_backup_now(self):
         """Backwards-compatible wrapper for restoring backup generation."""

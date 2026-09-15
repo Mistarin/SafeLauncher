@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
+from ui.components.save_history_timeline import SaveHistoryTimeline
 from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
 from core.cloud_account_service import CloudAccountService
@@ -202,11 +203,9 @@ class AccountDialog(PopupDialog):
         lbl_versions.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         lbl_versions.setStyleSheet("color: #FFFFFF;")
         right_layout.addWidget(lbl_versions)
-        self.lst_versions = QListWidget()
-        self.lst_versions.setStyleSheet(
-            "QListWidget { background:#121214; border:1px solid #27272A; border-radius:6px; color:#E5E7EB; }"
-            "QListWidget::item { padding:7px; }"
-        )
+        self.history_timeline = SaveHistoryTimeline()
+        self.history_timeline.setMinimumHeight(180)
+        self.history_timeline.entry_selected.connect(self._on_history_entry_selected)
         ver_btn_row = QHBoxLayout()
         ver_btn_row.setSpacing(6)
         self.btn_restore = QPushButton("Restore Selected to Game")
@@ -218,14 +217,15 @@ class AccountDialog(PopupDialog):
         self.btn_restore.clicked.connect(self._restore_selected_version)
         ver_btn_row.addWidget(self.btn_restore)
 
-        btn_delete = QPushButton("Delete Selected Generation")
-        btn_delete.setStyleSheet(
+        self.btn_delete_generation = QPushButton("Delete Selected Generation")
+        self.btn_delete_generation.setStyleSheet(
             "QPushButton { background:#27272A; color:#F05D6C; border:1px solid #3F3F46;"
             "border-radius:5px; padding:6px 12px; }"
             "QPushButton:hover { border-color:#F05D6C; }"
         )
-        btn_delete.clicked.connect(self._delete_selected_version)
-        ver_btn_row.addWidget(btn_delete)
+        self.btn_delete_generation.clicked.connect(self._delete_selected_version)
+        ver_btn_row.addWidget(self.btn_delete_generation)
+        right_layout.addWidget(self.history_timeline, 1)
         right_layout.addLayout(ver_btn_row)
         self.games_split.addWidget(right_panel)
         self.games_split.setStretchFactor(0, 3)
@@ -563,7 +563,9 @@ class AccountDialog(PopupDialog):
     def _populate_games(self, games):
         self._games = games
         self.lst_games.clear()
-        self.lst_versions.clear()
+        self.history_timeline.set_message("Select a game to see its retained history.")
+        self.btn_restore.setEnabled(False)
+        self.btn_delete_generation.setEnabled(False)
         if not games:
             item = QListWidgetItem("No saves uploaded yet.")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
@@ -584,29 +586,44 @@ class AccountDialog(PopupDialog):
     # ------------------------------------------------------------------ #
 
     def _on_game_selected(self, row: int):
-        self.lst_versions.clear()
+        self.btn_restore.setEnabled(False)
+        self.btn_delete_generation.setEnabled(False)
         if row < 0 or row >= len(self._games):
+            self.history_timeline.set_message("Select a game to see its retained history.")
             return
         game = sorted(self._games, key=lambda x: x.get("latestSourceMtime", 0), reverse=True)[row]
-        for v in reversed(game.get("versions", [])):
-            item = QListWidgetItem(
-                f"v{v['version']} — {_relative_time(v.get('createdAt', 0))} · "
-                f"{format_bytes(v['sizeBytes'])} · content {v.get('sourceMaxMtime', 0)}"
-            )
-            item.setData(Qt.ItemDataRole.UserRole, v["version"])
-            self.lst_versions.addItem(item)
-        if not self.lst_versions.count():
-            QListWidgetItem("(pending upload…)", self.lst_versions)
+        entries = []
+        for version in game.get("versions", []):
+            if not isinstance(version, dict):
+                continue
+            entry = dict(version)
+            entry.update({
+                "source": "cloud",
+                "display_name": f"Cloud Generation v{entry.get('version', '?')}",
+                "size_bytes": entry.get("sizeBytes", 0),
+                "created_at": entry.get("createdAt", 0),
+                "uploaded_at": entry.get("uploadedAt", 0),
+            })
+            entries.append(entry)
+        self.history_timeline.set_entries(entries)
+        has_entries = bool(self.history_timeline.entries())
+        self.btn_restore.setEnabled(has_entries)
+        self.btn_delete_generation.setEnabled(has_entries)
+
+    def _on_history_entry_selected(self, _entry=None):
+        enabled = self.history_timeline.selected_entry() is not None
+        self.btn_restore.setEnabled(enabled)
+        self.btn_delete_generation.setEnabled(enabled)
 
     def _restore_selected_version(self):
         game_item = self.lst_games.currentItem()
-        ver_item = self.lst_versions.currentItem()
-        if not game_item or not ver_item:
+        selected = self.history_timeline.selected_entry()
+        if not game_item or selected is None:
             QMessageBox.information(self, "Nothing Selected",
                                     "Pick a game and a stored generation first.")
             return
         name_key = game_item.data(Qt.ItemDataRole.UserRole)
-        version = ver_item.data(Qt.ItemDataRole.UserRole)
+        version = selected.raw.get("version")
         if version is None:
             return
 
@@ -706,13 +723,13 @@ class AccountDialog(PopupDialog):
 
     def _delete_selected_version(self):
         game_item = self.lst_games.currentItem()
-        ver_item = self.lst_versions.currentItem()
-        if not game_item or not ver_item:
+        selected = self.history_timeline.selected_entry()
+        if not game_item or selected is None:
             QMessageBox.information(self, "Nothing selected",
                                     "Pick a game and a stored generation first.")
             return
         name_key = game_item.data(Qt.ItemDataRole.UserRole)
-        version = ver_item.data(Qt.ItemDataRole.UserRole)
+        version = selected.raw.get("version")
         confirm = QMessageBox.question(
             self, "Delete generation",
             f"Permanently delete generation v{version} of '{name_key}'?\n"

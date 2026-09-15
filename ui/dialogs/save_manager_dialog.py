@@ -10,7 +10,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QProgressBar,
-    QTabWidget, QListWidget, QListWidgetItem, QProgressDialog, QApplication
+    QTabWidget, QProgressDialog, QApplication
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
@@ -35,8 +35,8 @@ from core.zip_backup import ZipBackupManager
 from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
-from core.save_history import history_device_text
 from ui.resource_binding import ResourceBinding, bind_request
+from ui.components.save_history_timeline import SaveHistoryTimeline
 
 logger = get_logger("SaveManagerDialog")
 
@@ -67,6 +67,7 @@ class SaveManagerDialog(PopupDialog):
         self.game_path = game_path
         self.steam_id = steam_id
         self.cloud_sync_coordinator = cloud_coordinator or getattr(parent, "cloud_sync_coordinator", None) or CloudSyncCoordinator()
+        self.cloud_center_service = getattr(parent, "cloud_center_service", None)
         self.cloud_operation_service = getattr(parent, "cloud_operation_service", None)
         self.request_manager = getattr(parent, "request_manager", None)
         self.backup_mgr = ZipBackupManager()
@@ -384,29 +385,13 @@ class SaveManagerDialog(PopupDialog):
         history_header.addWidget(btn_refresh_hist)
         tab_history_layout.addLayout(history_header)
 
-        self.lst_history = QListWidget()
-        self.lst_history.setStyleSheet("""
-            QListWidget {
-                background: #0D0F14;
-                border: 1px solid #252A33;
-                border-radius: 8px;
-                color: #F5F7FA;
-                padding: 6px;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #1A1E26;
-                border-radius: 6px;
-                color: #E5E7EB;
-            }
-            QListWidget::item:selected {
-                background: #1E293B;
-                color: #FFFFFF;
-                border: 1px solid #3B9FE8;
-            }
-        """)
-        self.lst_history.itemSelectionChanged.connect(self._on_history_selection_changed)
-        tab_history_layout.addWidget(self.lst_history)
+        self.history_timeline = SaveHistoryTimeline()
+        # Compatibility alias for older integrations that only inspect the
+        # history collection. The timeline remains the sole selection owner.
+        self.lst_history = self.history_timeline
+        self.history_timeline.setMinimumHeight(180)
+        self.history_timeline.entry_selected.connect(self._on_history_selection_changed)
+        tab_history_layout.addWidget(self.history_timeline)
 
         history_footer = QHBoxLayout()
         history_footer.setSpacing(10)
@@ -934,27 +919,34 @@ class SaveManagerDialog(PopupDialog):
         if index == 1:
             self._load_history()
 
-    def _on_history_selection_changed(self):
-        item = self.lst_history.currentItem()
-        self.btn_restore_history.setEnabled(bool(item and item.data(Qt.ItemDataRole.UserRole)))
+    def _on_history_selection_changed(self, _entry=None):
+        entry = self.history_timeline.selected_entry()
+        self.btn_restore_history.setEnabled(entry is not None)
 
     def _load_history(self):
         """Asynchronously fetch and populate all available cloud generations and local forks."""
-        self.lst_history.clear()
-        loading_item = QListWidgetItem("Loading history from cloud and disk...")
-        loading_item.setFlags(loading_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-        self.lst_history.addItem(loading_item)
+        self.history_timeline.set_message("Loading history from cloud and disk…")
+        self.history_timeline.setEnabled(False)
         self.btn_restore_history.setEnabled(False)
 
-        if self.cloud_operation_service is not None:
+        if self.cloud_center_service is not None or self.cloud_operation_service is not None:
             target = CloudOperationTarget(
                 self.game_id, self.game_name, self.game_path, self.steam_id
             )
-            handle = self.cloud_operation_service.request_history(
-                target,
-                priority=RequestPriority.NORMAL,
-                tag="save_manager_history",
-            )
+            if self.cloud_center_service is not None:
+                handle = self.cloud_center_service.request_save_history(
+                    self.game_id,
+                    game_name=self.game_name,
+                    game_path=self.game_path,
+                    steam_id=self.steam_id,
+                    priority=RequestPriority.NORMAL,
+                )
+            else:
+                handle = self.cloud_operation_service.request_history(
+                    target,
+                    priority=RequestPriority.NORMAL,
+                    tag="save_manager_history",
+                )
 
             def _deliver(resource):
                 try:
@@ -997,6 +989,8 @@ class SaveManagerDialog(PopupDialog):
     def _on_history_loaded(self, versions):
         """Populate history list on the main thread after async worker finishes."""
         if isinstance(versions, SaveOperationResult) and not versions.success:
+            self.history_timeline.setEnabled(True)
+            self.history_timeline.set_message("History could not be loaded. Use Retry below to try again.")
             self.save_state_store.set_operation(self.game_id, versions)
             self._show_recovery(
                 versions,
@@ -1004,48 +998,21 @@ class SaveManagerDialog(PopupDialog):
                 show_rescan=False,
             )
             return
-        self.save_state_store.set_history(self.game_id, versions)
-        self.lst_history.clear()
-        if not versions:
-            empty_item = QListWidgetItem("No saved generations or backup forks found yet.")
-            empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-            self.lst_history.addItem(empty_item)
-            self.btn_restore_history.setEnabled(False)
-            return
-
-        for v in versions:
-            v_num = v.get("version")
-            is_active = v.get("is_active", False)
-            date_str = format_datetime_timestamp(v.get("mtime", 0), "%H:%M:%S")
-            sz_str = format_bytes(int(v.get("size_bytes", 0)))
-            active_badge = " · [Active on this PC]" if is_active else ""
-
-            title = v.get("display_name", f"Save {v_num}")
-            device_str = history_device_text(v)
-            item = QListWidgetItem(
-                f"{title}\nDate: {date_str}  ·  Size: {sz_str}  ·  {device_str}{active_badge}"
-            )
-            item.setToolTip(
-                f"{title}\nDate: {date_str}\nSize: {sz_str}\nDevice: {device_str}"
-            )
-            item.setData(Qt.ItemDataRole.UserRole, v)
-            self.lst_history.addItem(item)
-
-        if self.lst_history.count() > 0:
-            self.lst_history.setCurrentRow(0)
-            self.btn_restore_history.setEnabled(True)
+        self.history_timeline.setEnabled(True)
+        self.history_timeline.set_entries(versions)
+        self.btn_restore_history.setEnabled(self.history_timeline.selected_entry() is not None)
 
 
     def _restore_selected_history_save(self):
-        curr = self.lst_history.currentItem()
-        if not curr:
+        selected = self.history_timeline.selected_entry()
+        if selected is None:
             QMessageBox.information(self, "Nothing Selected", "Please select a save from the list first.")
             return
-        entry = curr.data(Qt.ItemDataRole.UserRole)
+        entry = selected.raw
         if not entry:
             return
 
-        title = entry.get("display_name", "Save")
+        title = selected.title
         confirm = QMessageBox.question(
             self, "Restore Selected Save",
             f"Restore '{title}' to '{self.game_name}'?\n\n"
@@ -1062,12 +1029,13 @@ class SaveManagerDialog(PopupDialog):
         if hasattr(self, "btn_cloud"):
             self.btn_cloud.setEnabled(False)
 
-        if self.cloud_operation_service is not None and entry.get("source") == "cloud":
+        if (self.cloud_center_service is not None or self.cloud_operation_service is not None) and entry.get("source") == "cloud":
             v_num = entry.get("version")
             target = CloudOperationTarget(
                 self.game_id, self.game_name, self.game_path, self.steam_id
             )
-            handle = self.cloud_operation_service.request_restore(
+            operation_service = self.cloud_center_service or self.cloud_operation_service
+            handle = operation_service.request_restore(
                 target,
                 priority=RequestPriority.CRITICAL,
                 tag="save_manager_history_restore",

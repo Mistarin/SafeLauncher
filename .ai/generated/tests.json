@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-15T08:09:53+00:00",
+  "generated_at": "2026-09-15T08:32:09+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -1612,37 +1612,55 @@
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 7,
+      "line": 11,
       "name": "test_explicit_creation_and_upload_devices_are_distinguished"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 21,
+      "line": 25,
       "name": "test_single_compatibility_device_is_used_for_both_roles"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 27,
+      "line": 31,
       "name": "test_legacy_cloud_entry_does_not_render_an_opaque_id"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 33,
+      "line": 37,
       "name": "test_local_fork_is_identified_as_local"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 36,
+      "line": 40,
       "name": "test_device_name_is_single_line_and_bounded"
     },
     {
       "file": "tests/test_save_history.py",
+      "kind": "test",
+      "line": 46,
+      "name": "test_history_prefers_upload_time_then_creation_time"
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "kind": "test",
+      "line": 54,
+      "name": "test_cloud_and_local_entries_share_one_stable_timeline"
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "kind": "test",
+      "line": 65,
+      "name": "test_missing_timestamp_is_sorted_after_dated_entries"
+    },
+    {
+      "file": "tests/test_save_history.py",
       "kind": "test_class",
-      "line": 4,
+      "line": 8,
       "name": "SaveHistoryDeviceTests"
     },
     {
