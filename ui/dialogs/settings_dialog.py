@@ -869,7 +869,7 @@ class UserSettingsDialog(PopupDialog):
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
 
-        sec_account = QLabel("Cloud Account")
+        sec_account = QLabel("Cloud Center · Connection")
         sec_account.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_account.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
         layout.addWidget(sec_account)
@@ -1040,7 +1040,7 @@ class UserSettingsDialog(PopupDialog):
         self.btn_sign_in = QPushButton("Test & Connect…")
         self.btn_sign_in.clicked.connect(self._cloud_connect)
         acct_btns.addWidget(self.btn_sign_in)
-        btn_account_mgr = QPushButton("Save History Manager…")
+        btn_account_mgr = QPushButton("Advanced history & devices…")
         btn_account_mgr.clicked.connect(self._open_account_manager)
         acct_btns.addWidget(btn_account_mgr)
         self.btn_review_conflicts = QPushButton("Review conflicts")

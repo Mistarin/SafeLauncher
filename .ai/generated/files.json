@@ -19,14 +19,14 @@
       "suffix": ".md"
     },
     {
-      "bytes": 12292,
+      "bytes": 12317,
       "lines": 89,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
     },
     {
-      "bytes": 5865,
-      "lines": 78,
+      "bytes": 6466,
+      "lines": 87,
       "path": ".ai/STATUS.md",
       "suffix": ".md"
     },
@@ -871,8 +871,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 17418,
-      "lines": 456,
+      "bytes": 19560,
+      "lines": 499,
       "path": "core/cloud_center_service.py",
       "suffix": ".py"
     },
@@ -949,8 +949,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 20582,
-      "lines": 535,
+      "bytes": 21165,
+      "lines": 550,
       "path": "core/cloud_status_service.py",
       "suffix": ".py"
     },
@@ -1375,6 +1375,12 @@
       "suffix": ".md"
     },
     {
+      "bytes": 6035,
+      "lines": 183,
+      "path": "install-sonarr.sh",
+      "suffix": ".sh"
+    },
+    {
       "bytes": 1401,
       "lines": 50,
       "path": "install_desktop_entry.sh",
@@ -1645,8 +1651,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 6553,
-      "lines": 180,
+      "bytes": 8053,
+      "lines": 222,
       "path": "tests/test_cloud_center_service.py",
       "suffix": ".py"
     },
@@ -1669,8 +1675,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 9474,
-      "lines": 238,
+      "bytes": 10148,
+      "lines": 254,
       "path": "tests/test_cloud_status_service.py",
       "suffix": ".py"
     },
@@ -1987,7 +1993,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 35836,
+      "bytes": 35846,
       "lines": 838,
       "path": "ui/dialogs/account_dialog.py",
       "suffix": ".py"
@@ -2035,8 +2041,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 58902,
-      "lines": 1282,
+      "bytes": 64689,
+      "lines": 1415,
       "path": "ui/dialogs/game_properties_dialog.py",
       "suffix": ".py"
     },
@@ -2065,7 +2071,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 135467,
+      "bytes": 135486,
       "lines": 2961,
       "path": "ui/dialogs/settings_dialog.py",
       "suffix": ".py"
@@ -2089,8 +2095,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 378929,
-      "lines": 7993,
+      "bytes": 378990,
+      "lines": 7994,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2125,5 +2131,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T22:23:52+00:00"
+  "generated_at": "2026-09-15T07:55:01+00:00"
 }

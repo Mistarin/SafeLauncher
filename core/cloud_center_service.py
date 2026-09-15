@@ -15,6 +15,7 @@ from typing import Any
 from core.cloud_account_service import CloudAccountService
 from core.cloud_context import CloudContext
 from core.cloud_metadata_service import CloudMetadataService
+from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
 from core.cloud_status_service import CloudStatusService
 from core.cloud_sync_queue import PendingCloudSyncQueue
 from core.request_contracts import (
@@ -177,6 +178,7 @@ class CloudCenterService:
         account_service: CloudAccountService | None = None,
         status_service: CloudStatusService | None = None,
         metadata_service: CloudMetadataService | None = None,
+        operation_service: CloudOperationService | None = None,
         settings=None,
     ) -> None:
         self.request_manager = request_manager
@@ -185,6 +187,7 @@ class CloudCenterService:
         )
         self.status_service = status_service
         self.metadata_service = metadata_service
+        self.operation_service = operation_service
         self.settings = settings
 
     def current_context(self) -> CloudContext:
@@ -378,10 +381,32 @@ class CloudCenterService:
         self,
         game_id: int,
         *,
+        game_name: str = "",
+        game_path: str = "",
+        steam_id: str = "",
         force: bool = False,
         priority: RequestPriority = RequestPriority.NORMAL,
     ):
-        """Load one game's history through the account service without exposing its key."""
+        """Load one game's history through the canonical cloud facade.
+
+        Detailed game workflows provide the local target so the existing
+        operation service can merge local forks with cloud generations. The
+        compact Cloud Center route may omit it and receives the redacted
+        account listing used for the advanced history picker.
+        """
+        if self.operation_service is not None and str(game_name or "").strip():
+            target = CloudOperationTarget(
+                int(game_id),
+                str(game_name),
+                str(game_path or ""),
+                str(steam_id or ""),
+            )
+            return self.operation_service.request_history(
+                target,
+                priority=priority,
+                generation=self.current_context().generation,
+                tag="cloud_center_history",
+            )
         context = self.current_context()
         key = context.request_key("cloud-save-history", str(int(game_id)), "v1")
         if force:
@@ -404,6 +429,24 @@ class CloudCenterService:
             timeout_seconds=20,
         )
         return request
+
+    def request_upload(self, target: CloudOperationTarget, **kwargs):
+        """Delegate one upload without exposing operation internals to UI."""
+        if self.operation_service is None:
+            raise RuntimeError("CloudCenterService has no operation service")
+        return self.operation_service.request_upload(target, **kwargs)
+
+    def request_restore(self, target: CloudOperationTarget, **kwargs):
+        """Delegate one restore without creating a dialog-local workflow."""
+        if self.operation_service is None:
+            raise RuntimeError("CloudCenterService has no operation service")
+        return self.operation_service.request_restore(target, **kwargs)
+
+    def request_restore_generation(self, target: CloudOperationTarget, **kwargs):
+        """Delegate an explicit generation restore through the operation service."""
+        if self.operation_service is None:
+            raise RuntimeError("CloudCenterService has no operation service")
+        return self.operation_service.request_restore(target, **kwargs)
 
     def request_connection_probe(self, *, priority: RequestPriority = RequestPriority.NORMAL):
         """Probe connectivity and return only redacted health metadata."""
@@ -451,5 +494,5 @@ class CloudCenterService:
 __all__ = [
     "CloudCenterService", "CloudOverview", "CloudDeviceSummary",
     "CloudConnectionState", "CloudSyncSummary", "CloudQuotaSummary",
-    "CloudConflictSummary",
+    "CloudConflictSummary", "CloudOperationTarget",
 ]

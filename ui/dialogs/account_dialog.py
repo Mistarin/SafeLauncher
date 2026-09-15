@@ -71,7 +71,7 @@ class AccountDialog(PopupDialog):
         cloud_account_service=None,
         cloud_operation_service=None,
     ):
-        super().__init__("Cloud Account", parent)
+        super().__init__("Cloud History & Devices", parent)
         self.setFixedSize(780, 560)
         self._games = []
         self._quota = {}

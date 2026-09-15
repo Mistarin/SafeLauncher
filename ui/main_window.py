@@ -317,6 +317,7 @@ class MainWindow(QMainWindow):
             account_service=self.cloud_account_service,
             status_service=self.cloud_status_service,
             metadata_service=self.cloud_metadata_service,
+            operation_service=self.cloud_operation_service,
             settings=self.settings,
         )
         self.cloud_save_status_cache = self.cloud_status_service.status_cache
@@ -7779,7 +7780,7 @@ class MainWindow(QMainWindow):
         else:
             self.library_selection.replace(self.library_selection.ids - {game_id})
         self.library_metadata_state.clear_game(game_id)
-        self.cloud_save_status_cache.pop(game_id, None)
+        self.cloud_status_service.forget_status(game_id)
         self.achievement_state.clear_game(game_id)
         self._refresh_library()
         if hasattr(self, "profile_page"):

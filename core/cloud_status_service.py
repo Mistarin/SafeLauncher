@@ -189,6 +189,21 @@ class CloudStatusService:
             self.status_store.clear()
             self.save_cache()
 
+    def forget_status(self, game_id: int) -> bool:
+        """Remove one game's cached status through the owning service.
+
+        Library lifecycle changes use this instead of mutating the
+        compatibility mapping directly.  The mapping remains available for
+        older presentation consumers, but cache ownership stays here.
+        """
+        with self._lock:
+            game_id = int(game_id)
+            if game_id not in self.status_store:
+                return False
+            del self.status_store[game_id]
+            self.save_cache()
+            return True
+
     def plan_recheck(
         self,
         targets: Iterable[CloudStatusTarget],

@@ -193,6 +193,22 @@ class CloudStatusServiceTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_forget_status_keeps_cache_ownership_in_service(self):
+        coordinator = _Coordinator(CloudStatusResult("Example Game", SyncStatus.IN_SYNC))
+        manager = RequestManager(max_workers=1)
+        try:
+            service = CloudStatusService(
+                manager,
+                coordinator=coordinator,
+                context_provider=self._context_provider(),
+            )
+            service.record_status(42, SyncStatus.IN_SYNC)
+            self.assertTrue(service.forget_status(42))
+            self.assertIsNone(service.cached_status(42))
+            self.assertFalse(service.forget_status(42))
+        finally:
+            manager.shutdown()
+
     def test_recheck_planning_prioritizes_uncached_then_offline_then_stale(self):
         coordinator = _Coordinator(CloudStatusResult("Example", SyncStatus.NO_SAVES))
         manager = RequestManager(max_workers=1)

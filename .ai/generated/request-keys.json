@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T22:23:52+00:00",
+  "generated_at": "2026-09-15T07:55:01+00:00",
   "request_keys": [
     {
       "file": "ci/performance_baseline.py",
@@ -353,12 +353,12 @@
     },
     {
       "file": "ui/main_window.py",
-      "line": 3361,
+      "line": 3362,
       "resource": "window-task"
     },
     {
       "file": "ui/main_window.py",
-      "line": 6030,
+      "line": 6031,
       "resource": "public-profile"
     },
     {

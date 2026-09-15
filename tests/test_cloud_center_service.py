@@ -67,6 +67,20 @@ class _FakeMetadataService:
         return self.handle
 
 
+class _FakeOperationService:
+    def __init__(self):
+        self.calls = []
+        self.handle = object()
+
+    def request_history(self, target, **kwargs):
+        self.calls.append(("history", target, kwargs))
+        return self.handle
+
+    def request_upload(self, target, **kwargs):
+        self.calls.append(("upload", target, kwargs))
+        return self.handle
+
+
 class CloudCenterServiceTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -173,6 +187,34 @@ class CloudCenterServiceTests(unittest.TestCase):
         self.assertEqual(account.health_calls, 1)
         self.assertNotIn("private.example", history.key.cache_key())
         self.assertNotIn("secret", repr(probe.value).lower())
+
+    def test_detailed_history_and_operations_delegate_through_facade(self):
+        from core.cloud_operation_service import CloudOperationTarget
+
+        context = self._context()
+        operation = _FakeOperationService()
+        service = CloudCenterService(
+            self.manager,
+            account_service=_FakeAccountService(context),
+            status_service=_FakeStatusService(context),
+            operation_service=operation,
+        )
+        target = CloudOperationTarget(42, "Example Game", "/games/example", "480")
+
+        history = service.request_save_history(
+            42,
+            game_name="Example Game",
+            game_path="/games/example",
+            steam_id="480",
+        )
+        upload = service.request_upload(target, tag="test")
+
+        self.assertIs(history, operation.handle)
+        self.assertIs(upload, operation.handle)
+        self.assertEqual(operation.calls[0][0], "history")
+        self.assertEqual(operation.calls[0][1].game_id, 42)
+        self.assertEqual(operation.calls[1][0], "upload")
+        self.assertEqual(operation.calls[1][1].game_name, "Example Game")
 
 
 if __name__ == "__main__":

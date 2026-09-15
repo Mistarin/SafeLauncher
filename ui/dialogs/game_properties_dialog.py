@@ -24,6 +24,7 @@ from core.date_formatting import format_datetime_timestamp, format_timestamp
 from core.steam_build_tracker import has_resolved_build_reference
 from core.safe_thread import TaskSupervisor
 from core.cloud_operation_service import CloudOperationTarget
+from core.cloud_status_service import CloudStatusTarget
 from core.request_contracts import RequestPriority, ResourceStatus
 from ui.resource_binding import ResourceBinding, bind_request
 from core.performance_env import (
@@ -54,9 +55,12 @@ class GamePropertiesDialog(PopupDialog):
         self.game = game
         self.parent_window = parent
         self._task_supervisor = TaskSupervisor(self, logger)
+        self.cloud_center_service = getattr(parent, "cloud_center_service", None)
         self.cloud_operation_service = getattr(parent, "cloud_operation_service", None)
+        self.cloud_status_service = getattr(parent, "cloud_status_service", None)
         self.request_manager = getattr(parent, "request_manager", None)
         self._resource_bindings: dict[str, ResourceBinding] = {}
+        self._save_stats_generation = 0
 
         # Extract game record fields
         self.game_id = game[0]
@@ -753,6 +757,132 @@ class GamePropertiesDialog(PopupDialog):
 
     def _load_save_stats_async(self):
         """Asynchronously load save detection & cloud status on worker thread."""
+        self._save_stats_generation += 1
+        load_generation = self._save_stats_generation
+
+        # The normal desktop path uses the shared resource and operation
+        # services.  Keeping status and history as two managed resources lets
+        # the request manager deduplicate each independently and prevents a
+        # dialog-local worker from becoming a second cloud scheduler.
+        if (
+            self.request_manager is not None
+            and self.cloud_status_service is not None
+            and self.cloud_operation_service is not None
+        ):
+            target = CloudStatusTarget(
+                self.game_id,
+                self.game_name,
+                self.game_path,
+                str(self.steam_id or ""),
+            )
+            operation_target = CloudOperationTarget(
+                self.game_id,
+                self.game_name,
+                self.game_path,
+                str(self.steam_id or ""),
+            )
+            state = {
+                "status": None,
+                "local": None,
+                "cloud": None,
+                "operation_result": None,
+                "versions": None,
+                "status_done": False,
+                "history_done": False,
+            }
+
+            def finish_if_ready() -> None:
+                if load_generation != self._save_stats_generation:
+                    return
+                if not state["status_done"] or not state["history_done"]:
+                    return
+                self._save_stats_ready.emit(
+                    state["status"],
+                    state["local"],
+                    state["cloud"],
+                    state["versions"],
+                    state["operation_result"],
+                )
+
+            def bind_read(handle, name: str, callback) -> None:
+                request_id = handle.request_id
+
+                def deliver(resource):
+                    if load_generation != self._save_stats_generation:
+                        return
+                    if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                        return
+                    binding = self._resource_bindings.pop(request_id, None)
+                    if binding is not None:
+                        binding.close()
+                    callback(resource)
+                    finish_if_ready()
+
+                self._resource_bindings[request_id] = bind_request(
+                    self.request_manager,
+                    handle,
+                    deliver,
+                    self,
+                    cancel_on_close=True,
+                )
+
+            status_handle = self.cloud_status_service.request_status(
+                target,
+                priority=RequestPriority.NORMAL,
+                tag="game_properties_status",
+            )
+
+            def apply_status(resource) -> None:
+                state["status_done"] = True
+                if resource.status not in {ResourceStatus.READY, ResourceStatus.STALE}:
+                    state["operation_result"] = getattr(resource, "error", None)
+                    return
+                result = resource.value
+                state["operation_result"] = getattr(result, "error", None)
+                if getattr(result, "success", False):
+                    state["status"] = result.status
+                    state["local"] = result.local_stats
+                    state["cloud"] = result.cloud_stats
+                    self.cloud_status_service.record_status(
+                        self.game_id,
+                        result.status,
+                        result.local_stats,
+                        result.cloud_stats,
+                        generation=self.cloud_status_service.current_context().generation,
+                    )
+
+            bind_read(status_handle, "status", apply_status)
+
+            if self.cloud_center_service is not None:
+                history_handle = self.cloud_center_service.request_save_history(
+                    self.game_id,
+                    game_name=self.game_name,
+                    game_path=self.game_path,
+                    steam_id=str(self.steam_id or ""),
+                    priority=RequestPriority.NORMAL,
+                )
+            else:
+                history_handle = self.cloud_operation_service.request_history(
+                    operation_target,
+                    priority=RequestPriority.NORMAL,
+                    tag="game_properties_history",
+                )
+
+            def apply_history(resource) -> None:
+                state["history_done"] = True
+                if resource.status not in {ResourceStatus.READY, ResourceStatus.STALE}:
+                    return
+                value = resource.value
+                if isinstance(value, tuple) and len(value) >= 2:
+                    state["versions"] = value[0]
+                    if value[1] is not None and state["operation_result"] is None:
+                        state["operation_result"] = value[1]
+                elif isinstance(value, list):
+                    state["versions"] = value
+
+            bind_read(history_handle, "history", apply_history)
+            return
+
         def _worker():
             try:
                 from core.cloud_operations import CloudOperationCoordinator
@@ -907,11 +1037,12 @@ class GamePropertiesDialog(PopupDialog):
 
         self.btn_restore_selected.setEnabled(False)
 
-        if self.cloud_operation_service is not None:
+        if self.cloud_center_service is not None or self.cloud_operation_service is not None:
             target = CloudOperationTarget(
                 self.game_id, self.game_name, self.game_path, str(self.steam_id or "")
             )
-            handle = self.cloud_operation_service.request_restore(
+            operation_service = self.cloud_center_service or self.cloud_operation_service
+            handle = operation_service.request_restore(
                 target,
                 priority=RequestPriority.CRITICAL,
                 tag="properties_generation_restore",
@@ -1032,11 +1163,12 @@ class GamePropertiesDialog(PopupDialog):
         prog.show()
         self._active_manual_sync_progress = prog
 
-        if self.cloud_operation_service is not None:
+        if self.cloud_center_service is not None or self.cloud_operation_service is not None:
             target = CloudOperationTarget(
                 self.game_id, self.game_name, self.game_path, str(self.steam_id or "")
             )
-            handle = self.cloud_operation_service.request_upload(
+            operation_service = self.cloud_center_service or self.cloud_operation_service
+            handle = operation_service.request_upload(
                 target,
                 priority=RequestPriority.NORMAL,
                 tag="properties_upload",
@@ -1121,11 +1253,12 @@ class GamePropertiesDialog(PopupDialog):
         prog.show()
         self._active_manual_sync_progress = prog
 
-        if self.cloud_operation_service is not None:
+        if self.cloud_center_service is not None or self.cloud_operation_service is not None:
             target = CloudOperationTarget(
                 self.game_id, self.game_name, self.game_path, str(self.steam_id or "")
             )
-            handle = self.cloud_operation_service.request_restore(
+            operation_service = self.cloud_center_service or self.cloud_operation_service
+            handle = operation_service.request_restore(
                 target,
                 priority=RequestPriority.CRITICAL,
                 tag="properties_restore",

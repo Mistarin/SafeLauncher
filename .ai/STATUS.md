@@ -65,6 +65,15 @@ The generated index includes source hashes and generation metadata. Curated page
   muted accessible information-hint row. Cloud Center and Settings expose a
   disabled-until-needed `Review conflicts` entry that delegates to existing
   Save History workflows; it does not introduce a new destructive operation.
+- `CloudCenterService` now also composes the cloud operation service. Detailed
+  history, upload, restore, and generation-restore callers can delegate
+  through the facade while the low-level engine remains a compatibility
+  implementation detail. MainWindow invalidates one game's status through
+  `CloudStatusService.forget_status()` rather than mutating the compatibility
+  mapping directly.
+- Game Properties uses managed status and history resources on the normal
+  desktop path. Its local coordinator/engine branches are retained only for
+  manager-less hosts and are not production schedulers.
 - Cloud operation records and exit-sync results now normalize legacy backend
   categories into `RemoteErrorCategory` values for consistent diagnostics.
 - `ci/release_readiness.py` is the canonical local release gate. It creates
