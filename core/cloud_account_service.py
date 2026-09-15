@@ -70,6 +70,33 @@ class CloudAccountService:
         self._generation = 0
         self._context_lock = RLock()
 
+    # UI-facing cloud administration stays behind this service. These small
+    # configuration/matching adapters delegate to the existing domain code so
+    # dialogs never import the low-level save engine directly.
+    @staticmethod
+    def mode() -> str:
+        from core.cloud_save_sync import cloud_mode
+
+        return cloud_mode()
+
+    @staticmethod
+    def set_mode(mode: str) -> None:
+        from core.cloud_save_sync import set_cloud_mode
+
+        set_cloud_mode(mode)
+
+    @staticmethod
+    def reset_backend() -> None:
+        from core.cloud_save_sync import reset_cloud_backend
+
+        reset_cloud_backend()
+
+    @staticmethod
+    def match_game_to_library(name_key: str, display_name: str, all_games: list):
+        from core.cloud_save_sync import match_cloud_game_to_library
+
+        return match_cloud_game_to_library(name_key, display_name, all_games)
+
     def current_context(self) -> CloudContext:
         """Return the current account context and retire changed identities."""
         with self._context_lock:

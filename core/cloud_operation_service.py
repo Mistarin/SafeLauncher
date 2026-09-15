@@ -20,7 +20,7 @@ from core.cloud_operations import (
     CloudStatusResult,
     CloudSyncCoordinator,
 )
-from core.cloud_save_sync import SyncStatus
+from core.cloud_models import SyncStatus
 from core.cloud_operation_records import CloudOperationRecord, CloudOperationState
 from core.request_contracts import (
     CancellationToken,
@@ -253,6 +253,18 @@ class CloudOperationService:
     def operations(self) -> tuple[CloudOperationRecord, ...]:
         with self._records_lock:
             return tuple(self._records.values())
+
+    @staticmethod
+    def active_save_version(game_name: str):
+        """Return the locally selected generation for presentation metadata.
+
+        The setting is local operation state, not a remote resource. Keeping
+        this accessor here means UI code does not need to import the archive
+        engine just to mark the active history row.
+        """
+        from core.cloud_save_sync import get_active_save_version
+
+        return get_active_save_version(str(game_name or ""))
 
     def active_operations(self) -> tuple[CloudOperationRecord, ...]:
         return tuple(

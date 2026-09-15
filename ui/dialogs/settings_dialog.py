@@ -89,8 +89,8 @@ class UserSettingsDialog(PopupDialog):
         self.gpu_config = gpu_config or GpuRecorderConfig()
         self.screenshot_screen = screenshot_screen or "current"
         self.screenshot_hotkey = screenshot_hotkey or "F12"
-        from core.cloud_save_sync import CloudSaveSyncEngine
-        self.cloud_saves_dir = cloud_saves_dir or CloudSaveSyncEngine.get_cloud_root()
+        from core.cloud_storage import get_cloud_root
+        self.cloud_saves_dir = cloud_saves_dir or get_cloud_root()
         self.date_format = date_format or get_date_format_key()
         self.profile_theme = normalize_profile_theme(profile_theme)
         self._profile_theme_original = self.profile_theme
@@ -874,7 +874,6 @@ class UserSettingsDialog(PopupDialog):
         sec_account.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
         layout.addWidget(sec_account)
 
-        from core.cloud_save_sync import cloud_mode as current_cloud_mode
         from core.cloud_backend import get_site_url, normalize_site_url
         settings = QSettings("SafeLauncher", "SafeLauncher")
 
@@ -885,7 +884,7 @@ class UserSettingsDialog(PopupDialog):
         self.combo_cloud_mode.addItem("Local folder sync", "local")
         self.combo_cloud_mode.addItem("Private Convex Cloud (SafeLauncherCloud)", "convex")
         self.combo_cloud_mode.setCurrentIndex(
-            1 if current_cloud_mode() == "convex" else 0
+            1 if self.cloud_account_service.mode() == "convex" else 0
         )
         self.combo_cloud_mode.currentIndexChanged.connect(self._on_cloud_mode_changed)
         form_mode.addRow("Cloud Backend:", self.combo_cloud_mode)
@@ -1553,10 +1552,9 @@ class UserSettingsDialog(PopupDialog):
             else:
                 delete_secret("convex_deploy_key")
 
-            from core.cloud_save_sync import set_cloud_mode, reset_cloud_backend
-            reset_cloud_backend()
+            self.cloud_account_service.reset_backend()
             mode = self.combo_cloud_mode.currentData() or "local"
-            set_cloud_mode(mode)
+            self.cloud_account_service.set_mode(mode)
             set_offline_mode(self.chk_offline_mode.isChecked(), settings)
 
             cloud_dir = self.edit_cloud_saves_dir.text().strip()
@@ -1611,8 +1609,7 @@ class UserSettingsDialog(PopupDialog):
         return automatic_network_allowed(QSettings("SafeLauncher", "SafeLauncher"))
 
     def _on_cloud_mode_changed(self, index: int):
-        from core.cloud_save_sync import set_cloud_mode
-        set_cloud_mode(self.combo_cloud_mode.itemData(index) or "local")
+        self.cloud_account_service.set_mode(self.combo_cloud_mode.itemData(index) or "local")
 
     def _open_cloud_wizard(self):
         """Launch the step-by-step Convex cloud setup wizard."""
@@ -1693,9 +1690,8 @@ class UserSettingsDialog(PopupDialog):
         else:
             delete_secret("cloud_secret_key")
 
-        from core.cloud_save_sync import set_cloud_mode, reset_cloud_backend
-        reset_cloud_backend()
-        set_cloud_mode("convex")
+        self.cloud_account_service.reset_backend()
+        self.cloud_account_service.set_mode("convex")
         self.combo_cloud_mode.setCurrentIndex(1)
         self.lbl_account_status.setText("Connecting to cloud…")
         self._refresh_account_status()
@@ -1704,9 +1700,8 @@ class UserSettingsDialog(PopupDialog):
 
     def _cloud_disconnect(self):
         """Revert cloud backend to local folder sync."""
-        from core.cloud_save_sync import set_cloud_mode, reset_cloud_backend
-        set_cloud_mode("local")
-        reset_cloud_backend()
+        self.cloud_account_service.set_mode("local")
+        self.cloud_account_service.reset_backend()
         self.combo_cloud_mode.setCurrentIndex(0)
         self.accountStatusReady.emit("Disconnected (using Local sync).")
         self._refresh_backend_health()

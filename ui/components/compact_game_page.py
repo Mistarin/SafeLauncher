@@ -33,7 +33,7 @@ from PyQt6.QtGui import (
 
 from ui.icons import get_icon
 from ui.components.sort_combo import SortComboBox
-from core.cloud_save_sync import SyncStatus
+from core.cloud_models import SyncStatus
 from core.library_controller import LibrarySnapshot
 from core.date_formatting import format_timestamp, format_datetime_timestamp
 from core.game_status import cloud_indicator, is_cloud_conflict, update_indicator

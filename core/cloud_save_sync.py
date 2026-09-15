@@ -17,8 +17,6 @@ import json
 import hashlib
 import zipfile
 import tempfile
-from enum import Enum
-from dataclasses import dataclass
 from typing import List, Tuple, Optional
 from PyQt6.QtCore import QSettings
 
@@ -34,36 +32,13 @@ from core.save_validation import (
     snapshot_from_validation,
     validate_save_locations,
 )
+from core.cloud_models import SaveStats, SyncStatus
 from core.zip_backup import ZipBackupManager, _MANIFEST_NAME
 from core.save_history import history_device_metadata
-from database import _APP_DATA_DIR
+from core.cloud_storage import DEFAULT_CLOUD_SAVES_DIR, get_cloud_root
 from core.logger import get_logger
 
 logger = get_logger("CloudSaveSync")
-
-DEFAULT_CLOUD_SAVES_DIR = os.path.join(_APP_DATA_DIR, "cloud_saves")
-
-
-class SyncStatus(Enum):
-    IN_SYNC = "in_sync"
-    LOCAL_NEWER = "local_newer"
-    CLOUD_ONLY = "cloud_only"
-    CLOUD_NEWER = "cloud_newer"
-    CONFLICT = "conflict"
-    NO_SAVES = "no_saves"
-    CLOUD_AUTH_REQUIRED = "cloud_auth_required"
-    CLOUD_OFFLINE = "cloud_offline"
-
-
-
-@dataclass
-class SaveStats:
-    exists: bool
-    last_modified: float = 0.0
-    size_bytes: int = 0
-    file_count: int = 0
-    display_path: str = ""
-    snapshot: Optional[GameSaveSnapshot] = None
 
 
 def _stats_for_locations(locations: List[SaveLocation]) -> SaveStats:
@@ -517,12 +492,7 @@ class CloudSaveSyncEngine:
     @staticmethod
     def get_cloud_root() -> str:
         """Get configured cloud saves root folder from QSettings or default."""
-        settings = QSettings("SafeLauncher", "SafeLauncher")
-        root = settings.value("cloud_saves_dir", DEFAULT_CLOUD_SAVES_DIR, type=str).strip()
-        if not root:
-            root = DEFAULT_CLOUD_SAVES_DIR
-        os.makedirs(root, exist_ok=True)
-        return root
+        return get_cloud_root()
 
     @classmethod
     def get_cloud_save_path(cls, game_name: str) -> str:

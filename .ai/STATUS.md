@@ -4,7 +4,7 @@
 
 The cache covers the active desktop runtime, local database, private cloud, public profile services, request/resource manager, UI bindings, launch/session path, achievements, artwork, saves, security boundaries, packaging, operations, tests, and compatibility workers.
 
-The current production-readiness baseline is recorded in [phase-0-baseline.md](phase-0-baseline.md). Cloud, remote-resource, UI-boundary, lifecycle, and reliability work is recorded in [phase-1-status.md](phase-1-status.md), [phase-2-status.md](phase-2-status.md), [phase-3-status.md](phase-3-status.md), [phase-4-status.md](phase-4-status.md), [phase-5-status.md](phase-5-status.md), [phase-5-profile-status.md](phase-5-profile-status.md), [phase-6-status.md](phase-6-status.md), [phase-6-main-window-status.md](phase-6-main-window-status.md), [phase-7-status.md](phase-7-status.md), [phase-7-worker-audit.md](phase-7-worker-audit.md), [point-3-cache-state-audit.md](point-3-cache-state-audit.md), [phase-8-status.md](phase-8-status.md), [phase-9-status.md](phase-9-status.md), and [phase-10-status.md](phase-10-status.md). MainWindow extraction, worker/executor audit, feature-local cache audit, remote error/state normalization, cross-device coverage, and the client-side release gate are implemented. No feature-local request executor remains under `core/` or `ui/`. The only remaining release activities are operator-controlled staging measurements and deliberate retirement of manager-less compatibility APIs when their external callers can be versioned away; these are not correctness gaps in the client architecture.
+The current production-readiness baseline is recorded in [phase-0-baseline.md](phase-0-baseline.md). Cloud, remote-resource, UI-boundary, lifecycle, and reliability work is recorded in [phase-1-status.md](phase-1-status.md), [phase-2-status.md](phase-2-status.md), [phase-3-status.md](phase-3-status.md), [phase-4-status.md](phase-4-status.md), [phase-5-status.md](phase-5-status.md), [phase-5-profile-status.md](phase-5-profile-status.md), [phase-6-status.md](phase-6-status.md), [phase-6-main-window-status.md](phase-6-main-window-status.md), [phase-7-status.md](phase-7-status.md), [phase-7-worker-audit.md](phase-7-worker-audit.md), [point-3-cache-state-audit.md](point-3-cache-state-audit.md), [phase-8-status.md](phase-8-status.md), [phase-9-status.md](phase-9-status.md), and [phase-10-status.md](phase-10-status.md). MainWindow extraction, worker/executor audit, feature-local cache audit, remote error/state normalization, cross-device coverage, and the client-side release gate are implemented. No feature-local request executor remains under `core/` or `ui/`. Cloud status, history, upload, restore, and generation restore now have one enforced production service boundary; standalone UI hosts return explicit unavailable results instead of creating manager-less cloud coordinators. The low-level save engine remains internal implementation for archive, encryption, merge, and restore algorithms.
 
 ## Status labels
 
@@ -29,7 +29,7 @@ The generated index includes source hashes and generation metadata. Curated page
 - Local SQLite remains authoritative for the local library projection.
 - Private SafeLauncherCloud synchronization is separate from public profile publication.
 - Public profiles do not expose installation status, paths, device details, or private cloud state.
-- Compatibility workers are not automatically obsolete merely because manager-backed production paths exist; their fallbacks no longer create feature-local executors, and `ci/worker_audit.py` confirms zero executor findings.
+- Compatibility workers are not production cloud entry points. Cloud-save compatibility bridges require the application `RequestManager` and refuse manager-less execution; `ci/worker_audit.py` confirms zero executor findings. Other compatibility workers are retained only where they provide local or older-integration support.
 - `WorkerSupervisor` is the only MainWindow-owned QThread shutdown registry; feature lists are compatibility indexes only.
 - `ResourceBindingRegistry` owns only Qt subscription lifetimes; it is not a
   second request/cache/state manager.
@@ -71,9 +71,11 @@ The generated index includes source hashes and generation metadata. Curated page
   implementation detail. MainWindow invalidates one game's status through
   `CloudStatusService.forget_status()` rather than mutating the compatibility
   mapping directly.
-- Game Properties uses managed status and history resources on the normal
-  desktop path. Its local coordinator/engine branches are retained only for
-  manager-less hosts and are not production schedulers.
+- Game Properties and Save Manager use managed status/history/operation
+  resources and refuse manager-less cloud fallbacks. Local safety-fork
+  import/export remains a local file operation. `core/cloud_storage.py` owns
+  local cloud-root configuration, so UI code does not import the save engine
+  merely to display a path.
 - Save history is now normalized once in `core.save_history` and rendered by a
   shared date-grouped timeline in Save Manager, Game Properties, and the
   compatibility Account Manager route. Cloud generations and local safety

@@ -28,7 +28,7 @@ from core.save_validation import (
 )
 from core.save_models import SaveOperationResult
 from core.save_state import SaveStateStore
-from core.cloud_operations import CloudSyncCoordinator, classify_cloud_error
+from core.cloud_operations import classify_cloud_error
 from core.cloud_operation_service import CloudOperationTarget
 from core.request_contracts import RequestPriority, ResourceStatus
 from core.zip_backup import ZipBackupManager
@@ -66,7 +66,9 @@ class SaveManagerDialog(PopupDialog):
         self.game_name = game_name
         self.game_path = game_path
         self.steam_id = steam_id
-        self.cloud_sync_coordinator = cloud_coordinator or getattr(parent, "cloud_sync_coordinator", None) or CloudSyncCoordinator()
+        # Retain the old parameter for embedders, but never construct or use
+        # a dialog-local coordinator. Cloud work must come from the managed
+        # application services injected by MainWindow.
         self.cloud_center_service = getattr(parent, "cloud_center_service", None)
         self.cloud_operation_service = getattr(parent, "cloud_operation_service", None)
         self.request_manager = getattr(parent, "request_manager", None)
@@ -758,6 +760,10 @@ class SaveManagerDialog(PopupDialog):
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
+        if self.cloud_center_service is None and self.cloud_operation_service is None:
+            self._upload_done.emit(self._cloud_unavailable_result("Cloud upload"))
+            return
+
         self.btn_upload.setEnabled(False)
         self.btn_export.setEnabled(False)
         self.btn_cloud.setEnabled(False)
@@ -785,30 +791,10 @@ class SaveManagerDialog(PopupDialog):
                 ),
             )
             return
-        worker_ref = {}
-
-        def _worker():
-            # CloudSaveSyncEngine performs the final validation at its
-            # packaging boundary. Keeping that invariant in the engine also
-            # protects uploads initiated from Game Properties and auto-sync.
-            result = self.cloud_sync_coordinator.upload_local_save(
-                self.game_id,
-                self.game_name,
-                self.game_path,
-                steam_id=self.steam_id,
-                snapshot=snapshot,
-                cancel_check=lambda: bool(
-                    worker_ref.get("worker")
-                    and worker_ref["worker"].isInterruptionRequested()
-                ),
-            )
-            return self._save_operation_from_cloud_result(result)
-
-        worker_ref["worker"] = self._start_managed_task(
-            f"SafeLauncher-SaveUpload-{self.game_id}",
-            _worker,
-            lambda result: self._upload_done.emit(result),
-        )
+        # The guard above makes this unreachable for a correctly constructed
+        # dialog. Keep the service boundary explicit if an embedder mutates
+        # dependencies while the dialog is open.
+        self._upload_done.emit(self._cloud_unavailable_result("Cloud upload"))
 
     def _on_upload_done(self, result: SaveOperationResult):
         if hasattr(self, "_upload_progress") and self._upload_progress:
@@ -915,6 +901,18 @@ class SaveManagerDialog(PopupDialog):
             if hasattr(p, "_notify_parent_cloud_changed"):
                 p._notify_parent_cloud_changed()
 
+    def _cloud_unavailable_result(self, operation: str) -> SaveOperationResult:
+        """Return a safe standalone result without creating a second scheduler."""
+        return SaveOperationResult(
+            False,
+            operation,
+            self.game_name,
+            error="Cloud service is not available in this view.",
+            category="unavailable",
+            guidance="Open this workflow from the main SafeLauncher window and check Cloud Center.",
+            retry_safe=False,
+        )
+
     def _on_tab_changed(self, index: int):
         if index == 1:
             self._load_history()
@@ -976,15 +974,9 @@ class SaveManagerDialog(PopupDialog):
             self._bind_cloud_operation(handle, _deliver)
             return
 
-        def _work():
-            versions, error = self.cloud_sync_coordinator.load_history(
-                self.game_id, self.game_name, self.game_path, self.steam_id
-            )
-            return error if error is not None else versions
-
-        self._start_managed_task(
-            f"SafeLauncher-HistoryLoader-{self.game_id}", _work, self._history_loaded.emit
-        )
+        # A standalone dialog may still render local UI, but it must not
+        # bypass the application's managed cloud boundary.
+        self._history_loaded.emit(self._cloud_unavailable_result("History load"))
 
     def _on_history_loaded(self, versions):
         """Populate history list on the main thread after async worker finishes."""
@@ -1052,38 +1044,9 @@ class SaveManagerDialog(PopupDialog):
             self._bind_cloud_operation(handle, _deliver)
             return
 
-        def _worker():
-            success = False
-            error_message = ""
-            from core.cloud_save_sync import set_active_save_version
-            try:
-                if entry.get("source") == "cloud":
-                    v_num = entry.get("version")
-                    result = self.cloud_sync_coordinator.restore_generation(
-                        self.game_id, self.game_name, self.game_path, steam_id=self.steam_id,
-                        version=int(v_num) if v_num else None,
-                    )
-                    success = result.success
-                    error_message = result.error or result.guidance
-                elif entry.get("source") == "fork" and entry.get("path"):
-                    target_dest = os.path.join(self.game_path, "prefix")
-                    if not os.path.isdir(target_dest):
-                        target_dest = self.game_path
-                    success = self.backup_mgr.import_save(entry["path"], target_dest, game_path=self.game_path)
-                    if success:
-                        set_active_save_version(self.game_name, None)
-            except Exception as e:
-                logger.error(f"Worker restore failed for '{self.game_name}': {e}")
-                error_message = str(e)
-                success = False
-            if success:
-                return bool(success), title
-            return bool(success), f"__restore_error__{error_message or 'Cloud restore failed.'}"
-
-        self._start_managed_task(
-            f"SafeLauncher-HistRestore-{self.game_id}",
-            _worker,
-            lambda result: self._restore_done.emit(*result),
+        self._restore_done.emit(
+            False,
+            f"__restore_error__{self._cloud_unavailable_result('Cloud restore').error}",
         )
 
     def _restore_from_cloud(self):
@@ -1093,6 +1056,14 @@ class SaveManagerDialog(PopupDialog):
         network I/O and must not block the main thread.  We dispatch it to a worker
         thread immediately and resume in ``_on_cloud_restore_preflight_done``.
         """
+        if self.cloud_center_service is None and self.cloud_operation_service is None:
+            self._show_recovery(
+                self._cloud_unavailable_result("Cloud preflight"),
+                retry=self._restore_from_cloud,
+                show_rescan=False,
+            )
+            return
+
         # Disable buttons immediately so the user can't trigger a second restore.
         self.btn_restore_history.setEnabled(False)
         self.btn_export.setEnabled(False)
@@ -1134,34 +1105,10 @@ class SaveManagerDialog(PopupDialog):
             self._bind_cloud_operation(handle, _deliver)
             return
 
-        def _preflight():
-            try:
-                versions, history_error = self.cloud_sync_coordinator.load_history(
-                    self.game_id, self.game_name, self.game_path, self.steam_id
-                )
-                if history_error is not None:
-                    return False, "__preflight_error__"
-                cloud_versions = [v for v in versions if v.get("source") == "cloud"]
-                if len(cloud_versions) > 1:
-                    return False, "__switch_to_history__"
-                preflight = self.cloud_sync_coordinator.preflight(
-                    self.game_id, self.game_name, self.game_path, self.steam_id
-                )
-                if preflight.error is not None:
-                    return False, "__preflight_error__"
-                cloud_stats = preflight.cloud_stats
-                display_path = cloud_stats.display_path if cloud_stats else "Unavailable"
-                cloud_exists = bool(cloud_stats and cloud_stats.exists)
-                return False, f"__preflight_ok__{display_path}__exists__{cloud_exists}"
-            except Exception as e:
-                logger.error(f"Cloud restore preflight failed for '{self.game_name}': {e}")
-                return False, "__preflight_error__"
-
-        self._start_managed_task(
-            f"SafeLauncher-CloudPreflight-{self.game_id}",
-            _preflight,
-            lambda result: self._restore_done.emit(*result),
-        )
+        # The managed operation service owns both history and preflight. This
+        # branch is kept as a defensive fallback for an embedder that swaps
+        # dependencies after opening the dialog.
+        self._restore_done.emit(False, "__preflight_error__")
 
     def _on_restore_done(self, success: bool, title: str):
         # Close any open preflight progress dialog first
@@ -1243,27 +1190,9 @@ class SaveManagerDialog(PopupDialog):
                 self._bind_cloud_operation(handle, _deliver)
                 return
 
-            def _worker():
-                worker_success = False
-                error_message = ""
-                try:
-                    result = self.cloud_sync_coordinator.restore_cloud_save(
-                        self.game_id, self.game_name, self.game_path,
-                        steam_id=self.steam_id,
-                    )
-                    worker_success = result.success
-                    error_message = result.error or result.guidance
-                except Exception as e:
-                    logger.error(f"Cloud restore failed for '{self.game_name}': {e}")
-                    error_message = str(e)
-                if worker_success:
-                    return bool(worker_success), display_path
-                return bool(worker_success), f"__restore_error__{error_message or 'Cloud restore failed.'}"
-
-            self._start_managed_task(
-                f"SafeLauncher-CloudRestore-{self.game_id}",
-                _worker,
-                lambda result: self._restore_done.emit(*result),
+            self._restore_done.emit(
+                False,
+                f"__restore_error__{self._cloud_unavailable_result('Cloud restore').error}",
             )
             return
 

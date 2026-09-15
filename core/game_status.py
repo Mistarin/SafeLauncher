@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from core.cloud_save_sync import SyncStatus
+from core.cloud_models import SyncStatus
 
 
 @dataclass(frozen=True)

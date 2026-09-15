@@ -14,7 +14,7 @@ from ui.icons import get_icon, get_app_icon
 from ui.components.sidebar import DialogTitleBar
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
-from core.cloud_save_sync import SaveStats
+from core.cloud_models import SaveStats
 from core.date_formatting import format_datetime_timestamp
 
 

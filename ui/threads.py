@@ -461,7 +461,12 @@ class IconAutoFetcherThread(SafeQThread):
 
 
 class CloudSaveStatusFetcherThread(SafeQThread):
-    """Background QThread for checking local and cloud save status without blocking GUI."""
+    """Compatibility signal bridge for the managed cloud status service.
+
+    This worker is retained only for older embedders that still expect a
+    ``QThread`` signal. It intentionally refuses manager-less execution so it
+    cannot become a second cloud scheduler.
+    """
     save_status_calculated = pyqtSignal(int, object, object, object)  # (game_id, status, local_stats, cloud_stats)
 
     def __init__(self, game_id: int, game_name: str, path: str, steam_id: str = "", parent=None, coordinator=None, request_manager=None):
@@ -476,59 +481,47 @@ class CloudSaveStatusFetcherThread(SafeQThread):
     def safe_run(self):
         if self.isInterruptionRequested() or not automatic_network_allowed():
             return
-        if self.request_manager is not None:
-            from core.cloud_status_service import CloudStatusService, CloudStatusTarget
-            from core.request_contracts import ResourceStatus
-
-            service = CloudStatusService(
-                self.request_manager,
-                coordinator=self.coordinator,
+        if self.request_manager is None:
+            logger.warning(
+                "CloudSaveStatusFetcherThread requires the application RequestManager; "
+                "manager-less cloud execution is disabled."
             )
-            handle = service.request_status(
-                CloudStatusTarget(
-                    self.game_id, self.game_name, self.path, self.steam_id
-                )
-            )
-            result = handle.future.result()
-            if (
-                result.status == ResourceStatus.READY
-                and result.value is not None
-                and not self.isInterruptionRequested()
-            ):
-                status = result.value.status
-                local_stats = result.value.local_stats
-                cloud_stats = result.value.cloud_stats
-                self.save_status_calculated.emit(
-                    self.game_id, status, local_stats, cloud_stats
-                )
-            elif result.status == ResourceStatus.ERROR:
-                logger.debug(
-                    "Managed cloud status request failed for %s: %s",
-                    self.game_name,
-                    result.error,
-                )
             return
-        try:
-            from core.cloud_operations import CloudSyncCoordinator
-            from core.cloud_save_sync import SyncStatus
-            coordinator = self.coordinator or CloudSyncCoordinator()
-            result = coordinator.check_status(
-                self.game_id, self.game_name, self.path, self.steam_id
+        from core.cloud_status_service import CloudStatusService, CloudStatusTarget
+        from core.request_contracts import ResourceStatus
+
+        service = CloudStatusService(
+            self.request_manager,
+            coordinator=self.coordinator,
+        )
+        handle = service.request_status(
+            CloudStatusTarget(self.game_id, self.game_name, self.path, self.steam_id)
+        )
+        result = handle.future.result()
+        if (
+            result.status == ResourceStatus.READY
+            and result.value is not None
+            and not self.isInterruptionRequested()
+        ):
+            self.save_status_calculated.emit(
+                self.game_id,
+                result.value.status,
+                result.value.local_stats,
+                result.value.cloud_stats,
             )
-            status = result.status or SyncStatus.CLOUD_OFFLINE
-            local_stats, cloud_stats = result.local_stats, result.cloud_stats
-            if not self.isInterruptionRequested():
-                self.save_status_calculated.emit(self.game_id, status, local_stats, cloud_stats)
-        except Exception as e:
-            logger.debug(f"CloudSaveStatusFetcherThread error for game {self.game_id}: {e}")
+        elif result.status == ResourceStatus.ERROR:
+            logger.debug(
+                "Managed cloud status request failed for %s: %s",
+                self.game_name,
+                result.error,
+            )
 
 
 class CloudSaveBatchQueueWorker(SafeQThread):
     """Compatibility worker for cloud-save status batches.
 
-    Managed callers use ``CloudStatusService``. Manager-less callers remain on
-    this owning worker thread and are processed cooperatively without a
-    second scheduler.
+    Managed callers use ``CloudStatusService``. Manager-less callers are
+    rejected; this compatibility bridge never performs cloud work itself.
     """
     game_status_ready = pyqtSignal(int, object, object, object)  # (game_id, status, local_stats, cloud_stats)
     batch_finished = pyqtSignal(list, list)  # (uploaded_names, newer_in_cloud_names)
@@ -546,7 +539,7 @@ class CloudSaveBatchQueueWorker(SafeQThread):
     def _safe_run_managed(self):
         from concurrent.futures import as_completed
         from core.cloud_status_service import CloudStatusService, CloudStatusTarget
-        from core.cloud_save_sync import SyncStatus
+        from core.cloud_models import SyncStatus
         from core.request_contracts import ResourceStatus
 
         uploaded_names = []
@@ -599,60 +592,13 @@ class CloudSaveBatchQueueWorker(SafeQThread):
     def safe_run(self):
         if self.isInterruptionRequested() or not self.games or not automatic_network_allowed():
             return
-        if self.request_manager is not None:
-            self._safe_run_managed()
+        if self.request_manager is None:
+            logger.warning(
+                "CloudSaveBatchQueueWorker requires the application RequestManager; "
+                "manager-less cloud execution is disabled."
+            )
             return
-
-        from core.cloud_save_sync import SyncStatus, _get_cloud_listing
-
-        try:
-            _get_cloud_listing(force_refresh=True)
-        except Exception as e:
-            logger.debug(f"Startup cloud listing refresh failed (offline?): {e}")
-
-        uploaded_names = []
-        newer_in_cloud_names = []
-
-        def _check_game(g):
-            if self.isInterruptionRequested() or len(g) < 4:
-                return None
-            if len(g) >= 7:
-                game_id, name, path = g[0], g[1], g[2]
-                steam_id = str(g[6]).strip() if g[6] else ""
-            else:
-                game_id, name, path, steam_id = g[0], g[1], g[2], str(g[3]).strip()
-            try:
-                from core.cloud_operations import CloudSyncCoordinator
-                from core.cloud_save_sync import SyncStatus
-                coordinator = self.coordinator or CloudSyncCoordinator()
-                result = coordinator.check_status(game_id, name, path, steam_id)
-                status = result.status or SyncStatus.CLOUD_OFFLINE
-                l_stat, c_stat = result.local_stats, result.cloud_stats
-                if status == SyncStatus.LOCAL_NEWER:
-                    uploaded_names.append(name)
-                elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
-                    newer_in_cloud_names.append(name)
-                return (game_id, status, l_stat, c_stat)
-            except Exception as e:
-                logger.debug(f"CloudSaveBatchQueueWorker error for '{name}': {e}")
-                return None
-
-        # This branch is only for legacy callers that do not supply the
-        # application RequestManager. The owning SafeQThread already keeps
-        # the work off the UI thread, so do not create a second scheduler.
-        for game in self.games:
-            if self.isInterruptionRequested():
-                break
-            try:
-                res = _check_game(game)
-                if res and not self.isInterruptionRequested():
-                    gid, stat, l_stat, c_stat = res
-                    self.game_status_ready.emit(gid, stat, l_stat, c_stat)
-            except Exception as e:
-                logger.debug(f"Failed processing game cloud status: {e}")
-
-        if not self.isInterruptionRequested():
-            self.batch_finished.emit(uploaded_names, newer_in_cloud_names)
+        self._safe_run_managed()
 
 
 class AchievementStatusFetcherThread(SafeQThread):

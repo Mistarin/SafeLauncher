@@ -84,7 +84,7 @@ logger = get_logger("UI")
 from ui.threads import (
     BannerFetcher, BannerDownloader, BannerAutoFetcher, ArchiveExtractorThread,
     GitHubReleasesFetcherThread, UmuBootstrapWorker, SafeLaunchLogReader,
-    DiskSizeFetcherThread, CloudSaveStatusFetcherThread, CloudSaveBatchQueueWorker,
+    DiskSizeFetcherThread,
     AchievementStatusFetcherThread, AchievementBatchQueueWorker
 )
 from core.archive_installer import find_executables
@@ -114,7 +114,7 @@ from ui.dialogs.cloud_center_dialog import CloudCenterDialog
 from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
 from ui.dialogs.save_conflict_dialog import SaveConflictDialog
-from core.cloud_save_sync import SyncStatus
+from core.cloud_models import SyncStatus
 from core.performance_env import MANAGED_ENV_KEYS
 from ui.theme import (
     get_application_stylesheet, btn_primary_style, btn_secondary_style,
@@ -2066,8 +2066,7 @@ class MainWindow(QMainWindow):
         configuration — the UI must never keep claiming the old
         connected/disconnected state.
         """
-        from core.cloud_save_sync import reset_cloud_backend
-        reset_cloud_backend()
+        self.cloud_account_service.reset_backend()
         self._cloud_context_generation = self.cloud_status_service.invalidate_context().generation
         self.cloud_operation_service.invalidate_context(generation=self._cloud_context_generation)
         self.cloud_account_service.invalidate_context()
@@ -6694,35 +6693,16 @@ class MainWindow(QMainWindow):
             if not targets:
                 logger.info(f"Cloud recheck{tag}: nothing to scan.")
                 return
-            if self.request_manager is not None:
-                self._spawn_status_fetchers(
-                    targets,
-                    lambda gid, status, local, cloud, g=generation:
-                    self._accept_cloud_status_for_context(g, gid, status, local, cloud),
-                    tag,
-                    generation=generation,
-                    on_batch_complete=lambda results, g=generation: self._managed_cloud_batch_done.emit(
-                        (g, results)
-                    ),
-                )
-                return
-            if any(isinstance(f, CloudSaveBatchQueueWorker) and f.isRunning()
-                   for f in self.metadata_fetchers):
-                logger.info(f"Cloud recheck{tag} skipped: batch worker already running.")
-                return
-            worker = CloudSaveBatchQueueWorker(
+            self._spawn_status_fetchers(
                 targets,
-                max_workers=3,
-                parent=self,
-                coordinator=self.cloud_sync_coordinator,
-                request_manager=self.request_manager,
-            )
-            worker.game_status_ready.connect(
                 lambda gid, status, local, cloud, g=generation:
-                self._accept_cloud_status_for_context(g, gid, status, local, cloud)
+                self._accept_cloud_status_for_context(g, gid, status, local, cloud),
+                tag,
+                generation=generation,
+                on_batch_complete=lambda results, g=generation: self._managed_cloud_batch_done.emit(
+                    (g, results)
+                ),
             )
-            worker.batch_finished.connect(self._on_cloud_batch_finished)
-            self._track_metadata_fetcher(worker)
             return
 
         if game_ids:
@@ -6761,7 +6741,7 @@ class MainWindow(QMainWindow):
 
     def _mark_cloud_auth_required(self, game_ids=None):
         """Show cloud setup guidance without issuing doomed HTTP requests."""
-        from core.cloud_save_sync import SyncStatus
+        from core.cloud_models import SyncStatus
 
         if game_ids is None:
             target_ids = [int(game[0]) for game in self.games]
@@ -6795,7 +6775,7 @@ class MainWindow(QMainWindow):
 
     def _mark_cloud_offline(self, game_ids=None):
         """Render a stable offline verdict without touching the network."""
-        from core.cloud_save_sync import SyncStatus
+        from core.cloud_models import SyncStatus
 
         if game_ids is None:
             target_ids = [int(game[0]) for game in self.games]
@@ -6841,71 +6821,49 @@ class MainWindow(QMainWindow):
         if generation is None:
             generation = self.cloud_sync_coordinator.generation
 
-        if self.request_manager is not None:
-            status_targets = []
-            priority = (
-                RequestPriority.CRITICAL
-                if "detail" in tag.lower()
-                else RequestPriority.NORMAL
+        if self.request_manager is None:
+            logger.error("Cloud status refresh requested without the application RequestManager")
+            return
+        status_targets = []
+        priority = (
+            RequestPriority.CRITICAL
+            if "detail" in tag.lower()
+            else RequestPriority.NORMAL
+        )
+        for gid, name, path, steam_id in targets:
+            target = CloudStatusTarget(
+                int(gid),
+                str(name),
+                str(path or ""),
+                str(steam_id or ""),
             )
-            for gid, name, path, steam_id in targets:
-                target = CloudStatusTarget(
-                    int(gid),
-                    str(name),
-                    str(path or ""),
-                    str(steam_id or ""),
-                )
-                status_targets.append(target)
-                spec = self.cloud_status_service.status_spec(
-                    target,
-                    priority=priority,
-                    generation=generation,
-                    tag=tag,
-                )
-                key = spec.key
-                self._cloud_status_callbacks[key] = (generation, int(gid), on_result)
-                if key not in self._cloud_status_bindings:
-                    self._cloud_status_bindings[key] = bind_resource(
-                        self.request_manager,
-                        key,
-                        lambda result, key=key: self._on_managed_cloud_status_state(
-                            key, result
-                        ),
-                        self,
-                        cancel_on_close=True,
-                    )
-
-            self.cloud_status_service.request_many(
-                status_targets,
+            status_targets.append(target)
+            spec = self.cloud_status_service.status_spec(
+                target,
                 priority=priority,
                 generation=generation,
                 tag=tag,
-                on_complete=on_batch_complete,
             )
-            return
+            key = spec.key
+            self._cloud_status_callbacks[key] = (generation, int(gid), on_result)
+            if key not in self._cloud_status_bindings:
+                self._cloud_status_bindings[key] = bind_resource(
+                    self.request_manager,
+                    key,
+                    lambda result, key=key: self._on_managed_cloud_status_state(
+                        key, result
+                    ),
+                    self,
+                    cancel_on_close=True,
+                )
 
-        for gid, name, path, steam_id in targets:
-            if any(isinstance(f, CloudSaveStatusFetcherThread) and f.game_id == gid and f.isRunning()
-                   for f in self.metadata_fetchers):
-                logger.debug(f"Cloud recheck{tag}: fetcher for '{name}' already running.")
-                continue
-            fetcher = CloudSaveStatusFetcherThread(
-                gid,
-                name,
-                path or "",
-                steam_id or "",
-                parent=self,
-                coordinator=self.cloud_sync_coordinator,
-                request_manager=self.request_manager,
-            )
-            def _deliver(gid, status, local, cloud, g=generation, callback=on_result):
-                if not self.cloud_sync_coordinator.accepts(g):
-                    logger.debug("Discarded cloud status for game %s from retired context %s", gid, g)
-                    return
-                callback(gid, status, local, cloud)
-
-            fetcher.save_status_calculated.connect(_deliver)
-            self._track_metadata_fetcher(fetcher)
+        self.cloud_status_service.request_many(
+            status_targets,
+            priority=priority,
+            generation=generation,
+            tag=tag,
+            on_complete=on_batch_complete,
+        )
 
     def _on_managed_cloud_status_state(self, key: RequestKey, result) -> None:
         """Apply a managed cloud status only on the current UI generation."""
@@ -7041,7 +6999,7 @@ class MainWindow(QMainWindow):
         self._spawn_status_fetchers(changed, self._on_polled_cloud_status, "poll")
 
     def _on_polled_cloud_status(self, game_id: int, status, local_stats, cloud_stats):
-        from core.cloud_save_sync import SyncStatus
+        from core.cloud_models import SyncStatus
         prev = self.cloud_save_status_cache.get(game_id)
         prev_status = prev[0] if prev else None
         self._on_cloud_save_status_calculated(game_id, status, local_stats, cloud_stats)
@@ -7540,8 +7498,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
-            from core.cloud_save_sync import reset_cloud_backend
-            reset_cloud_backend()
+            self.cloud_account_service.reset_backend()
         except Exception:
             pass
         try:
@@ -7900,7 +7857,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please select a game.")
             return
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
-        SaveManagerDialog(game[0], game[1], game[2], steam_id, self, self.cloud_sync_coordinator).exec()
+        SaveManagerDialog(game[0], game[1], game[2], steam_id, self).exec()
         self.refresh_cloud_status_for_game(game[0])
 
     def _game_by_id(self, game_id: int):
@@ -7970,7 +7927,7 @@ class MainWindow(QMainWindow):
         """Open the existing managed Save Manager without auto-destructive work."""
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
         dialog = SaveManagerDialog(
-            game[0], game[1], game[2], steam_id, self, self.cloud_sync_coordinator
+            game[0], game[1], game[2], steam_id, self
         )
         if tab == "history" and hasattr(dialog, "tab_history"):
             dialog.tabs.setCurrentWidget(dialog.tab_history)
@@ -7988,6 +7945,6 @@ class MainWindow(QMainWindow):
             self._show_toast("Please select a game to import save.", is_error=True)
             return
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
-        dlg = SaveManagerDialog(game[0], game[1], game[2], steam_id, self, self.cloud_sync_coordinator)
+        dlg = SaveManagerDialog(game[0], game[1], game[2], steam_id, self)
         dlg._import_snapshot()
         self.refresh_cloud_status_for_game(game[0])

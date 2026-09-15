@@ -19,14 +19,14 @@
       "suffix": ".md"
     },
     {
-      "bytes": 12604,
-      "lines": 90,
+      "bytes": 12883,
+      "lines": 91,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
     },
     {
-      "bytes": 6782,
-      "lines": 92,
+      "bytes": 7086,
+      "lines": 94,
       "path": ".ai/STATUS.md",
       "suffix": ".md"
     },
@@ -97,8 +97,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 1207,
-      "lines": 16,
+      "bytes": 1703,
+      "lines": 23,
       "path": ".ai/architecture/ownership-and-boundaries.md",
       "suffix": ".md"
     },
@@ -139,8 +139,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 1482,
-      "lines": 10,
+      "bytes": 1843,
+      "lines": 15,
       "path": ".ai/architecture/save-management.md",
       "suffix": ".md"
     },
@@ -367,8 +367,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 6074,
-      "lines": 121,
+      "bytes": 6312,
+      "lines": 124,
       "path": ".ai/phase-7-worker-audit.md",
       "suffix": ".md"
     },
@@ -859,8 +859,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 11590,
-      "lines": 334,
+      "bytes": 12465,
+      "lines": 361,
       "path": "core/cloud_account_service.py",
       "suffix": ".py"
     },
@@ -871,7 +871,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 19560,
+      "bytes": 19557,
       "lines": 499,
       "path": "core/cloud_center_service.py",
       "suffix": ".py"
@@ -919,26 +919,32 @@
       "suffix": ".py"
     },
     {
+      "bytes": 790,
+      "lines": 34,
+      "path": "core/cloud_models.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 897,
       "lines": 39,
       "path": "core/cloud_operation_records.py",
       "suffix": ".py"
     },
     {
-      "bytes": 24959,
-      "lines": 677,
+      "bytes": 25443,
+      "lines": 689,
       "path": "core/cloud_operation_service.py",
       "suffix": ".py"
     },
     {
-      "bytes": 13512,
-      "lines": 322,
+      "bytes": 13541,
+      "lines": 323,
       "path": "core/cloud_operations.py",
       "suffix": ".py"
     },
     {
-      "bytes": 62042,
-      "lines": 1314,
+      "bytes": 61276,
+      "lines": 1284,
       "path": "core/cloud_save_sync.py",
       "suffix": ".py"
     },
@@ -949,9 +955,15 @@
       "suffix": ".py"
     },
     {
-      "bytes": 21165,
+      "bytes": 21159,
       "lines": 550,
       "path": "core/cloud_status_service.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 1038,
+      "lines": 36,
+      "path": "core/cloud_storage.py",
       "suffix": ".py"
     },
     {
@@ -1015,7 +1027,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 3852,
+      "bytes": 3849,
       "lines": 106,
       "path": "core/game_status.py",
       "suffix": ".py"
@@ -1915,7 +1927,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 113924,
+      "bytes": 113921,
       "lines": 2637,
       "path": "ui/components/compact_game_page.py",
       "suffix": ".py"
@@ -1987,7 +1999,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 23951,
+      "bytes": 23948,
       "lines": 593,
       "path": "ui/components/virtual_grid.py",
       "suffix": ".py"
@@ -1999,8 +2011,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 36765,
-      "lines": 855,
+      "bytes": 35513,
+      "lines": 826,
       "path": "ui/dialogs/account_dialog.py",
       "suffix": ".py"
     },
@@ -2047,8 +2059,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 64574,
-      "lines": 1408,
+      "bytes": 63635,
+      "lines": 1390,
       "path": "ui/dialogs/game_properties_dialog.py",
       "suffix": ".py"
     },
@@ -2065,20 +2077,20 @@
       "suffix": ".py"
     },
     {
-      "bytes": 9671,
+      "bytes": 9668,
       "lines": 236,
       "path": "ui/dialogs/save_conflict_dialog.py",
       "suffix": ".py"
     },
     {
-      "bytes": 55536,
-      "lines": 1319,
+      "bytes": 52193,
+      "lines": 1248,
       "path": "ui/dialogs/save_manager_dialog.py",
       "suffix": ".py"
     },
     {
-      "bytes": 135486,
-      "lines": 2961,
+      "bytes": 135254,
+      "lines": 2956,
       "path": "ui/dialogs/settings_dialog.py",
       "suffix": ".py"
     },
@@ -2101,8 +2113,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 378990,
-      "lines": 7994,
+      "bytes": 376669,
+      "lines": 7951,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2131,11 +2143,11 @@
       "suffix": ".py"
     },
     {
-      "bytes": 39128,
-      "lines": 910,
+      "bytes": 36340,
+      "lines": 856,
       "path": "ui/threads.py",
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-15T08:32:09+00:00"
+  "generated_at": "2026-09-15T08:51:37+00:00"
 }

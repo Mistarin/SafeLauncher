@@ -8,7 +8,14 @@
 | Transport clients | HTTP sessions, response parsing, transport-specific auth/encryption | Global request lifecycle |
 | Coordinators | Domain workflows and merge/conflict decisions | Per-widget worker pools |
 | UI | Presentation, subscription lifetime, user actions | Direct cross-thread widget updates |
-| Compatibility workers | Legacy/standalone entrypoints | Becoming a second production scheduler |
+| Compatibility workers | Legacy/standalone entrypoints that are explicitly manager-backed or local-only | Manager-less cloud execution or becoming a second production scheduler |
+
+Private-cloud UI entrypoints (`Cloud Center`, `Save Manager`, `Game Properties`,
+and the compatibility Account Manager route) receive the managed services from
+the application composition root. They do not construct `CloudSyncCoordinator`
+or call `CloudSaveSyncEngine` directly. The low-level engine remains an internal
+domain implementation for save discovery, archive/encryption, comparison,
+merge, and restore.
 
 New remote resources should have a stable key, a transport loader, a cache policy, and a UI binding only if a view consumes them.
 

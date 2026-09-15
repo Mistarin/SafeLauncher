@@ -11,7 +11,8 @@ from typing import Callable
 from typing import Optional
 
 from core.cloud_backend import describe_cloud_error
-from core.cloud_save_sync import CloudSaveSyncEngine, SyncStatus
+from core.cloud_models import SyncStatus
+from core.cloud_save_sync import CloudSaveSyncEngine
 from core.save_models import SaveOperationResult
 
 

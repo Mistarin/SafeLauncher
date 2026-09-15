@@ -203,7 +203,7 @@ class CloudCenterService:
         pending = 0
         conflicts = 0
         if self.status_service is not None:
-            from core.cloud_save_sync import SyncStatus
+            from core.cloud_models import SyncStatus
 
             for value in self.status_service.status_snapshot().values():
                 if not value:

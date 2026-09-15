@@ -20,7 +20,7 @@ from PyQt6.QtGui import (
 )
 
 from ui.icons import get_icon
-from core.cloud_save_sync import SyncStatus
+from core.cloud_models import SyncStatus
 from core.library_controller import LibrarySnapshot
 from core.game_status import cloud_indicator
 

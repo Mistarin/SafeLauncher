@@ -52,6 +52,19 @@ class GamePropertiesDialog(PopupDialog):
     _manual_sync_up_done = pyqtSignal(object)
     _manual_sync_down_done = pyqtSignal(object)
 
+    def _cloud_unavailable_result(self, operation: str):
+        from core.save_models import SaveOperationResult
+
+        return SaveOperationResult(
+            False,
+            operation,
+            self.game_name,
+            error="Cloud service is not available in this view.",
+            category="unavailable",
+            guidance="Open this workflow from the main SafeLauncher window and check Cloud Center.",
+            retry_safe=False,
+        )
+
     def __init__(self, game: tuple, parent=None):
         super().__init__(f"Game Properties: {game[1]}", parent)
         self.game = game
@@ -591,8 +604,8 @@ class GamePropertiesDialog(PopupDialog):
         self.lbl_cloud_status.setStyleSheet("font-size: 12px;")
         syc_layout.addWidget(self.lbl_cloud_status)
 
-        from core.cloud_save_sync import CloudSaveSyncEngine
-        cloud_root = CloudSaveSyncEngine.get_cloud_root()
+        from core.cloud_storage import get_cloud_root
+        cloud_root = get_cloud_root()
         lbl_cloud_dir = QLabel(f"<font color='#6F7682'>Cloud Root:</font> <font color='#A7ADB8' face='monospace'>{cloud_root}</font>")
         lbl_cloud_dir.setStyleSheet("font-size: 10px;")
         lbl_cloud_dir.setWordWrap(True)
@@ -866,32 +879,25 @@ class GamePropertiesDialog(PopupDialog):
             bind_read(history_handle, apply_history)
             return
 
-        def _worker():
-            try:
-                from core.cloud_operations import CloudOperationCoordinator
-                from core.cloud_save_sync import backend_active, resolve_name_key, CloudSaveSyncEngine
-                status, local_stats, cloud_stats, operation_result = CloudOperationCoordinator.check_status(
-                    self.game_name, self.game_path, self.steam_id
-                )
-                versions = None
-                if backend_active():
-                    try:
-                        _stats, snapshot = CloudSaveSyncEngine._remote_stats(
-                            resolve_name_key(self.game_name),
-                            game_name=self.game_name
-                        )
-                        versions = (snapshot or {}).get("versions")
-                    except Exception:
-                        versions = None
-
-                return status, local_stats, cloud_stats, versions, operation_result
-            except Exception as e:
-                logger.warning(f"Async save stats check failed for '{self.game_name}': {e}")
-                return None, None, None, None, None
-
-        self._start_managed_task(
-            f"SafeLauncher-PropSave-{self.game_id}", _worker, self._save_stats_ready.emit
-        )
+        # Standalone dialogs remain constructible for smoke tests, but cloud
+        # state cannot be fetched without the application services. Do not
+        # create a dialog-local coordinator or call the save engine directly.
+        from core.save_models import SaveOperationResult
+        self._save_stats_ready.emit((
+            None,
+            None,
+            None,
+            [],
+            SaveOperationResult(
+                False,
+                "Cloud status",
+                self.game_name,
+                error="Cloud service is not available in this view.",
+                category="unavailable",
+                guidance="Open this workflow from the main SafeLauncher window and check Cloud Center.",
+                retry_safe=False,
+            ),
+        ))
 
     def _on_save_stats_ready(self, payload):
         """GUI-thread handler to populate Save tab metadata without blocking dialog opening."""
@@ -952,7 +958,6 @@ class GamePropertiesDialog(PopupDialog):
 
     def _render_generations(self, versions, local_exists: bool = True):
         """Show retained cloud generations and local forks in one timeline."""
-        from core.cloud_save_sync import get_active_save_version
         self._cloud_versions = list(versions or [])
         if not self._cloud_versions:
             self._backup_version = None
@@ -961,7 +966,9 @@ class GamePropertiesDialog(PopupDialog):
             self.btn_restore_selected.setEnabled(False)
             return
 
-        active_ver = get_active_save_version(self.game_name)
+        active_ver = None
+        if self.cloud_operation_service is not None:
+            active_ver = self.cloud_operation_service.active_save_version(self.game_name)
         for v in self._cloud_versions:
             v_num = v.get("version")
             if local_exists and active_ver is not None and v_num == active_ver:
@@ -1051,17 +1058,8 @@ class GamePropertiesDialog(PopupDialog):
             self._bind_cloud_operation(handle, _deliver)
             return
 
-        def _work():
-            from core.cloud_operations import CloudOperationCoordinator
-            result = CloudOperationCoordinator.restore_generation(
-                self.game_name, self.game_path, self.steam_id, version=int(version)
-            )
-            return result, int(version or 0)
-
-        self._start_managed_task(
-            f"SafeLauncher-GenRestore-{self.game_id}",
-            _work,
-            lambda result: self._gen_restore_done.emit(*result),
+        self._gen_restore_done.emit(
+            self._cloud_unavailable_result("Generation restore"), int(version or 0)
         )
 
     def _on_local_history_restore_done(self, success: bool, title: str) -> None:
@@ -1174,15 +1172,7 @@ class GamePropertiesDialog(PopupDialog):
             )
             return
 
-        def _work():
-            from core.cloud_operations import CloudOperationCoordinator
-            return CloudOperationCoordinator.upload_local_save(
-                self.game_name, self.game_path, self.steam_id
-            )
-
-        self._start_managed_task(
-            f"SafeLauncher-ManualSyncUp-{self.game_id}", _work, self._manual_sync_up_done.emit
-        )
+        self._manual_sync_up_done.emit(self._cloud_unavailable_result("Cloud upload"))
 
     def _on_manual_sync_up_done(self, result):
         if hasattr(self, "_active_manual_sync_progress") and self._active_manual_sync_progress:
@@ -1264,15 +1254,7 @@ class GamePropertiesDialog(PopupDialog):
             )
             return
 
-        def _work():
-            from core.cloud_operations import CloudOperationCoordinator
-            return CloudOperationCoordinator.restore_cloud_save(
-                self.game_name, self.game_path, steam_id=self.steam_id
-            )
-
-        self._start_managed_task(
-            f"SafeLauncher-ManualSyncDown-{self.game_id}", _work, self._manual_sync_down_done.emit
-        )
+        self._manual_sync_down_done.emit(self._cloud_unavailable_result("Cloud restore"))
 
     def _on_manual_sync_down_done(self, result):
         if hasattr(self, "_active_manual_sync_progress") and self._active_manual_sync_progress:

@@ -110,8 +110,7 @@ class AccountDialog(PopupDialog):
         self.combo_backend = QComboBox()
         self.combo_backend.addItem("Backend: Local folder sync", "local")
         self.combo_backend.addItem("Backend: Convex account", "convex")
-        from core.cloud_save_sync import cloud_mode
-        self.combo_backend.setCurrentIndex(1 if cloud_mode() == "convex" else 0)
+        self.combo_backend.setCurrentIndex(1 if self.cloud_account_service.mode() == "convex" else 0)
         self.combo_backend.currentIndexChanged.connect(self._on_backend_changed)
         self.combo_backend.setMinimumWidth(220)
         header_row.addWidget(self.combo_backend)
@@ -537,15 +536,10 @@ class AccountDialog(PopupDialog):
                 },
             )
             return
-
-        def _work():
-            try:
-                self.cloud_account_service.revoke_device(device_id)
-            except Exception as e:
-                logger.warning(f"Device revocation failed: {e}")
-            return {"revoked": device_id}
-
-        self._start_task("SafeLauncher-DeviceRevoke", _work, self._op_done.emit)
+        self._op_done.emit({
+            "error": "Cloud service is not available in this view.",
+            "guidance": "Open Cloud Center from the main SafeLauncher window and try again.",
+        })
 
     def _render_signed_out(self):
         self.lbl_email.setText("Not connected")
@@ -628,7 +622,6 @@ class AccountDialog(PopupDialog):
             return
 
         from database import GameDatabase
-        from core.cloud_save_sync import match_cloud_game_to_library
         db = GameDatabase()
         try:
             all_games = db.get_all_games()
@@ -638,7 +631,9 @@ class AccountDialog(PopupDialog):
             except Exception:
                 pass
         display_name = game_item.text().split("\n")[0].strip()
-        matched_game = match_cloud_game_to_library(name_key, display_name, all_games)
+        matched_game = self.cloud_account_service.match_game_to_library(
+            name_key, display_name, all_games
+        )
 
 
         if not matched_game:
@@ -698,28 +693,10 @@ class AccountDialog(PopupDialog):
             )
             return
 
-        def _work():
-            try:
-                from core.cloud_operations import CloudOperationCoordinator
-                result = CloudOperationCoordinator.restore_cloud_save(
-                    matched_game.name, matched_game.path,
-                    steam_id=matched_game.steam_id or "",
-                    target_version=int(version)
-                )
-                if result.success:
-                    return {
-                        "restored": f"Successfully restored generation v{version} for '{matched_game.name}'.",
-                        "name": matched_game.name
-                    }
-                return {
-                    "error": result.error or f"Failed to restore generation v{version} for '{matched_game.name}'.",
-                    "guidance": result.guidance,
-                    "category": result.category,
-                }
-            except Exception as e:
-                return {"error": f"Restore failed: {str(e)}"}
-
-        self._start_task("SafeLauncher-SaveRestore", _work, self._op_done.emit)
+        self._op_done.emit({
+            "error": "Cloud service is not available in this view.",
+            "guidance": "Open Cloud Center from the main SafeLauncher window and try again.",
+        })
 
     def _delete_selected_version(self):
         game_item = self.lst_games.currentItem()
@@ -759,14 +736,10 @@ class AccountDialog(PopupDialog):
             )
             return
 
-        def _work():
-            try:
-                deleted = self.cloud_account_service.delete_generation(name_key, version)
-                return {"deleted": deleted, "name": name_key}
-            except Exception as e:
-                return {"error": str(e)}
-
-        self._start_task("SafeLauncher-SaveDelete", _work, self._op_done.emit)
+        self._op_done.emit({
+            "error": "Cloud service is not available in this view.",
+            "guidance": "Open Cloud Center from the main SafeLauncher window and try again.",
+        })
 
     def _apply_op(self, payload: dict):
         self._busy = False
@@ -824,8 +797,7 @@ class AccountDialog(PopupDialog):
                 QMessageBox.StandardButton.No,
             )
             if confirm == QMessageBox.StandardButton.Yes:
-                from core.cloud_save_sync import set_cloud_mode
-                set_cloud_mode("local")
+                self.cloud_account_service.set_mode("local")
                 from PyQt6.QtCore import QSettings
                 from core.secret_store import delete_secret
                 settings = QSettings("SafeLauncher", "SafeLauncher")
@@ -842,8 +814,7 @@ class AccountDialog(PopupDialog):
                 self._notify_ancestor_cloud_changed()
 
     def _on_backend_changed(self, index: int):
-        from core.cloud_save_sync import set_cloud_mode
-        set_cloud_mode(self.combo_backend.itemData(index) or "local")
+        self.cloud_account_service.set_mode(self.combo_backend.itemData(index) or "local")
 
     def _style_avatar(self, text: str, ok: bool):
         self.lbl_avatar.setText(text)

@@ -222,7 +222,7 @@ class CloudStatusService:
 
         now = time.time()
         uncached, offline, stale, fresh = [], [], [], []
-        from core.cloud_save_sync import SyncStatus
+        from core.cloud_models import SyncStatus
 
         for target in values:
             cached = self.cached_status(target.game_id)
@@ -465,7 +465,7 @@ class CloudStatusService:
             if data.get("cloud_context") != context.fingerprint:
                 return
             cloud_cache = data.get("cloud_save_status", data.get("statuses", data.get("status", {})))
-            from core.cloud_save_sync import SaveStats, SyncStatus
+            from core.cloud_models import SaveStats, SyncStatus
             for raw_game_id, entry in cloud_cache.items():
                 status_value = entry.get("status")
                 if not status_value:

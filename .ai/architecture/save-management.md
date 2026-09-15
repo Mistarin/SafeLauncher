@@ -6,4 +6,9 @@ Cloud-save status is distinct from game installation/update status. Status check
 
 History presentation is normalized by `core.save_history.normalize_history_entries()` and rendered by the shared `SaveHistoryTimeline` component. Cloud generations and local safety forks form one newest-first timeline grouped by the local calendar date. Upload/creation timestamps are preferred over content mtimes, duplicate cloud generations are suppressed by stable source/version identity, and device provenance is display-safe. Older entries without a device name show an unavailable label rather than an opaque device ID.
 
-Sources: [`core/cloud_save_sync.py`](../../core/cloud_save_sync.py), [`core/cloud_operations.py`](../../core/cloud_operations.py), [`core/save_crypto.py`](../../core/save_crypto.py), [`core/save_validation.py`](../../core/save_validation.py), [`core/archive_extractor.py`](../../core/archive_extractor.py), [`ui/dialogs/save_conflict_dialog.py`](../../ui/dialogs/save_conflict_dialog.py).
+Sources: [`core/cloud_models.py`](../../core/cloud_models.py), [`core/cloud_storage.py`](../../core/cloud_storage.py), [`core/cloud_save_sync.py`](../../core/cloud_save_sync.py), [`core/cloud_operations.py`](../../core/cloud_operations.py), [`core/save_crypto.py`](../../core/save_crypto.py), [`core/save_validation.py`](../../core/save_validation.py), [`core/archive_extractor.py`](../../core/archive_extractor.py), [`ui/dialogs/save_conflict_dialog.py`](../../ui/dialogs/save_conflict_dialog.py).
+
+The save engine is an internal domain implementation. UI surfaces use the
+managed cloud services for status, history, upload, and restore; cloud-domain
+states and local storage configuration are provided by the lightweight model
+and storage modules.
