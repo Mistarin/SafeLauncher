@@ -117,12 +117,29 @@ class UserSettingsDialog(PopupDialog):
                 border: 1px solid #2A2A2E;
                 border-radius: 12px;
             }
+            QWidget#settingsPage {
+                background: #15171C;
+            }
+            QFrame#settingsSection {
+                background: #1B1E24;
+                border: 1px solid #292E37;
+                border-top-color: #3A404B;
+                border-bottom-color: #242931;
+                border-radius: 10px;
+            }
+            QLabel#settingsSectionTitle {
+                background: transparent;
+                border: none;
+                color: #F4F4F5;
+                padding: 0;
+                margin: 0;
+            }
             QLabel {
                 color: #E4E4E7;
             }
             QLabel#propertyLabel, QLabel#propertyValue {
                 background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
-                    stop: 0 #1C1F25, stop: 0.90 #191C21, stop: 1 rgba(25, 28, 33, 0));
+                    stop: 0 #232730, stop: 0.90 #20242C, stop: 1 rgba(32, 36, 44, 0));
                 color: #D4D4D8;
                 border: 1px solid #2A2E36;
                 border-top-color: #3A3F49;
@@ -132,10 +149,10 @@ class UserSettingsDialog(PopupDialog):
                 min-height: 18px;
             }
             QLabel#propertyValue {
-                background: #181B20;
+                background: #20242C;
             }
             QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QKeySequenceEdit {
-                background: #1A1D23;
+                background: #20242C;
                 color: #FFFFFF;
                 border: 1px solid #30353F;
                 border-top-color: #414752;
@@ -324,10 +341,12 @@ class UserSettingsDialog(PopupDialog):
         bottom_bar.addStretch()
 
         btn_cancel = QPushButton("Cancel")
+        btn_cancel.setObjectName("settingsActionButton")
         btn_cancel.clicked.connect(self.reject)
         bottom_bar.addWidget(btn_cancel)
 
         btn_save = QPushButton("Save")
+        btn_save.setObjectName("settingsPrimaryButton")
         btn_save.setStyleSheet("""
             QPushButton {
                 background: #2563eb; color: #ffffff; border: none;
@@ -343,6 +362,105 @@ class UserSettingsDialog(PopupDialog):
         bottom_bar.addWidget(size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
 
         body_layout.addLayout(bottom_bar)
+
+    def _apply_settings_surfaces(self) -> None:
+        """Re-apply Settings surfaces after PopupDialog normalization.
+
+        Settings is composed from several scroll-area pages.  Qt treats a
+        stylesheet installed on a scroll-area/viewport as a local styling
+        boundary, which can prevent the dialog-level selectors from reaching
+        the page contents.  Applying the small set of Settings tokens directly
+        after the shared popup normalization keeps every page visually
+        identical on all supported Qt styles.
+        """
+        page_style = "QWidget#settingsPage { background: #15171C; }"
+        section_style = (
+            "QFrame#settingsSection { background: #1B1E24; "
+            "border: 1px solid #292E37; border-top-color: #3A404B; "
+            "border-bottom-color: #242931; border-radius: 10px; }"
+        )
+        field_style = (
+            "QLineEdit, QComboBox, QSpinBox, QKeySequenceEdit { "
+            "background: #20242C; color: #FFFFFF; border: 1px solid #30353F; "
+            "border-top-color: #414752; border-bottom-color: #252A32; "
+            "border-radius: 7px; padding: 8px 10px; }"
+        )
+        property_style = (
+            "QLabel#propertyLabel, QLabel#propertyValue { "
+            "background: #20242C; color: #D4D4D8; border: 1px solid #2A2E36; "
+            "border-top-color: #3A3F49; border-bottom-color: #242830; "
+            "border-radius: 7px; padding: 7px 10px; }"
+        )
+        button_style = (
+            "QPushButton { background: #20242C; color: #F4F4F5; "
+            "border: 1px solid #30353F; border-top-color: #414752; "
+            "border-bottom-color: #252A32; border-radius: 7px; "
+            "padding: 8px 14px; font-size: 12px; font-weight: 600; } "
+            "QPushButton:hover { background: #2A303A; border-color: #4B5563; } "
+            "QPushButton:pressed { background: #171A20; }"
+        )
+        primary_button_style = (
+            "QPushButton { background: #3B9FE8; color: #FFFFFF; border: none; "
+            "border-radius: 7px; padding: 8px 18px; font-weight: 700; } "
+            "QPushButton:hover { background: #55ACED; } "
+            "QPushButton:pressed { background: #2789D0; }"
+        )
+        divider_style = (
+            "QFrame#settingsDivider { background: #3A404B; border: none; "
+            "min-height: 1px; max-height: 1px; }"
+        )
+
+        for page_scroll in (
+            self.page_general, self.page_security, self.page_storage,
+            self.page_cloud, self.page_plugins,
+        ):
+            page_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+            page = page_scroll.widget()
+            if page is None:
+                continue
+            page.setStyleSheet(page_style)
+            for section in page.findChildren(QFrame, "settingsSection"):
+                section.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                section.setStyleSheet(section_style)
+            for divider in page.findChildren(QFrame, "settingsDivider"):
+                divider.setStyleSheet(divider_style)
+            for title in page.findChildren(QLabel, "settingsSectionTitle"):
+                title.setStyleSheet(
+                    "QLabel#settingsSectionTitle { background: transparent; "
+                    "color: #F4F4F5; padding: 0; margin: 0; "
+                    "font-weight: 700; }"
+                )
+            for hint in page.findChildren(QWidget, "propertyHint"):
+                hint.setStyleSheet("QWidget#propertyHint { background: transparent; }")
+            for hint_text in page.findChildren(QLabel, "propertyHintText"):
+                hint_text.setStyleSheet(
+                    "QLabel#propertyHintText { background: transparent; "
+                    "color: #858A95; font-size: 11px; }"
+                )
+            for widget_type in (QLineEdit, QComboBox, QSpinBox, QKeySequenceEdit):
+                for field in page.findChildren(widget_type):
+                    field.setStyleSheet(field_style)
+            for label in page.findChildren(QLabel):
+                if label.objectName() in {"propertyLabel", "propertyValue"}:
+                    label.setStyleSheet(property_style)
+                elif label.objectName() == "profileActionStatus":
+                    label.setStyleSheet(
+                        "QLabel#profileActionStatus { background: transparent; "
+                        "color: #858A95; font-size: 12px; }"
+                    )
+            for button in page.findChildren(QPushButton):
+                if button.objectName() != "settingsTab":
+                    button.setStyleSheet(button_style)
+
+        for button in self.findChildren(QPushButton):
+            if button.objectName() in {"settingsActionButton", "settingsPrimaryButton"}:
+                button.setStyleSheet(button_style)
+            if button.objectName() == "settingsPrimaryButton":
+                button.setStyleSheet(primary_button_style)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._apply_settings_surfaces()
 
     def _switch_tab(self, index: int):
         for i, btn in enumerate(self.tab_buttons):
@@ -368,7 +486,82 @@ class UserSettingsDialog(PopupDialog):
         return divider
 
     def _add_section_divider(self, layout: QVBoxLayout) -> None:
+        title_item = layout.itemAt(layout.count() - 1)
+        title = title_item.widget() if title_item is not None else None
+        if isinstance(title, QLabel):
+            title.setObjectName("settingsSectionTitle")
         layout.addWidget(self._settings_divider())
+
+    def _wrap_settings_sections(self, layout: QVBoxLayout) -> None:
+        """Put every titled Settings group on the same raised surface.
+
+        Settings pages historically consisted of a heading followed by loose
+        widgets on the page background. That made the visual hierarchy vary
+        by tab and made the property treatment look like it had no effect.
+        Grouping the already-built layout here keeps each page's behavior
+        unchanged while giving every section one consistent surface.
+        """
+        items = []
+        while layout.count():
+            items.append(layout.takeAt(0))
+
+        rebuilt = []
+        section_frame = None
+        section_layout = None
+
+        def finish_section() -> None:
+            nonlocal section_frame, section_layout
+            if section_frame is not None:
+                rebuilt.append(section_frame)
+            section_frame = None
+            section_layout = None
+
+        def append_item(target: QVBoxLayout, item) -> None:
+            """Move a taken item by reusing its widget/layout safely.
+
+            Keeping the original QWidgetItem alive while changing its parent
+            layout can trigger a double-destruction in Qt during popup
+            teardown. Rebuild the item around its actual widget or child
+            layout instead.
+            """
+            widget = item.widget()
+            if widget is not None:
+                target.addWidget(widget)
+                return
+            child_layout = item.layout()
+            if child_layout is not None:
+                target.addLayout(child_layout)
+                return
+            target.addItem(item)
+
+        for item in items:
+            widget = item.widget()
+            if isinstance(widget, QLabel) and widget.objectName() == "settingsSectionTitle":
+                finish_section()
+                section_frame = QFrame()
+                section_frame.setObjectName("settingsSection")
+                section_layout = QVBoxLayout(section_frame)
+                section_layout.setContentsMargins(12, 11, 12, 12)
+                section_layout.setSpacing(10)
+                append_item(section_layout, item)
+                continue
+
+            # The stretch at the end of a page belongs outside the final card
+            # so the cards retain their natural height.
+            if section_layout is not None and item.spacerItem() is not None:
+                finish_section()
+                rebuilt.append(item)
+            elif section_layout is not None:
+                append_item(section_layout, item)
+            else:
+                rebuilt.append(item)
+
+        finish_section()
+        for item in rebuilt:
+            if isinstance(item, QWidget):
+                layout.addWidget(item)
+            else:
+                append_item(layout, item)
 
     def set_profile_action_state(
         self,
@@ -438,9 +631,10 @@ class UserSettingsDialog(PopupDialog):
     def _create_general_page(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setObjectName("settingsScroll")
 
         page = QWidget()
+        page.setObjectName("settingsPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
@@ -612,6 +806,7 @@ class UserSettingsDialog(PopupDialog):
         layout.addWidget(self.lbl_update_status)
 
         layout.addStretch()
+        self._wrap_settings_sections(layout)
 
         scroll.setWidget(page)
         return scroll
@@ -622,9 +817,10 @@ class UserSettingsDialog(PopupDialog):
     def _create_security_page(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setObjectName("settingsScroll")
 
         page = QWidget()
+        page.setObjectName("settingsPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(12)
@@ -720,6 +916,7 @@ class UserSettingsDialog(PopupDialog):
         layout.addWidget(self.probe_output_lbl)
 
         layout.addStretch()
+        self._wrap_settings_sections(layout)
         scroll.setWidget(page)
         return scroll
 
@@ -743,9 +940,10 @@ class UserSettingsDialog(PopupDialog):
     def _create_storage_page(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setObjectName("settingsScroll")
 
         page = QWidget()
+        page.setObjectName("settingsPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
@@ -838,6 +1036,7 @@ class UserSettingsDialog(PopupDialog):
 
         layout.addLayout(log_btns)
         layout.addStretch()
+        self._wrap_settings_sections(layout)
 
         scroll.setWidget(page)
         return scroll
@@ -848,9 +1047,10 @@ class UserSettingsDialog(PopupDialog):
     def _create_cloud_page(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setObjectName("settingsScroll")
 
         page = QWidget()
+        page.setObjectName("settingsPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
@@ -1121,6 +1321,7 @@ class UserSettingsDialog(PopupDialog):
         layout.addWidget(self.card_backend_health)
 
         layout.addStretch()
+        self._wrap_settings_sections(layout)
 
         self.accountStatusReady.connect(self._apply_account_status)
         self.backendHealthReady.connect(self._apply_backend_health)
@@ -1234,9 +1435,10 @@ class UserSettingsDialog(PopupDialog):
     def _create_plugins_page(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setObjectName("settingsScroll")
 
         page = QWidget()
+        page.setObjectName("settingsPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
@@ -1393,7 +1595,7 @@ class UserSettingsDialog(PopupDialog):
         self.edit_hotkey = QKeySequenceEdit()
         self.edit_hotkey.setKeySequence(QKeySequence(self.gpu_config.capture_hotkey or "F9"))
         self.edit_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #1A1D23; color: #ffffff; border: 1px solid #30353F;"
+            "QKeySequenceEdit { background: #20242C; color: #ffffff; border: 1px solid #30353F;"
             " border-top-color: #414752; border-bottom-color: #252A32; border-radius: 7px;"
             " padding: 8px 10px; font-size: 12px; }"
         )
@@ -1412,7 +1614,7 @@ class UserSettingsDialog(PopupDialog):
         self.edit_screenshot_hotkey = QKeySequenceEdit()
         self.edit_screenshot_hotkey.setKeySequence(QKeySequence(self.screenshot_hotkey or "F12"))
         self.edit_screenshot_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #1A1D23; color: #ffffff; border: 1px solid #30353F;"
+            "QKeySequenceEdit { background: #20242C; color: #ffffff; border: 1px solid #30353F;"
             " border-top-color: #414752; border-bottom-color: #252A32; border-radius: 7px;"
             " padding: 8px 10px; font-size: 12px; }"
         )
@@ -1433,6 +1635,7 @@ class UserSettingsDialog(PopupDialog):
         self._polish_settings_form(form)
         layout.addLayout(form)
         layout.addStretch()
+        self._wrap_settings_sections(layout)
 
         scroll.setWidget(page)
         return scroll

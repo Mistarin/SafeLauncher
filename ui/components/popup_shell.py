@@ -296,6 +296,191 @@ QProgressBar#popupProgress::chunk {{
     background: {ACCENT_PRIMARY};
     border-radius: 0;
 }}
+
+/* Settings surfaces are intentionally stronger than the popup shell.  Keep
+   these selectors after the generic popup rules: older settings widgets set
+   their stylesheet before the shared shell is appended, so the generic
+   QFrame/QWidget rules would otherwise flatten every section back to one
+   colour. */
+QDialog#safeLauncherPopup QWidget#settingsPage {{
+    background: #15171C;
+}}
+QDialog#safeLauncherPopup QFrame#settingsSection {{
+    background: #1B1E24;
+    border: 1px solid #292E37;
+    border-top-color: #3A404B;
+    border-bottom-color: #242931;
+    border-radius: 10px;
+}}
+QDialog#safeLauncherPopup QFrame#settingsNav {{
+    background: #18181B;
+    border: 1px solid #2A2A2E;
+    border-radius: 9px;
+}}
+QDialog#safeLauncherPopup QScrollArea#settingsScroll {{
+    background: transparent;
+    border: none;
+}}
+QDialog#safeLauncherPopup QWidget#settingsPage QLineEdit,
+QDialog#safeLauncherPopup QWidget#settingsPage QTextEdit,
+QDialog#safeLauncherPopup QWidget#settingsPage QPlainTextEdit,
+QDialog#safeLauncherPopup QWidget#settingsPage QComboBox,
+QDialog#safeLauncherPopup QWidget#settingsPage QSpinBox,
+QDialog#safeLauncherPopup QWidget#settingsPage QKeySequenceEdit {{
+    background: #20242C;
+    border: 1px solid #30353F;
+    border-top-color: #414752;
+    border-bottom-color: #252A32;
+    border-radius: 7px;
+}}
+QDialog#safeLauncherPopup QWidget#settingsPage QLineEdit:focus,
+QDialog#safeLauncherPopup QWidget#settingsPage QTextEdit:focus,
+QDialog#safeLauncherPopup QWidget#settingsPage QPlainTextEdit:focus,
+QDialog#safeLauncherPopup QWidget#settingsPage QComboBox:focus,
+QDialog#safeLauncherPopup QWidget#settingsPage QSpinBox:focus,
+QDialog#safeLauncherPopup QWidget#settingsPage QKeySequenceEdit:focus {{
+    background: #20242C;
+    border-color: {ACCENT_PRIMARY};
+}}
+QDialog#safeLauncherPopup QWidget#settingsPage QLabel#propertyLabel,
+QDialog#safeLauncherPopup QWidget#settingsPage QLabel#propertyValue {{
+    background: #20242C;
+    border: 1px solid #2A2E36;
+    border-top-color: #3A3F49;
+    border-bottom-color: #242830;
+    border-radius: 7px;
+}}
+QDialog#safeLauncherPopup QFrame#settingsDivider {{
+    background: #3A404B;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}}
+
+/* Launch diagnostics use named controls so the normalization pass cannot
+   replace their semantic hierarchy with the default popup button style. */
+QDialog#safeLauncherPopup QWidget#launchErrorPage,
+QDialog#safeLauncherPopup QWidget#launchConsolePage {{
+    background: #121215;
+}}
+QDialog#safeLauncherPopup QFrame#launchActionPanel {{
+    background: #18181B;
+    border: 1px solid #292E37;
+    border-top-color: #3A404B;
+    border-bottom-color: #242931;
+    border-radius: 8px;
+}}
+QDialog#safeLauncherPopup QPlainTextEdit#launchConsole,
+QDialog#safeLauncherPopup QPlainTextEdit#launchErrorDetails {{
+    background: #0B0C10;
+    color: #F4F4F5;
+    border: 1px solid #292E37;
+    border-top-color: #3A404B;
+    border-bottom-color: #20232A;
+    border-radius: 8px;
+    padding: 8px;
+}}
+QDialog#safeLauncherPopup QPlainTextEdit#launchConsole {{
+    font-family: "SF Mono", "JetBrains Mono", "Consolas", monospace;
+    font-size: 11px;
+}}
+QDialog#safeLauncherPopup QPlainTextEdit#launchErrorDetails {{
+    font-family: "SF Mono", "JetBrains Mono", "Consolas", monospace;
+    font-size: 10px;
+}}
+QDialog#safeLauncherPopup QPlainTextEdit#launchErrorDetails {{
+    color: #FCA5A5;
+    border-color: #7F1D1D;
+}}
+QDialog#safeLauncherPopup QPushButton#launchUtilityButton,
+QDialog#safeLauncherPopup QPushButton#launchRecoveryButton {{
+    background: #20242C;
+    color: #F4F4F5;
+    border: 1px solid #30353F;
+    border-top-color: #414752;
+    border-bottom-color: #252A32;
+    border-radius: 7px;
+    min-height: 34px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+}}
+QDialog#safeLauncherPopup QPushButton#launchUtilityButton:hover,
+QDialog#safeLauncherPopup QPushButton#launchRecoveryButton:hover {{
+    background: #2A303A;
+    border-color: #4B5563;
+}}
+QDialog#safeLauncherPopup QPushButton#launchUtilityButton:pressed,
+QDialog#safeLauncherPopup QPushButton#launchRecoveryButton:pressed {{
+    background: {ACCENT_PRIMARY};
+    border-color: {ACCENT_PRIMARY};
+    color: #FFFFFF;
+}}
+QDialog#safeLauncherPopup QPushButton#launchDangerButton {{
+    background: #3A171B;
+    color: #FECACA;
+    border: 1px solid #7F1D1D;
+    border-radius: 7px;
+    min-height: 34px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 700;
+}}
+QDialog#safeLauncherPopup QPushButton#launchDangerButton:hover {{
+    background: #5B1F24;
+    border-color: #EF4444;
+}}
+QDialog#safeLauncherPopup QPushButton#launchCloseButton {{
+    background: #20242C;
+    color: #D4D4D8;
+    border: 1px solid #30353F;
+    border-radius: 7px;
+    min-height: 34px;
+    min-width: 120px;
+    padding: 7px 16px;
+    font-weight: 600;
+}}
+QDialog#safeLauncherPopup QPushButton#launchCloseButton:hover {{
+    background: #2A303A;
+    color: #FFFFFF;
+}}
+QDialog#safeLauncherPopup QFrame#maintenanceSummary,
+QDialog#safeLauncherPopup QFrame#maintenanceActions {{
+    background: #1B1E24;
+    border: 1px solid #292E37;
+    border-top-color: #3A404B;
+    border-bottom-color: #242931;
+    border-radius: 8px;
+}}
+QDialog#safeLauncherPopup QPushButton#maintenanceAction {{
+    background: #20242C;
+    color: #F4F4F5;
+    border: 1px solid #30353F;
+    border-top-color: #414752;
+    border-bottom-color: #252A32;
+    border-radius: 7px;
+    min-height: 34px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+}}
+QDialog#safeLauncherPopup QPushButton#maintenanceAction:hover {{
+    background: #2A303A;
+    border-color: #4B5563;
+}}
+QDialog#safeLauncherPopup QPushButton#maintenanceClose {{
+    background: #20242C;
+    color: #D4D4D8;
+    border: 1px solid #30353F;
+    border-radius: 7px;
+    min-height: 34px;
+    min-width: 110px;
+    padding: 7px 16px;
+}}
+QDialog#safeLauncherPopup QPushButton#maintenanceClose:hover {{
+    background: #2A303A;
+    color: #FFFFFF;
+}}
 """
 
 

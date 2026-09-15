@@ -1,8 +1,11 @@
 """Focused maintenance dialogs; orchestration stays in MainWindow."""
 
 import os
-from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMessageBox, QFileDialog
-from PyQt6.QtCore import QUrl
+from PyQt6.QtWidgets import (
+    QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel, QFrame,
+    QTableWidget, QTableWidgetItem, QMessageBox, QFileDialog, QSizePolicy,
+)
+from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtGui import QDesktopServices
 from core.runtime_inventory import RuntimeInventory
 from core.prefix_manager import PrefixManager
@@ -75,20 +78,68 @@ class PrefixMaintenanceDialog(PopupDialog):
         super().__init__("Prefix Maintenance", parent)
         self.game_path = game_path
         self.manager = PrefixManager()
-        self.resize(620, 440)
-        layout = self.popup_layout()
+        self.setMinimumSize(680, 430)
+        self.resize(760, 500)
+        layout = self.popup_layout(margins=(20, 16, 20, 16), spacing=12)
+
+        summary_card = QFrame()
+        summary_card.setObjectName("maintenanceSummary")
+        summary_layout = QVBoxLayout(summary_card)
+        summary_layout.setContentsMargins(16, 14, 16, 14)
+        summary_layout.setSpacing(6)
+        summary_title = QLabel("Prefix status")
+        summary_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #F4F4F5;")
+        summary_layout.addWidget(summary_title)
         self.summary = QLabel()
+        self.summary.setObjectName("propertyValue")
         self.summary.setWordWrap(True)
-        layout.addWidget(self.summary)
-        buttons = QHBoxLayout()
-        for label, callback in (("Repair / reset prefix", self.reset), ("Backup prefix", self.backup), ("Restore prefix", self.restore), ("Migrate prefix", self.migrate), ("Clear shader cache", self.clear_cache), ("Open prefix folder", self.open_folder)):
+        self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        summary_layout.addWidget(self.summary)
+        layout.addWidget(summary_card)
+
+        action_card = QFrame()
+        action_card.setObjectName("maintenanceActions")
+        action_layout = QVBoxLayout(action_card)
+        action_layout.setContentsMargins(12, 12, 12, 12)
+        action_layout.setSpacing(8)
+        action_title = QLabel("Maintenance actions")
+        action_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #F4F4F5;")
+        action_layout.addWidget(action_title)
+        buttons = QGridLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setHorizontalSpacing(8)
+        buttons.setVerticalSpacing(8)
+        buttons.setColumnStretch(0, 1)
+        buttons.setColumnStretch(1, 1)
+        buttons.setColumnStretch(2, 1)
+        actions = (
+            ("Repair / reset prefix", self.reset),
+            ("Backup prefix", self.backup),
+            ("Restore prefix", self.restore),
+            ("Migrate prefix", self.migrate),
+            ("Clear shader cache", self.clear_cache),
+            ("Open prefix folder", self.open_folder),
+        )
+        for index, (label, callback) in enumerate(actions):
             button = QPushButton(label)
+            button.setObjectName("maintenanceAction")
+            button.setFixedHeight(36)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             button.clicked.connect(callback)
-            buttons.addWidget(button)
-        layout.addLayout(buttons)
+            buttons.addWidget(button, index // 3, index % 3)
+        action_layout.addLayout(buttons)
+        layout.addWidget(action_card)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.addStretch(1)
         close = QPushButton("Close")
+        close.setObjectName("maintenanceClose")
+        close.setFixedHeight(34)
         close.clicked.connect(self.accept)
-        layout.addWidget(close)
+        footer.addWidget(close)
+        footer.addStretch(1)
+        layout.addLayout(footer)
         self.refresh()
 
     def refresh(self):

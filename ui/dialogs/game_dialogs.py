@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QMessageBox, QComboBox, QProgressBar, QWidget, QFrame, QMenu,
     QCheckBox, QStackedWidget, QPlainTextEdit, QGraphicsOpacityEffect, QApplication,
-    QGridLayout, QScrollArea, QDateEdit
+    QGridLayout, QScrollArea, QDateEdit, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QSize, QPoint, QDate, QEvent, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QUrl
 from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QMovie, QDesktopServices
@@ -1126,17 +1126,16 @@ class SafeLaunchDialog(PopupDialog):
         self.stack = QStackedWidget()
         root_layout.addWidget(self.stack)
 
-        self.close_log_button = QPushButton("Close log window")
-        self.close_log_button.setMinimumHeight(34)
-        self.close_log_button.setStyleSheet("""
-            QPushButton {
-                background: #27272a; color: #e4e4e7; border: 1px solid #52525b;
-                border-radius: 6px; font-weight: bold; padding: 6px 14px;
-            }
-            QPushButton:hover { background: #3f3f46; color: #ffffff; }
-        """)
+        self.close_log_button = QPushButton("Close")
+        self.close_log_button.setObjectName("launchCloseButton")
+        self.close_log_button.setFixedHeight(34)
         self.close_log_button.clicked.connect(self.reject)
-        root_layout.addWidget(self.close_log_button)
+        root_footer = QHBoxLayout()
+        root_footer.setContentsMargins(0, 0, 0, 0)
+        root_footer.addStretch(1)
+        root_footer.addWidget(self.close_log_button)
+        root_footer.addStretch(1)
+        root_layout.addLayout(root_footer)
 
         # PAGE 0: Pudgy Penguin GIF Intro Stage
         self.page_gif = QWidget()
@@ -1173,9 +1172,10 @@ class SafeLaunchDialog(PopupDialog):
 
         # PAGE 1: Virtual Environment Console Stage
         self.page_console = QWidget()
+        self.page_console.setObjectName("launchConsolePage")
         console_layout = QVBoxLayout(self.page_console)
-        console_layout.setContentsMargins(0, 0, 0, 0)
-        console_layout.setSpacing(10)
+        console_layout.setContentsMargins(8, 4, 8, 8)
+        console_layout.setSpacing(9)
 
         self.header_title = QLabel("Preparing Virtual Environment...")
         self.header_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1206,27 +1206,20 @@ class SafeLaunchDialog(PopupDialog):
         console_layout.addWidget(self.progress_bar)
 
         self.console = QPlainTextEdit()
+        self.console.setObjectName("launchConsole")
         self.console.setReadOnly(True)
+        self.console.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.console.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.console.document().setMaximumBlockCount(4000)
-        self.console.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: #09090b;
-                color: #f4f4f5;
-                border: 1px solid #27272a;
-                border-radius: 8px;
-                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 11px;
-                padding: 8px;
-            }
-        """)
         console_layout.addWidget(self.console)
         self.stack.addWidget(self.page_console)
 
         # PAGE 3: Launch failure screen
         self.page_error = QWidget()
+        self.page_error.setObjectName("launchErrorPage")
         error_layout = QVBoxLayout(self.page_error)
-        error_layout.setContentsMargins(10, 16, 10, 10)
-        error_layout.setSpacing(12)
+        error_layout.setContentsMargins(20, 16, 20, 12)
+        error_layout.setSpacing(10)
 
         self.error_title = QLabel("Game launch failed")
         self.error_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1240,75 +1233,101 @@ class SafeLaunchDialog(PopupDialog):
         error_layout.addWidget(self.error_summary)
 
         self.error_details = QPlainTextEdit()
+        self.error_details.setObjectName("launchErrorDetails")
         self.error_details.setReadOnly(True)
+        self.error_details.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.error_details.setMinimumHeight(190)
+        self.error_details.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.error_details.document().setMaximumBlockCount(4000)
-        self.error_details.setStyleSheet("""
-            QPlainTextEdit {
-                background: #09090b; color: #fca5a5; border: 1px solid #7f1d1d;
-                border-radius: 8px; font-family: monospace; font-size: 10px; padding: 8px;
-            }
-        """)
         error_layout.addWidget(self.error_details)
 
         diagnostics_buttons = QHBoxLayout()
+        diagnostics_buttons.setContentsMargins(0, 0, 0, 0)
+        diagnostics_buttons.setSpacing(8)
+        diagnostics_buttons.addStretch(1)
         copy_diagnostics = QPushButton("Copy diagnostics")
-        copy_diagnostics.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 12px; } QPushButton:hover { background: #202633; }")
+        copy_diagnostics.setObjectName("launchUtilityButton")
+        copy_diagnostics.setFixedHeight(34)
+        copy_diagnostics.setMinimumWidth(150)
         copy_diagnostics.clicked.connect(self._copy_diagnostics)
         diagnostics_buttons.addWidget(copy_diagnostics)
         open_logs = QPushButton("Open log folder")
-        open_logs.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 12px; } QPushButton:hover { background: #202633; }")
+        open_logs.setObjectName("launchUtilityButton")
+        open_logs.setFixedHeight(34)
+        open_logs.setMinimumWidth(150)
         open_logs.clicked.connect(self._open_log_folder)
         diagnostics_buttons.addWidget(open_logs)
-        diagnostics_buttons.addStretch()
+        diagnostics_buttons.addStretch(1)
         error_layout.addLayout(diagnostics_buttons)
 
-        recovery_buttons = QGridLayout()
+        recovery_panel = QFrame()
+        recovery_panel.setObjectName("launchActionPanel")
+        recovery_buttons = QGridLayout(recovery_panel)
+        recovery_buttons.setContentsMargins(12, 12, 12, 12)
         recovery_buttons.setHorizontalSpacing(8)
         recovery_buttons.setVerticalSpacing(8)
+        recovery_buttons.setColumnStretch(0, 1)
+        recovery_buttons.setColumnStretch(1, 1)
+        self._recovery_layout = recovery_buttons
+        self._recovery_panel = recovery_panel
         self.recovery_actions = {}
         retry_safe = QPushButton("Retry safe")
-        retry_safe.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        retry_safe.setObjectName("launchRecoveryButton")
+        retry_safe.setFixedHeight(36)
+        retry_safe.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         retry_safe.setToolTip("Retry using the sandboxed Wine fallback.")
         retry_safe.clicked.connect(lambda: self._request_retry("wine"))
         self.recovery_actions["safe_retry"] = retry_safe
         recovery_buttons.addWidget(retry_safe, 0, 0)
         retry_performance = QPushButton("Retry without performance overrides")
-        retry_performance.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        retry_performance.setObjectName("launchRecoveryButton")
+        retry_performance.setFixedHeight(36)
+        retry_performance.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         retry_performance.clicked.connect(self._request_performance_retry)
         self.recovery_actions["performance_retry"] = retry_performance
         recovery_buttons.addWidget(retry_performance, 0, 1)
         edit_game = QPushButton("Edit executable")
-        edit_game.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        edit_game.setObjectName("launchRecoveryButton")
+        edit_game.setFixedHeight(36)
+        edit_game.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         edit_game.clicked.connect(self._request_edit_game)
         self.recovery_actions["edit_game"] = edit_game
         recovery_buttons.addWidget(edit_game, 1, 0)
         prefix = QPushButton("Prefix maintenance")
-        prefix.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        prefix.setObjectName("launchRecoveryButton")
+        prefix.setFixedHeight(36)
+        prefix.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         prefix.clicked.connect(self._request_prefix_maintenance)
         self.recovery_actions["prefix"] = prefix
         recovery_buttons.addWidget(prefix, 1, 1)
         runtime = QPushButton("Runtime manager")
-        runtime.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        runtime.setObjectName("launchRecoveryButton")
+        runtime.setFixedHeight(36)
+        runtime.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         runtime.clicked.connect(self._request_runtime_manager)
         self.recovery_actions["runtime"] = runtime
         recovery_buttons.addWidget(runtime, 2, 0)
         settings = QPushButton("Open settings")
-        settings.setStyleSheet("QPushButton { background: #161A22; color: #F4F7FA; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        settings.setObjectName("launchRecoveryButton")
+        settings.setFixedHeight(36)
+        settings.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         settings.clicked.connect(self._request_settings)
         self.recovery_actions["settings"] = settings
         recovery_buttons.addWidget(settings, 2, 1)
         unsafe = QPushButton("Launch without sandbox (UNSAFE)")
-        unsafe.setStyleSheet("QPushButton { background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444; font-weight: bold; }")
+        unsafe.setObjectName("launchDangerButton")
+        unsafe.setFixedHeight(36)
+        unsafe.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         unsafe.clicked.connect(self._request_unsafe_launch)
         self.recovery_actions["unsafe"] = unsafe
         recovery_buttons.addWidget(unsafe, 3, 0, 1, 2)
-        error_layout.addLayout(recovery_buttons)
+        self._recovery_action_order = (
+            "safe_retry", "performance_retry", "edit_game", "prefix",
+            "runtime", "settings", "unsafe",
+        )
+        self._reflow_recovery_actions()
+        error_layout.addWidget(recovery_panel)
 
-        close_error = QPushButton("Close")
-        close_error.setMinimumHeight(36)
-        close_error.setStyleSheet("QPushButton { background: #991b1b; color: #ffffff; border-radius: 6px; font-weight: bold; } QPushButton:hover { background: #b91c1c; }")
-        close_error.clicked.connect(self.reject)
-        error_layout.addWidget(close_error)
         self.stack.addWidget(self.page_error)
 
         # PAGE 2: Confirmation Greeting Screen
@@ -1712,10 +1731,60 @@ class SafeLaunchDialog(PopupDialog):
         self._diagnostics_persisted = True
         return self._diagnostics_path
 
+    def _reflow_recovery_actions(self) -> None:
+        """Pack only available recovery actions into a stable two-column grid.
+
+        Hiding a widget in a pre-populated QGridLayout leaves its original
+        column/row semantics behind.  That made Prefix maintenance appear to
+        jump down or sit on its own row when an earlier recommendation was
+        unavailable.  Rebuilding the small layout keeps the visible actions
+        contiguous and centered at every failure category.
+        """
+        layout = getattr(self, "_recovery_layout", None)
+        if layout is None:
+            return
+
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setVisible(False)
+
+        visible = [
+            name for name in getattr(self, "_recovery_action_order", ())
+            if bool(self.recovery_actions[name].property("_recovery_visible"))
+        ]
+        row = 0
+        column = 0
+        for name in visible:
+            button = self.recovery_actions[name]
+            button.setVisible(True)
+            if name == "unsafe":
+                if column:
+                    row += 1
+                layout.addWidget(button, row, 0, 1, 2)
+                row += 1
+                column = 0
+                continue
+            layout.addWidget(button, row, column)
+            if column == 0:
+                column = 1
+            else:
+                row += 1
+                column = 0
+        if column:
+            row += 1
+        layout.setRowStretch(row, 1)
+
     def _configure_recovery_actions(self):
         actions = set(self.diagnostics.recommended_actions()) if self.diagnostics else {"safe_retry", "copy", "logs"}
         for name, button in self.recovery_actions.items():
-            button.setVisible(name in actions)
+            button.setProperty("_recovery_visible", name in actions)
+        self._reflow_recovery_actions()
+        self._recovery_panel.setVisible(any(
+            bool(button.property("_recovery_visible"))
+            for button in self.recovery_actions.values()
+        ))
         self.error_title.setText(
             f"Game launch failed · {(self.diagnostics.failure_category if self.diagnostics else 'unknown').replace('_', ' ').title()}"
         )

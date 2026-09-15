@@ -2638,13 +2638,34 @@ class ProfilePageWidget(QWidget):
             self.central_auth.device_login(
                 progress=lambda message: self.auth_progress.emit(message),
             )
-            remote = self._reconcile_authenticated_profile()
+            # Device login and profile provisioning are separate operations.
+            # Auth0 can successfully issue the API token while the optional
+            # first-login identity lookup is unavailable or rejects a token
+            # whose audience is the profile API.  Do not turn that secondary
+            # lookup failure into a false authentication failure: the session
+            # is already signed in and the user can finish setup locally.
+            profile_sync_failed = False
+            try:
+                remote = self._reconcile_authenticated_profile()
+            except (CentralAuthError, ProfileServiceError):
+                remote = None
+                profile_sync_failed = True
+
+            identity = {}
+            identity_lookup_failed = False
+            if remote is None:
+                try:
+                    identity = self.central_auth.userinfo()
+                except CentralAuthError:
+                    identity_lookup_failed = True
             return {
                 "remote": remote,
-                # Existing profiles already have a stable handle. Avoid an
-                # unnecessary identity request and never retain claims after
-                # the first-login suggestion has been derived.
-                "identity": {} if remote is not None else self.central_auth.userinfo(),
+                # Existing profiles already have a stable handle. Identity
+                # claims are used only transiently for a first-login hint and
+                # are never retained in the result after setup.
+                "identity": identity,
+                "profile_sync_failed": profile_sync_failed,
+                "identity_lookup_failed": identity_lookup_failed,
             }
 
         if self._start_managed_remote(
@@ -2671,6 +2692,8 @@ class ProfilePageWidget(QWidget):
         payload = result if isinstance(result, dict) else {}
         remote = payload.get("remote") if isinstance(payload.get("remote"), dict) else None
         identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
+        profile_sync_failed = bool(payload.get("profile_sync_failed"))
+        identity_lookup_failed = bool(payload.get("identity_lookup_failed"))
         if remote is not None:
             remote_settings = {
                 **self._profile_settings,
@@ -2693,6 +2716,8 @@ class ProfilePageWidget(QWidget):
                 status_message = f"Signed in as @{self._profile_settings.get('public_handle')}. Publish this profile to make it public."
             else:
                 status_message = "Signed in. Choose a profile handle before publishing."
+            if profile_sync_failed or identity_lookup_failed:
+                status_message += " Profile details could not be refreshed yet; retry profile sync when online."
         if self._mode == "owner":
             self.show_owner()
         else:
