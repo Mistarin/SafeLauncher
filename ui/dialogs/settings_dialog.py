@@ -8,7 +8,7 @@ from io import StringIO
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox, QSpinBox, QSizePolicy
+    QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox, QSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QSize, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
@@ -43,6 +43,7 @@ from ui.profile_theme import normalize_profile_theme, profile_theme_choices, pro
 from core.version import APP_VERSION, MIN_CONVEX_BACKEND_VERSION
 from core.updater import check_for_updates, download_and_apply_appimage_update, restart_application, is_appimage
 from core.cloud_account_service import CloudAccountService
+from core.cloud_center_service import CloudOverview
 from core.cloud_backend import normalize_site_url
 from core.cloud_detector import detect_local_cloud_installation
 from core.safe_thread import TaskSupervisor
@@ -78,6 +79,7 @@ class UserSettingsDialog(PopupDialog):
     profile_auth_requested = pyqtSignal()
     profile_publish_requested = pyqtSignal()
     profile_resync_requested = pyqtSignal()
+    conflicts_requested = pyqtSignal()
 
     def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", profile_theme: str = "grey", request_manager=None, initial_tab: int | None = None):
         super().__init__("Settings", parent)
@@ -97,11 +99,12 @@ class UserSettingsDialog(PopupDialog):
         self.cloud_account_service = getattr(parent, "cloud_account_service", None) or CloudAccountService(
             request_manager=request_manager,
         )
+        self.cloud_center_service = getattr(parent, "cloud_center_service", None)
         self._resource_bindings: dict[str, ResourceBinding] = {}
+        self._cloud_overview_binding: ResourceBinding | None = None
         self._account_probe_generation = 0
         self._health_probe_generation = 0
         self._profile_action_status_custom = False
-        self._settings_forms: list[QFormLayout] = []
 
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
         self.setMinimumSize(820, 600)
@@ -150,25 +153,6 @@ class UserSettingsDialog(PopupDialog):
                 border: 1px solid #303037;
                 border-radius: 6px;
                 padding: 4px;
-            }
-            QLabel#settingsFieldLabel {
-                background: #1A1A1F;
-                color: #D4D4D8;
-                border: 1px solid #25252C;
-                border-top-color: #303039;
-                border-bottom-color: #202026;
-                border-radius: 6px;
-                padding: 7px 10px;
-                min-height: 18px;
-            }
-            QLabel#settingsValueLabel {
-                background: #111113;
-                color: #D4D4D8;
-                border: 1px solid #25252C;
-                border-top-color: #303039;
-                border-bottom-color: #202026;
-                border-radius: 6px;
-                padding: 7px 10px;
             }
             QPushButton {
                 background: #222228;
@@ -314,57 +298,12 @@ class UserSettingsDialog(PopupDialog):
         self.stack.setCurrentIndex(index)
 
     def _polish_settings_form(self, form: QFormLayout) -> None:
-        """Apply one stable label/value rhythm to every settings form."""
-        if form not in self._settings_forms:
-            self._settings_forms.append(form)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
-        form.setHorizontalSpacing(18)
-        form.setVerticalSpacing(9)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        for row in range(form.rowCount()):
-            label_item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
-            label = label_item.widget() if label_item is not None else None
-            if isinstance(label, QLabel) and label.text().strip():
-                label.setObjectName("settingsFieldLabel")
-                label.setMinimumWidth(210)
-                label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                label.setWordWrap(True)
-            field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
-            field = field_item.widget() if field_item is not None else None
-            if field is not None and field.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed:
-                field.setSizePolicy(QSizePolicy.Policy.Expanding, field.sizePolicy().verticalPolicy())
-            elif field_item is not None and field_item.layout() is not None:
-                # Rows such as "Browse…" and the cloud-key rows use a layout
-                # as their field. Remove hidden margins and let their primary
-                # editor consume the available value column.
-                field_layout = field_item.layout()
-                field_layout.setContentsMargins(0, 0, 0, 0)
-                for index in range(field_layout.count()):
-                    child_item = field_layout.itemAt(index)
-                    child = child_item.widget() if child_item is not None else None
-                    if child is not None and child.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed:
-                        child.setSizePolicy(QSizePolicy.Policy.Expanding, child.sizePolicy().verticalPolicy())
+        """Apply the shared popup property treatment to a Settings form."""
+        self.polish_property_form(form)
 
     def _polish_settings_grid(self, grid: QGridLayout) -> None:
-        """Align two-column diagnostic/property grids with form rows."""
-        grid.setHorizontalSpacing(18)
-        grid.setVerticalSpacing(9)
-        grid.setColumnMinimumWidth(0, 210)
-        grid.setColumnStretch(1, 1)
-        for row in range(grid.rowCount()):
-            label = grid.itemAtPosition(row, 0)
-            value = grid.itemAtPosition(row, 1)
-            label_widget = label.widget() if label is not None else None
-            value_widget = value.widget() if value is not None else None
-            if isinstance(label_widget, QLabel) and label_widget.text().strip():
-                label_widget.setObjectName("settingsFieldLabel")
-                label_widget.setMinimumWidth(210)
-                label_widget.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                label_widget.setWordWrap(True)
-            if isinstance(value_widget, QLabel) and value_widget.text().strip():
-                value_widget.setObjectName("settingsValueLabel")
-                value_widget.setWordWrap(True)
+        """Align a Settings diagnostic grid with the shared property system."""
+        self.polish_property_grid(grid)
 
     def _on_profile_theme_changed(self, _index: int) -> None:
         self.profile_theme = normalize_profile_theme(self.combo_profile_theme.currentData())
@@ -536,12 +475,11 @@ class UserSettingsDialog(PopupDialog):
         sec_profile_account.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_profile_account)
 
-        profile_account_hint = QLabel(
+        profile_account_hint = self.info_hint(
             "Manage central sign-in, public visibility, and private profile metadata resync here. "
-            "These actions affect the profile other people can view; they are separate from game-save cloud sync."
+            "These actions affect the profile other people can view; they are separate from game-save cloud sync.",
+            tooltip="Public profile settings are separate from private cloud-save synchronization.",
         )
-        profile_account_hint.setWordWrap(True)
-        profile_account_hint.setStyleSheet("color: #A1A1AA; font-size: 12px;")
         layout.addWidget(profile_account_hint)
 
         profile_actions = QHBoxLayout()
@@ -962,9 +900,11 @@ class UserSettingsDialog(PopupDialog):
             "artwork, Steam, cloud, profile, telemetry, or update requests."
         )
         form_mode.addRow("Network:", self.chk_offline_mode)
-        self.lbl_offline_mode_help = QLabel(offline_status_text(settings))
-        self.lbl_offline_mode_help.setWordWrap(True)
-        self.lbl_offline_mode_help.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        offline_hint = self.info_hint(
+            offline_status_text(settings),
+            tooltip="Offline mode prevents automatic internet access and uses local or cached data.",
+        )
+        self.lbl_offline_mode_help = offline_hint.findChild(QLabel, "propertyHintText")
         self.chk_offline_mode.toggled.connect(
             lambda enabled: self.lbl_offline_mode_help.setText(
                 "Offline mode enabled — automatic internet access is disabled."
@@ -972,7 +912,7 @@ class UserSettingsDialog(PopupDialog):
                 "Online mode — automatic internet access is enabled."
             )
         )
-        form_mode.addRow("", self.lbl_offline_mode_help)
+        form_mode.addRow("", offline_hint)
 
         # Convex Site URL
         self.edit_convex_url = QLineEdit(get_site_url())
@@ -1038,11 +978,10 @@ class UserSettingsDialog(PopupDialog):
         btn_forget_deploy_key.clicked.connect(self._forget_deploy_key)
         deploy_key_row.addWidget(btn_forget_deploy_key)
         form_mode.addRow("Convex Deploy Key:", deploy_key_row)
-        deploy_key_help = QLabel(
-            "Optional. Create a deployment-scoped key in Convex Dashboard for updates on machines not signed into the Convex CLI."
+        deploy_key_help = self.info_hint(
+            "Optional. Create a deployment-scoped key in Convex Dashboard for updates on machines not signed into the Convex CLI.",
+            tooltip="Deployment keys are optional and are stored in the local secret store, never in request keys or logs.",
         )
-        deploy_key_help.setWordWrap(True)
-        deploy_key_help.setStyleSheet("color: #9CA3AF; font-size: 11px;")
         form_mode.addRow("", deploy_key_help)
 
         # Device Identity & Concurrent Devices
@@ -1104,8 +1043,15 @@ class UserSettingsDialog(PopupDialog):
         btn_account_mgr = QPushButton("Save History Manager…")
         btn_account_mgr.clicked.connect(self._open_account_manager)
         acct_btns.addWidget(btn_account_mgr)
+        self.btn_review_conflicts = QPushButton("Review conflicts")
+        self.btn_review_conflicts.setIcon(get_icon("ph.warning-bold", color="#A1A1AA"))
+        self.btn_review_conflicts.setEnabled(False)
+        self.btn_review_conflicts.setToolTip("Available when this account has cloud-save conflicts")
+        self.btn_review_conflicts.clicked.connect(self._open_conflict_review)
+        acct_btns.addWidget(self.btn_review_conflicts)
         self.btn_refresh_quota = QPushButton("Refresh Quota")
         self.btn_refresh_quota.clicked.connect(self._refresh_account_status)
+        self.btn_refresh_quota.clicked.connect(self._refresh_cloud_conflict_summary)
         acct_btns.addWidget(self.btn_refresh_quota)
         self.btn_logout = QPushButton("Disconnect")
         self.btn_logout.clicked.connect(self._cloud_disconnect)
@@ -1200,9 +1146,56 @@ class UserSettingsDialog(PopupDialog):
 
         self._refresh_account_status()
         self._refresh_backend_health()
+        self._refresh_cloud_conflict_summary()
 
         scroll.setWidget(page)
         return scroll
+
+    def _open_conflict_review(self) -> None:
+        if getattr(self, "btn_review_conflicts", None) is not None and self.btn_review_conflicts.isEnabled():
+            self.conflicts_requested.emit()
+
+    def _refresh_cloud_conflict_summary(self) -> None:
+        """Enable global conflict review only for the current cloud context."""
+        button = getattr(self, "btn_review_conflicts", None)
+        service = self.cloud_center_service
+        if button is None:
+            return
+        button.setEnabled(False)
+        if service is None or self.request_manager is None:
+            button.setToolTip("Available when this account has cloud-save conflicts")
+            return
+        if self._cloud_overview_binding is not None:
+            self._cloud_overview_binding.close()
+            self._cloud_overview_binding = None
+        try:
+            handle = service.request_overview()
+        except Exception:
+            button.setToolTip("Cloud conflict status is unavailable")
+            return
+
+        def _apply(result):
+            if result.status in (ResourceStatus.IDLE, ResourceStatus.LOADING):
+                return
+            if result.status not in (ResourceStatus.READY, ResourceStatus.STALE):
+                button.setToolTip("Cloud conflict status is unavailable")
+                return
+            overview = CloudOverview.from_payload(result.value)
+            has_conflicts = int(overview.conflict_count or 0) > 0
+            button.setEnabled(has_conflicts)
+            button.setToolTip(
+                "Open Save History to review current cloud-save conflicts"
+                if has_conflicts else
+                "No cloud-save conflicts in the current account"
+            )
+
+        self._cloud_overview_binding = bind_request(
+            self.request_manager,
+            handle,
+            _apply,
+            self,
+            cancel_on_close=True,
+        )
 
     def _apply_account_status(self, message: str):
         try:
@@ -1267,11 +1260,10 @@ class UserSettingsDialog(PopupDialog):
         sec_title.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
         layout.addWidget(sec_title)
 
-        desc = QLabel(
-            "GPU Screen Recorder is a high-performance, shadowplay-like hardware screen recorder for Linux (NVIDIA NVENC, AMD VAAPI, Intel QuickSync) with zero gameplay FPS loss and instant replay buffer clipping."
+        desc = self.info_hint(
+            "GPU Screen Recorder is a high-performance Linux recorder using NVIDIA NVENC, AMD VAAPI, or Intel QuickSync.",
+            tooltip="Recording runs through the detected local backend. SafeLauncher does not upload recordings to private cloud storage.",
         )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: #a1a1aa; font-size: 11px;")
         layout.addWidget(desc)
 
         # Main Plugin Toggle (Default: False)
@@ -1708,6 +1700,7 @@ class UserSettingsDialog(PopupDialog):
         self.lbl_account_status.setText("Connecting to cloud…")
         self._refresh_account_status()
         self._refresh_backend_health()
+        self._refresh_cloud_conflict_summary()
 
     def _cloud_disconnect(self):
         """Revert cloud backend to local folder sync."""
@@ -1717,6 +1710,7 @@ class UserSettingsDialog(PopupDialog):
         self.combo_cloud_mode.setCurrentIndex(0)
         self.accountStatusReady.emit("Disconnected (using Local sync).")
         self._refresh_backend_health()
+        self._refresh_cloud_conflict_summary()
 
     def _start_managed_task(self, name: str, work, on_complete):
         """Run a settings operation and expose it in the global Activity drawer."""
@@ -1789,6 +1783,9 @@ class UserSettingsDialog(PopupDialog):
     def closeEvent(self, event):
         """Keep Qt workers alive until their cooperative cancellation completes."""
         if self.request_manager is not None:
+            if self._cloud_overview_binding is not None:
+                self._cloud_overview_binding.close()
+                self._cloud_overview_binding = None
             for binding in tuple(self._resource_bindings.values()):
                 binding.close()
             self._resource_bindings.clear()

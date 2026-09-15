@@ -31,6 +31,9 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QPushButton,
     QProgressBar,
+    QFormLayout,
+    QGridLayout,
+    QToolButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -108,6 +111,49 @@ QDialog#safeLauncherPopup QLabel {{
     color: {TEXT_PRIMARY};
     background: transparent;
 }}
+QDialog#safeLauncherPopup QLabel#propertyLabel {{
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
+        stop: 0 #1A1A1F, stop: 0.90 #18181B, stop: 1 rgba(24, 24, 27, 0));
+    color: #D4D4D8;
+    border: 1px solid #25252C;
+    border-top-color: #303039;
+    border-bottom-color: #202026;
+    border-radius: 6px;
+    padding: 7px 10px;
+    min-height: 18px;
+}}
+QDialog#safeLauncherPopup QLabel#propertyValue {{
+    background: {POPUP_BACKGROUND};
+    color: #D4D4D8;
+    border: 1px solid #25252C;
+    border-top-color: #303039;
+    border-bottom-color: #202026;
+    border-radius: 6px;
+    padding: 7px 10px;
+}}
+QDialog#safeLauncherPopup QWidget#propertyHint {{
+    background: transparent;
+}}
+QDialog#safeLauncherPopup QLabel#propertyHintText {{
+    color: {TEXT_MUTED};
+    background: transparent;
+    font-size: 11px;
+}}
+QDialog#safeLauncherPopup QToolButton#propertyInfo {{
+    background: transparent;
+    color: {TEXT_MUTED};
+    border: none;
+    padding: 0;
+    margin: 0;
+    min-width: 18px;
+    min-height: 18px;
+    font-size: 13px;
+    font-weight: 700;
+}}
+QDialog#safeLauncherPopup QToolButton#propertyInfo:hover,
+QDialog#safeLauncherPopup QToolButton#propertyInfo:focus {{
+    color: {TEXT_SECONDARY};
+}}
 QLabel#popupTitle {{
     color: {TEXT_PRIMARY};
     background: transparent;
@@ -135,10 +181,12 @@ QDialog#safeLauncherPopup QTextEdit,
 QDialog#safeLauncherPopup QPlainTextEdit,
 QDialog#safeLauncherPopup QComboBox,
 QDialog#safeLauncherPopup QSpinBox {{
-    background: {POPUP_SURFACE};
+    background: {POPUP_BACKGROUND};
     color: {TEXT_PRIMARY};
-    border: none;
-    border-radius: 0;
+    border: 1px solid #2D2D34;
+    border-top-color: #373740;
+    border-bottom-color: #24242A;
+    border-radius: 6px;
     padding: 7px 10px;
 }}
 QDialog#safeLauncherPopup QLineEdit:focus,
@@ -146,8 +194,24 @@ QDialog#safeLauncherPopup QTextEdit:focus,
 QDialog#safeLauncherPopup QPlainTextEdit:focus,
 QDialog#safeLauncherPopup QComboBox:focus,
 QDialog#safeLauncherPopup QSpinBox:focus {{
-    background: {POPUP_SURFACE_HOVER};
+    background: {POPUP_BACKGROUND};
+    border: 1px solid {ACCENT_PRIMARY};
+}}
+QDialog#safeLauncherPopup QComboBox::drop-down {{
+    width: 24px;
     border: none;
+    background: transparent;
+}}
+QDialog#safeLauncherPopup QComboBox::down-arrow {{
+    image: none;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {TEXT_SECONDARY};
+}}
+QDialog#safeLauncherPopup QComboBox::down-arrow:hover {{
+    border-top-color: {TEXT_PRIMARY};
 }}
 QDialog#safeLauncherPopup QListWidget,
 QDialog#safeLauncherPopup QTreeWidget,
@@ -265,6 +329,102 @@ class PopupDialog(QDialog):
         self._popup_root.addWidget(self.title_bar)
         self._popup_widgets_normalized = False
         self._popup_width_hint: Optional[int] = None
+        self._property_forms: list[QFormLayout] = []
+        self._property_grids: list[QGridLayout] = []
+
+    @staticmethod
+    def _property_label_width(container_width: int) -> int:
+        """Return a stable responsive label-column width for popup forms."""
+        return max(160, min(210, int(max(640, container_width) * 0.24)))
+
+    def _sync_property_label_widths(self) -> None:
+        width = self._property_label_width(self.width())
+        for form in tuple(self._property_forms):
+            for row in range(form.rowCount()):
+                item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                label = item.widget() if item is not None else None
+                if isinstance(label, QLabel):
+                    label.setMinimumWidth(width)
+                    label.setMaximumWidth(width)
+        for grid in tuple(self._property_grids):
+            grid.setColumnMinimumWidth(0, width)
+
+    def polish_property_form(self, form: QFormLayout) -> None:
+        """Apply the shared property-row rhythm to a form layout."""
+        if form not in self._property_forms:
+            self._property_forms.append(form)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        form.setHorizontalSpacing(18)
+        form.setVerticalSpacing(9)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        for row in range(form.rowCount()):
+            label_item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+            label = label_item.widget() if label_item is not None else None
+            if isinstance(label, QLabel) and label.text().strip():
+                label.setObjectName("propertyLabel")
+                label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                label.setWordWrap(True)
+            field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+            field = field_item.widget() if field_item is not None else None
+            if field is not None and field.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed:
+                field.setSizePolicy(QSizePolicy.Policy.Expanding, field.sizePolicy().verticalPolicy())
+            elif field_item is not None and field_item.layout() is not None:
+                field_layout = field_item.layout()
+                field_layout.setContentsMargins(0, 0, 0, 0)
+                for index in range(field_layout.count()):
+                    child_item = field_layout.itemAt(index)
+                    child = child_item.widget() if child_item is not None else None
+                    if child is not None and child.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed:
+                        child.setSizePolicy(QSizePolicy.Policy.Expanding, child.sizePolicy().verticalPolicy())
+        self._sync_property_label_widths()
+
+    def polish_property_grid(self, grid: QGridLayout) -> None:
+        """Apply shared property styling to a two-column diagnostic grid."""
+        if grid not in self._property_grids:
+            self._property_grids.append(grid)
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(9)
+        grid.setColumnStretch(1, 1)
+        for row in range(grid.rowCount()):
+            label_item = grid.itemAtPosition(row, 0)
+            value_item = grid.itemAtPosition(row, 1)
+            label = label_item.widget() if label_item is not None else None
+            value = value_item.widget() if value_item is not None else None
+            if isinstance(label, QLabel) and label.text().strip():
+                label.setObjectName("propertyLabel")
+                label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                label.setWordWrap(True)
+            if isinstance(value, QLabel) and value.text().strip():
+                value.setObjectName("propertyValue")
+                value.setWordWrap(True)
+        self._sync_property_label_widths()
+
+    @staticmethod
+    def info_hint(text: str, *, tooltip: str = "") -> QWidget:
+        """Create a muted explanatory row with a compact accessible info icon."""
+        row = QWidget()
+        row.setObjectName("propertyHint")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setSpacing(6)
+        icon = QToolButton()
+        icon.setObjectName("propertyInfo")
+        icon.setText("ⓘ")
+        icon.setAccessibleName("Information")
+        icon.setToolTip(tooltip or text)
+        icon.setCursor(Qt.CursorShape.WhatsThisCursor)
+        layout.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
+        label = QLabel(text)
+        label.setObjectName("propertyHintText")
+        label.setWordWrap(True)
+        label.setAccessibleDescription(tooltip or text)
+        layout.addWidget(label, 1)
+        return row
+
+    def resizeEvent(self, event) -> None:
+        self._sync_property_label_widths()
+        super().resizeEvent(event)
 
     def _popup_tasks_running(self) -> bool:
         """Return whether this popup owns a TaskSupervisor worker still running."""

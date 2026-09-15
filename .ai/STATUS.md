@@ -61,6 +61,10 @@ The generated index includes source hashes and generation metadata. Curated page
   full-library cloud menus. Settings forms use a shared aligned label column,
   expanding value column, background-matched editors, and subtle beveled
   surfaces so long names and paths remain readable without layout drift.
+- `PopupDialog` owns the shared property-form/grid alignment helpers and the
+  muted accessible information-hint row. Cloud Center and Settings expose a
+  disabled-until-needed `Review conflicts` entry that delegates to existing
+  Save History workflows; it does not introduce a new destructive operation.
 - Cloud operation records and exit-sync results now normalize legacy backend
   categories into `RemoteErrorCategory` values for consistent diagnostics.
 - `ci/release_readiness.py` is the canonical local release gate. It creates

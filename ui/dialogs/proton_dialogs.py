@@ -25,8 +25,10 @@ class ProtonSetupWizard(PopupDialog):
         title = QLabel("Proton runtime needs setup")
         title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         layout.addWidget(title)
-        message = QLabel("UMU could not find a Proton runtime. Normal launches use --net=none, so UMU cannot download Proton automatically. Select an existing Proton tool folder, or allow a one-time network-enabled retry.")
-        message.setWordWrap(True)
+        message = self.info_hint(
+            "UMU could not find a Proton runtime. Select an existing Proton tool folder, or allow a one-time network-enabled retry.",
+            tooltip="Normal launches use --net=none. The one-time retry is the only path that temporarily permits runtime download access.",
+        )
         layout.addWidget(message)
         form = QFormLayout()
         row = QHBoxLayout()
@@ -37,9 +39,12 @@ class ProtonSetupWizard(PopupDialog):
         browse.clicked.connect(self._browse)
         row.addWidget(browse)
         form.addRow("Proton tool folder:", row)
+        self.polish_property_form(form)
         layout.addLayout(form)
-        tips = QLabel("Tips: Steam compatibility tools are often in ~/.local/share/Steam/compatibilitytools.d/\nUMU tools are often in ~/.local/share/umu/compatibilitytools/")
-        tips.setStyleSheet("color: #a1a1aa; font-size: 11px;")
+        tips = self.info_hint(
+            "Steam compatibility tools are often in ~/.local/share/Steam/compatibilitytools.d/; UMU tools are often in ~/.local/share/umu/compatibilitytools/.",
+            tooltip="Choose the folder containing the Proton executable and its companion runtime files.",
+        )
         layout.addWidget(tips)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         use_path = buttons.addButton("Save Path", QDialogButtonBox.ButtonRole.AcceptRole)

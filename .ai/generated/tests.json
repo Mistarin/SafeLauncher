@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T22:09:00+00:00",
+  "generated_at": "2026-09-14T22:23:52+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -1704,6 +1704,24 @@
       "kind": "test_class",
       "line": 33,
       "name": "SteamClientTests"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 12,
+      "name": "test_property_form_aligns_labels_and_expands_fields"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 27,
+      "name": "test_info_hint_is_muted_and_accessible"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test_class",
+      "line": 6,
+      "name": "PopupPropertyConsistencyTests"
     }
   ]
 }

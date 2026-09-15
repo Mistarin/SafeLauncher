@@ -411,8 +411,10 @@ class SaveManagerDialog(PopupDialog):
         history_footer = QHBoxLayout()
         history_footer.setSpacing(10)
 
-        lbl_hint = QLabel("Select any saved version above to restore it to your local game.")
-        lbl_hint.setStyleSheet("font-size: 11px; color: #6F7682;")
+        lbl_hint = self.info_hint(
+            "Select any saved version above to restore it to your local game.",
+            tooltip="Restoring a version preserves the current local save in a safety backup before replacement.",
+        )
         history_footer.addWidget(lbl_hint)
         history_footer.addStretch()
 

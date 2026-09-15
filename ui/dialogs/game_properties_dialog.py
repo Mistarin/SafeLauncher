@@ -222,6 +222,7 @@ class GamePropertiesDialog(PopupDialog):
         sum_layout.addWidget(lbl_e, 2, 1)
 
         body_layout.addWidget(summary_card)
+        self.polish_property_grid(sum_layout)
 
         # Imported-game build references and the latest public Steam match.
         sec_builds = QLabel("Build Matching")
@@ -251,6 +252,7 @@ class GamePropertiesDialog(PopupDialog):
             builds_layout.addWidget(value_label, row, 1)
         builds_layout.setColumnStretch(1, 1)
         body_layout.addWidget(builds_card)
+        self.polish_property_grid(builds_layout)
 
         # Proton / Wine Runtime
         sec_runtime = QLabel("Proton / Wine Runtime")

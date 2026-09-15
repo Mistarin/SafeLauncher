@@ -25,8 +25,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 5559,
-      "lines": 74,
+      "bytes": 5865,
+      "lines": 78,
       "path": ".ai/STATUS.md",
       "suffix": ".md"
     },
@@ -1867,6 +1867,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 1708,
+      "lines": 45,
+      "path": "tests/test_ui_consistency.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 0,
       "lines": 0,
       "path": "ui/__init__.py",
@@ -1933,8 +1939,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 20743,
-      "lines": 585,
+      "bytes": 27570,
+      "lines": 745,
       "path": "ui/components/popup_shell.py",
       "suffix": ".py"
     },
@@ -1999,8 +2005,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 19314,
-      "lines": 441,
+      "bytes": 20565,
+      "lines": 463,
       "path": "ui/dialogs/cloud_center_dialog.py",
       "suffix": ".py"
     },
@@ -2023,14 +2029,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 106498,
-      "lines": 2493,
+      "bytes": 106054,
+      "lines": 2485,
       "path": "ui/dialogs/game_dialogs.py",
       "suffix": ".py"
     },
     {
-      "bytes": 58807,
-      "lines": 1280,
+      "bytes": 58902,
+      "lines": 1282,
       "path": "ui/dialogs/game_properties_dialog.py",
       "suffix": ".py"
     },
@@ -2041,8 +2047,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 26099,
-      "lines": 568,
+      "bytes": 26270,
+      "lines": 573,
       "path": "ui/dialogs/proton_dialogs.py",
       "suffix": ".py"
     },
@@ -2053,14 +2059,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 56344,
-      "lines": 1349,
+      "bytes": 56423,
+      "lines": 1351,
       "path": "ui/dialogs/save_manager_dialog.py",
       "suffix": ".py"
     },
     {
-      "bytes": 136192,
-      "lines": 2964,
+      "bytes": 135467,
+      "lines": 2961,
       "path": "ui/dialogs/settings_dialog.py",
       "suffix": ".py"
     },
@@ -2083,8 +2089,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 378767,
-      "lines": 7991,
+      "bytes": 378929,
+      "lines": 7993,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2119,5 +2125,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-14T22:09:00+00:00"
+  "generated_at": "2026-09-14T22:23:52+00:00"
 }

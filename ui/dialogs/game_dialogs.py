@@ -246,15 +246,7 @@ class AddGameDialog(PopupDialog):
         self.patch_notes_input.setMinimumHeight(36)
         form_layout.addRow("Patch Notes URL:", self.patch_notes_input)
 
-        # Keep field labels visually subordinate to their controls and align
-        # every row to the same baseline.
-        for row in range(form_layout.rowCount()):
-            label_item = form_layout.itemAt(row, QFormLayout.ItemRole.LabelRole)
-            if label_item and label_item.widget():
-                label_item.widget().setStyleSheet(
-                    "color: #A1A1AA; font-size: 11px; font-weight: 600; "
-                    "background: transparent;"
-                )
+        self.polish_property_form(form_layout)
 
         left_box.addLayout(form_layout)
 

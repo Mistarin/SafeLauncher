@@ -52,6 +52,7 @@ class CloudCenterDialog(PopupDialog):
     setup_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     history_requested = pyqtSignal()
+    conflicts_requested = pyqtSignal()
     sync_finished = pyqtSignal(object)
     overview_changed = pyqtSignal(object)
 
@@ -76,10 +77,10 @@ class CloudCenterDialog(PopupDialog):
         self.resize(760, 650)
         layout = self.popup_layout(margins=(22, 18, 22, 18), spacing=12)
 
-        intro = QLabel(
-            "Private cloud saves, devices, and synchronization in one place."
+        intro = self.info_hint(
+            "Private cloud saves, devices, and synchronization in one place.",
+            tooltip="This private-cloud center manages synchronization and save history. Public profile data remains separate.",
         )
-        intro.setObjectName("popupSubtitle")
         layout.addWidget(intro)
 
         status_card = QFrame()
@@ -153,6 +154,12 @@ class CloudCenterDialog(PopupDialog):
         self.btn_history.setIcon(get_icon("ph.clock-counter-clockwise-bold", "#A1A1AA"))
         self.btn_history.clicked.connect(self._open_history)
         devices_header.addWidget(self.btn_history)
+        self.btn_review_conflicts = QPushButton("Review conflicts")
+        self.btn_review_conflicts.setIcon(get_icon("ph.warning-bold", "#A1A1AA"))
+        self.btn_review_conflicts.setEnabled(False)
+        self.btn_review_conflicts.setToolTip("Available when this account has cloud-save conflicts")
+        self.btn_review_conflicts.clicked.connect(self._open_conflicts)
+        devices_header.addWidget(self.btn_review_conflicts)
         layout.addLayout(devices_header)
 
         self.device_list = QListWidget()
@@ -238,6 +245,12 @@ class CloudCenterDialog(PopupDialog):
         self.history_requested.emit()
         QTimer.singleShot(0, lambda: self._request_overview(force=True))
 
+    def _open_conflicts(self) -> None:
+        if not self.btn_review_conflicts.isEnabled():
+            return
+        self.conflicts_requested.emit()
+        QTimer.singleShot(0, lambda: self._request_overview(force=True))
+
     def _probe_connection(self) -> None:
         self._close_binding(self._probe_binding)
         self.btn_probe.setEnabled(False)
@@ -288,6 +301,7 @@ class CloudCenterDialog(PopupDialog):
     def _apply_overview_result(self, result) -> None:
         if result.status in (ResourceStatus.IDLE, ResourceStatus.LOADING):
             self.lbl_status.setText("Checking cloud connection…")
+            self.btn_review_conflicts.setEnabled(False)
             return
         if result.status == ResourceStatus.CANCELLED:
             return
@@ -298,6 +312,7 @@ class CloudCenterDialog(PopupDialog):
         self._render_overview(overview, stale=result.status == ResourceStatus.STALE)
 
     def _show_resource_error(self, result) -> None:
+        self.btn_review_conflicts.setEnabled(False)
         status = result.status
         if status == ResourceStatus.AUTHENTICATION_REQUIRED:
             title = "Cloud setup required"
@@ -352,6 +367,13 @@ class CloudCenterDialog(PopupDialog):
 
         self.summary_values["pending"].setText(str(overview.pending_changes))
         self.summary_values["conflicts"].setText(str(overview.conflict_count))
+        has_conflicts = int(overview.conflict_count or 0) > 0
+        self.btn_review_conflicts.setEnabled(has_conflicts)
+        self.btn_review_conflicts.setToolTip(
+            "Open Save History to review current cloud-save conflicts"
+            if has_conflicts else
+            "Available when this account has cloud-save conflicts"
+        )
         self.summary_values["devices"].setText(
             f"{overview.online_device_count}/{overview.device_count} online"
             if overview.device_count else "None"

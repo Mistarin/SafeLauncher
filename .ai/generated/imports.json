@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T22:09:00+00:00",
+  "generated_at": "2026-09-14T22:23:52+00:00",
   "imports": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -6532,6 +6532,21 @@
       "line": 8
     },
     {
+      "file": "tests/test_ui_consistency.py",
+      "import": "unittest",
+      "line": 1
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "import": "PyQt6.QtWidgets",
+      "line": 3
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "import": "ui.components.popup_shell",
+      "line": 5
+    },
+    {
       "file": "ui/components/achievement_toast.py",
       "import": "__future__",
       "line": 7
@@ -6939,12 +6954,12 @@
     {
       "file": "ui/components/popup_shell.py",
       "import": "ui.components.sidebar",
-      "line": 39
+      "line": 42
     },
     {
       "file": "ui/components/popup_shell.py",
       "import": "ui.theme",
-      "line": 40
+      "line": 43
     },
     {
       "file": "ui/components/profile_page.py",
@@ -7879,52 +7894,52 @@
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "core.archive_installer",
-      "line": 477
+      "line": 469
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "core.disk_utils",
-      "line": 481
+      "line": 473
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "time",
-      "line": 1106
+      "line": 1098
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "shutil",
-      "line": 1359
+      "line": 1351
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "time",
-      "line": 1359
+      "line": 1351
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "html",
-      "line": 1417
+      "line": 1409
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "time",
-      "line": 1580
+      "line": 1572
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "core.plugins.gpu_screen_recorder",
-      "line": 1587
+      "line": 1579
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "core.plugins.gpu_screen_recorder",
-      "line": 1617
+      "line": 1609
     },
     {
       "file": "ui/dialogs/game_dialogs.py",
       "import": "time",
-      "line": 1635
+      "line": 1627
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
@@ -8044,67 +8059,67 @@
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 585
+      "line": 587
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 756
+      "line": 758
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 757
+      "line": 759
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "ui.dialogs.save_conflict_dialog",
-      "line": 800
+      "line": 802
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.game_status",
-      "line": 801
+      "line": 803
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "ui.dialogs.save_conflict_dialog",
-      "line": 840
-    },
-    {
-      "file": "ui/dialogs/game_properties_dialog.py",
-      "import": "core.cloud_save_sync",
-      "line": 841
-    },
-    {
-      "file": "ui/dialogs/game_properties_dialog.py",
-      "import": "core.save_history",
       "line": 842
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
+      "import": "core.cloud_save_sync",
+      "line": 843
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
+      "import": "core.save_history",
+      "line": 844
+    },
+    {
+      "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.save_models",
-      "line": 923
+      "line": 925
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 938
+      "line": 940
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.save_models",
-      "line": 986
+      "line": 988
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 1051
+      "line": 1053
     },
     {
       "file": "ui/dialogs/game_properties_dialog.py",
       "import": "core.cloud_operations",
-      "line": 1140
+      "line": 1142
     },
     {
       "file": "ui/dialogs/profile_avatar_dialog.py",
@@ -8349,7 +8364,7 @@
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1088
+      "line": 1090
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
@@ -8523,178 +8538,183 @@
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.cloud_backend",
+      "import": "core.cloud_center_service",
       "line": 46
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.cloud_detector",
+      "import": "core.cloud_backend",
       "line": 47
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.safe_thread",
+      "import": "core.cloud_detector",
       "line": 48
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.request_contracts",
+      "import": "core.safe_thread",
       "line": 49
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.secret_store",
+      "import": "core.request_contracts",
       "line": 50
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.network_policy",
+      "import": "core.secret_store",
       "line": 51
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "ui.resource_binding",
-      "line": 57
+      "import": "core.network_policy",
+      "line": 52
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.logger",
+      "import": "ui.resource_binding",
       "line": 58
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "PyQt6.QtGui",
+      "import": "core.logger",
       "line": 59
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "PyQt6.QtCore",
+      "import": "PyQt6.QtGui",
       "line": 60
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
-      "import": "core.cloud_save_sync",
-      "line": 90
+      "import": "PyQt6.QtCore",
+      "line": 61
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 939
+      "line": 92
+    },
+    {
+      "file": "ui/dialogs/settings_dialog.py",
+      "import": "core.cloud_save_sync",
+      "line": 877
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 940
+      "line": 878
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1049
+      "line": 988
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "re",
-      "line": 1214
+      "line": 1207
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1226
+      "line": 1219
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "re",
-      "line": 1242
+      "line": 1235
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "PyQt6.QtWidgets",
-      "line": 1471
+      "line": 1463
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1564
+      "line": 1556
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.profile_models",
-      "line": 1587
+      "line": 1579
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1622
+      "line": 1614
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "ui.dialogs.cloud_wizard_dialog",
-      "line": 1628
+      "line": 1620
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1631
+      "line": 1623
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "ui.dialogs.deploy_key_wizard_dialog",
-      "line": 1645
+      "line": 1637
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "ui.dialogs.account_dialog",
-      "line": 1671
+      "line": 1663
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1704
+      "line": 1696
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_save_sync",
-      "line": 1714
+      "line": 1707
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1812
+      "line": 1809
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1825
+      "line": 1822
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_backend",
-      "line": 1849
+      "line": 1846
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_cli_wizard",
-      "line": 1968
+      "line": 1965
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "pathlib",
-      "line": 1969
+      "line": 1966
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.cloud_cli_wizard",
-      "line": 1995
+      "line": 1992
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "PyQt6.QtWidgets",
-      "line": 2293
+      "line": 2290
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "import": "core.logger",
-      "line": 2450
+      "line": 2447
     },
     {
       "file": "ui/dialogs/welcome_wizard.py",
@@ -9374,122 +9394,122 @@
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.cloud_wizard_dialog",
-      "line": 1906
+      "line": 1907
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.account_dialog",
-      "line": 1920
+      "line": 1921
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 2066
+      "line": 2068
     },
     {
       "file": "ui/main_window.py",
       "import": "subprocess",
-      "line": 2225
+      "line": 2227
     },
     {
       "file": "ui/main_window.py",
       "import": "core.screenshot_capture",
-      "line": 3889
+      "line": 3891
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 4042
+      "line": 4044
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 4519
+      "line": 4521
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_operations",
-      "line": 4895
+      "line": 4897
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 4957
+      "line": 4959
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 5057
+      "line": 5059
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_watcher",
-      "line": 5710
+      "line": 5712
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_schema",
-      "line": 5727
+      "line": 5729
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.achievements_dialog",
-      "line": 5897
+      "line": 5899
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.friends_dialog",
-      "line": 5960
+      "line": 5962
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.components.achievement_toast",
-      "line": 6201
+      "line": 6203
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.components.achievement_toast",
-      "line": 6209
+      "line": 6211
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 6761
+      "line": 6763
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 6795
+      "line": 6797
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 7041
+      "line": 7043
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_coordinator",
-      "line": 7236
+      "line": 7238
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 7355
+      "line": 7357
     },
     {
       "file": "ui/main_window.py",
       "import": "core.plugins.gpu_screen_recorder",
-      "line": 7477
+      "line": 7479
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_save_sync",
-      "line": 7540
+      "line": 7542
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_schema",
-      "line": 7552
+      "line": 7554
     },
     {
       "file": "ui/maintenance_dialogs.py",

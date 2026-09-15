@@ -1884,6 +1884,7 @@ class MainWindow(QMainWindow):
         dialog.setup_requested.connect(self._open_cloud_setup_from_center)
         dialog.settings_requested.connect(self._open_cloud_settings_from_center)
         dialog.history_requested.connect(self._open_cloud_history_from_center)
+        dialog.conflicts_requested.connect(self._open_cloud_history_from_center)
         dialog.exec()
 
     def _on_cloud_center_overview_changed(self, overview) -> None:
@@ -1971,6 +1972,7 @@ class MainWindow(QMainWindow):
         dialog.profile_auth_requested.connect(self.profile_page.toggle_profile_auth)
         dialog.profile_publish_requested.connect(self.profile_page.publish_profile)
         dialog.profile_resync_requested.connect(self.profile_page.resync_profile)
+        dialog.conflicts_requested.connect(self._open_cloud_history_from_center)
         self.profile_page.profile_action_state_changed.connect(dialog.set_profile_action_state)
         self.profile_page.profile_action_status_changed.connect(dialog.set_profile_action_status)
         dialog.set_profile_action_state(*self.profile_page.profile_action_state())
