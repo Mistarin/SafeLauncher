@@ -8,7 +8,7 @@ from io import StringIO
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QProgressBar, QSizeGrip, QCheckBox, QComboBox, QMessageBox, QSpinBox
+    QProgressBar, QSizeGrip, QSizePolicy, QCheckBox, QComboBox, QMessageBox, QSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QSize, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
@@ -2624,6 +2624,7 @@ class ScreenshotGalleryDialog(PopupDialog):
         scroll_area.setStyleSheet("QScrollArea { background: #0D0F14; border: none; }")
 
         self.grid_widget = QWidget()
+        self.grid_widget.setObjectName("screenshotGrid")
         self.grid_layout = QGridLayout(self.grid_widget)
         self.grid_layout.setContentsMargins(14, 14, 14, 14)
         self.grid_layout.setSpacing(14)
@@ -2683,9 +2684,14 @@ class ScreenshotGalleryDialog(PopupDialog):
 
         cols = 3
         card_w, card_h = 224, 126  # Exact 16:9 aspect ratio
+        for column in range(cols):
+            self.grid_layout.setColumnStretch(column, 1)
 
         for idx, filepath in enumerate(self.files):
             card = QFrame()
+            card.setObjectName("screenshotCard")
+            card.setMinimumWidth(card_w + 12)
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             card.setStyleSheet("""
                 QFrame {
                     background: #18181b;
@@ -2701,6 +2707,7 @@ class ScreenshotGalleryDialog(PopupDialog):
             c_layout.setSpacing(6)
 
             thumb_label = QLabel()
+            thumb_label.setObjectName("screenshotThumbnail")
             thumb_label.setFixedSize(card_w, card_h)
             thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             thumb_label.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2708,7 +2715,7 @@ class ScreenshotGalleryDialog(PopupDialog):
 
             pixmap = QPixmap(filepath)
             if not pixmap.isNull():
-                thumb_label.setPixmap(pixmap.scaled(card_w, card_h, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
+                thumb_label.setPixmap(pixmap.scaled(card_w, card_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
             # Make thumbnail clickable to open Lightbox
             thumb_label.mousePressEvent = lambda event, i=idx: self._open_lightbox(i)
@@ -2716,11 +2723,15 @@ class ScreenshotGalleryDialog(PopupDialog):
 
             # Card info row
             fn_label = QLabel(os.path.basename(filepath))
+            fn_label.setObjectName("screenshotFilename")
             fn_label.setStyleSheet("color: #a1a1aa; font-size: 10px; background: transparent;")
+            fn_label.setWordWrap(True)
             fn_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             c_layout.addWidget(fn_label)
 
             btn_del = QPushButton("Delete")
+            btn_del.setObjectName("screenshotDelete")
+            btn_del.setFixedHeight(28)
             btn_del.setStyleSheet("QPushButton { background: #2A1212; color: #EF4444; border: none; border-radius: 6px; font-size: 11px; padding: 4px; } QPushButton:hover { background: #7F1D1D; color: white; }")
             btn_del.clicked.connect(lambda _, p=filepath: self._delete_screenshot(p))
             c_layout.addWidget(btn_del)
@@ -2733,6 +2744,15 @@ class ScreenshotGalleryDialog(PopupDialog):
         dlg.exec()
 
     def _delete_screenshot(self, filepath: str):
+        answer = QMessageBox.question(
+            self,
+            "Delete screenshot",
+            f"Delete {os.path.basename(filepath)}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
         try:
             if os.path.exists(filepath):
                 os.remove(filepath)
@@ -2778,26 +2798,31 @@ class VideoGalleryDialog(PopupDialog):
         body_layout.setSpacing(12)
 
         self.list_widget = QWidget()
+        self.list_widget.setObjectName("videoList")
         self.list_layout = QVBoxLayout(self.list_widget)
         self.list_layout.setContentsMargins(10, 10, 10, 10)
         self.list_layout.setSpacing(8)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background: #121214; border: 1px solid #27272a; }")
+        scroll.setObjectName("videoScroll")
+        scroll.setStyleSheet("QScrollArea { background: #121214; border: none; }")
         scroll.setWidget(self.list_widget)
         body_layout.addWidget(scroll)
 
         actions = QHBoxLayout()
         open_folder = QPushButton("Open Directory")
+        open_folder.setObjectName("videoOpenFolder")
         open_folder.setIcon(get_icon("ph.folder-open-bold"))
+        open_folder.setMinimumHeight(32)
         open_folder.clicked.connect(self._open_folder)
         actions.addWidget(open_folder)
         actions.addStretch()
         close = QPushButton("Close")
+        close.setObjectName("videoClose")
         close.setMinimumWidth(80)
+        close.setMinimumHeight(32)
         close.clicked.connect(self.accept)
         actions.addWidget(close)
-        actions.addWidget(QSizeGrip(self), 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
         body_layout.addLayout(actions)
         self.setStyleSheet("QDialog { background-color: #121214; color: #ffffff; }")
         self.load_videos()
@@ -2830,29 +2855,41 @@ class VideoGalleryDialog(PopupDialog):
 
         for filepath in files:
             row = QFrame()
-            row.setStyleSheet("QFrame { background: #18181b; border: 1px solid #27272a; border-radius: 6px; }")
+            row.setObjectName("videoRow")
+            row.setMinimumHeight(64)
             layout = QHBoxLayout(row)
             layout.setContentsMargins(12, 10, 12, 10)
             icon = QLabel()
+            icon.setObjectName("videoIcon")
             icon.setPixmap(get_icon("ph.video-camera-bold").pixmap(28, 28))
             layout.addWidget(icon)
             info = QVBoxLayout()
+            info.setSpacing(3)
             name = QLabel(os.path.basename(filepath))
+            name.setObjectName("videoFilename")
             name.setStyleSheet("color: #f4f4f5; font-weight: 600; background: transparent;")
+            name.setTextFormat(Qt.TextFormat.PlainText)
             info.addWidget(name)
             size_mb = os.path.getsize(filepath) / (1024 * 1024)
             modified = os.path.getmtime(filepath)
             detail = QLabel(f"{size_mb:.1f} MB  •  {format_datetime_timestamp(modified, '%H:%M')}")
+            detail.setObjectName("videoDetails")
             detail.setStyleSheet("color: #a1a1aa; font-size: 11px; background: transparent;")
             info.addWidget(detail)
             layout.addLayout(info, 1)
             play = QPushButton("Play")
+            play.setObjectName("videoPlay")
+            play.setFixedWidth(72)
             play.clicked.connect(lambda _, p=filepath: self._play(p))
             layout.addWidget(play)
             reveal = QPushButton("Show")
+            reveal.setObjectName("videoShow")
+            reveal.setFixedWidth(72)
             reveal.clicked.connect(lambda _, p=filepath: self._show_file(p))
             layout.addWidget(reveal)
             delete = QPushButton("Delete")
+            delete.setObjectName("videoDelete")
+            delete.setFixedWidth(72)
             delete.clicked.connect(lambda _, p=filepath: self._delete(p))
             layout.addWidget(delete)
             self.list_layout.addWidget(row)

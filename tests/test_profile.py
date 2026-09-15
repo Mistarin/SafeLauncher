@@ -1120,6 +1120,32 @@ class ProfilePageTests(unittest.TestCase):
                 db.close()
                 self.app.processEvents()
 
+    def test_publish_handle_conflict_is_actionable_and_marks_handle_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            save_profile_settings(settings, {
+                "display_name": "Player",
+                "public_handle": "taken-name",
+                "published": False,
+            })
+            db = GameDatabase(":memory:")
+            page = ProfilePageWidget(db, settings)
+            try:
+                page._publish_done(ProfileServiceError(
+                    "That profile handle is already in use.",
+                    "handle_taken",
+                    409,
+                ))
+                self.assertFalse(page._publishing)
+                self.assertFalse(page._handle_availability)
+                self.assertIn("Open Edit profile", page.footer_status.text())
+                self.assertTrue(page.footer_status.text().endswith("publish again."))
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
     def test_profile_editor_saves_steam_hero_background_from_appid(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)

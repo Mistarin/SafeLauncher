@@ -792,13 +792,19 @@ class GamePropertiesDialog(PopupDialog):
                     return
                 if not state["status_done"] or not state["history_done"]:
                     return
-                self._save_stats_ready.emit(
+                # The signal intentionally carries one tuple so the
+                # compatibility payload shape is identical for managed and
+                # standalone dialogs.  Emitting the five tuple members as
+                # separate Qt arguments violates the one-object signal
+                # contract and crashes the GUI when the managed resources
+                # finish.
+                self._save_stats_ready.emit((
                     state["status"],
                     state["local"],
                     state["cloud"],
                     state["versions"],
                     state["operation_result"],
-                )
+                ))
 
             def bind_read(handle, callback) -> None:
                 request_id = handle.request_id

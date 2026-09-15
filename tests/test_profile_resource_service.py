@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from core.profile_resource_service import ProfileResourceService
+from core.profile_service import ProfileServiceError
 from core.request_contracts import RequestPriority, ResourceStatus
 from core.request_manager import RequestManager
 from core.resource_cache import ResourceCache
@@ -58,6 +59,12 @@ class _FakeClient:
     def unblock_user(self, owner, target):
         self.calls.append(("unblock", owner, target))
         return {"ok": True}
+
+
+class _HandleConflictClient(_FakeClient):
+    def create_profile(self, _document):
+        self.calls.append(("create_profile",))
+        raise ProfileServiceError("Profile handle is already in use.", "exists", 409)
 
 
 class ProfileResourceServiceTests(unittest.TestCase):
@@ -167,6 +174,19 @@ class ProfileResourceServiceTests(unittest.TestCase):
         for operation, kwargs in operations:
             result = service.social_operation(operation, "owner", **kwargs)
             self.assertEqual(result, {"ok": True})
+
+    def test_publish_normalizes_handle_conflict_when_identity_has_no_profile(self):
+        service = ProfileResourceService(client_factory=_HandleConflictClient)
+        with self.assertRaises(ProfileServiceError) as raised:
+            service.publish(
+                {"handle": "taken-name", "display_name": "Player"},
+                "taken-name",
+                service_url="https://profile.example",
+            )
+        self.assertEqual(raised.exception.code, "handle_taken")
+        self.assertEqual(raised.exception.status, 409)
+        self.assertEqual(raised.exception.extra["original_code"], "exists")
+        self.assertIn("choose a different handle", str(raised.exception).lower())
 
 
 if __name__ == "__main__":

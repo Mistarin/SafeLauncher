@@ -265,10 +265,24 @@ class ProfileResourceService:
                 try:
                     response = client.create_profile(document)
                 except ProfileServiceError as exc:
-                    if exc.code not in {"exists", "profile_exists_for_identity"}:
+                    if exc.code not in {"exists", "profile_exists", "profile_exists_for_identity"}:
                         raise
                     remote = client.current_profile()
                     if remote is None:
+                        # The identity lookup above is authoritative for an
+                        # owner profile. If it is still empty after a create
+                        # conflict, the requested handle belongs to another
+                        # public profile (or the deployment has a stale
+                        # owner index). Do not expose an ambiguous raw 409 to
+                        # the UI: retain the original code in ``extra`` while
+                        # giving callers a stable, recoverable category.
+                        if exc.code in {"exists", "profile_exists"}:
+                            raise ProfileServiceError(
+                                "That profile handle is already in use. Choose a different handle and try again.",
+                                "handle_taken",
+                                exc.status or 409,
+                                {"original_code": exc.code},
+                            ) from exc
                         raise
                     document["handle"] = remote["handle"]
                     response = client.update_profile(document, int(remote.get("revision", 0) or 0))

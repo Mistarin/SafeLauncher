@@ -3025,7 +3025,7 @@ class ProfilePageWidget(QWidget):
             self._profile_resource_key("profile-publish", handle),
             work,
             self._publish_done,
-            lambda error: self._publish_error(str(error)),
+            self._publish_error,
             priority=RequestPriority.CRITICAL,
             timeout_seconds=45,
         ) is not None:
@@ -3033,14 +3033,41 @@ class ProfilePageWidget(QWidget):
         worker = self._tasks.start("SafeLauncher-PublishProfile", work, self._publish_done)
         worker.error_occurred.connect(self._publish_error)
 
-    def _publish_error(self, error: str) -> None:
-        self._publish_done(ProfileServiceError(str(error), "publish_failed"))
+    def _publish_error(self, error: Any) -> None:
+        # Managed requests may deliver the original exception while older
+        # compatibility workers deliver only text. Preserve typed profile
+        # errors whenever possible so handle conflicts remain actionable.
+        if isinstance(error, Exception):
+            self._publish_done(error)
+        else:
+            self._publish_done(ProfileServiceError(str(error), "publish_failed"))
 
     def _publish_done(self, result: Any) -> None:
         self._publishing = False
         self._emit_profile_action_state()
         if isinstance(result, Exception):
-            self._set_profile_action_status(str(result), True)
+            if isinstance(result, ProfileServiceError) and result.code in {
+                "handle_taken",
+                "exists",
+                "profile_exists",
+            }:
+                self._handle_availability = False
+                self._set_profile_action_status(
+                    "That profile handle is already in use. Open Edit profile, choose another handle, and publish again.",
+                    True,
+                )
+            elif isinstance(result, ProfileServiceError) and result.code == "profile_exists_for_identity":
+                self._set_profile_action_status(
+                    "This central account already owns a profile. Refresh your profile connection before publishing again.",
+                    True,
+                )
+            elif isinstance(result, ProfileServiceError) and result.code == "conflict":
+                self._set_profile_action_status(
+                    "Your profile changed elsewhere. Refresh it, review your edits, and publish again.",
+                    True,
+                )
+            else:
+                self._set_profile_action_status(str(result), True)
             return
         result = result if isinstance(result, dict) else {}
         response = result.get("response") if isinstance(result.get("response"), dict) else result
