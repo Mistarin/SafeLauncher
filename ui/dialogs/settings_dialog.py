@@ -37,7 +37,6 @@ from ui.components.check_field import CheckField as QCheckBox
 from ui.maintenance_dialogs import RuntimeInventoryDialog
 from ui.dialogs.game_dialogs import ensure_sandbox_dir
 from ui.dialogs.save_conflict_dialog import format_bytes
-from ui.profile_theme import normalize_profile_theme, profile_theme_choices, profile_theme_preview_style
 
 
 from core.version import APP_VERSION, MIN_CONVEX_BACKEND_VERSION
@@ -75,13 +74,12 @@ class UserSettingsDialog(PopupDialog):
     appDownloadProgress = pyqtSignal(int, int) # (downloaded, total)
     appDownloadFinished = pyqtSignal(str)      # target path
     appDownloadFailed = pyqtSignal(str)        # error message
-    profile_theme_preview_changed = pyqtSignal(str)
     profile_auth_requested = pyqtSignal()
     profile_publish_requested = pyqtSignal()
     profile_resync_requested = pyqtSignal()
     conflicts_requested = pyqtSignal()
 
-    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", profile_theme: str = "grey", request_manager=None, initial_tab: int | None = None):
+    def __init__(self, user_name: str, proton_path: str = "", show_welcome_wizard: bool = False, gpu_config: Optional[GpuRecorderConfig] = None, screenshot_screen: str = "current", screenshot_hotkey: str = "F12", cloud_saves_dir: str = "", parent=None, date_format: str = "", request_manager=None, initial_tab: int | None = None):
         super().__init__("Settings", parent)
         self.user_name = user_name
         self.proton_path = proton_path
@@ -92,8 +90,6 @@ class UserSettingsDialog(PopupDialog):
         from core.cloud_storage import get_cloud_root
         self.cloud_saves_dir = cloud_saves_dir or get_cloud_root()
         self.date_format = date_format or get_date_format_key()
-        self.profile_theme = normalize_profile_theme(profile_theme)
-        self._profile_theme_original = self.profile_theme
         self._task_supervisor = TaskSupervisor(self, logger)
         self.request_manager = request_manager
         self.cloud_account_service = getattr(parent, "cloud_account_service", None) or CloudAccountService(
@@ -124,28 +120,40 @@ class UserSettingsDialog(PopupDialog):
             QLabel {
                 color: #E4E4E7;
             }
-            QLineEdit, QComboBox, QSpinBox {
-                background: #111113;
+            QLabel#propertyLabel, QLabel#propertyValue {
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
+                    stop: 0 #1C1F25, stop: 0.90 #191C21, stop: 1 rgba(25, 28, 33, 0));
+                color: #D4D4D8;
+                border: 1px solid #2A2E36;
+                border-top-color: #3A3F49;
+                border-bottom-color: #242830;
+                border-radius: 7px;
+                padding: 7px 10px;
+                min-height: 18px;
+            }
+            QLabel#propertyValue {
+                background: #181B20;
+            }
+            QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QKeySequenceEdit {
+                background: #1A1D23;
                 color: #FFFFFF;
-                border: 1px solid #2D2D34;
-                border-top-color: #373740;
-                border-bottom-color: #24242A;
-                border-radius: 6px;
+                border: 1px solid #30353F;
+                border-top-color: #414752;
+                border-bottom-color: #252A32;
+                border-radius: 7px;
                 padding: 8px 10px;
                 font-size: 12px;
             }
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+            QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
+            QComboBox:focus, QSpinBox:focus, QKeySequenceEdit:focus {
                 border-color: #4B9FFF;
-                background: #111113;
+                background: #20242C;
             }
-            QKeySequenceEdit {
-                background: #111113;
-                color: #FFFFFF;
-                border: 1px solid #2D2D34;
-                border-top-color: #373740;
-                border-bottom-color: #24242A;
-                border-radius: 6px;
-                padding: 8px 10px;
+            QLineEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled,
+            QComboBox:disabled, QSpinBox:disabled, QKeySequenceEdit:disabled {
+                background: #15171B;
+                color: #777C86;
+                border-color: #252830;
             }
             QComboBox QAbstractItemView {
                 background: #1B1B1F;
@@ -153,6 +161,22 @@ class UserSettingsDialog(PopupDialog):
                 border: 1px solid #303037;
                 border-radius: 6px;
                 padding: 4px;
+            }
+            QComboBox::drop-down {
+                width: 26px;
+                border: none;
+                background: transparent;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                width: 0;
+                height: 0;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #A1A1AA;
+            }
+            QComboBox::down-arrow:hover {
+                border-top-color: #FFFFFF;
             }
             QPushButton {
                 background: #222228;
@@ -184,6 +208,34 @@ class UserSettingsDialog(PopupDialog):
             QCheckBox::indicator:checked {
                 background: #3B9FE8;
                 border-color: #3B9FE8;
+            }
+            QFrame#settingsDivider {
+                background: #2B2F38;
+                border: none;
+                min-height: 1px;
+                max-height: 1px;
+            }
+            QWidget#propertyHint {
+                background: transparent;
+            }
+            QLabel#propertyHintText {
+                color: #858A95;
+                background: transparent;
+                font-size: 11px;
+            }
+            QToolButton#propertyInfo {
+                background: transparent;
+                color: #777C86;
+                border: none;
+                padding: 0;
+                margin: 0;
+                min-width: 18px;
+                min-height: 18px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QToolButton#propertyInfo:hover, QToolButton#propertyInfo:focus {
+                color: #A1A1AA;
             }
             QScrollArea { background: transparent; border: none; }
             QScrollBar:vertical { width: 7px; background: transparent; margin: 2px 0; }
@@ -305,14 +357,18 @@ class UserSettingsDialog(PopupDialog):
         """Align a Settings diagnostic grid with the shared property system."""
         self.polish_property_grid(grid)
 
-    def _on_profile_theme_changed(self, _index: int) -> None:
-        self.profile_theme = normalize_profile_theme(self.combo_profile_theme.currentData())
-        self._update_profile_theme_preview()
-        self.profile_theme_preview_changed.emit(self.profile_theme)
+    @staticmethod
+    def _settings_divider() -> QFrame:
+        """Return the explicit divider used between Settings sections."""
+        divider = QFrame()
+        divider.setObjectName("settingsDivider")
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setFrameShadow(QFrame.Shadow.Plain)
+        divider.setFixedHeight(1)
+        return divider
 
-    def _update_profile_theme_preview(self) -> None:
-        if hasattr(self, "profile_theme_preview"):
-            self.profile_theme_preview.setStyleSheet(profile_theme_preview_style(self.profile_theme))
+    def _add_section_divider(self, layout: QVBoxLayout) -> None:
+        layout.addWidget(self._settings_divider())
 
     def set_profile_action_state(
         self,
@@ -389,91 +445,11 @@ class UserSettingsDialog(PopupDialog):
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
 
-        sec_appearance = QLabel("Appearance & Card Size")
-        sec_appearance.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_appearance.setStyleSheet("color: #FFFFFF; padding-bottom: 2px;")
-        layout.addWidget(sec_appearance)
-
-        settings = QSettings("SafeLauncher", "SafeLauncher")
-        saved_card_size = settings.value("card_size", 200, type=int)
-        if not (140 <= saved_card_size <= 320):
-            saved_card_size = 200
-
-        card_form = QFormLayout()
-        card_form.setSpacing(10)
-        card_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        card_row = QHBoxLayout()
-        card_row.setSpacing(8)
-
-        self.combo_card_size = QComboBox()
-        self.combo_card_size.addItem("Small (160 px)", 160)
-        self.combo_card_size.addItem("Medium (200 px)", 200)
-        self.combo_card_size.addItem("Large (240 px)", 240)
-        self.combo_card_size.addItem("Extra Large (280 px)", 280)
-
-        matched_idx = 1
-        for idx, val in enumerate([160, 200, 240, 280]):
-            if abs(saved_card_size - val) < 20:
-                matched_idx = idx
-                break
-        self.combo_card_size.setCurrentIndex(matched_idx)
-
-        self.spin_card_size = QSpinBox()
-        self.spin_card_size.setRange(140, 320)
-        self.spin_card_size.setValue(saved_card_size)
-        self.spin_card_size.setSuffix(" px")
-        self.spin_card_size.setFixedWidth(90)
-
-        self.combo_card_size.currentIndexChanged.connect(
-            lambda idx: self.spin_card_size.setValue(self.combo_card_size.currentData())
-        )
-        self.spin_card_size.valueChanged.connect(self._on_spin_card_size_changed)
-
-        card_row.addWidget(self.combo_card_size)
-        card_row.addWidget(self.spin_card_size)
-        card_row.addStretch()
-
-        card_form.addRow("Card Size:", card_row)
-        self._polish_settings_form(card_form)
-        layout.addLayout(card_form)
-
-        theme_form = QFormLayout()
-        theme_form.setSpacing(10)
-        theme_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.combo_profile_theme = QComboBox()
-        for label, key in profile_theme_choices():
-            self.combo_profile_theme.addItem(label, key)
-        theme_index = self.combo_profile_theme.findData(self.profile_theme)
-        self.combo_profile_theme.setCurrentIndex(max(0, theme_index))
-        self.combo_profile_theme.currentIndexChanged.connect(self._on_profile_theme_changed)
-        theme_form.addRow("Profile panels:", self.combo_profile_theme)
-        self._polish_settings_form(theme_form)
-        layout.addLayout(theme_form)
-
-        self.profile_theme_preview = QFrame()
-        self.profile_theme_preview.setObjectName("profileThemePreview")
-        self.profile_theme_preview.setMinimumHeight(64)
-        self.profile_theme_preview.setMaximumHeight(78)
-        preview_layout = QHBoxLayout(self.profile_theme_preview)
-        preview_layout.setContentsMargins(10, 10, 10, 10)
-        preview_layout.setSpacing(8)
-        for title in ("Stats", "Games library", "Social"):
-            panel = QFrame()
-            panel.setObjectName("themePreviewPanel")
-            panel_layout = QVBoxLayout(panel)
-            panel_layout.setContentsMargins(9, 6, 9, 6)
-            label = QLabel(title)
-            label.setStyleSheet("color: #E4E4E7; font-size: 10px; font-weight: 600;")
-            panel_layout.addWidget(label)
-            preview_layout.addWidget(panel, 1)
-        layout.addWidget(self.profile_theme_preview)
-        self._update_profile_theme_preview()
-
         sec_profile_account = QLabel("Public Profile Account")
         sec_profile_account.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_profile_account.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_profile_account)
+        self._add_section_divider(layout)
 
         profile_account_hint = self.info_hint(
             "Manage central sign-in, public visibility, and private profile metadata resync here. "
@@ -533,6 +509,7 @@ class UserSettingsDialog(PopupDialog):
         sec_profile.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_profile.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_profile)
+        self._add_section_divider(layout)
 
         form = QFormLayout()
         form.setSpacing(10)
@@ -559,6 +536,7 @@ class UserSettingsDialog(PopupDialog):
         sec_desktop.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_desktop.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_desktop)
+        self._add_section_divider(layout)
 
         is_installed = is_desktop_entry_installed()
         btn_start_screen = QPushButton(
@@ -587,6 +565,7 @@ class UserSettingsDialog(PopupDialog):
         sec_startup.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_startup.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_startup)
+        self._add_section_divider(layout)
 
         self.chk_welcome = QCheckBox("Show introduction wizard on startup")
         self.chk_welcome.setChecked(self.show_welcome_wizard)
@@ -596,6 +575,7 @@ class UserSettingsDialog(PopupDialog):
         sec_achievements.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_achievements.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_achievements)
+        self._add_section_divider(layout)
 
         settings = QSettings("SafeLauncher", "SafeLauncher")
         toasts_on = settings.value("achievement_notifications_enabled", True, type=bool)
@@ -613,6 +593,7 @@ class UserSettingsDialog(PopupDialog):
         sec_updates.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_updates.setStyleSheet("color: #FFFFFF; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_updates)
+        self._add_section_divider(layout)
 
         update_row = QHBoxLayout()
         lbl_version_info = QLabel(f"Current SafeLauncher Version: <b>v{APP_VERSION}</b>")
@@ -677,8 +658,9 @@ class UserSettingsDialog(PopupDialog):
         # Status Table
         sec_subsys = QLabel("Subsystem Inspection")
         sec_subsys.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_subsys.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 4px;")
+        sec_subsys.setStyleSheet("color: #ffffff; padding-bottom: 2px; margin-top: 4px;")
         layout.addWidget(sec_subsys)
+        self._add_section_divider(layout)
 
         grid = QGridLayout()
         grid.setSpacing(8)
@@ -704,8 +686,9 @@ class UserSettingsDialog(PopupDialog):
         # GPU Caches
         sec_gpu = QLabel("GPU Shader Cache Whitelists")
         sec_gpu.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_gpu.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 6px;")
+        sec_gpu.setStyleSheet("color: #ffffff; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_gpu)
+        self._add_section_divider(layout)
 
         gpu_grid = QGridLayout()
         gpu_grid.setSpacing(6)
@@ -722,8 +705,9 @@ class UserSettingsDialog(PopupDialog):
         # Live probe test
         sec_probe = QLabel("Sandbox Verification")
         sec_probe.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_probe.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 6px;")
+        sec_probe.setStyleSheet("color: #ffffff; padding-bottom: 2px; margin-top: 6px;")
         layout.addWidget(sec_probe)
+        self._add_section_divider(layout)
 
         btn_run_test = QPushButton("Run Sandbox Isolation Test")
         btn_run_test.setFixedWidth(220)
@@ -768,8 +752,9 @@ class UserSettingsDialog(PopupDialog):
 
         sec_disk = QLabel("Storage Usage")
         sec_disk.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_disk.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
+        sec_disk.setStyleSheet("color: #ffffff; padding-bottom: 2px;")
         layout.addWidget(sec_disk)
+        self._add_section_divider(layout)
 
         sandbox_dir = ensure_sandbox_dir()
         total_drive, used_drive, free_drive = get_disk_usage(sandbox_dir)
@@ -818,8 +803,9 @@ class UserSettingsDialog(PopupDialog):
 
         sec_logs = QLabel("Logs & Diagnostics")
         sec_logs.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_logs.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px; margin-top: 8px;")
+        sec_logs.setStyleSheet("color: #ffffff; padding-bottom: 2px; margin-top: 8px;")
         layout.addWidget(sec_logs)
+        self._add_section_divider(layout)
 
         diag_dir = diagnostics_directory()
         diag_count = len(os.listdir(diag_dir)) if os.path.exists(diag_dir) else 0
@@ -871,8 +857,9 @@ class UserSettingsDialog(PopupDialog):
 
         sec_account = QLabel("Cloud Center · Connection")
         sec_account.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_account.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
+        sec_account.setStyleSheet("color: #ffffff; padding-bottom: 2px;")
         layout.addWidget(sec_account)
+        self._add_section_divider(layout)
 
         from core.cloud_backend import get_site_url, normalize_site_url
         settings = QSettings("SafeLauncher", "SafeLauncher")
@@ -1256,8 +1243,9 @@ class UserSettingsDialog(PopupDialog):
 
         sec_title = QLabel("Hardware Accelerated Video Recording")
         sec_title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        sec_title.setStyleSheet("color: #ffffff; border-bottom: 1px solid #27272a; padding-bottom: 4px;")
+        sec_title.setStyleSheet("color: #ffffff; padding-bottom: 2px;")
         layout.addWidget(sec_title)
+        self._add_section_divider(layout)
 
         desc = self.info_hint(
             "GPU Screen Recorder is a high-performance Linux recorder using NVIDIA NVENC, AMD VAAPI, or Intel QuickSync.",
@@ -1405,8 +1393,8 @@ class UserSettingsDialog(PopupDialog):
         self.edit_hotkey = QKeySequenceEdit()
         self.edit_hotkey.setKeySequence(QKeySequence(self.gpu_config.capture_hotkey or "F9"))
         self.edit_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #111113; color: #ffffff; border: 1px solid #2D2D34;"
-            " border-top-color: #373740; border-bottom-color: #24242A; border-radius: 6px;"
+            "QKeySequenceEdit { background: #1A1D23; color: #ffffff; border: 1px solid #30353F;"
+            " border-top-color: #414752; border-bottom-color: #252A32; border-radius: 7px;"
             " padding: 8px 10px; font-size: 12px; }"
         )
         capture_mode_hint = QLabel()
@@ -1424,8 +1412,8 @@ class UserSettingsDialog(PopupDialog):
         self.edit_screenshot_hotkey = QKeySequenceEdit()
         self.edit_screenshot_hotkey.setKeySequence(QKeySequence(self.screenshot_hotkey or "F12"))
         self.edit_screenshot_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #111113; color: #ffffff; border: 1px solid #2D2D34;"
-            " border-top-color: #373740; border-bottom-color: #24242A; border-radius: 6px;"
+            "QKeySequenceEdit { background: #1A1D23; color: #ffffff; border: 1px solid #30353F;"
+            " border-top-color: #414752; border-bottom-color: #252A32; border-radius: 7px;"
             " padding: 8px 10px; font-size: 12px; }"
         )
         form.addRow("Screenshot Hotkey:", self.edit_screenshot_hotkey)
@@ -1566,16 +1554,6 @@ class UserSettingsDialog(PopupDialog):
                 settings.setValue("cloud_device_name", dev_name)
             settings.setValue("cloud_sync_workers", self.spin_sync_workers.value())
 
-            if hasattr(self, "spin_card_size"):
-                settings.setValue("card_size", self.spin_card_size.value())
-            if hasattr(self, "combo_profile_theme"):
-                self.profile_theme = normalize_profile_theme(self.combo_profile_theme.currentData())
-                settings.setValue("profile_theme", self.profile_theme)
-                # Keep the local setting canonical as well; the profile page
-                # commits the same numeric ID to the public projection after
-                # the dialog is accepted.
-                from core.profile_models import normalize_panel_theme_id
-                settings.setValue("profile_panel_theme_id", normalize_panel_theme_id(self.profile_theme))
             if hasattr(self, "chk_achievement_notifications"):
                 settings.setValue("achievement_notifications_enabled", self.chk_achievement_notifications.isChecked())
             if hasattr(self, "chk_achievement_desktop"):
@@ -2143,31 +2121,6 @@ class UserSettingsDialog(PopupDialog):
 
     def get_date_format(self) -> str:
         return self.combo_date_format.currentData() if hasattr(self, "combo_date_format") else self.date_format
-
-    def _on_spin_card_size_changed(self, val: int):
-        if not hasattr(self, "combo_card_size"):
-            return
-        for idx in range(self.combo_card_size.count()):
-            if self.combo_card_size.itemData(idx) == val:
-                self.combo_card_size.blockSignals(True)
-                self.combo_card_size.setCurrentIndex(idx)
-                self.combo_card_size.blockSignals(False)
-                return
-
-    def get_card_size(self) -> int:
-        return self.spin_card_size.value() if hasattr(self, "spin_card_size") else 200
-
-    def get_profile_theme(self) -> str:
-        if hasattr(self, "combo_profile_theme"):
-            return normalize_profile_theme(self.combo_profile_theme.currentData())
-        return self.profile_theme
-
-    def reject(self) -> None:
-        # Preview changes are intentionally live while Settings is open, but
-        # Cancel must restore the persisted selection in the host page.
-        if self.profile_theme != self._profile_theme_original:
-            self.profile_theme_preview_changed.emit(self._profile_theme_original)
-        super().reject()
 
     @staticmethod
     def _normalise_hotkey(ks: QKeySequence) -> str:

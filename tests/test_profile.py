@@ -1033,19 +1033,19 @@ class ProfilePageTests(unittest.TestCase):
             window.deleteLater()
             self.app.processEvents()
 
-    def test_profile_settings_theme_preview_and_friends_popup_are_custom(self):
+    def test_profile_settings_keep_appearance_in_profile_editor_and_friends_popup_are_custom(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
             auth = Mock()
             auth.signed_in = False
-            settings_dialog = UserSettingsDialog("Player", parent=None, profile_theme="grey")
+            settings_dialog = UserSettingsDialog("Player", parent=None)
             friends_dialog = FriendsDialog(settings, auth)
             try:
-                settings_dialog.combo_profile_theme.setCurrentIndex(
-                    settings_dialog.combo_profile_theme.findData("aurora")
-                )
-                self.assertEqual(settings_dialog.get_profile_theme(), "aurora")
-                self.assertTrue(settings_dialog.profile_theme_preview.styleSheet())
+                # Profile appearance belongs to the profile editor, not the
+                # launcher Preferences dialog.  Settings must not grow a
+                # second theme editor or preview.
+                self.assertFalse(hasattr(settings_dialog, "combo_profile_theme"))
+                self.assertNotIn("Appearance", settings_dialog.windowTitle())
                 settings_dialog.set_profile_action_state(True, True, False, False)
                 self.assertEqual(settings_dialog.btn_profile_auth.text(), "Sign out")
                 self.assertEqual(settings_dialog.btn_profile_publish.text(), "Publish profile")

@@ -121,7 +121,6 @@ from ui.theme import (
     btn_tertiary_style, btn_destructive_style, BG_APP, SURFACE, SURFACE_ELEVATED,
     BORDER, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, ACCENT_PRIMARY
 )
-from ui.profile_theme import normalize_profile_theme
 
 
 import getpass
@@ -136,7 +135,7 @@ from ui.components.profile_page import ProfilePageWidget
 from core.central_auth import CentralAuthSession
 from core.profile_service import get_profile_service_url
 from core.profile_resource_service import ProfileResourceService
-from core.profile_models import HANDLE_RE, load_profile_settings, panel_theme_key
+from core.profile_models import HANDLE_RE, load_profile_settings
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.request_manager import RequestManager
 from core.resource_cache import ResourceCache
@@ -1956,10 +1955,6 @@ class MainWindow(QMainWindow):
             cloud_saves_dir=cloud_dir,
             parent=self,
             date_format=self.date_format,
-            profile_theme=panel_theme_key(load_profile_settings(
-                self.settings,
-                fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
-            ).get("panel_theme_id")),
             request_manager=self.request_manager,
             initial_tab=initial_tab,
         )
@@ -1969,7 +1964,6 @@ class MainWindow(QMainWindow):
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         dialog.runtime_manager_requested.connect(self._open_runtime_manager)
         dialog.proton_manager_requested.connect(self._open_proton_manager)
-        dialog.profile_theme_preview_changed.connect(self.profile_page.set_profile_theme)
         dialog.profile_auth_requested.connect(self.profile_page.toggle_profile_auth)
         dialog.profile_publish_requested.connect(self.profile_page.publish_profile)
         dialog.profile_resync_requested.connect(self.profile_page.resync_profile)
@@ -1993,14 +1987,6 @@ class MainWindow(QMainWindow):
             self.settings.setValue("cloud_saves_dir", dialog.get_cloud_saves_dir())
             self.date_format = dialog.get_date_format()
             self.settings.setValue("date_format", self.date_format)
-            if hasattr(dialog, "get_card_size"):
-                card_size = dialog.get_card_size()
-                self.settings.setValue("card_size", card_size)
-                self._on_card_size_changed(card_size)
-            if hasattr(dialog, "get_profile_theme"):
-                selected_theme = normalize_profile_theme(dialog.get_profile_theme())
-                self.settings.setValue("profile_theme", selected_theme)
-                self.profile_page.commit_profile_theme(selected_theme)
             if hasattr(self.runner, "set_proton_path"):
                 self.runner.set_proton_path(self.proton_path)
 
