@@ -6816,13 +6816,17 @@ class MainWindow(QMainWindow):
             if "detail" in tag.lower()
             else RequestPriority.NORMAL
         )
-        for gid, name, path, steam_id in targets:
-            target = CloudStatusTarget(
-                int(gid),
-                str(name),
-                str(path or ""),
-                str(steam_id or ""),
-            )
+        for item in targets:
+            if isinstance(item, CloudStatusTarget):
+                target = item
+            else:
+                gid, name, path, steam_id = item
+                target = CloudStatusTarget(
+                    int(gid),
+                    str(name),
+                    str(path or ""),
+                    str(steam_id or ""),
+                )
             status_targets.append(target)
             spec = self.cloud_status_service.status_spec(
                 target,
@@ -6831,7 +6835,7 @@ class MainWindow(QMainWindow):
                 tag=tag,
             )
             key = spec.key
-            self._cloud_status_callbacks[key] = (generation, int(gid), on_result)
+            self._cloud_status_callbacks[key] = (generation, target.game_id, on_result)
             if key not in self._cloud_status_bindings:
                 self._cloud_status_bindings[key] = bind_resource(
                     self.request_manager,
