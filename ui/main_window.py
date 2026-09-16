@@ -5994,7 +5994,7 @@ class MainWindow(QMainWindow):
             return
         value = str(handle or "").strip().lstrip("@").lower()
         if not HANDLE_RE.fullmatch(value):
-            QMessageBox.warning(self, "Public Profile", "That is not a valid SafeLauncher profile handle.")
+            QMessageBox.warning(self, "Public Profile", "That is not a valid SafeLauncher profile username.")
             return
         service_url = get_profile_service_url()
         profile_resources = self.profile_page.profile_resources

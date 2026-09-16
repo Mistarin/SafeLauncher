@@ -16,6 +16,15 @@ export default defineSchema({
   })
     .index("by_handle", ["handle"])
     .index("by_owner_identity", ["ownerIdentityHash"]),
+  /** Every current and historical public handle resolves to this profile. */
+  profileHandles: defineTable({
+    handle: v.string(),
+    profileId: v.id("publicProfiles"),
+    canonical: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_handle", ["handle"])
+    .index("by_profile", ["profileId"]),
   profileAvatars: defineTable({
     avatarId: v.string(),
     /** Immutable developer-owned public asset number. Optional during rollout. */
@@ -36,30 +45,45 @@ export default defineSchema({
   friendRequests: defineTable({
     requesterHandle: v.string(),
     recipientHandle: v.string(),
+    requesterProfileId: v.optional(v.id("publicProfiles")),
+    recipientProfileId: v.optional(v.id("publicProfiles")),
     status: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_requester_status", ["requesterHandle", "status"])
-    .index("by_recipient_status", ["recipientHandle", "status"]),
+    .index("by_recipient_status", ["recipientHandle", "status"])
+    .index("by_requester_profile_status", ["requesterProfileId", "status"])
+    .index("by_recipient_profile_status", ["recipientProfileId", "status"]),
   friendships: defineTable({
     pairKey: v.string(),
     memberA: v.string(),
     memberB: v.string(),
+    memberAProfileId: v.optional(v.id("publicProfiles")),
+    memberBProfileId: v.optional(v.id("publicProfiles")),
+    pairKeyProfileId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_pair", ["pairKey"])
     .index("by_member_a", ["memberA"])
-    .index("by_member_b", ["memberB"]),
+    .index("by_member_b", ["memberB"])
+    .index("by_pair_profile", ["pairKeyProfileId"])
+    .index("by_member_a_profile", ["memberAProfileId"])
+    .index("by_member_b_profile", ["memberBProfileId"]),
   profileBlocks: defineTable({
     blockerHandle: v.string(),
     blockedHandle: v.string(),
+    blockerProfileId: v.optional(v.id("publicProfiles")),
+    blockedProfileId: v.optional(v.id("publicProfiles")),
     createdAt: v.number(),
   })
     .index("by_blocker", ["blockerHandle"])
     .index("by_blocked", ["blockedHandle"])
-    .index("by_pair", ["blockerHandle", "blockedHandle"]),
+    .index("by_pair", ["blockerHandle", "blockedHandle"])
+    .index("by_blocker_profile", ["blockerProfileId"])
+    .index("by_blocked_profile", ["blockedProfileId"])
+    .index("by_pair_profile", ["blockerProfileId", "blockedProfileId"]),
   profileRateLimits: defineTable({
     bucketKey: v.string(),
     windowStart: v.number(),

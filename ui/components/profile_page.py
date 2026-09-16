@@ -509,7 +509,7 @@ class ProfilePageWidget(QWidget):
         self.handle_label.setObjectName("profileHandle")
         self.handle_label.setTextFormat(Qt.TextFormat.PlainText)
         self.handle_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.handle_label.setToolTip("Select and copy this handle to share your profile")
+        self.handle_label.setToolTip("Select and copy this username to share your profile")
         identity.addWidget(self.handle_label)
         self.bio_label = QLabel()
         self.bio_label.setObjectName("profileBio")
@@ -801,13 +801,13 @@ class ProfilePageWidget(QWidget):
         self.friend_controls = QHBoxLayout()
         self.friend_handle_edit = QLineEdit()
         self.friend_handle_edit.setObjectName("profileEditorInput")
-        self.friend_handle_edit.setPlaceholderText("Paste a handle, e.g. @player")
+        self.friend_handle_edit.setPlaceholderText("Enter a username, e.g. @player")
         self.friend_handle_edit.setToolTip("Enter the username shown on another SafeLauncher profile")
         self.friend_handle_edit.setMaxLength(40)
         self.friend_handle_edit.returnPressed.connect(self._send_friend_request)
         self.friend_controls.addWidget(self.friend_handle_edit, 1)
         self.btn_add_friend = QPushButton("Add friend")
-        self.btn_add_friend.setToolTip("Send a friend request to this handle")
+        self.btn_add_friend.setToolTip("Send a friend request to this username")
         self.btn_add_friend.clicked.connect(self._send_friend_request)
         self.friend_controls.addWidget(self.btn_add_friend)
         self.btn_refresh_friends = QPushButton("Refresh")
@@ -1784,7 +1784,7 @@ class ProfilePageWidget(QWidget):
         elif not self.central_auth.signed_in or not service_url.startswith(("http://", "https://")):
             self.friends_hint.setText("Sign in to use friends. Your friend list is private.")
         else:
-            self.friends_hint.setText("Your friend list is private. Share your handle or paste someone else’s handle to send a request.")
+            self.friends_hint.setText("Your friend list is private. Share your username or enter someone else’s username to send a request.")
 
         self._clear_social_layout(self.incoming_layout)
         self._clear_social_layout(self.outgoing_layout)
@@ -1845,7 +1845,7 @@ class ProfilePageWidget(QWidget):
         count = len(friends) if isinstance(friends, list) else 0
         self.friends_title.setText(f"Your friends ({count})")
         if not friends:
-            empty = QLabel("No friends yet. Add someone using their @handle above.")
+            empty = QLabel("No friends yet. Add someone using their @username above.")
             empty.setObjectName("profileMuted")
             empty.setWordWrap(True)
             self.friends_list.addWidget(empty)
@@ -2054,7 +2054,7 @@ class ProfilePageWidget(QWidget):
             target_handle = self.friend_handle_edit.text().strip().lstrip("@").lower()
         if not HANDLE_RE.fullmatch(target_handle):
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.friends_status.setText("Enter a valid SafeLauncher profile handle.")
+            self.friends_status.setText("Enter a valid SafeLauncher username.")
             return
         owner_handle, _, _ = self._local_owner_identity()
         if target_handle == owner_handle:
@@ -2474,7 +2474,9 @@ class ProfilePageWidget(QWidget):
             self.bio_edit.setPlainText(str(self._profile_settings.get("bio", "") or ""))
         handle = self.handle_edit.text()
         published = bool(self._profile_settings.get("published"))
-        self.handle_edit.setReadOnly(published)
+        # Published usernames may be changed. The cloud keeps every previous
+        # username as an alias, so existing shared links remain valid.
+        self.handle_edit.setReadOnly(False)
         self._handle_check_timer.stop()
         self._handle_check_serial += 1
         self._handle_check_inflight = False
@@ -2498,7 +2500,7 @@ class ProfilePageWidget(QWidget):
             str(avatar_item.get("label", selected_avatar)) if avatar_item else (selected_avatar or "Using initials")
         )
         self.handle_hint.setText(
-            "Published usernames are locked so shared profile links keep working."
+            "You can change this username. Previous usernames remain valid profile links."
             if published else
             "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens. Availability is checked before publishing."
         )
@@ -2543,9 +2545,15 @@ class ProfilePageWidget(QWidget):
         self._handle_check_timer.stop()
         self._handle_check_serial += 1
         self._handle_availability = None
-        if self._mode != "owner" or not self._editing or self.handle_edit.isReadOnly():
+        if self._mode != "owner" or not self._editing:
             return
         candidate = normalize_username_handle(self.handle_edit.text())
+        current_handle = str(self._profile_settings.get("public_handle", "") or "").strip().lower()
+        if candidate and candidate == current_handle:
+            self._handle_availability = True
+            self.handle_hint.setText("This is your current username. Previous usernames remain valid links.")
+            self.handle_hint.setStyleSheet(f"color:{TEXT_SECONDARY};")
+            return
         if not candidate:
             self.handle_hint.setText("Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens.")
             self.handle_hint.setStyleSheet("")
@@ -2559,9 +2567,14 @@ class ProfilePageWidget(QWidget):
         self._handle_check_timer.start()
 
     def _check_handle_availability(self) -> None:
-        if self._mode != "owner" or not self._editing or self.handle_edit.isReadOnly():
+        if self._mode != "owner" or not self._editing:
             return
         candidate = normalize_username_handle(self.handle_edit.text())
+        current_handle = str(self._profile_settings.get("public_handle", "") or "").strip().lower()
+        if candidate and candidate == current_handle:
+            self._handle_check_inflight = False
+            self._handle_availability = True
+            return
         if not candidate or not automatic_network_allowed(self.settings):
             return
         serial = self._handle_check_serial
@@ -2653,8 +2666,8 @@ class ProfilePageWidget(QWidget):
         while True:
             value, accepted = QInputDialog.getText(
                 self,
-                "Choose your profile handle",
-                "This handle is used in your public profile URL. You can change it before publishing:",
+                "Choose your profile username",
+                "This username appears in your public profile URL. You can change it later; old links keep working:",
                 text=suggestion,
             )
             if not accepted:
@@ -2663,7 +2676,7 @@ class ProfilePageWidget(QWidget):
             if not handle:
                 QMessageBox.warning(
                     self,
-                    "Invalid profile handle",
+                    "Invalid profile username",
                     "Use at least 3 characters: lowercase letters, numbers, dots, underscores, or hyphens.",
                 )
                 continue
@@ -2771,7 +2784,7 @@ class ProfilePageWidget(QWidget):
             if self._setup_username(identity):
                 status_message = f"Signed in as @{self._profile_settings.get('public_handle')}. Publish this profile to make it public."
             else:
-                status_message = "Signed in. Choose a profile handle before publishing."
+                status_message = "Signed in. Choose a profile username before publishing."
             if profile_sync_failed or identity_lookup_failed:
                 status_message += " Profile details could not be refreshed yet; retry profile sync when online."
         if self._mode == "owner":
@@ -2826,9 +2839,7 @@ class ProfilePageWidget(QWidget):
             return
         handle = self.handle_edit.text().strip().lower()
         current_handle = str(self._profile_settings.get("public_handle", "") or "").lower()
-        if bool(self._profile_settings.get("published")):
-            handle = current_handle
-        elif not HANDLE_RE.fullmatch(handle):
+        if handle != current_handle and not HANDLE_RE.fullmatch(handle):
             handle = normalize_username_handle(handle)
         if not handle or not HANDLE_RE.fullmatch(handle):
             QMessageBox.warning(
@@ -2837,7 +2848,7 @@ class ProfilePageWidget(QWidget):
                 "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens.",
             )
             return
-        if not bool(self._profile_settings.get("published")):
+        if handle != current_handle:
             if self._handle_check_inflight:
                 QMessageBox.information(
                     self,
@@ -3109,7 +3120,7 @@ class ProfilePageWidget(QWidget):
             }:
                 self._handle_availability = False
                 self._set_profile_action_status(
-                    "That profile handle is already in use. Open Edit profile, choose another handle, and publish again.",
+                    "That username is already in use. Open Edit profile, choose another username, and publish again.",
                     True,
                 )
             elif isinstance(result, ProfileServiceError) and result.code == "profile_exists_for_identity":
@@ -3147,7 +3158,7 @@ class ProfilePageWidget(QWidget):
             if self.isVisible():
                 self._render(self._document or build_public_projection(self.db, self._profile_settings))
         self._set_profile_action_status(
-            f"Published. Share profile handle @{self._profile_settings.get('public_handle')}.",
+            f"Published. Share username @{self._profile_settings.get('public_handle')}.",
         )
         self.private_profile_changed.emit()
         if self._publish_dirty:

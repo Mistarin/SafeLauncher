@@ -278,16 +278,14 @@ class ProfileResourceService:
                         # giving callers a stable, recoverable category.
                         if exc.code in {"exists", "profile_exists"}:
                             raise ProfileServiceError(
-                                "That profile handle is already in use. Choose a different handle and try again.",
+                                "That username is already in use. Choose a different handle (username) and try again.",
                                 "handle_taken",
                                 exc.status or 409,
                                 {"original_code": exc.code},
                             ) from exc
                         raise
-                    document["handle"] = remote["handle"]
                     response = client.update_profile(document, int(remote.get("revision", 0) or 0))
             else:
-                document["handle"] = remote["handle"]
                 revision = int(remote.get("revision", 0) or 0)
                 try:
                     response = client.update_profile(document, revision)
@@ -297,8 +295,9 @@ class ProfileResourceService:
                     fresh = client.current_profile()
                     if fresh is None:
                         raise
-                    document["handle"] = fresh["handle"]
                     response = client.update_profile(document, int(fresh.get("revision", 0) or 0))
+            if isinstance(response, dict) and response.get("handle"):
+                document["handle"] = str(response["handle"])
             return {"response": response, "document": document, "legacy_claimed": claimed}
 
     def unpublish(

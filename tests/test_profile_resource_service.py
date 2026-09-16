@@ -67,6 +67,16 @@ class _HandleConflictClient(_FakeClient):
         raise ProfileServiceError("Profile handle is already in use.", "exists", 409)
 
 
+class _RenameClient(_FakeClient):
+    def current_profile(self):
+        self.calls.append(("current_profile",))
+        return {"handle": "old-name", "revision": 4}
+
+    def update_profile(self, document, revision):
+        self.calls.append(("update_profile", document["handle"], revision))
+        return {"handle": "new-name", "revision": revision + 1}
+
+
 class ProfileResourceServiceTests(unittest.TestCase):
     def test_endpoint_keys_are_stable_without_exposing_endpoint_text(self):
         first = ProfileResourceService.endpoint_fingerprint("https://profile.example")
@@ -187,6 +197,14 @@ class ProfileResourceServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.status, 409)
         self.assertEqual(raised.exception.extra["original_code"], "exists")
         self.assertIn("choose a different handle", str(raised.exception).lower())
+
+    def test_publish_keeps_an_intentional_username_change(self):
+        service = ProfileResourceService(client_factory=_RenameClient)
+        document = {"handle": "new-name", "display_name": "Player"}
+
+        result = service.publish(document, "old-name", service_url="https://profile.example")
+
+        self.assertEqual(result["document"]["handle"], "new-name")
 
 
 if __name__ == "__main__":

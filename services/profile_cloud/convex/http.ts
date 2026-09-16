@@ -14,19 +14,14 @@ import {
   validAvatarId,
   validBackgroundPresetId,
   validHandle,
+  validUsernameHandle,
   validRequestId,
   validPanelThemeId,
   validatePublicProfile,
 } from "./lib/api";
 
 const http = httpRouter();
-const SERVICE_VERSION = "0.3.1";
-
-function generatedHandle(): string {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+const SERVICE_VERSION = "0.4.0";
 
 async function profilePayload(ctx: any, profile: any): Promise<Record<string, unknown>> {
   let value: Record<string, unknown>;
@@ -35,11 +30,12 @@ async function profilePayload(ctx: any, profile: any): Promise<Record<string, un
   } catch {
     throw new ApiError(500, "invalid_stored_profile", "The stored public profile is invalid.");
   }
+  value.handle = profile.handle;
   // Strip legacy embedded images before a profile can leave the deployment.
   // Re-validating also removes any fields that were never part of the public
   // projection and upgrades old documents to the ID-only avatar shape.
   delete value.avatar;
-  value.schema_version = 3;
+  value.schema_version = 4;
   value.avatar_id = validAvatarId(value.avatar_id) ? value.avatar_id : null;
   value.avatar_asset_id = validAvatarAssetId(value.avatar_asset_id) ? value.avatar_asset_id : null;
   if (value.avatar_asset_id !== null) {
@@ -101,7 +97,7 @@ async function validateAvatarReference(ctx: any, serialized: string): Promise<st
   if (avatar.assetNumber !== undefined) {
     profile.avatar_asset_id = avatar.assetNumber;
     delete profile.avatar_id;
-    profile.schema_version = 3;
+    profile.schema_version = 4;
     return JSON.stringify(profile);
   }
   return serialized;
@@ -125,7 +121,7 @@ function throwProfileError(result: any): void {
     claimed: "This profile is already linked to another account.",
     identity_has_profile: "This central account already owns a profile.",
     profile_exists_for_identity: "This central account already owns a profile.",
-    exists: "Profile handle is already in use.",
+    exists: "Username is already in use.",
     conflict: "The profile changed on another device.",
   };
   throw new ApiError(
@@ -303,19 +299,27 @@ async function dispatch(
           if (!raw || typeof raw !== "object" || Array.isArray(raw))
             throw new ApiError(400, "invalid_profile", "Profile must be an object.");
           const candidate = { ...(raw as Record<string, unknown>) };
-          const handle = validHandle(candidate.handle)
+          const requestedHandle = validUsernameHandle(candidate.handle)
             ? candidate.handle
-            : generatedHandle();
-          candidate.handle = handle;
+            : undefined;
+          // Keep validation compatible with older clients that send an empty
+          // or random handle; createForIdentity chooses the readable handle
+          // atomically from the display name.
+          candidate.handle = requestedHandle || "player";
           let serialized = validatePublicProfile(candidate);
           serialized = await validateAvatarReference(ctx, serialized);
           if (owner)
             throw new ApiError(409, "profile_exists_for_identity", "This central account already owns a profile.");
-          const result = await ctx.runMutation(internal.profiles.createForIdentity, {
-            handle,
-            ownerIdentityHash,
-            profile: serialized,
-          });
+          const result = requestedHandle
+            ? await ctx.runMutation(internal.profiles.createForIdentity, {
+                handle: requestedHandle,
+                ownerIdentityHash,
+                profile: serialized,
+              })
+            : await ctx.runMutation(internal.profiles.createForIdentity, {
+                ownerIdentityHash,
+                profile: serialized,
+              });
           throwProfileError(result);
           return jsonResponse(result);
         }
@@ -329,8 +333,6 @@ async function dispatch(
           const profile = body.profile as Record<string, unknown>;
           let serialized = validatePublicProfile(profile);
           serialized = await validateAvatarReference(ctx, serialized);
-          if (profile.handle !== owner.handle)
-            throw new ApiError(400, "handle_mismatch", "The profile handle cannot be changed.");
           const result = await ctx.runMutation(internal.profiles.update, {
             handle: owner.handle,
             ownerTokenHash: "",
@@ -677,12 +679,6 @@ async function dispatch(
       const profile = body.profile as Record<string, unknown>;
       let serialized = validatePublicProfile(profile);
       serialized = await validateAvatarReference(ctx, serialized);
-      if (profile.handle !== handle)
-        throw new ApiError(
-          400,
-          "handle_mismatch",
-          "Profile handle does not match the route identity.",
-        );
       const result = await ctx.runMutation(internal.profiles.update, {
         handle,
         ownerTokenHash: tokenHash,

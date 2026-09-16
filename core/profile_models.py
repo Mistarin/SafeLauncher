@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import secrets
 import time
 import unicodedata
 import uuid
@@ -20,10 +19,10 @@ from urllib.parse import urlsplit
 from PyQt6.QtCore import QSettings
 
 PRIVATE_PROFILE_VERSION = 8
-PUBLIC_PROFILE_VERSION = 3
+PUBLIC_PROFILE_VERSION = 4
 LEGACY_HANDLE_RE = re.compile(r"^[a-f0-9]{20,40}$")
-USERNAME_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?$")
-HANDLE_RE = re.compile(r"^(?:[a-f0-9]{20,40}|[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?)$")
+USERNAME_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{2,30}[a-z0-9])?$")
+HANDLE_RE = re.compile(r"^(?:[a-f0-9]{20,40}|[a-z0-9](?:[a-z0-9._-]{2,30}[a-z0-9])?)$")
 AVATAR_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 STEAM_APP_ID_RE = re.compile(r"^[1-9][0-9]{0,15}$")
@@ -85,17 +84,15 @@ BACKGROUND_PRESETS = {
 }
 
 
-def generate_profile_handle() -> str:
-    return secrets.token_hex(12)
-
-
 def normalize_username_handle(value: Any) -> str:
     """Turn an Auth0 username or entered name into a stable public handle."""
     raw = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
     raw = raw.strip().lstrip("@").casefold()
     raw = re.sub(r"[^a-z0-9._-]+", "-", raw)
     raw = re.sub(r"[-_.]{2,}", "-", raw).strip("-_.")[:32].strip("-_.")
-    return raw if USERNAME_HANDLE_RE.fullmatch(raw) else ""
+    # A 20–40 character hexadecimal value is the legacy generated handle,
+    # not a new readable username.
+    return raw if USERNAME_HANDLE_RE.fullmatch(raw) and not LEGACY_HANDLE_RE.fullmatch(raw) else ""
 
 
 def profile_username_suggestion(identity: Any) -> str:

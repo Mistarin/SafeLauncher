@@ -16,7 +16,7 @@ export interface GatewayRequestOptions {
 }
 
 const MAX_BODY_BYTES = 512 * 1024;
-const HANDLE_PATTERN = "(?:[a-f0-9]{20,40}|[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?)";
+const HANDLE_PATTERN = "(?:[a-f0-9]{20,40}|[a-z0-9](?:[a-z0-9._-]{2,30}[a-z0-9])?)";
 const REQUEST_ID_PATTERN = "[A-Za-z0-9_-]{8,128}";
 const PUBLIC_PROFILE_RE = new RegExp(`^/api/profile/v1/(${HANDLE_PATTERN})$`);
 const HANDLE_AVAILABILITY_RE = new RegExp(`^/api/profile/v1/handles/(${HANDLE_PATTERN})/availability$`);

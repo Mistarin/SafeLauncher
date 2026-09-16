@@ -111,8 +111,29 @@ export async function sha256(value: string): Promise<string> {
 export function validHandle(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    (/^[a-f0-9]{20,40}$/.test(value) || /^[a-z0-9](?:[a-z0-9._-]{1,30}[a-z0-9])?$/.test(value))
+    (/^[a-f0-9]{20,40}$/.test(value) || /^[a-z0-9](?:[a-z0-9._-]{2,30}[a-z0-9])?$/.test(value))
   );
+}
+
+export function normalizeUsernameHandle(value: unknown): string {
+  const raw = String(value || "")
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .trim()
+    .replace(/^@+/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/[-_.]{2,}/g, "-")
+    .replace(/^[-_.]+|[-_.]+$/g, "")
+    .slice(0, 32)
+    .replace(/^[-_.]+|[-_.]+$/g, "");
+  return validUsernameHandle(raw) ? raw : "";
+}
+
+export function validUsernameHandle(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[a-z0-9](?:[a-z0-9._-]{2,30}[a-z0-9])?$/.test(value) &&
+    !/^[a-f0-9]{20,40}$/.test(value);
 }
 
 export function validAvatarId(value: unknown): value is string {
@@ -203,7 +224,7 @@ export function validatePublicProfile(value: unknown): string {
   }
   const profile = value as Record<string, unknown>;
   if (
-    (profile.schema_version !== 1 && profile.schema_version !== 2 && profile.schema_version !== 3) ||
+    (profile.schema_version !== 1 && profile.schema_version !== 2 && profile.schema_version !== 3 && profile.schema_version !== 4) ||
     typeof profile.handle !== "string" ||
     !validHandle(profile.handle)
   ) {
@@ -214,7 +235,7 @@ export function validatePublicProfile(value: unknown): string {
     );
   }
   const strictAppearance = process.env.SAFELAUNCHER_PROFILE_APPEARANCE_STRICT === "1";
-  if (strictAppearance && profile.schema_version !== 3) {
+  if (strictAppearance && profile.schema_version !== 3 && profile.schema_version !== 4) {
     throw new ApiError(400, "profile_upgrade_required", "This profile must be upgraded before it can be published.");
   }
   const displayName = boundedString(profile.display_name, 64);
@@ -487,7 +508,7 @@ export function validatePublicProfile(value: unknown): string {
     });
   }
   const clean = {
-    schema_version: 3,
+    schema_version: 4,
     handle: profile.handle,
     display_name: displayName,
     bio,

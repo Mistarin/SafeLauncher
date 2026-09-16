@@ -1,6 +1,6 @@
 # SafeLauncher public profile service
 
-Current central service release: **0.3.1** (public profile schema 3).
+Current central service release: **0.4.0** (public profile schema 4).
 
 This is a separate Convex project from the private per-user save backend.
 Personal save deployments do not communicate with one another. SafeLauncher
@@ -47,6 +47,33 @@ The one-time `/api/profile/v2/me/claim` route migrates a legacy owner-token
 profile to the signed-in Auth0 identity. The old token hash is removed only
 after the claim succeeds. New profiles have no bearer owner token at all.
 
+### Profile usernames and migration
+
+Each profile has an internal Convex document ID, but it is never exposed to
+desktop clients, public profile JSON, or URLs. Users see a readable canonical
+username such as `martin-42`. Every previous username, including the old
+random hexadecimal handle, is retained indefinitely in `profileHandles` and
+continues to resolve to the same profile. Friend requests, friendships, and
+blocks also store immutable profile references; their handle fields remain
+only as denormalized compatibility/display data.
+
+After deploying the compatible schema, configure a separate developer-only
+`SAFELAUNCHER_IDENTIFIER_MIGRATION_KEY` and run a dry report followed by the
+write migration:
+
+```bash
+export SAFELAUNCHER_IDENTIFIER_MIGRATION_KEY='<private-random-value>'
+npx convex env set SAFELAUNCHER_IDENTIFIER_MIGRATION_KEY "$SAFELAUNCHER_IDENTIFIER_MIGRATION_KEY"
+npx convex deploy --yes
+npm run migrate-identifiers -- --dry-run
+npm run migrate-identifiers
+```
+
+The migration is batched, idempotent, and reports unresolved relationship
+rows. It assigns names from the stored display name (`name`, `name-2`, and so
+on), preserves each old route as an alias, and backfills profile references.
+Keep the migration key private and remove or rotate it after verification.
+
 The service deliberately stores only bounded JSON profile documents. Profile
 pictures are not user uploads: the developer imports the approved PNG catalog
 into Convex File Storage, and profiles store only the immutable numeric
@@ -77,19 +104,20 @@ The importer validates the PNG signature, dimensions, size, and SHA-256 hash;
 re-running it is safe. Run the appearance migration after importing: it assigns
 stable asset numbers in catalog order, converts existing slug-based profiles
 without changing their selected picture, and upgrades them to public schema
-3. It also migrates panel-theme references. The Convex deployment must have
+4. It also migrates panel-theme references. The Convex deployment must have
 `SAFELAUNCHER_AVATAR_IMPORT_KEY` set to the same private value. The normal
 gateway key remains separate. Deploy once in compatibility mode, run the
 migration, verify the result, and only then set
 `SAFELAUNCHER_PROFILE_APPEARANCE_STRICT=1` for future writes.
 
 The public projection includes a bounded profile identity (`display_name`, an
-optional 160-character `bio`, and a stable `handle`) plus a bounded `games`
+optional 160-character `bio`, and a readable `handle`) plus a bounded `games`
 library. Each entry contains only the Steam AppID, display name, a derived
 Steam CDN 16:9 hero artwork URL, playtime, favorite state, and an achievement summary
 (`unlocked_count`, `total_count`, percentage, and a short list of unlocked
-achievements). Handles are immutable after publication; users can change their
-visible display name and bio. A profile background may optionally reference a
+achievements). Usernames are readable and may be changed after publication;
+previous usernames remain aliases. Users can also change their visible display
+name and bio. A profile background may optionally reference a
 validated Steam AppID; the client derives the fixed hero URL locally and the
 server stores only that AppID plus its derived URL. Installation paths,
 executables, save locations, cloud keys, email addresses, and OIDC subjects
@@ -98,10 +126,10 @@ readable and are upgraded when their owner publishes again.
 
 The service also owns friend requests, accepted friendships, and directional
 blocks. Relationship writes require the authenticated central identity; public
-profile reads do not reveal a friend list. A request is addressed by the recipient's
-opaque profile handle, and the recipient must accept it before a friendship is
-created. The service does not call any user's private SafeLauncherCloud
-deployment.
+profile reads do not reveal a friend list. A request is addressed by the
+recipient's readable username, and the recipient must accept it before a
+friendship is created. The service does not call any user's private
+SafeLauncherCloud deployment.
 
 Anonymous startup telemetry is accepted through the gateway at
 `/api/telemetry/ping`. The server hashes the client identifier before storage

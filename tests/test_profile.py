@@ -480,6 +480,31 @@ class ProfileModelTests(unittest.TestCase):
         normalized_unsafe = normalize_public_document(unsafe)
         self.assertEqual(normalized_unsafe["games"][0]["artwork_url"], steam_hero_url("123"))
 
+    def test_public_fetch_accepts_a_historical_alias_and_uses_canonical_username(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "profile": {
+                "schema_version": 4,
+                "handle": "new-player",
+                "display_name": "Visible",
+                "background": DEFAULT_BACKGROUND,
+                "stats": {},
+                "favorite_games": [],
+                "recent_achievements": [],
+            },
+            "revision": 7,
+        }
+        session = Mock()
+        session.request.return_value = response
+        client = ProfileServiceClient("https://profiles.example")
+        client.session = session
+
+        document = client.fetch("01234567890123456789")
+
+        self.assertEqual(document["handle"], "new-player")
+        self.assertEqual(document["revision"], 7)
+        self.assertIn("/api/profile/v1/01234567890123456789", session.request.call_args.args[1])
+
     def test_public_bio_and_artwork_are_bounded_and_legacy_artwork_is_replaced(self):
         document = normalize_public_document({
             "schema_version": 1,
@@ -551,6 +576,8 @@ class ProfileModelTests(unittest.TestCase):
         self.assertEqual(normalize_username_handle("Ž Martin 42"), "z-martin-42")
         self.assertEqual(profile_username_suggestion({"preferred_username": "Martin_42"}), "martin_42")
         self.assertEqual(profile_username_suggestion({"email": "martin@example.test"}), "player")
+        self.assertEqual(normalize_username_handle("01234567890123456789"), "")
+        self.assertEqual(profile_username_suggestion({"preferred_username": "01234567890123456789"}), "player")
 
     def test_social_client_uses_owner_authentication_and_routes(self):
         response = Mock(status_code=200)

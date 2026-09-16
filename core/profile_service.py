@@ -223,7 +223,10 @@ class ProfileServiceClient:
             raise ProfileServiceError("The profile handle is invalid.", "invalid_handle", 400)
         payload = self._request("GET", f"/api/profile/v1/{quote(requested_handle, safe='')}")
         document = normalize_public_document(payload.get("profile"))
-        if document is None or document.get("handle") != requested_handle:
+        # An old URL may be a permanent alias after the owner renames their
+        # profile. The service must return the current canonical handle while
+        # still validating that the response contains a valid profile.
+        if document is None:
             raise ProfileServiceError("The public profile is invalid or corrupt.", "invalid_profile")
         document["revision"] = max(0, int(payload.get("revision", 0) or 0))
         return document
