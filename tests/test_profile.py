@@ -6,13 +6,13 @@ import json
 import hashlib
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from pathlib import Path
 from unittest.mock import Mock
 
 from PyQt6.QtCore import QSettings, QTimer, Qt
 from PyQt6.QtGui import QColor, QImage, QPixmap
-from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton
+from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QPushButton
 
 from core.profile_avatar_catalog import (
     normalize_avatar_catalog,
@@ -911,6 +911,99 @@ class ProfilePageTests(unittest.TestCase):
                 page.close()
                 page.deleteLater()
                 db.close()
+                self.app.processEvents()
+
+    def test_profile_friend_list_has_confirmed_remove_action(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            save_profile_settings(settings, {
+                "display_name": "Owner",
+                "public_handle": "owner",
+                "published": True,
+            })
+            db = GameDatabase(":memory:")
+            auth = Mock()
+            auth.signed_in = True
+            page = ProfilePageWidget(db, settings, auth_session=auth)
+            try:
+                page._social_snapshot = {
+                    "friends": [{"handle": "friend", "display_name": "Friend"}],
+                    "incoming_requests": [],
+                    "outgoing_requests": [],
+                    "blocked_handles": [],
+                }
+                page._social_handle = "owner"
+                page._render_social()
+
+                remove = next(
+                    button for button in page.findChildren(QPushButton, "profileSocialAction")
+                    if button.text() == "Remove"
+                )
+                self.assertTrue(remove.isEnabled())
+                self.assertEqual(page.friends_title.text(), "Your friends (1)")
+                self.assertIn("Remove this person", remove.toolTip())
+
+                page._social_loading = True
+                page._update_social_controls(True, True, True)
+                self.assertFalse(remove.isEnabled())
+                page._social_loading = False
+
+                with patch("ui.components.profile_page.QMessageBox.question", return_value=QMessageBox.StandardButton.No) as question, \
+                        patch.object(page, "_start_social_mutation") as mutate:
+                    page._remove_friend("friend")
+                    question.assert_called_once()
+                    mutate.assert_not_called()
+
+                with patch("ui.components.profile_page.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes), \
+                        patch.object(page, "_start_social_mutation") as mutate:
+                    page._remove_friend("friend")
+                    mutate.assert_called_once_with(ANY, "Friend removed.")
+            finally:
+                page.close()
+                page.deleteLater()
+                db.close()
+                self.app.processEvents()
+
+    def test_friends_popup_uses_the_same_safe_remove_confirmation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(str(Path(directory) / "profile.ini"), QSettings.Format.IniFormat)
+            save_profile_settings(settings, {
+                "display_name": "Owner",
+                "public_handle": "owner",
+                "published": True,
+            })
+            auth = Mock()
+            auth.signed_in = True
+            dialog = FriendsDialog(settings, auth)
+            try:
+                dialog._handle = "owner"
+                dialog._snapshot = {
+                    "friends": [{"handle": "friend", "display_name": "Friend"}],
+                    "incoming_requests": [],
+                    "outgoing_requests": [],
+                    "blocked_handles": [],
+                }
+                dialog._render()
+                remove = next(
+                    button for button in dialog.findChildren(QPushButton, "friendsRowAction")
+                    if button.text() == "Remove"
+                )
+                self.assertTrue(remove.isEnabled())
+                self.assertIn("Remove this person", remove.toolTip())
+
+                with patch("ui.dialogs.friends_dialog.QMessageBox.question", return_value=QMessageBox.StandardButton.No) as question, \
+                        patch.object(dialog, "_mutate") as mutate:
+                    dialog._confirm_remove_friend("friend")
+                    question.assert_called_once()
+                    mutate.assert_not_called()
+
+                with patch("ui.dialogs.friends_dialog.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes), \
+                        patch.object(dialog, "_mutate") as mutate:
+                    dialog._confirm_remove_friend("friend")
+                    mutate.assert_called_once_with("remove_friend", "Friend removed.", target_handle="friend")
+            finally:
+                dialog.close()
+                dialog.deleteLater()
                 self.app.processEvents()
 
     def test_profile_owner_actions_are_unified_and_public_view_is_read_only(self):

@@ -263,6 +263,8 @@ class ProfilePageWidget(QWidget):
         self._social_handle = ""
         self._social_loading = False
         self._social_mutating = False
+        self._social_action_buttons: list[QPushButton] = []
+        self._pending_social_success_message = ""
         self._auth_in_flight = False
         self._game_cards: dict[str, list[ProfileGameCard]] = {}
         self._artwork_cache = PresentationCache(MAX_PROFILE_ARTWORK_CACHE_ITEMS)
@@ -506,6 +508,8 @@ class ProfilePageWidget(QWidget):
         self.handle_label = QLabel()
         self.handle_label.setObjectName("profileHandle")
         self.handle_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.handle_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.handle_label.setToolTip("Select and copy this handle to share your profile")
         identity.addWidget(self.handle_label)
         self.bio_label = QLabel()
         self.bio_label.setObjectName("profileBio")
@@ -797,11 +801,13 @@ class ProfilePageWidget(QWidget):
         self.friend_controls = QHBoxLayout()
         self.friend_handle_edit = QLineEdit()
         self.friend_handle_edit.setObjectName("profileEditorInput")
-        self.friend_handle_edit.setPlaceholderText("Paste a profile handle")
+        self.friend_handle_edit.setPlaceholderText("Paste a handle, e.g. @player")
+        self.friend_handle_edit.setToolTip("Enter the username shown on another SafeLauncher profile")
         self.friend_handle_edit.setMaxLength(40)
         self.friend_handle_edit.returnPressed.connect(self._send_friend_request)
         self.friend_controls.addWidget(self.friend_handle_edit, 1)
         self.btn_add_friend = QPushButton("Add friend")
+        self.btn_add_friend.setToolTip("Send a friend request to this handle")
         self.btn_add_friend.clicked.connect(self._send_friend_request)
         self.friend_controls.addWidget(self.btn_add_friend)
         self.btn_refresh_friends = QPushButton("Refresh")
@@ -810,6 +816,7 @@ class ProfilePageWidget(QWidget):
         self.friend_controls.addWidget(self.btn_refresh_friends)
         friends_layout.addLayout(self.friend_controls)
         self.btn_public_add_friend = QPushButton("Add friend")
+        self.btn_public_add_friend.setToolTip("Send a friend request to this profile")
         self.btn_public_add_friend.clicked.connect(self._send_friend_request)
         friends_layout.addWidget(self.btn_public_add_friend)
         self.incoming_title = QLabel("Incoming requests")
@@ -824,6 +831,9 @@ class ProfilePageWidget(QWidget):
         self.outgoing_layout = QVBoxLayout()
         self.outgoing_layout.setSpacing(2)
         friends_layout.addLayout(self.outgoing_layout)
+        self.friends_title = QLabel("Your friends (0)")
+        self.friends_title.setObjectName("profileMuted")
+        friends_layout.addWidget(self.friends_title)
         self.friends_list = QVBoxLayout()
         self.friends_list.setSpacing(2)
         friends_layout.addLayout(self.friends_list)
@@ -868,6 +878,7 @@ class ProfilePageWidget(QWidget):
 
     def show_owner(self) -> None:
         self._mode = "owner"
+        self._pending_social_success_message = ""
         self._local_refresh_timer.stop()
         self._local_refresh_pending = False
         self.mode_label.setText("OWNER VIEW")
@@ -929,6 +940,7 @@ class ProfilePageWidget(QWidget):
             self.footer_status.setText("This public profile is invalid or unavailable.")
             return False
         self._mode = "public"
+        self._pending_social_success_message = ""
         self._local_refresh_timer.stop()
         self._local_refresh_pending = False
         self._editing = False
@@ -1705,10 +1717,13 @@ class ProfilePageWidget(QWidget):
         self.friends_list.setEnabled(owner_enabled)
         self.blocked_title.setVisible(owner_enabled)
         self.blocked_layout.setEnabled(owner_enabled)
-        self.friend_handle_edit.setEnabled(owner_ready and not self._social_mutating)
-        self.btn_add_friend.setEnabled(owner_ready and not self._social_mutating)
+        self.friends_title.setVisible(owner_enabled)
+        self.friend_handle_edit.setEnabled(owner_ready and not self._social_loading and not self._social_mutating)
+        self.btn_add_friend.setEnabled(owner_ready and not self._social_loading and not self._social_mutating)
         self.btn_refresh_friends.setEnabled(owner_ready and not self._social_loading and not self._social_mutating)
         self.btn_public_add_friend.setEnabled(public_ready and not self._social_mutating)
+        for button in self._social_action_buttons:
+            button.setEnabled(owner_ready and not self._social_loading and not self._social_mutating)
 
     @staticmethod
     def _clear_social_layout(layout: QVBoxLayout) -> None:
@@ -1734,12 +1749,24 @@ class ProfilePageWidget(QWidget):
         layout.addWidget(label, 1)
         for caption, callback in actions:
             button = QPushButton(caption)
+            button.setObjectName("profileSocialAction")
+            button.setToolTip({
+                "View profile": "Open this profile",
+                "Remove": "Remove this person from your friends",
+                "Block": "Block this profile and remove the relationship",
+                "Accept": "Accept the friend request",
+                "Decline": "Decline the friend request",
+                "Cancel": "Cancel the friend request",
+                "Unblock": "Allow this profile to contact you again",
+            }.get(caption, caption))
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(callback)
+            self._social_action_buttons.append(button)
             layout.addWidget(button)
         return row
 
     def _render_social(self) -> None:
+        self._social_action_buttons.clear()
         if self._mode == "public":
             self.friends_hint.setText("Friend lists are private. You can send a request to this profile if you have configured your own published profile.")
             self.friends_status.clear()
@@ -1804,7 +1831,11 @@ class ProfilePageWidget(QWidget):
             row_layout.setContentsMargins(0, 2, 0, 2)
             row_layout.addWidget(QLabel(f"@{blocked_handle}"), 1)
             unblock = QPushButton("Unblock")
+            unblock.setObjectName("profileSocialAction")
+            unblock.setToolTip("Allow this profile to contact you again")
+            unblock.setCursor(Qt.CursorShape.PointingHandCursor)
             unblock.clicked.connect(lambda checked=False, h=blocked_handle: self._unblock_profile(h))
+            self._social_action_buttons.append(unblock)
             row_layout.addWidget(unblock)
             self.blocked_layout.addWidget(row)
 
@@ -1812,7 +1843,14 @@ class ProfilePageWidget(QWidget):
         self.outgoing_title.setText(f"Outgoing requests ({len(outgoing) if isinstance(outgoing, list) else 0})")
         self.blocked_title.setText(f"Blocked profiles ({len(blocked) if isinstance(blocked, list) else 0})")
         count = len(friends) if isinstance(friends, list) else 0
+        self.friends_title.setText(f"Your friends ({count})")
+        if not friends:
+            empty = QLabel("No friends yet. Add someone using their @handle above.")
+            empty.setObjectName("profileMuted")
+            empty.setWordWrap(True)
+            self.friends_list.addWidget(empty)
         self.friends_status.setText(f"{count} friend{'s' if count != 1 else ''}")
+        self._update_social_controls(True, bool(self._profile_settings.get("published")), self.central_auth.signed_in)
 
     def _start_managed_remote(
         self,
@@ -1936,22 +1974,33 @@ class ProfilePageWidget(QWidget):
         if expected_handle and (handle != expected_handle or self._social_handle != expected_handle):
             return
         self._update_social_controls(True, bool(self._profile_settings.get("published")), self.central_auth.signed_in)
+        pending = self._pending_social_success_message
+        self._pending_social_success_message = ""
         if isinstance(result, Exception):
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.friends_status.setText(f"Friends could not be refreshed: {result}")
+            self.friends_status.setText(
+                f"{pending} The list could not be refreshed: {result}"
+                if pending else f"Friends could not be refreshed: {result}"
+            )
             return
         snapshot = result if isinstance(result, dict) else None
         if snapshot is None:
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.friends_status.setText("Friends could not be refreshed because the service response was invalid.")
+            self.friends_status.setText(
+                f"{pending} The list could not be refreshed because the service response was invalid."
+                if pending else "Friends could not be refreshed because the service response was invalid."
+            )
             return
         self._social_snapshot = snapshot
         self._social_handle = handle
         self.friends_status.setStyleSheet("")
         self._render_social()
+        if pending:
+            self.friends_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
+            self.friends_status.setText(pending)
 
     def _start_social_mutation(self, operation, success_message: str) -> None:
-        if self._social_mutating:
+        if self._social_mutating or self._social_loading:
             return
         if not automatic_network_allowed(self.settings):
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
@@ -2033,7 +2082,9 @@ class ProfilePageWidget(QWidget):
         if QMessageBox.question(
             self,
             "Remove friend",
-            f"Remove @{friend_handle} from your friends?",
+            f"Remove @{friend_handle} from your friends?\n\nThis ends the friendship for both of you. You can send a new request later.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         ) != QMessageBox.StandardButton.Yes:
             return
         self._start_social_mutation(
@@ -2047,7 +2098,9 @@ class ProfilePageWidget(QWidget):
         if QMessageBox.question(
             self,
             "Block profile",
-            f"Block @{friend_handle}? This also removes any friendship or pending request.",
+            f"Block @{friend_handle}?\n\nThis also removes any friendship or pending request.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         ) != QMessageBox.StandardButton.Yes:
             return
         self._start_social_mutation(
@@ -2074,7 +2127,10 @@ class ProfilePageWidget(QWidget):
             return
         self.friends_status.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
         self.friends_status.setText(success_message)
+        if success_message == "Friend request sent.":
+            self.friend_handle_edit.clear()
         if self._mode == "owner":
+            self._pending_social_success_message = success_message
             self._refresh_social()
         else:
             self.btn_public_add_friend.setEnabled(False)

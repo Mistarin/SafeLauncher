@@ -7,7 +7,7 @@ from typing import Any, Callable
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QScrollArea, QTabWidget, QVBoxLayout, QWidget,
+    QMessageBox, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from core.network_policy import automatic_network_allowed
@@ -48,6 +48,8 @@ class FriendsDialog(PopupDialog):
         self._social_mutating = False
         self._snapshot: dict[str, Any] = normalize_social_snapshot({})
         self._handle = ""
+        self._social_action_buttons: list[QPushButton] = []
+        self._pending_success_message = ""
 
         self.setMinimumSize(650, 500)
         self.resize(760, 620)
@@ -193,8 +195,10 @@ class FriendsDialog(PopupDialog):
         configured = get_profile_service_url().startswith(("http://", "https://"))
         ready = bool(self._handle and published and signed_in and configured and automatic_network_allowed(self.settings))
         self.btn_refresh.setEnabled(ready and not self._social_loading and not self._social_mutating)
-        self.btn_add.setEnabled(ready and not self._social_mutating)
+        self.btn_add.setEnabled(ready and not self._social_loading and not self._social_mutating)
         self.btn_find.setEnabled(bool(automatic_network_allowed(self.settings)))
+        for button in self._social_action_buttons:
+            button.setEnabled(ready and not self._social_loading and not self._social_mutating)
         if not automatic_network_allowed(self.settings):
             message = "Offline mode — friends are unavailable."
         elif not signed_in:
@@ -230,11 +234,24 @@ class FriendsDialog(PopupDialog):
         row_layout.addWidget(label, 1)
         for caption, callback in actions:
             button = QPushButton(caption)
+            button.setObjectName("friendsRowAction")
+            button.setToolTip({
+                "View": "Open this profile",
+                "View profile": "Open this profile",
+                "Remove": "Remove this person from your friends",
+                "Block": "Block this profile and remove the relationship",
+                "Accept": "Accept the friend request",
+                "Decline": "Decline the friend request",
+                "Cancel": "Cancel the friend request",
+                "Unblock": "Allow this profile to contact you again",
+            }.get(caption, caption))
             button.clicked.connect(callback)
+            self._social_action_buttons.append(button)
             row_layout.addWidget(button)
         layout.insertWidget(max(0, layout.count() - 1), row)
 
     def _render(self) -> None:
+        self._social_action_buttons.clear()
         self._clear_layout(self.friends_layout)
         self._clear_layout(self.requests_layout)
         friends = self._snapshot.get("friends", [])
@@ -246,9 +263,7 @@ class FriendsDialog(PopupDialog):
                 handle = str(item.get("handle", ""))
                 self._add_row(self.friends_layout, item, [
                     ("View profile", lambda h=handle: self.open_profile_requested.emit(h)),
-                    ("Remove", lambda h=handle: self._mutate(
-                        "remove_friend", "Friend removed.", target_handle=h
-                    )),
+                    ("Remove", lambda h=handle: self._confirm_remove_friend(h)),
                 ])
         if not friends:
             self._add_info(self.friends_layout, "No friends yet. Use Find Friends to add someone by @handle.")
@@ -267,9 +282,7 @@ class FriendsDialog(PopupDialog):
                         "respond_friend_request", "Request declined.",
                         request_id=r, action="decline"
                     )),
-                    ("Block", lambda h=handle: self._mutate(
-                        "block_user", "Profile blocked.", target_handle=h
-                    )),
+                    ("Block", lambda h=handle: self._confirm_block_profile(h)),
                 ])
         for item in outgoing if isinstance(outgoing, list) else []:
             if isinstance(item, dict):
@@ -293,6 +306,28 @@ class FriendsDialog(PopupDialog):
             self._add_info(self.requests_layout, "No pending requests or blocked profiles.")
 
         self._update_gate()
+
+    def _confirm_remove_friend(self, friend_handle: str) -> None:
+        if QMessageBox.question(
+            self,
+            "Remove friend",
+            f"Remove @{friend_handle} from your friends?\n\nThis ends the friendship for both of you. You can send a new request later.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._mutate("remove_friend", "Friend removed.", target_handle=friend_handle)
+
+    def _confirm_block_profile(self, friend_handle: str) -> None:
+        if QMessageBox.question(
+            self,
+            "Block profile",
+            f"Block @{friend_handle}?\n\nThis also removes any friendship or pending request.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._mutate("block_user", "Profile blocked.", target_handle=friend_handle)
 
     @staticmethod
     def _add_info(layout: QVBoxLayout, message: str) -> None:
@@ -339,13 +374,23 @@ class FriendsDialog(PopupDialog):
     def _refresh_done(self, result: Any) -> None:
         self._social_loading = False
         if isinstance(result, Exception):
-            self.status_label.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.status_label.setText(str(result))
+            pending = self._pending_success_message
+            self._pending_success_message = ""
             self._update_gate()
+            self.status_label.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.status_label.setText(
+                f"{pending} The list could not be refreshed: {result}"
+                if pending else str(result)
+            )
             return
+        pending = self._pending_success_message
+        self._pending_success_message = ""
         self.status_label.setStyleSheet("")
         self._snapshot = normalize_social_snapshot(result if isinstance(result, dict) else {})
         self._render()
+        if pending:
+            self.status_label.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
+            self.status_label.setText(pending)
 
     def _start_managed_remote(self, spec, on_ready, on_error, *, cache_policy_name: str = ""):
         if self.request_manager is None:
@@ -469,6 +514,9 @@ class FriendsDialog(PopupDialog):
             return
         self.status_label.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
         self.status_label.setText(success)
+        if success == "Friend request sent.":
+            self.find_input.clear()
+        self._pending_success_message = success
         self.refresh()
 
     def showEvent(self, event) -> None:

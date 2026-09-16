@@ -37,7 +37,7 @@ The profile page is available from `View → Profile` or the user icon in the ti
 
 The public profile is derived from the local account profile and never includes game paths, executable names, devices, cloud credentials, or private save state. The developer-operated Convex service in `services/profile_cloud` is reached through the production Vercel gateway at `https://profilegateway.vercel.app`; the raw Convex URL and gateway secret stay server-side. Do not deploy the profile service into a personal save backend.
 
-Friends use the same public-profile service: share the generated handle, open the other profile, and choose `Add friend`. Requests require acceptance and friend lists remain private to each owner. SafeLauncher clients do not connect Convex deployments directly to one another; authenticated social writes use the central Auth0 session.
+Friends use the same public-profile service: share the generated handle, open the other profile, and choose `Add friend`. Requests require acceptance, accepted friends can be removed from your profile page or the Friends popup, and friend lists remain private to each owner. SafeLauncher clients do not connect Convex deployments directly to one another; authenticated social writes use the central Auth0 session.
 
 
 ## What's Included
