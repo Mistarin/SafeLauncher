@@ -11,7 +11,9 @@ from core.artwork_resource_service import ArtworkResourceService, ArtworkTarget
 from core.request_contracts import ResourceStatus
 from core.request_manager import RequestManager
 from core.resource_cache import ResourceCache
+from core.steam_build_tracker import SteamBuildFetcher
 from core.steam_resource_service import SteamResourceService
+from core.steam_tags import SteamTagsFetcher
 
 
 class _AchievementDB:
@@ -60,6 +62,30 @@ class _ArtworkClient:
         return "/cache/hero.jpg"
 
 
+class _EmptyArtworkClient:
+    def __init__(self):
+        self.search_calls = 0
+
+    def search_game(self, _name):
+        self.search_calls += 1
+        return {"found": False, "results": [], "primary": None}
+
+    def banner_cache_path(self, _url):
+        return None
+
+    def get_icon_cached_path(self, **_kwargs):
+        return None
+
+    def download_banner(self, _url):
+        return ""
+
+    def fetch_and_cache_game_icon(self, _game_id, _app_id, _name, exe_path=""):
+        return ""
+
+    def download_hero_banner(self, _steam_id, _game_id, _name, exe_path=""):
+        return ""
+
+
 class ResourceServiceTests(unittest.TestCase):
     def test_achievement_service_owns_worker_db_and_typed_batch(self):
         manager = RequestManager(max_workers=1)
@@ -101,6 +127,37 @@ class ResourceServiceTests(unittest.TestCase):
             self.assertEqual(first.value, (["Action"], "480"))
             self.assertIsNotNone(second.value)
             self.assertEqual(client.tag_calls, ["Example Game"])
+        finally:
+            manager.shutdown()
+
+    def test_steam_compatibility_workers_use_service_keys_and_cache_policy(self):
+        manager = RequestManager(max_workers=2, cache=ResourceCache())
+        client = _SteamClient()
+        try:
+            build_worker = SteamBuildFetcher(
+                1,
+                "480",
+                local_build_id="123",
+                request_manager=manager,
+                steam_client=client,
+            )
+            build_worker.safe_run()
+            self.assertEqual(
+                manager.state(SteamResourceService.build_key("480")).status,
+                ResourceStatus.READY,
+            )
+
+            tags_worker = SteamTagsFetcher(
+                1,
+                "Example Game",
+                request_manager=manager,
+                steam_client=client,
+            )
+            tags_worker.safe_run()
+            self.assertEqual(
+                manager.state(SteamResourceService.tags_key("example game")).status,
+                ResourceStatus.READY,
+            )
         finally:
             manager.shutdown()
 
@@ -146,6 +203,29 @@ class ResourceServiceTests(unittest.TestCase):
                 banner.key,
                 service.banner_spec("https://cdn.example/private-looking-banner.jpg?token=x").key,
             )
+        finally:
+            manager.shutdown()
+
+    def test_empty_artwork_results_are_retryable_and_not_cached_as_success(self):
+        manager = RequestManager(max_workers=1, cache=ResourceCache())
+        client = _EmptyArtworkClient()
+        try:
+            service = ArtworkResourceService(manager, client=client)
+            target = ArtworkTarget(1, "Missing Game", "480")
+            first = service.request_auto(target).future.result(timeout=2)
+            second = service.request_auto(target).future.result(timeout=2)
+            first_search = service.request_search(target.game_name).future.result(timeout=2)
+            second_search = service.request_search(target.game_name).future.result(timeout=2)
+
+            self.assertEqual(first.status, ResourceStatus.READY)
+            self.assertEqual(second.status, ResourceStatus.READY)
+            self.assertEqual(first_search.status, ResourceStatus.READY)
+            self.assertEqual(second_search.status, ResourceStatus.READY)
+            self.assertEqual(first.value, ("", 480, ""))
+            self.assertEqual(second.value, ("", 480, ""))
+            self.assertEqual(client.search_calls, 4)
+            self.assertIsNone(manager.cache.get(service.search_key(target.game_name)))
+            self.assertIsNone(manager.cache.get(service.auto_spec(target).key))
         finally:
             manager.shutdown()
 

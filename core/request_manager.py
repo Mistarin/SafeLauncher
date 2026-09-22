@@ -30,7 +30,7 @@ from core.request_contracts import (
     ResourceStatus,
     resource_status_for_error,
 )
-from core.resource_cache import ResourceCache
+from core.resource_cache import CacheEntry, ResourceCache
 
 
 logger = get_logger("RequestManager")
@@ -206,6 +206,8 @@ class RequestManager:
         max_age_seconds: float,
         cache: ResourceCache | None = None,
         cache_validator: Callable[[object], bool] | None = None,
+        cache_encoder: Callable[[object], object] | None = None,
+        cache_decoder: Callable[[object], object] | None = None,
         priority: RequestPriority = RequestPriority.NORMAL,
         retry_policy=None,
         generation: int = 0,
@@ -236,6 +238,8 @@ class RequestManager:
             target_cache,
             max_age_seconds=max_age_seconds,
             cache_validator=cache_validator,
+            cache_encoder=cache_encoder,
+            cache_decoder=cache_decoder,
             stale_while_revalidate=stale_while_revalidate,
             content_type=content_type,
         )
@@ -286,6 +290,8 @@ class RequestManager:
         max_age_seconds: float,
         cache: ResourceCache | None = None,
         cache_validator: Callable[[object], bool] | None = None,
+        cache_encoder: Callable[[object], object] | None = None,
+        cache_decoder: Callable[[object], object] | None = None,
         priority: RequestPriority = RequestPriority.NORMAL,
         retry_policy=None,
         generation: int = 0,
@@ -321,6 +327,8 @@ class RequestManager:
                 target_cache,
                 max_age_seconds=max_age_seconds,
                 cache_validator=cache_validator,
+                cache_encoder=cache_encoder,
+                cache_decoder=cache_decoder,
                 stale_while_revalidate=stale_while_revalidate,
                 content_type=content_type,
             )
@@ -447,6 +455,8 @@ class RequestManager:
         *,
         max_age_seconds: float,
         cache_validator: Callable[[object], bool] | None = None,
+        cache_encoder: Callable[[object], object] | None = None,
+        cache_decoder: Callable[[object], object] | None = None,
         stale_while_revalidate: bool = True,
         content_type: str = "application/json",
     ) -> RequestHandle:
@@ -454,6 +464,21 @@ class RequestManager:
         with self._condition:
             self._cache_by_key[spec.key] = cache
         cached = cache.get(spec.key)
+        if cached is not None and cache_decoder is not None:
+            try:
+                decoded_value = cache_decoder(cached.value)
+            except Exception:
+                decoded_value = None
+                cache.invalidate(spec.key)
+                cached = None
+            else:
+                cached = CacheEntry(
+                    cached.key,
+                    decoded_value,
+                    cached.stored_at,
+                    cached.content_type,
+                    cached.source,
+                )
         if cached is not None and cache_validator is not None:
             try:
                 valid = bool(cache_validator(cached.value))
@@ -555,7 +580,17 @@ class RequestManager:
             try:
                 result = future.result()
                 if result.status == ResourceStatus.READY:
-                    cache.put(spec.key, result.value, content_type=content_type, stored_at=result.updated_at or time.time())
+                    value = result.value
+                    if cache_validator is not None and not cache_validator(value):
+                        return
+                    if cache_encoder is not None:
+                        value = cache_encoder(value)
+                    cache.put(
+                        spec.key,
+                        value,
+                        content_type=content_type,
+                        stored_at=result.updated_at or time.time(),
+                    )
             except Exception:
                 pass
 

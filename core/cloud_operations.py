@@ -50,6 +50,12 @@ class CloudStatusResult:
         return self.error is None
 
 
+class CloudListingRequestError(RuntimeError):
+    """Raised when a remote cloud listing cannot be refreshed."""
+
+    retryable = True
+
+
 class CloudSyncCoordinator:
     """Own cloud workflow context and per-game operation serialization.
 
@@ -174,13 +180,13 @@ class CloudSyncCoordinator:
     def find_changed_games(self, games, cached_statuses) -> list[tuple]:
         """Diff a fresh remote listing against cached cloud statistics."""
         if not self.claim(0, "listing_diff"):
-            return []
+            raise CloudListingRequestError("A cloud listing refresh is already running.")
         try:
             from core.cloud_save_sync import CloudSaveSyncEngine, _get_cloud_listing, resolve_name_key
             try:
                 _get_cloud_listing(force_refresh=True)
-            except Exception:
-                return []
+            except Exception as exc:
+                raise CloudListingRequestError("The cloud listing could not be refreshed.") from exc
             changed = []
             for gid, name, path, steam_id in games:
                 try:
@@ -318,5 +324,6 @@ class CloudOperationCoordinator:
 
 __all__ = [
     "CloudOperationCoordinator", "CloudOperationResult", "CloudPreflightResult",
-    "CloudStatusResult", "CloudSyncCoordinator", "classify_cloud_error",
+    "CloudListingRequestError", "CloudStatusResult", "CloudSyncCoordinator",
+    "classify_cloud_error",
 ]

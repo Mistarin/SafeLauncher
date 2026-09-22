@@ -6,7 +6,7 @@ from core.safe_thread import SafeQThread
 from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
 from core.steam_client import SteamClient, SteamClientError
-from core.cache_policy import cache_policy
+from core.steam_resource_service import SteamResourceService
 
 logger = get_logger("SteamBuildTracker")
 
@@ -108,25 +108,14 @@ class SteamBuildFetcher(SafeQThread):
         if self.isInterruptionRequested():
             return
         if self.request_manager is not None:
-            from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+            from core.request_contracts import RequestPriority, ResourceStatus
             client = self.steam_client or SteamClient()
-            key = RequestKey("steam-build", self.steam_id or f"game-{self.game_id}")
-            loader = lambda token: (token.raise_if_cancelled(), client.public_build(self.steam_id))[1]
-            if getattr(self.request_manager, "cache", None) is not None:
-                handle = self.request_manager.request_cached(
-                    key,
-                    loader,
-                    max_age_seconds=cache_policy("steam-build").max_age_seconds,
-                    priority=RequestPriority.BACKGROUND,
-                    timeout_seconds=15,
-                )
-            else:
-                handle = self.request_manager.request(
-                    key,
-                    loader,
-                    priority=RequestPriority.BACKGROUND,
-                    timeout_seconds=15,
-                )
+            service = SteamResourceService(self.request_manager, client=client)
+            handle = service.request_build(
+                self.steam_id or f"game-{self.game_id}",
+                priority=RequestPriority.BACKGROUND,
+            )
+            key = handle.key
             result = handle.future.result()
             usable = result
             if result.status != ResourceStatus.READY:

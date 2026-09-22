@@ -50,6 +50,19 @@ class ArtworkResourceService:
         return RequestKey("artwork-search", digest or "empty", "steam-store-v1")
 
     @staticmethod
+    def _search_cache_validator(value) -> bool:
+        """Only retain search responses that can actually drive artwork work."""
+        if not isinstance(value, dict):
+            return False
+        primary = value.get("primary")
+        if not isinstance(primary, dict):
+            return False
+        return bool(
+            str(primary.get("appid") or "").strip()
+            or str(primary.get("banner_url") or "").strip()
+        )
+
+    @staticmethod
     def banner_key(url: str) -> RequestKey:
         """Return a stable banner key without putting a CDN URL in cache state."""
         value = str(url or "").strip()
@@ -114,11 +127,17 @@ class ArtworkResourceService:
         def load(token: CancellationToken):
             token.raise_if_cancelled()
             search_entry = shared_cache.get(search_key) if shared_cache is not None else None
-            if search_entry is not None and search_entry.is_fresh(self.SEARCH_TTL_SECONDS):
+            if (
+                search_entry is not None
+                and search_entry.is_fresh(self.SEARCH_TTL_SECONDS)
+                and self._search_cache_validator(search_entry.value)
+            ):
                 search = search_entry.value
             else:
+                if search_entry is not None and shared_cache is not None:
+                    shared_cache.invalidate(search_key)
                 search = self.client.search_game(target.game_name)
-                if shared_cache is not None:
+                if shared_cache is not None and self._search_cache_validator(search):
                     shared_cache.put(search_key, search, content_type="application/json")
             token.raise_if_cancelled()
             banner_path = ""
@@ -207,6 +226,7 @@ class ArtworkResourceService:
         return self._request_cached(
             self.search_spec(game_name, **kwargs),
             max_age_seconds=self.SEARCH_TTL_SECONDS,
+            cache_validator=self._search_cache_validator,
         )
 
     def request_banner(self, url: str, **kwargs):
@@ -261,7 +281,10 @@ class ArtworkResourceService:
         if not isinstance(value, (tuple, list)) or len(value) < 3:
             return False
         paths = [str(value[0] or ""), str(value[2] or "")]
-        return all(not path or ArtworkResourceService._path_cache_validator(path) for path in paths)
+        return bool(paths[0] or paths[1]) and all(
+            not path or ArtworkResourceService._path_cache_validator(path)
+            for path in paths
+        )
 
     @staticmethod
     def _transport_without_cache(method, *args, **kwargs):

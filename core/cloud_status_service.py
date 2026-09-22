@@ -18,7 +18,12 @@ from threading import RLock
 from typing import Callable, Iterable
 
 from core.cloud_context import CloudContext
-from core.cloud_operations import CloudStatusResult, CloudSyncCoordinator
+from core.cloud_operations import (
+    CloudStatusResult,
+    CloudSyncCoordinator,
+)
+from core.cloud_models import SaveStats, SyncStatus
+from core.cache_policy import cache_policy
 from core.save_state import SaveStateStore
 from core.request_contracts import (
     CancellationToken,
@@ -72,6 +77,9 @@ class CloudStatusPlan:
 
 class CloudStatusService:
     """Build and submit context-safe cloud status resources."""
+
+    STATUS_TTL_SECONDS = cache_policy("cloud-status").max_age_seconds
+    LISTING_TTL_SECONDS = cache_policy("cloud-listing").max_age_seconds
 
     def __init__(
         self,
@@ -289,7 +297,7 @@ class CloudStatusService:
                 "tag": "poll-diff",
             },
         )
-        handle = self.request_manager.submit(spec)
+        handle = self._request_listing_cached(spec)
         with self._lock:
             self._changed_diff_handle = handle
 
@@ -350,6 +358,142 @@ class CloudStatusService:
         return context.request_key("cloud-save-status", str(int(game_id)), "v1")
 
     @staticmethod
+    def _serialize_stats(value) -> dict | None:
+        if value is None:
+            return None
+        return {
+            "exists": bool(getattr(value, "exists", False)),
+            "last_modified": float(getattr(value, "last_modified", 0.0) or 0.0),
+            "size_bytes": int(getattr(value, "size_bytes", 0) or 0),
+            "file_count": int(getattr(value, "file_count", 0) or 0),
+            "display_path": str(getattr(value, "display_path", "") or ""),
+        }
+
+    @staticmethod
+    def _deserialize_stats(value) -> SaveStats | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("Invalid cloud status statistics")
+        return SaveStats(
+            exists=bool(value.get("exists", False)),
+            last_modified=float(value.get("last_modified", 0.0) or 0.0),
+            size_bytes=int(value.get("size_bytes", 0) or 0),
+            file_count=int(value.get("file_count", 0) or 0),
+            display_path=str(value.get("display_path", "") or ""),
+        )
+
+    @staticmethod
+    def _status_cache_validator(value) -> bool:
+        return (
+            isinstance(value, CloudStatusResult)
+            and value.error is None
+            and isinstance(value.status, SyncStatus)
+            and isinstance(value.game_name, str)
+        )
+
+    @classmethod
+    def _status_cache_encoder(cls, value) -> dict:
+        if not cls._status_cache_validator(value):
+            raise ValueError("Invalid cloud status cache value")
+        return {
+            "game_name": value.game_name,
+            "status": value.status.value,
+            "local_stats": cls._serialize_stats(value.local_stats),
+            "cloud_stats": cls._serialize_stats(value.cloud_stats),
+        }
+
+    @staticmethod
+    def _status_cache_decoder(value) -> CloudStatusResult:
+        if isinstance(value, CloudStatusResult):
+            return value
+        if not isinstance(value, dict):
+            raise ValueError("Invalid cloud status cache document")
+        try:
+            status = SyncStatus(str(value["status"]))
+            game_name = str(value.get("game_name", ""))
+            return CloudStatusResult(
+                game_name,
+                status,
+                CloudStatusService._deserialize_stats(value.get("local_stats")),
+                CloudStatusService._deserialize_stats(value.get("cloud_stats")),
+            )
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("Invalid cloud status cache document") from exc
+
+    @staticmethod
+    def _listing_cache_validator(value) -> bool:
+        return isinstance(value, (list, tuple)) and all(
+            isinstance(target, CloudStatusTarget) for target in value
+        )
+
+    @classmethod
+    def _listing_cache_encoder(cls, value) -> list[dict]:
+        if not cls._listing_cache_validator(value):
+            raise ValueError("Invalid cloud listing cache value")
+        return [
+            {
+                "game_id": int(target.game_id),
+                "game_name": target.game_name,
+                "game_path": target.game_path,
+                "steam_id": target.steam_id,
+            }
+            for target in value
+        ]
+
+    @staticmethod
+    def _listing_cache_decoder(value) -> list[CloudStatusTarget]:
+        if not isinstance(value, list):
+            raise ValueError("Invalid cloud listing cache document")
+        decoded = []
+        try:
+            for item in value:
+                if isinstance(item, CloudStatusTarget):
+                    decoded.append(item)
+                    continue
+                if not isinstance(item, dict):
+                    raise ValueError("Invalid cloud listing target")
+                decoded.append(
+                    CloudStatusTarget(
+                        int(item["game_id"]),
+                        str(item.get("game_name", "")),
+                        str(item.get("game_path", "")),
+                        str(item.get("steam_id", "")),
+                    )
+                )
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("Invalid cloud listing cache document") from exc
+        return decoded
+
+    def _request_status_cached(self, spec: RequestSpec[CloudStatusResult]):
+        if self.resource_cache is None:
+            return self.request_manager.submit(spec)
+        return self.request_manager.cached_request(
+            spec,
+            self.resource_cache,
+            max_age_seconds=self.STATUS_TTL_SECONDS,
+            cache_validator=self._status_cache_validator,
+            cache_encoder=self._status_cache_encoder,
+            cache_decoder=self._status_cache_decoder,
+            stale_while_revalidate=True,
+            content_type="application/json",
+        )
+
+    def _request_listing_cached(self, spec: RequestSpec[list[CloudStatusTarget]]):
+        if self.resource_cache is None:
+            return self.request_manager.submit(spec)
+        return self.request_manager.cached_request(
+            spec,
+            self.resource_cache,
+            max_age_seconds=self.LISTING_TTL_SECONDS,
+            cache_validator=self._listing_cache_validator,
+            cache_encoder=self._listing_cache_encoder,
+            cache_decoder=self._listing_cache_decoder,
+            stale_while_revalidate=True,
+            content_type="application/json",
+        )
+
+    @staticmethod
     def _retry_policy() -> RetryPolicy:
         return RetryPolicy(
             retry_if=lambda error: bool(getattr(error, "retryable", False))
@@ -406,7 +550,7 @@ class CloudStatusService:
         tag: str = "",
     ):
         """Submit one cloud status resource through RequestManager."""
-        return self.request_manager.submit(
+        return self._request_status_cached(
             self.status_spec(
                 target,
                 priority=priority,
@@ -449,7 +593,20 @@ class CloudStatusService:
             if on_complete is not None:
                 on_complete(results)
 
-        handles = self.request_manager.request_many(specs, on_complete=completed)
+        if self.resource_cache is None:
+            handles = self.request_manager.request_many(specs, on_complete=completed)
+        else:
+            handles = self.request_manager.request_many_cached(
+                specs,
+                cache=self.resource_cache,
+                max_age_seconds=self.STATUS_TTL_SECONDS,
+                cache_validator=self._status_cache_validator,
+                cache_encoder=self._status_cache_encoder,
+                cache_decoder=self._status_cache_decoder,
+                stale_while_revalidate=True,
+                content_type="application/json",
+                on_complete=completed,
+            )
         with self._lock:
             self._active_batches[batch_key] = handles
         return handles

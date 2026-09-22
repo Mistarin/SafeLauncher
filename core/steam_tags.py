@@ -3,7 +3,7 @@ from core.safe_thread import SafeQThread
 from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
 from core.steam_client import SteamClient
-from core.cache_policy import cache_policy
+from core.steam_resource_service import SteamResourceService
 
 logger = get_logger("SteamTags")
 
@@ -28,26 +28,14 @@ class SteamTagsFetcher(SafeQThread):
         if self.isInterruptionRequested():
             return
         if self.request_manager is not None:
-            from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+            from core.request_contracts import RequestPriority, ResourceStatus
             client = self.steam_client or SteamClient()
-            identity = self.game_name.strip().casefold() or f"game-{self.game_id}"
-            key = RequestKey("steam-tags", identity)
-            loader = lambda token: (token.raise_if_cancelled(), client.tags_for_game(self.game_name))[1]
-            if getattr(self.request_manager, "cache", None) is not None:
-                handle = self.request_manager.request_cached(
-                    key,
-                    loader,
-                    max_age_seconds=cache_policy("steam-tags").max_age_seconds,
-                    priority=RequestPriority.NORMAL,
-                    timeout_seconds=10,
-                )
-            else:
-                handle = self.request_manager.request(
-                    key,
-                    loader,
-                    priority=RequestPriority.NORMAL,
-                    timeout_seconds=10,
-                )
+            service = SteamResourceService(self.request_manager, client=client)
+            handle = service.request_tags(
+                self.game_name,
+                priority=RequestPriority.NORMAL,
+            )
+            key = handle.key
             result = handle.future.result()
             usable = result
             if result.status != ResourceStatus.READY:

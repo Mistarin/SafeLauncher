@@ -223,6 +223,45 @@ class RequestManagerTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_cached_request_codec_round_trips_disk_values_and_rejects_invalid_results(self):
+        cache = ResourceCache()
+        manager = RequestManager(max_workers=1, cache=cache)
+        try:
+            key = RequestKey("typed", "round-trip")
+            first = manager.cached_request(
+                RequestSpec(key, lambda _token: {"number": 7}),
+                cache,
+                max_age_seconds=60,
+                cache_validator=lambda value: isinstance(value, dict) and value.get("number") == 7,
+                cache_encoder=lambda value: {"encoded": value["number"]},
+                cache_decoder=lambda value: {"number": value["encoded"]},
+            ).future.result(timeout=2)
+            self.assertEqual(first.value, {"number": 7})
+            self.assertEqual(cache.get(key).value, {"encoded": 7})
+
+            second = manager.cached_request(
+                RequestSpec(key, lambda _token: {"number": 99}),
+                cache,
+                max_age_seconds=60,
+                cache_validator=lambda value: isinstance(value, dict) and value.get("number") == 7,
+                cache_encoder=lambda value: {"encoded": value["number"]},
+                cache_decoder=lambda value: {"number": value["encoded"]},
+            ).future.result(timeout=2)
+            self.assertTrue(second.from_cache)
+            self.assertEqual(second.value, {"number": 7})
+
+            invalid_key = RequestKey("typed", "invalid")
+            invalid = manager.cached_request(
+                RequestSpec(invalid_key, lambda _token: ""),
+                cache,
+                max_age_seconds=60,
+                cache_validator=bool,
+            ).future.result(timeout=2)
+            self.assertEqual(invalid.value, "")
+            self.assertIsNone(cache.get(invalid_key))
+        finally:
+            manager.shutdown()
+
     def test_key_batch_api_and_invalidate(self):
         manager = RequestManager(max_workers=1)
         try:

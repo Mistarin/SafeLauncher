@@ -198,6 +198,143 @@ class CloudStatusServiceTests(unittest.TestCase):
             finally:
                 manager.shutdown()
 
+    def test_status_request_round_trips_typed_value_through_shared_disk_cache(self):
+        expected = CloudStatusResult(
+            "Example Game",
+            SyncStatus.IN_SYNC,
+            SaveStats(exists=True, last_modified=12.5, size_bytes=42, file_count=3),
+            SaveStats(exists=True, last_modified=11.5, size_bytes=42, file_count=2),
+        )
+        first_coordinator = _Coordinator(expected)
+        target = CloudStatusTarget(42, "Example Game", "/games/example", "480")
+        with tempfile.TemporaryDirectory() as directory:
+            first_cache = ResourceCache(directory)
+            first_manager = RequestManager(max_workers=1, cache=first_cache)
+            try:
+                first_service = CloudStatusService(
+                    first_manager,
+                    coordinator=first_coordinator,
+                    context_provider=self._context_provider(),
+                    cache=first_cache,
+                )
+                first = first_service.request_status(target).future.result(timeout=2)
+                self.assertEqual(first.status, ResourceStatus.READY)
+                self.assertFalse(first.from_cache)
+                self.assertEqual(first_coordinator.calls, [(42, "Example Game", "/games/example", "480")])
+            finally:
+                first_manager.shutdown()
+
+            second_coordinator = _Coordinator(expected)
+            second_cache = ResourceCache(directory)
+            second_manager = RequestManager(max_workers=1, cache=second_cache)
+            try:
+                second_service = CloudStatusService(
+                    second_manager,
+                    coordinator=second_coordinator,
+                    context_provider=self._context_provider(),
+                    cache=second_cache,
+                )
+                second = second_service.request_status(target).future.result(timeout=2)
+                self.assertEqual(second.status, ResourceStatus.READY)
+                self.assertTrue(second.from_cache)
+                self.assertIsInstance(second.value, CloudStatusResult)
+                self.assertEqual(second.value.status, SyncStatus.IN_SYNC)
+                self.assertEqual(second.value.local_stats.size_bytes, 42)
+                self.assertEqual(second_coordinator.calls, [])
+            finally:
+                second_manager.shutdown()
+
+    def test_request_many_uses_shared_cloud_cache(self):
+        expected = CloudStatusResult("Example Game", SyncStatus.NO_SAVES)
+        targets = [
+            CloudStatusTarget(42, "Example Game", "/games/example", "480"),
+            CloudStatusTarget(43, "Another Game", "/games/another", "730"),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            first_coordinator = _Coordinator(expected)
+            first_cache = ResourceCache(directory)
+            first_manager = RequestManager(max_workers=2, cache=first_cache)
+            try:
+                first_service = CloudStatusService(
+                    first_manager,
+                    coordinator=first_coordinator,
+                    context_provider=self._context_provider(),
+                    cache=first_cache,
+                )
+                first_handles = first_service.request_many(targets)
+                first_results = [handle.future.result(timeout=2) for handle in first_handles]
+                self.assertEqual([result.status for result in first_results], [ResourceStatus.READY] * 2)
+            finally:
+                first_manager.shutdown()
+
+            second_coordinator = _Coordinator(expected)
+            second_cache = ResourceCache(directory)
+            second_manager = RequestManager(max_workers=2, cache=second_cache)
+            try:
+                second_service = CloudStatusService(
+                    second_manager,
+                    coordinator=second_coordinator,
+                    context_provider=self._context_provider(),
+                    cache=second_cache,
+                )
+                second_handles = second_service.request_many(targets)
+                second_results = [handle.future.result(timeout=2) for handle in second_handles]
+                self.assertTrue(all(result.from_cache for result in second_results))
+                self.assertTrue(all(isinstance(result.value, CloudStatusResult) for result in second_results))
+                self.assertEqual(second_coordinator.calls, [])
+            finally:
+                second_manager.shutdown()
+
+    def test_changed_listing_uses_shared_cache_with_typed_target_codec(self):
+        class ListingCoordinator(_Coordinator):
+            def __init__(self):
+                super().__init__(CloudStatusResult("Example Game", SyncStatus.NO_SAVES))
+                self.listing_calls = 0
+
+            def find_changed_games(self, games, _cached_statuses):
+                self.listing_calls += 1
+                return list(games[:1])
+
+        targets = [
+            CloudStatusTarget(42, "Example Game", "/games/example", "480"),
+            CloudStatusTarget(43, "Another Game", "/games/another", "730"),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            first_coordinator = ListingCoordinator()
+            first_cache = ResourceCache(directory)
+            first_manager = RequestManager(max_workers=1, cache=first_cache)
+            try:
+                first_service = CloudStatusService(
+                    first_manager,
+                    coordinator=first_coordinator,
+                    context_provider=self._context_provider(),
+                    cache=first_cache,
+                )
+                first = first_service.request_changed_diff(targets).future.result(timeout=2)
+                self.assertEqual(first.status, ResourceStatus.READY)
+                self.assertEqual(first.value, [targets[0]])
+                self.assertEqual(first_coordinator.listing_calls, 1)
+            finally:
+                first_manager.shutdown()
+
+            second_coordinator = ListingCoordinator()
+            second_cache = ResourceCache(directory)
+            second_manager = RequestManager(max_workers=1, cache=second_cache)
+            try:
+                second_service = CloudStatusService(
+                    second_manager,
+                    coordinator=second_coordinator,
+                    context_provider=self._context_provider(),
+                    cache=second_cache,
+                )
+                second = second_service.request_changed_diff(targets).future.result(timeout=2)
+                self.assertEqual(second.status, ResourceStatus.READY)
+                self.assertTrue(second.from_cache)
+                self.assertEqual(second.value, [targets[0]])
+                self.assertEqual(second_coordinator.listing_calls, 0)
+            finally:
+                second_manager.shutdown()
+
     def test_record_status_accepts_explicit_context_generation(self):
         coordinator = _Coordinator(CloudStatusResult("Example Game", SyncStatus.IN_SYNC))
         manager = RequestManager(max_workers=1)
