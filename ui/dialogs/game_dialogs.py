@@ -862,12 +862,12 @@ class EditGameDialog(AddGameDialog):
         self.add_btn.setText("Save Changes")
         self.add_btn.setIcon(get_app_icon("export"))
 
-        self.btn_lifecycle = QPushButton("Remove / Archive…")
+        self.btn_lifecycle = QPushButton("Uninstall / Delete…")
         self.btn_lifecycle.setIcon(get_icon("ph.trash-bold", color="#F05D6C"))
         self.btn_lifecycle.setIconSize(QSize(15, 15))
         self.btn_lifecycle.setMinimumSize(150, 38)
         self.btn_lifecycle.setToolTip(
-            "Remove the library record, remove files and the record, or archive while removing files and preserving stats."
+            "Uninstall the game while keeping its record, or permanently delete it."
         )
         self.btn_lifecycle.setStyleSheet("""
             QPushButton {
@@ -2111,9 +2111,9 @@ class ToastNotification(QFrame):
 
 
 class CustomRemoveDialog(PopupDialog):
-    """Custom styled dark confirmation dialog for game removal and archiving."""
+    """Custom styled dark confirmation dialog for uninstalling or deleting a game."""
     def __init__(self, game_name: str, parent=None, *, is_archived: bool = False):
-        super().__init__("Remove / Archive Game", parent)
+        super().__init__("Manage Game", parent)
         self.setFixedWidth(460)
         self.setStyleSheet("""
             QDialog {
@@ -2137,7 +2137,7 @@ class CustomRemoveDialog(PopupDialog):
 
         layout = self.popup_layout(margins=(22, 20, 22, 20), spacing=14)
 
-        title_label = QLabel("Remove / Archive Game")
+        title_label = QLabel("Manage Game")
         title_label.setFont(QFont("Arial", 13, QFont.Weight.Bold))
         layout.addWidget(title_label)
 
@@ -2149,14 +2149,14 @@ class CustomRemoveDialog(PopupDialog):
         btn_box = QVBoxLayout()
         btn_box.setSpacing(10)
 
-        library_label = (
-            " Remove from Archive (Restore to Library)"
+        btn_uninstall = QPushButton(" Already uninstalled" if is_archived else " Uninstall")
+        btn_uninstall.setIcon(get_icon("ph.archive-bold", color="#E5A93D"))
+        btn_uninstall.setToolTip(
+            "This game is already uninstalled. Use Restore to Library to reinstall its record."
             if is_archived else
-            " Remove from Library (Keep Files on Disk)"
+            "Remove the game files but keep the SafeLauncher record, statistics, and history."
         )
-        btn_library = QPushButton(library_label)
-        btn_library.setIcon(get_icon("ph.minus-circle-bold", color="#E5A93D"))
-        btn_library.setStyleSheet("""
+        btn_uninstall.setStyleSheet("""
             QPushButton {
                 background-color: #1A1E26;
                 color: #E5A93D;
@@ -2168,63 +2168,17 @@ class CustomRemoveDialog(PopupDialog):
                 color: #FFFFFF;
             }
         """)
-        btn_library.setToolTip(
-            "Restore this archived record to the active library without deleting its history."
-            if is_archived else
-            "Remove the SafeLauncher record but leave the game files and profile history untouched."
-        )
-        btn_library.clicked.connect(
-            self._select_remove_from_archive if is_archived else self._select_remove_library
-        )
+        btn_uninstall.setEnabled(not is_archived)
+        if not is_archived:
+            btn_uninstall.clicked.connect(self._select_uninstall)
 
-        btn_disk = QPushButton(" Remove from Disk (Delete Files & Record)")
-        btn_disk.setIcon(get_icon("ph.trash-bold", color="#F05D6C"))
-        btn_disk.setToolTip("Permanently deletes the game directory and the SafeLauncher record.")
-        btn_disk.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(240, 93, 108, 0.08);
-                color: #F05D6C;
-                border: 1px solid rgba(240, 93, 108, 0.25);
-            }
-            QPushButton:hover {
-                background-color: rgba(240, 93, 108, 0.2);
-                border-color: #F05D6C;
-                color: #FFFFFF;
-            }
-        """)
-        btn_disk.clicked.connect(self._select_remove_disk)
-
-        btn_archive = QPushButton(" Move to Archive (Remove Files & Keep All Stats)")
-        btn_archive.setIcon(get_icon("ph.archive-bold", color="#3B9FE8"))
-        btn_archive.setToolTip(
-            "Remove the game files, hide the game from the active library, and preserve its record, playtime, favorites, and achievements."
+        btn_delete = QPushButton(" Permanently delete")
+        btn_delete.setIcon(get_icon("ph.trash-bold", color="#F05D6C"))
+        btn_delete.setToolTip(
+            "Permanently delete the game files, SafeLauncher entry, local history, and achievements. "
+            "Remote cloud-save generations are not deleted."
         )
-        btn_archive.setStyleSheet("""
-            QPushButton {
-                background-color: #1A1E26;
-                color: #3B9FE8;
-                border: 1px solid #252A33;
-            }
-            QPushButton:hover {
-                background-color: #0D2A40;
-                border-color: #3B9FE8;
-                color: #FFFFFF;
-            }
-        """)
-        btn_archive.setEnabled(not is_archived)
-        if is_archived:
-            btn_archive.setText(" Already in Archive")
-            btn_archive.setToolTip("This game is already archived. Restore it from the library archive filter.")
-        else:
-            btn_archive.clicked.connect(self._select_archive)
-
-        btn_delete_all = QPushButton(" Delete All Local Data")
-        btn_delete_all.setIcon(get_icon("ph.warning-bold", color="#FF7A85"))
-        btn_delete_all.setToolTip(
-            "Permanently delete the local record, achievements, playtime, and profile history. "
-            "Remote cloud-save generations are not deleted by this action."
-        )
-        btn_delete_all.setStyleSheet("""
+        btn_delete.setStyleSheet("""
             QPushButton {
                 background-color: rgba(180, 35, 52, 0.12);
                 color: #FF7A85;
@@ -2236,7 +2190,7 @@ class CustomRemoveDialog(PopupDialog):
                 color: #FFFFFF;
             }
         """)
-        btn_delete_all.clicked.connect(self._select_delete_all_data)
+        btn_delete.clicked.connect(self._select_permanent_delete)
 
         btn_cancel = QPushButton("Cancel")
         btn_cancel.setStyleSheet("""
@@ -2253,53 +2207,30 @@ class CustomRemoveDialog(PopupDialog):
         """)
         btn_cancel.clicked.connect(self.reject)
 
-        btn_box.addWidget(btn_library)
-        btn_box.addWidget(btn_disk)
-        btn_box.addWidget(btn_archive)
-        btn_box.addWidget(btn_delete_all)
+        btn_box.addWidget(btn_uninstall)
+        btn_box.addWidget(btn_delete)
         btn_box.addWidget(btn_cancel)
         layout.addLayout(btn_box)
 
-    def _select_remove_library(self):
-        self.choice = 'remove_library'
-        self.accept()
-
-    def _select_remove_from_archive(self):
-        self.choice = 'remove_from_archive'
-        self.accept()
-
-    def _select_remove_disk(self):
+    def _select_uninstall(self):
         if QMessageBox.question(
             self,
-            "Delete game files?",
-            "This permanently deletes the game files from disk and removes the SafeLauncher record. Continue?",
+            "Uninstall game?",
+            "This removes the game files from disk but keeps the SafeLauncher record, "
+            "playtime, favorites, achievements, and profile history. Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         ) != QMessageBox.StandardButton.Yes:
             return
-        self.choice = 'remove_disk'
+        self.choice = 'uninstall'
         self.accept()
 
-    def _select_archive(self):
-        if QMessageBox.question(
-            self,
-            "Archive and remove game files?",
-            "This removes the game files from disk and moves the game to the archive. "
-            "The SafeLauncher record, playtime, favorites, and achievements will be preserved. Continue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        ) != QMessageBox.StandardButton.Yes:
-            return
-        self.choice = 'archive'
-        self.accept()
-
-    def _select_delete_all_data(self):
+    def _select_permanent_delete(self):
         if QMessageBox.warning(
             self,
-            "Delete all local data?",
-            "This permanently deletes the local library record, achievements, playtime, "
-            "profile history, and any registered game files. Remote cloud-save generations "
-            "are not deleted by this action. Continue?",
+            "Permanently delete game?",
+            "This permanently deletes the game files, SafeLauncher entry, achievements, "
+            "playtime, and profile history. Remote cloud-save generations are not deleted. Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         ) != QMessageBox.StandardButton.Yes:

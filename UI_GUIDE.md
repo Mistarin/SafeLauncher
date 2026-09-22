@@ -19,7 +19,7 @@
 │  └─────────────────────────────────────────────────┘ │
 │                                                       │
 │  ┌─────────────────────────────────────────────────┐ │
-│  │ ▶ Launch Selected Game │ ➕ Add Game │ 🗑️ Remove  │ │
+│  │ ▶ Launch Selected Game │ ➕ Add Game │ 🗑️ Uninstall / Delete │ │
 │  └─────────────────────────────────────────────────┘ │
 │                                                       │
 │  ┌─────────────────────────────────────────────────┐ │
@@ -178,7 +178,7 @@ Game Files Updated
 │   boxRunner │  │ (zip_backup.py)   │  │(database.py) │
 │(firejail_   │  │                   │  │              │
 │ runner.py)  │  │- Export saves     │  │- Add game    │
-│             │  │- Import saves     │  │- Remove game │
+│             │  │- Import saves     │  │- Uninstall / delete game │
 │- Launch in  │  │- ZIP compression  │  │- Get all     │
 │  sandbox    │  │- ZIP extraction   │  │              │
 │- Firejail   │  └──────────────────┘  └──────────────┘
@@ -200,21 +200,23 @@ Success Scenarios:
   ✓ Game launched (with message)
   ✓ Save exported successfully
   ✓ Save imported successfully
-  ✓ Game removed from library
+  ✓ Game uninstalled while its record is preserved
+  ✓ Game permanently deleted
 
 Error Scenarios:
   ✗ All fields required (Add Game)
   ✗ Invalid game path (Add Game)
-  ✗ No game selected (Launch/Remove/Export/Import)
+  ✗ No game selected (Launch/Uninstall/Export/Import)
   ✗ Save directory not found (Export)
   ✗ Failed to export save (Export)
   ✗ Failed to import save (Import)
   ✗ Failed to launch game (Launch)
 
 Confirmation Dialogs:
-  ? Remove game from library?
-    - Yes (Removes entry, keeps game files)
-    - No (Cancels operation)
+  ? Manage game?
+    - Uninstall (Removes game files, keeps the SafeLauncher record and history)
+    - Permanently delete (Removes game files and all local SafeLauncher data)
+    - Cancel
 ```
 
 ---

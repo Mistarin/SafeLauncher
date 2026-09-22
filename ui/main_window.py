@@ -992,8 +992,8 @@ class MainWindow(QMainWindow):
         self.detail_ach_card.setVisible(False)
         detail_layout.addWidget(self.detail_ach_card)
 
-        # Game lifecycle button: opens the shared remove/archive chooser.
-        self.btn_detail_remove = QPushButton("Remove / Archive")
+        # Game lifecycle button: opens the shared uninstall/delete chooser.
+        self.btn_detail_remove = QPushButton("Uninstall / Delete")
         self.btn_detail_remove.setIcon(get_icon("ph.trash-bold", color="#FF453A"))
         self.btn_detail_remove.setIconSize(QSize(13, 13))
         self.btn_detail_remove.setFixedHeight(28)
@@ -1626,7 +1626,7 @@ class MainWindow(QMainWindow):
             self.btn_detail_screenshots: "Open selected game screenshots",
             self.btn_detail_videos: "Open selected game videos",
             self.btn_detail_achievements: "Open selected game achievements",
-            self.btn_detail_remove: "Archive or remove selected game",
+            self.btn_detail_remove: "Uninstall or permanently delete the selected game",
             self.btn_detail_cloud_restore: "Restore selected game cloud save",
             self.btn_update_banner_action: "Download and apply SafeLauncher update",
             self.btn_update_banner_dismiss: "Dismiss update notification",
@@ -4701,6 +4701,22 @@ class MainWindow(QMainWindow):
         self.metadata_attempted_builds.discard(game_id)
         self._update_detail_panel()
 
+    def _commit_current_steam_build(self, game_id: int, build_id: str, build_date: int) -> None:
+        """Persist a current Steam build and clear any stale update result."""
+        game_id = int(game_id)
+        build_id = str(build_id or "").strip()
+        build_date = int(build_date or 0)
+        self.library_service.set_build_reference(game_id, build_id, build_date)
+        self.local_version_by_game_id[game_id] = (build_id, build_date)
+
+        # A previous check may have cached the same Steam release as an
+        # update. Replace that result as well as the derived view state, so a
+        # refresh cannot replay the stale update badge.
+        self.steam_check_results[game_id] = (build_id, build_date, False, "")
+        self.library_metadata_state.steam_build_checked_at[game_id] = time.time()
+        self._set_game_update_status(game_id, False)
+        self._save_persistent_cache()
+
     def _mark_build_current_from_config(self, game_id: int):
         """Record a manually installed Steam build from the game settings dialog."""
         if not self.selected_game or self.selected_game[0] != game_id:
@@ -4710,9 +4726,7 @@ class MainWindow(QMainWindow):
             self._show_toast("Steam has not provided a build to record yet.", is_error=True)
             return
         latest_date = getattr(self, "latest_checked_build_date", 0)
-        self.library_service.set_build_reference(game_id, latest, latest_date)
-        self.local_version_by_game_id[game_id] = (latest, latest_date)
-        self.update_status_by_game_id[game_id] = False
+        self._commit_current_steam_build(game_id, latest, latest_date)
         self._show_toast("Steam build marked as current. Game files were not changed.")
         self._refresh_library()
         self._select_game_by_id(game_id)
@@ -4731,9 +4745,7 @@ class MainWindow(QMainWindow):
             self._show_toast("Steam has not provided a build to record yet.", is_error=True)
             return
         latest_date = getattr(self, "latest_checked_build_date", 0)
-        self.library_service.set_build_reference(game_id, latest, latest_date)
-        self.local_version_by_game_id[game_id] = (latest, latest_date)
-        self.update_status_by_game_id[game_id] = False
+        self._commit_current_steam_build(game_id, latest, latest_date)
         self._show_toast("Steam build marked as current. Game files were not changed.")
         self._refresh_library()
         self._select_game_by_id(game_id)
@@ -5250,13 +5262,13 @@ class MainWindow(QMainWindow):
                     border-color: #55ACED;
                 }
             """)
-            self.btn_detail_remove.setText("Manage Archive")
-            self.btn_detail_remove.setToolTip("Restore, remove from the library, or delete this archived game.")
+            self.btn_detail_remove.setText("Manage Game")
+            self.btn_detail_remove.setToolTip("Manage this uninstalled game or permanently delete it.")
             return
 
-        self.btn_detail_remove.setText("Remove / Archive")
+        self.btn_detail_remove.setText("Uninstall / Delete")
         self.btn_detail_remove.setToolTip(
-            "Remove the library record, remove files and the record, or archive while removing files and preserving stats."
+            "Uninstall the game while keeping its record, or permanently delete it."
         )
         if game_id in self.running_game_ids:
             self.btn_detail_launch.setText("Stop Game")
@@ -7738,58 +7750,29 @@ class MainWindow(QMainWindow):
             self._update_compact_game_page()
 
     def _apply_game_lifecycle_action(self, game, action: str) -> bool:
-        """Apply one explicit library/archive action and refresh all consumers."""
+        """Apply uninstall or permanent deletion and refresh all consumers."""
         if not game:
             return False
         action = str(action or "").strip().lower()
-        if action not in {"remove_library", "remove_from_archive", "remove_disk", "archive", "delete_all_data"}:
+        if action not in {"uninstall", "delete_all_data"}:
             logger.warning(f"Ignoring unknown game lifecycle action: {action!r}")
             return False
 
         game_id = int(game[0])
         game_name = str(game[1] or "Game")
         library_service = MainWindow._get_library_service(self)
-        if action == "remove_from_archive":
-            restored = library_service.remove_from_archive(game_id) if library_service else False
-            if not restored:
-                self._show_toast(f"Could not remove '{game_name}' from the archive.", is_error=True)
-                return False
-            self._finish_game_lifecycle_change(game_id)
-            if hasattr(self, "_sync_launcher_metadata_async"):
-                self._sync_launcher_metadata_async(game_id)
-            self._show_toast(f"Removed '{game_name}' from the archive and restored it to the library.")
-            return True
-        if action == "archive":
-            # Call through MainWindow so lightweight compatibility hosts that
-            # invoke this helper without inheriting the class still receive
-            # the same service boundary.
-            archived = library_service.archive_game(game_id) if library_service else False
-            if not archived:
-                self._show_toast(f"Could not archive '{game_name}'.", is_error=True)
-                return False
+        if action == "uninstall":
             deleted, error = self._remove_game_files_from_disk(game[2] if len(game) > 2 else "")
             if not deleted:
-                # Keep the archived record even when the filesystem operation
-                # fails. The user can retry cleanup from the archive without
-                # losing playtime, favorites, or achievement history.
-                self._finish_game_lifecycle_change(game_id)
-                if hasattr(self, "_sync_launcher_metadata_async"):
-                    self._sync_launcher_metadata_async(game_id)
-                self._show_toast(
-                    f"Moved '{game_name}' to the archive, but could not remove its files: {error}",
-                    is_error=True,
-                )
+                self._show_toast(error, is_error=True)
+                return False
+            if not library_service or not library_service.archive_game(game_id):
+                self._show_toast(f"Could not mark '{game_name}' as uninstalled.", is_error=True)
                 return False
             self._show_toast(
-                f"Moved '{game_name}' to the archive and removed its files. "
-                "The record and statistics were preserved."
+                f"Uninstalled '{game_name}'. The SafeLauncher record and statistics were preserved."
             )
-        elif action == "remove_library":
-            if not library_service or not library_service.remove_game(game_id):
-                self._show_toast(f"Could not remove '{game_name}' from the library.", is_error=True)
-                return False
-            self._show_toast(f"Removed '{game_name}' from the library. Files were kept on disk.")
-        elif action == "delete_all_data":
+        else:
             game_path = game[2] if len(game) > 2 else ""
             if game_path:
                 deleted, error = self._remove_game_files_from_disk(game_path)
@@ -7805,24 +7788,9 @@ class MainWindow(QMainWindow):
             self._show_toast(
                 f"Deleted all local data for '{game_name}'. Remote cloud-save generations were kept."
             )
-        else:
-            deleted, error = self._remove_game_files_from_disk(game[2] if len(game) > 2 else "")
-            if not deleted:
-                self._show_toast(error, is_error=True)
-                return False
-            if not library_service or not library_service.remove_game(game_id):
-                # This is rare, but the user must know that the filesystem
-                # action completed while the database action did not.
-                logger.error(f"Game files removed but database row {game_id} could not be removed")
-                self._show_toast(
-                    f"Files for '{game_name}' were removed, but its SafeLauncher record could not be cleared.",
-                    is_error=True,
-                )
-                return False
-            self._show_toast(f"Removed '{game_name}' and deleted its files from disk.")
 
         self._finish_game_lifecycle_change(game_id)
-        if action == "archive" and hasattr(self, "_sync_launcher_metadata_async"):
+        if action == "uninstall" and hasattr(self, "_sync_launcher_metadata_async"):
             self._sync_launcher_metadata_async(game_id)
         elif action != "delete_all_data" and hasattr(self, "_sync_profile_metadata_async"):
             self._sync_profile_metadata_async()
@@ -7831,7 +7799,7 @@ class MainWindow(QMainWindow):
     def _on_remove(self):
         game = self._get_selected_game()
         if not game:
-            self._show_toast("Please select a game to remove.", is_error=True)
+            self._show_toast("Please select a game to uninstall or delete.", is_error=True)
             return
         dialog = CustomRemoveDialog(
             game[1],

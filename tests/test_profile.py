@@ -30,7 +30,11 @@ from core.profile_models import (
 )
 from database import GameDatabase
 from core.library_controller import LibraryController, LibraryQuery
+from core.library_metadata_state import LibraryMetadataState
+from core.library_service import LibraryService
+from core.library_state import LibraryStateStore
 from core.cloud_metadata_sync import CloudMetadataSync, _merge_profiles
+from core.game_status import GameStatusState
 from core.profile_service import ProfileServiceClient, ProfileServiceError
 from core.central_auth import (
     CentralAuthConfig,
@@ -347,7 +351,7 @@ class ProfileModelTests(unittest.TestCase):
             self.assertIn("symlink", error.lower())
             self.assertTrue(protected_target.exists())
 
-    def test_archive_action_removes_files_but_keeps_record_and_stats(self):
+    def test_uninstall_action_removes_files_but_keeps_record_and_stats(self):
         from ui.main_window import MainWindow
 
         class LifecycleHost:
@@ -377,7 +381,7 @@ class ProfileModelTests(unittest.TestCase):
                 db.toggle_favorite(game_id)
                 host = LifecycleHost(db)
 
-                self.assertTrue(MainWindow._apply_game_lifecycle_action(host, db.get_all_games()[0], "archive"))
+                self.assertTrue(MainWindow._apply_game_lifecycle_action(host, db.get_all_games()[0], "uninstall"))
                 archived = db.get_all_games()[0]
                 self.assertEqual(archived[0], game_id)
                 self.assertTrue(archived[17])
@@ -424,6 +428,52 @@ class ProfileModelTests(unittest.TestCase):
                 self.assertFalse(game_path.exists())
                 self.assertEqual(host.finished, [game_id])
                 self.assertFalse(host.toasts[-1][1])
+        finally:
+            db.close()
+
+    def test_marking_current_build_clears_cached_update_state(self):
+        from ui.main_window import MainWindow
+
+        class BuildHost:
+            def __init__(self, service, game_id):
+                self.library_service = service
+                self.library_metadata_state = LibraryMetadataState()
+                self.local_version_by_game_id = {game_id: ("old-build", 100)}
+                self.steam_check_results = {game_id: ("new-build", 200, True, "")}
+                self.update_status_by_game_id = {game_id: True}
+                self.game_status_by_id = {
+                    game_id: GameStatusState(update_available=True),
+                }
+                self.banner_widgets = {}
+
+            def _update_library_item(self, *_args):
+                return None
+
+            def _save_persistent_cache(self):
+                return None
+
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game(
+                "Build State Game", "/missing", "game.exe", "umu", steam_id="78903"
+            )
+            service = LibraryService(db, LibraryStateStore())
+            host = BuildHost(service, game_id)
+
+            MainWindow._commit_current_steam_build(host, game_id, "new-build", 200)
+
+            self.assertEqual(db.get_all_games()[0][11], "new-build")
+            self.assertFalse(host.update_status_by_game_id[game_id])
+            self.assertFalse(host.game_status_by_id[game_id].update_available)
+            self.assertEqual(host.steam_check_results[game_id][:3], ("new-build", 200, False))
+
+            reconciled = service.reconcile_statuses(
+                db.get_all_games(),
+                current=host.game_status_by_id,
+                update_status=host.update_status_by_game_id,
+                build_results=host.steam_check_results,
+            )
+            self.assertFalse(reconciled[game_id].update_available)
         finally:
             db.close()
 
@@ -1199,8 +1249,11 @@ class ProfilePageTests(unittest.TestCase):
                 self.assertEqual(edit_dialog.lifecycle_action, "")
                 self.assertFalse(edit_dialog.btn_lifecycle.isHidden())
                 self.assertEqual(edit_dialog.LIFECYCLE_RESULT, 2)
-                chooser._select_remove_library()
-                self.assertEqual(chooser.choice, "remove_library")
+                labels = {
+                    button.text().strip()
+                    for button in chooser.findChildren(QPushButton)
+                }
+                self.assertEqual(labels, {"Uninstall", "Permanently delete", "Cancel"})
             finally:
                 edit_dialog.close()
                 chooser.close()
