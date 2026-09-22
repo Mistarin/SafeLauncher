@@ -596,10 +596,18 @@ def fetch_steam_achievements_schema(
         if schema_cache is None:
             return None
         entry = schema_cache.get(shared_key)
-        if entry is None or not entry.is_fresh(cache_policy("achievement-schema").max_age_seconds):
+        if entry is None:
             return None
         value = _validated_schema(entry.value)
-        return value or None
+        if not value:
+            return None
+        # A stale schema is still the best available source while offline.
+        # Online callers continue through the normal refresh/fallback chain so
+        # the shared entry remains a freshness hint rather than a permanent
+        # network bypass.
+        if entry.is_fresh(cache_policy("achievement-schema").max_age_seconds):
+            return value
+        return value if not automatic_network_allowed() else None
 
     # 1. The legacy schema file is a migration source only. The shared cache
     # is the freshness authority for remote-derived schema data.

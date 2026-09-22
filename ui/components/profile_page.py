@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import time
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
@@ -21,7 +22,7 @@ from core.profile_models import (
     BACKGROUND_PRESETS, MAX_BIO_LENGTH, build_public_projection,
     HANDLE_RE, load_profile_settings, normalize_avatar_asset_id, normalize_avatar_id,
     normalize_background, normalize_panel_theme_id, normalize_username_handle, panel_theme_key,
-    normalize_public_document, profile_username_suggestion, save_profile_settings,
+    normalize_public_document, normalize_social_snapshot, profile_username_suggestion, save_profile_settings,
     steam_app_id,
 )
 from core.profile_service import ProfileServiceError, get_profile_service_url, is_local_service_url
@@ -273,6 +274,7 @@ class ProfilePageWidget(QWidget):
         self._auth_in_flight = False
         self._game_cards: dict[str, list[ProfileGameCard]] = {}
         self._artwork_cache = PresentationCache(MAX_PROFILE_ARTWORK_CACHE_ITEMS)
+        self._artwork_cache_stored_at: dict[str, float] = {}
         self._artwork_inflight: set[str] = set()
         self._profile_background_inflight: set[str] = set()
         self._profile_background_pixmap = QPixmap()
@@ -280,11 +282,18 @@ class ProfilePageWidget(QWidget):
         self._profile_background_blur_size = (0, 0)
         legacy_avatar_catalog = load_cached_avatar_catalog() or []
         self._avatar_catalog: list[dict[str, Any]] = []
+        self._avatar_catalog_stale = False
         if self.resource_cache is not None:
             catalog_key = self._profile_resource_key("profile-avatar-catalog", "catalog")
-            shared_catalog = self.resource_cache.get(catalog_key)
-            if shared_catalog is not None and self._avatar_catalog_cache_value_is_valid(shared_catalog.value):
+            shared_catalog = self._profile_cache_entry(
+                catalog_key,
+                self._avatar_catalog_cache_value_is_valid,
+            )
+            if shared_catalog is not None:
                 self._avatar_catalog = normalize_avatar_catalog(shared_catalog.value) or []
+                self._avatar_catalog_stale = not shared_catalog.is_fresh(
+                    cache_policy("profile-avatar-catalog").max_age_seconds
+                )
                 if self.resource_cache.directory is not None:
                     retire_cached_avatar_catalog()
             elif legacy_avatar_catalog:
@@ -988,6 +997,10 @@ class ProfilePageWidget(QWidget):
             "blocked_handles": [],
         }
 
+    @staticmethod
+    def _social_cache_value_is_valid(value: Any) -> bool:
+        return normalize_social_snapshot(value) is not None
+
     def _local_owner_identity(self) -> tuple[str, str, str]:
         settings = load_profile_settings(
             self.settings,
@@ -1085,13 +1098,36 @@ class ProfilePageWidget(QWidget):
     def _profile_background_key(self, app_id: str) -> RequestKey:
         return self._profile_resource_key("profile-background", app_id, "steam-hero")
 
+    def _profile_cache_entry(self, key: RequestKey, validator):
+        """Read a profile entry through the same validation boundary as refreshes."""
+        if self.resource_cache is None:
+            return None
+        entry = self.resource_cache.get(key)
+        if entry is None:
+            return None
+        try:
+            valid = bool(validator(entry.value))
+        except Exception:
+            valid = False
+        if not valid:
+            self.resource_cache.invalidate(key)
+            return None
+        return entry
+
     def _load_profile_background_bytes(self, app_id: str) -> bytes:
         app_id = steam_app_id(app_id)
         if not app_id:
             return b""
         if self.resource_cache is not None:
-            entry = self.resource_cache.get(self._profile_background_key(app_id))
-            if entry is not None and self._profile_background_cache_value_is_valid(entry.value):
+            entry = self._profile_cache_entry(
+                self._profile_background_key(app_id),
+                self._profile_background_cache_value_is_valid,
+            )
+            if entry is not None:
+                if not entry.is_fresh(cache_policy("profile-background").max_age_seconds):
+                    # Keep rendering usable stale artwork, but let the manager
+                    # own the refresh and deduplication decision.
+                    self._queue_profile_background(app_id)
                 if self.resource_cache.directory is not None:
                     try:
                         os.unlink(self._profile_background_cache_path(app_id))
@@ -1133,6 +1169,31 @@ class ProfilePageWidget(QWidget):
             return False
         pixmap = QPixmap()
         return pixmap.loadFromData(value) and pixmap.width() > 0 and pixmap.height() > 0
+
+    def _presentation_artwork(self, url: str) -> bytes | None:
+        """Return decoded presentation artwork only while its remote entry is fresh."""
+        data = self._artwork_cache.get(url)
+        stored_at = self._artwork_cache_stored_at.get(url)
+        if data is not None and stored_at is not None:
+            if time.time() - stored_at <= cache_policy("profile-artwork").max_age_seconds:
+                return data
+        if data is not None:
+            self._artwork_cache.pop(url, None)
+        self._artwork_cache_stored_at.pop(url, None)
+        return None
+
+    def _remember_presentation_artwork(
+        self,
+        url: str,
+        data: bytes,
+        *,
+        stored_at: float | None = None,
+    ) -> None:
+        self._artwork_cache[url] = data
+        self._artwork_cache_stored_at[url] = float(time.time() if stored_at is None else stored_at)
+        for cached_url in tuple(self._artwork_cache_stored_at):
+            if cached_url not in self._artwork_cache:
+                self._artwork_cache_stored_at.pop(cached_url, None)
 
     @staticmethod
     def _decode_profile_background(data: bytes) -> QPixmap | None:
@@ -1180,8 +1241,11 @@ class ProfilePageWidget(QWidget):
 
         if self.request_manager is not None:
             key = self._profile_background_key(app_id)
-            state = self.request_manager.state(key)
-            if state.status in {ResourceStatus.LOADING, ResourceStatus.READY, ResourceStatus.STALE}:
+            if self.resource_cache is None and self.request_manager.state(key).status in {
+                ResourceStatus.LOADING,
+                ResourceStatus.READY,
+                ResourceStatus.STALE,
+            }:
                 return
             self._profile_background_inflight.add(app_id)
             spec = self.profile_resources.request_spec(
@@ -1205,7 +1269,7 @@ class ProfilePageWidget(QWidget):
             )
             self._bind_resource(
                 key,
-                lambda result, app_id=app_id: self._on_profile_background_state(app_id, result),
+                lambda result, app_id=app_id, key=key: self._on_profile_background_state(app_id, result, key),
             )
             return
 
@@ -1226,9 +1290,16 @@ class ProfilePageWidget(QWidget):
     def _download_steam_artwork(self, app_id: str, token, timeout: tuple[int, int]) -> bytes:
         return self.profile_resources.download_steam_artwork(app_id, token, timeout)
 
-    def _on_profile_background_state(self, app_id: str, result: Any) -> None:
+    def _on_profile_background_state(self, app_id: str, result: Any, key: RequestKey | None = None) -> None:
         if result.status in {ResourceStatus.READY, ResourceStatus.STALE} and result.value:
-            self._profile_background_loaded(str(app_id), result.value, persist_legacy_cache=False)
+            self._profile_background_loaded(
+                str(app_id),
+                result.value,
+                persist_legacy_cache=False,
+                persist_shared_cache=result.status == ResourceStatus.READY,
+            )
+            if result.status == ResourceStatus.STALE and result.error is not None and key is not None:
+                self._finish_profile_resource(key)
         elif result.status in {
             ResourceStatus.ERROR,
             ResourceStatus.OFFLINE,
@@ -1249,6 +1320,7 @@ class ProfilePageWidget(QWidget):
         data: Any,
         *,
         persist_legacy_cache: bool = True,
+        persist_shared_cache: bool = True,
     ) -> None:
         self._profile_background_inflight.discard(app_id)
         if not isinstance(data, bytes) or not data:
@@ -1256,7 +1328,7 @@ class ProfilePageWidget(QWidget):
         pixmap = self._decode_profile_background(data)
         if pixmap is None:
             return
-        if self.resource_cache is not None:
+        if persist_shared_cache and self.resource_cache is not None:
             self.resource_cache.put(
                 self._profile_background_key(app_id),
                 data,
@@ -1543,13 +1615,27 @@ class ProfilePageWidget(QWidget):
         url = str(game.get("artwork_url", "") or "")
         if not url:
             return
-        if url in self._artwork_cache:
-            card.set_artwork_bytes(self._artwork_cache[url])
+        presentation = self._presentation_artwork(url)
+        if presentation is not None:
+            card.set_artwork_bytes(presentation)
         elif self.resource_cache is not None:
-            cached = self.resource_cache.get(self._profile_artwork_key(url))
-            if cached is not None and self._profile_artwork_cache_value_is_valid(cached.value):
-                self._artwork_cache[url] = cached.value
+            cached = self._profile_cache_entry(
+                self._profile_artwork_key(url),
+                self._profile_artwork_cache_value_is_valid,
+            )
+            if cached is not None:
+                self._remember_presentation_artwork(
+                    url,
+                    cached.value,
+                    stored_at=cached.stored_at,
+                )
                 card.set_artwork_bytes(cached.value)
+                if (
+                    not cached.is_fresh(cache_policy("profile-artwork").max_age_seconds)
+                    and pending is not None
+                    and url not in self._artwork_inflight
+                ):
+                    pending[app_id] = url
             elif pending is not None and url not in self._artwork_inflight:
                 pending[app_id] = url
         elif pending is not None and url not in self._artwork_inflight:
@@ -1564,13 +1650,7 @@ class ProfilePageWidget(QWidget):
         self._clear_grid(self.games_all_grid)
         pending: dict[str, str] = {}
         for index, game in enumerate(self._profile_games):
-            self._add_game_card(game, index, self.games_all_grid)
-            app_id = str(game.get("app_id", ""))
-            url = str(game.get("artwork_url", "") or "")
-            artwork_key = self._profile_artwork_key(url) if url else None
-            shared_cached = self.resource_cache.get(artwork_key) if self.resource_cache is not None and artwork_key is not None else None
-            if url and url not in self._artwork_cache and shared_cached is None and url not in self._artwork_inflight:
-                pending[app_id] = url
+            self._add_game_card(game, index, self.games_all_grid, pending)
         self._queue_artwork_download(pending)
 
     def _queue_artwork_download(self, pending: dict[str, str]) -> None:
@@ -1582,9 +1662,10 @@ class ProfilePageWidget(QWidget):
         if self.request_manager is not None:
             for app_id, url in pending.items():
                 key = self._profile_artwork_key(url)
-                state = self.request_manager.state(key)
-                if state.status in {ResourceStatus.LOADING, ResourceStatus.READY, ResourceStatus.STALE}:
-                    continue
+                if self.resource_cache is None:
+                    state = self.request_manager.state(key)
+                    if state.status in {ResourceStatus.LOADING, ResourceStatus.READY, ResourceStatus.STALE}:
+                        continue
                 spec = self.profile_resources.request_spec(
                     key,
                     lambda token, app_id=app_id: self._download_steam_artwork(app_id, token, (2, 5)),
@@ -1606,8 +1687,8 @@ class ProfilePageWidget(QWidget):
                 )
                 self._bind_resource(
                     key,
-                    lambda result, app_id=app_id, url=url: self._on_profile_artwork_state(
-                        app_id, url, result
+                    lambda result, app_id=app_id, url=url, key=key: self._on_profile_artwork_state(
+                        app_id, url, result, key
                     ),
                 )
             return
@@ -1632,9 +1713,22 @@ class ProfilePageWidget(QWidget):
             lambda _error, urls=set(pending.values()): self._artwork_request_failed(urls)
         )
 
-    def _on_profile_artwork_state(self, app_id: str, url: str, result: Any) -> None:
+    def _on_profile_artwork_state(
+        self,
+        app_id: str,
+        url: str,
+        result: Any,
+        key: RequestKey | None = None,
+    ) -> None:
         if result.status in {ResourceStatus.READY, ResourceStatus.STALE} and result.value:
-            self._artwork_loaded({str(app_id): (str(url), result.value)}, {str(url)})
+            self._artwork_loaded_with_options(
+                {str(app_id): (str(url), result.value)},
+                {str(url)},
+                persist_cache=result.status == ResourceStatus.READY,
+                stored_at=result.updated_at,
+            )
+            if result.status == ResourceStatus.STALE and result.error is not None and key is not None:
+                self._finish_profile_resource(key)
         elif result.status in {
             ResourceStatus.ERROR,
             ResourceStatus.OFFLINE,
@@ -1671,6 +1765,16 @@ class ProfilePageWidget(QWidget):
             binding.deleteLater()
 
     def _artwork_loaded(self, result: Any, urls: set[str]) -> None:
+        self._artwork_loaded_with_options(result, urls, persist_cache=True)
+
+    def _artwork_loaded_with_options(
+        self,
+        result: Any,
+        urls: set[str],
+        *,
+        persist_cache: bool,
+        stored_at: float | None = None,
+    ) -> None:
         if not isinstance(result, dict):
             self._artwork_request_failed(urls)
             return
@@ -1681,8 +1785,8 @@ class ProfilePageWidget(QWidget):
             url, data = value
             if not isinstance(url, str) or not isinstance(data, bytes) or not data:
                 continue
-            self._artwork_cache[url] = data
-            if self.resource_cache is not None:
+            self._remember_presentation_artwork(url, data, stored_at=stored_at)
+            if persist_cache and self.resource_cache is not None:
                 self.resource_cache.put(self._profile_artwork_key(url), data, content_type="image/jpeg")
             # A request can outlive a profile navigation. The bytes are
             # immutable, validated Steam CDN artwork, so applying them to a
@@ -1916,6 +2020,8 @@ class ProfilePageWidget(QWidget):
         *,
         priority: RequestPriority = RequestPriority.NORMAL,
         timeout_seconds: float | None = 20,
+        cache_policy_name: str | None = None,
+        cache_validator=None,
     ):
         """Run a profile-service operation through the shared manager.
 
@@ -1931,13 +2037,31 @@ class ProfilePageWidget(QWidget):
             timeout_seconds=timeout_seconds,
             tag="profile-operation",
         )
-        handle = self.request_manager.submit(spec)
+        if self.resource_cache is not None and cache_policy_name:
+            policy = cache_policy(cache_policy_name)
+            handle = self.request_manager.cached_request(
+                spec,
+                self.resource_cache,
+                max_age_seconds=policy.max_age_seconds,
+                stale_while_revalidate=policy.stale_while_revalidate,
+                cache_validator=cache_validator,
+                content_type=policy.content_type,
+            )
+        else:
+            handle = self.request_manager.submit(spec)
         previous = self._resource_bindings.pop(key, None)
         if previous is not None:
             previous.close()
 
         def _deliver(result):
             if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                return
+            if result.status == ResourceStatus.STALE:
+                binding = self._resource_bindings.pop(key, None)
+                if binding is not None:
+                    binding.close()
+                if result.value is not None:
+                    on_ready(result.value)
                 return
             binding = self._resource_bindings.pop(key, None)
             if binding is not None:
@@ -2011,6 +2135,8 @@ class ProfilePageWidget(QWidget):
             lambda error, expected_handle=handle: self._social_refresh_done(
                 ProfileServiceError(str(error), "social_refresh_failed"), expected_handle
             ),
+            cache_policy_name="profile-social",
+            cache_validator=self._social_cache_value_is_valid,
         ) is not None:
             return
         worker = self._tasks.start(
@@ -2038,7 +2164,7 @@ class ProfilePageWidget(QWidget):
                 if pending else f"Friends could not be refreshed: {result}"
             )
             return
-        snapshot = result if isinstance(result, dict) else None
+        snapshot = normalize_social_snapshot(result)
         if snapshot is None:
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.friends_status.setText(
@@ -2185,6 +2311,14 @@ class ProfilePageWidget(QWidget):
         if success_message == "Friend request sent.":
             self.friend_handle_edit.clear()
         if self._mode == "owner":
+            owner_handle, _, _ = self._local_owner_identity()
+            if self.request_manager is not None and owner_handle:
+                self.request_manager.invalidate(
+                    self._profile_resource_key(
+                        "profile-social",
+                        owner_handle,
+                    )
+                )
             self._pending_social_success_message = success_message
             self._refresh_social()
         else:
@@ -2526,14 +2660,17 @@ class ProfilePageWidget(QWidget):
         self._avatar_catalog_loading = False
         self.btn_avatar.setEnabled(True)
         if isinstance(result, Exception):
+            self._avatar_catalog_stale = bool(self._avatar_catalog)
             self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.footer_status.setText(f"Could not load profile pictures: {result}")
             return
         if not isinstance(result, list) or not result:
+            self._avatar_catalog_stale = bool(self._avatar_catalog)
             self.footer_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.footer_status.setText("The cloud profile picture catalog is empty.")
             return
         self._avatar_catalog = result
+        self._avatar_catalog_stale = False
         if persist_legacy_cache:
             save_cached_avatar_catalog(result)
         if self._mode == "owner" and not self._editing:
@@ -2546,7 +2683,8 @@ class ProfilePageWidget(QWidget):
                     {**self._profile_settings, "avatar_asset_id": asset_id, "avatar_id": str(asset_id)},
                     mark_changed=False,
                 )
-        self._show_avatar_catalog()
+        if self._avatar_dialog is None:
+            self._show_avatar_catalog()
 
     def _show_avatar_catalog(self) -> None:
         if not self._avatar_catalog:
@@ -3022,6 +3160,11 @@ class ProfilePageWidget(QWidget):
         if self._mode != "owner" or not self._editing:
             return
         if self._avatar_catalog:
+            # A stale catalog is immediately usable, but it must not suppress
+            # a manager-owned refresh. This keeps the picker responsive while
+            # allowing a newer catalog to arrive in the background.
+            if self._avatar_catalog_stale and automatic_network_allowed(self.settings):
+                self._request_avatar_catalog()
             self._show_avatar_catalog()
             return
         if not automatic_network_allowed(self.settings):
@@ -3033,6 +3176,12 @@ class ProfilePageWidget(QWidget):
             return
         if self._avatar_catalog_loading:
             return
+        self._request_avatar_catalog()
+
+    def _request_avatar_catalog(self) -> None:
+        """Refresh the avatar catalog through the shared request manager."""
+        if self._avatar_catalog_loading:
+            return
         self._avatar_catalog_loading = True
         self.btn_avatar.setEnabled(False)
         self.footer_status.setStyleSheet("")
@@ -3041,8 +3190,11 @@ class ProfilePageWidget(QWidget):
         catalog_key = self._profile_resource_key("profile-avatar-catalog", "catalog")
         if self.request_manager is not None and self.resource_cache is not None:
             cache_validator = self._avatar_catalog_cache_value_is_valid
-            cached = self.resource_cache.get(catalog_key)
-            had_cache = cached is not None and cache_validator(cached.value)
+            cached = self._profile_cache_entry(
+                catalog_key,
+                cache_validator,
+            )
+            had_cache = cached is not None
             spec = self.profile_resources.request_spec(
                 catalog_key,
                 lambda token: (
@@ -3087,6 +3239,11 @@ class ProfilePageWidget(QWidget):
     def _on_avatar_catalog_state(self, key: RequestKey, had_cache: bool, result: Any) -> None:
         if result.status in {ResourceStatus.STALE, ResourceStatus.READY} and isinstance(result.value, list):
             self._avatar_catalog_loaded(result.value, persist_legacy_cache=False)
+            if result.status == ResourceStatus.STALE and result.error is not None:
+                # Offline stale data remains usable and should be retried on a
+                # later online interaction rather than being marked fresh.
+                self._avatar_catalog_stale = True
+                self._finish_profile_resource(key)
             if result.status == ResourceStatus.READY:
                 self._finish_profile_resource(key)
             return

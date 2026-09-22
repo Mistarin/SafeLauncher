@@ -177,6 +177,12 @@ class ResourceCache:
                         temporary = self.directory / f".migrate-{source.name}.tmp"
                         try:
                             shutil.copyfile(source, temporary)
+                            # ``copyfile`` creates the destination using the
+                            # process umask, which can turn a private legacy
+                            # cache entry into a world-readable file. Cache
+                            # envelopes may contain account-specific data, so
+                            # preserve the cache's private-file boundary.
+                            os.chmod(temporary, 0o600)
                             os.replace(temporary, target)
                         finally:
                             try:
@@ -185,6 +191,10 @@ class ResourceCache:
                                 pass
                         target_valid = True
                     if source_valid and target_valid:
+                        try:
+                            os.chmod(target, 0o600)
+                        except OSError:
+                            pass
                         try:
                             source.unlink()
                         except OSError:

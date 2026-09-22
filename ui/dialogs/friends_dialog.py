@@ -355,7 +355,7 @@ class FriendsDialog(PopupDialog):
         if self._start_managed_remote(
             self.profile_resources.request_spec(
                 self.profile_resources.request_key(
-                    "profile-social", handle, "friends-v1", service_url
+                    "profile-social", handle, service_url=service_url
                 ),
                 lambda token: (token.raise_if_cancelled(), work())[1],
                 priority=RequestPriority.NORMAL,
@@ -365,6 +365,7 @@ class FriendsDialog(PopupDialog):
             self._refresh_done,
             lambda error: self._refresh_done(ProfileServiceError(str(error), "social_refresh_failed")),
             cache_policy_name="profile-social",
+            cache_validator=normalize_social_snapshot,
         ) is not None:
             return
 
@@ -386,13 +387,26 @@ class FriendsDialog(PopupDialog):
         pending = self._pending_success_message
         self._pending_success_message = ""
         self.status_label.setStyleSheet("")
-        self._snapshot = normalize_social_snapshot(result if isinstance(result, dict) else {})
+        self._snapshot = normalize_social_snapshot(result)
+        if self._snapshot is None:
+            self.status_label.setStyleSheet(f"color:{SEMANTIC_ERROR};")
+            self.status_label.setText("Friends could not be refreshed because the service response was invalid.")
+            self._update_gate()
+            return
         self._render()
         if pending:
             self.status_label.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
             self.status_label.setText(pending)
 
-    def _start_managed_remote(self, spec, on_ready, on_error, *, cache_policy_name: str = ""):
+    def _start_managed_remote(
+        self,
+        spec,
+        on_ready,
+        on_error,
+        *,
+        cache_policy_name: str = "",
+        cache_validator=None,
+    ):
         if self.request_manager is None:
             return None
         cache = getattr(self.request_manager, "cache", None)
@@ -403,6 +417,7 @@ class FriendsDialog(PopupDialog):
                 cache,
                 max_age_seconds=policy.max_age_seconds,
                 stale_while_revalidate=policy.stale_while_revalidate,
+                cache_validator=cache_validator,
                 content_type=policy.content_type,
             )
         else:
@@ -411,6 +426,13 @@ class FriendsDialog(PopupDialog):
 
         def _deliver(result):
             if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                return
+            if result.status == ResourceStatus.STALE:
+                binding = self._resource_bindings.pop(request_id, None)
+                if binding is not None:
+                    binding.close()
+                if result.value is not None:
+                    on_ready(result.value)
                 return
             binding = self._resource_bindings.pop(request_id, None)
             if binding is not None:
@@ -516,6 +538,14 @@ class FriendsDialog(PopupDialog):
         self.status_label.setText(success)
         if success == "Friend request sent.":
             self.find_input.clear()
+        if self.request_manager is not None and self._handle:
+            self.request_manager.invalidate(
+                self.profile_resources.request_key(
+                    "profile-social",
+                    self._handle,
+                    service_url=get_profile_service_url(),
+                )
+            )
         self._pending_success_message = success
         self.refresh()
 

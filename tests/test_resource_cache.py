@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import time
 import unittest
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -37,6 +38,21 @@ class ResourceCacheTests(unittest.TestCase):
             self.assertIsNotNone(entry)
             self.assertEqual(entry.value, {"path": "/tmp/asset"})
             self.assertFalse(Path(legacy).exists())
+
+    def test_legacy_migration_keeps_cache_files_private(self):
+        with tempfile.TemporaryDirectory() as directory:
+            legacy = f"{directory}/legacy"
+            current = f"{directory}/current"
+            key = RequestKey("profile", "private", "v1")
+            source_cache = ResourceCache(legacy)
+            source_cache.put(key, {"handle": "owner"})
+            source_path = source_cache._path_for(key)
+            source_path.chmod(0o600)
+
+            migrated = ResourceCache(current, legacy_directories=(legacy,))
+            target_path = migrated._path_for(key)
+
+            self.assertEqual(stat.S_IMODE(target_path.stat().st_mode), 0o600)
 
     def test_memory_cache_is_bounded(self):
         cache = ResourceCache(max_entries=1)
