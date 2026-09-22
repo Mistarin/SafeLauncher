@@ -224,6 +224,7 @@ class ProfilePageWidget(QWidget):
     open_profile_handle_requested = pyqtSignal(str)
     profile_changed = pyqtSignal()
     private_profile_changed = pyqtSignal()
+    avatar_pixmap_changed = pyqtSignal(object)
     auth_progress = pyqtSignal(str)
     # Settings owns the visible account controls.  Keep the state and the
     # operations on the profile page so authentication/publish/resync cannot
@@ -2230,6 +2231,19 @@ class ProfilePageWidget(QWidget):
         asset_id = normalize_avatar_asset_id(item.get("asset_id")) if item else None
         return str(asset_id) if asset_id is not None else normalized
 
+    def current_avatar_pixmap(self) -> QPixmap:
+        """Return the currently rendered owner avatar for shared UI surfaces."""
+        pixmap = self.avatar.pixmap()
+        return QPixmap(pixmap) if pixmap is not None and not pixmap.isNull() else QPixmap()
+
+    def _emit_owner_avatar(self, pixmap: QPixmap | None = None) -> None:
+        """Publish only the saved owner avatar, never a public-view preview."""
+        if self._mode != "owner" or self._editing:
+            return
+        self.avatar_pixmap_changed.emit(
+            QPixmap(pixmap) if pixmap is not None and not pixmap.isNull() else QPixmap()
+        )
+
     def _set_avatar(self, value: Any) -> None:
         avatar_id = self._avatar_reference(value)
         pixmap = self._avatar_pixmaps.get(avatar_id) if avatar_id else None
@@ -2237,10 +2251,12 @@ class ProfilePageWidget(QWidget):
             self.avatar.setPixmap(pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
             self.avatar.setStyleSheet("border-radius:64px; background:#20242C;")
             self._cache_avatar_pixmap(avatar_id, pixmap)
+            self._emit_owner_avatar(pixmap)
             return
         self.avatar.clear()
         self.avatar.setText("SL")
         self.avatar.setStyleSheet(f"border-radius:64px; background:{SURFACE_ELEVATED}; color:{ACCENT_PRIMARY}; font-size:30px; font-weight:800;")
+        self._emit_owner_avatar()
         if avatar_id:
             self._queue_avatar_image(avatar_id)
 

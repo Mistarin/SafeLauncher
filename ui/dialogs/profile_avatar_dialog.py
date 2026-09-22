@@ -161,7 +161,9 @@ class ProfileAvatarCatalogDialog(PopupDialog):
             self._select_avatar(self._current_id)
         elif self._rows_by_id:
             self._select_avatar(next(iter(self._rows_by_id)))
-        QTimer.singleShot(0, self._request_catalog_thumbnails)
+        # Do not download the entire catalog when the picker opens. The
+        # visible rows are enough for an immediate render; scrolling requests
+        # the next viewport through _request_visible_thumbnails().
         QTimer.singleShot(0, self._request_visible_thumbnails)
 
     def _request_catalog_thumbnails(self) -> None:

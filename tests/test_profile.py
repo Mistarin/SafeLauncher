@@ -10,7 +10,7 @@ from unittest.mock import ANY, patch
 from pathlib import Path
 from unittest.mock import Mock
 
-from PyQt6.QtCore import QSettings, QTimer, Qt
+from PyQt6.QtCore import QSettings, QTimer, QSize, Qt
 from PyQt6.QtGui import QColor, QImage, QPixmap
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QPushButton
 
@@ -1185,6 +1185,14 @@ class ProfilePageTests(unittest.TestCase):
             self.assertIn("@martin-player", header.btn_profile.toolTip())
             self.assertFalse(hasattr(header, "profile_identity_label"))
             self.assertIsNotNone(header.btn_profile.menu())
+            avatar = QPixmap(32, 32)
+            avatar.fill(QColor("#30D158"))
+            header.set_profile_avatar(avatar)
+            self.assertFalse(header.btn_profile.icon().isNull())
+            self.assertEqual(header.btn_profile.iconSize(), QSize(24, 24))
+            header.set_profile_avatar()
+            self.assertFalse(header.btn_profile.icon().isNull())
+            self.assertEqual(header.btn_profile.iconSize(), QSize(17, 17))
             self.assertEqual(header.btn_friends.text(), "Friends")
             actions = [action.text() for action in header.profile_menu.actions() if not action.isSeparator()]
             self.assertIn("Find Friends…", actions)

@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QDialog, QGraphicsDropShadowEffect, QScrollArea, QWidget, QSlider, QToolButton
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QPointF
-from PyQt6.QtGui import QFont, QColor, QPixmap, QPainter, QPen
+from PyQt6.QtGui import QFont, QColor, QPixmap, QPainter, QPainterPath, QPen, QIcon
 
 from ui.icons import get_app_icon, get_icon, LOGO_PATH
 from ui.theme import BG_APP, SURFACE_ELEVATED, TEXT_PRIMARY, TEXT_SECONDARY, ACCENT_PRIMARY
@@ -794,6 +794,32 @@ class HeaderBar(QFrame):
         self.btn_profile.setToolTip(
             f"{display_name}  ·  @{handle}" if handle else display_name
         )
+
+    def set_profile_avatar(self, pixmap: QPixmap | None = None) -> None:
+        """Show the decoded local profile avatar in the identity control."""
+        if pixmap is None or pixmap.isNull():
+            self.btn_profile.setIcon(get_icon("ph.user-circle-bold", color="#8E8E93"))
+            self.btn_profile.setIconSize(QSize(17, 17))
+            return
+
+        size = 24
+        source = pixmap.scaled(
+            size,
+            size,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        rounded = QPixmap(size, size)
+        rounded.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(rounded)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        path = QPainterPath()
+        path.addEllipse(0, 0, size, size)
+        painter.setClipPath(path)
+        painter.drawPixmap(0, 0, source)
+        painter.end()
+        self.btn_profile.setIcon(QIcon(rounded))
+        self.btn_profile.setIconSize(QSize(size, size))
 
     def _event_hits_interactive_child(self, event) -> bool:
         """Prevent title-bar drag/double-click from stealing button clicks."""

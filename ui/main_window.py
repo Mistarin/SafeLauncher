@@ -1335,6 +1335,8 @@ class MainWindow(QMainWindow):
         self.profile_page.open_profile_handle_requested.connect(self._open_public_profile_handle)
         self.profile_page.profile_changed.connect(self._on_profile_changed)
         self.profile_page.private_profile_changed.connect(self._on_private_profile_changed)
+        self.profile_page.avatar_pixmap_changed.connect(self.title_bar.set_profile_avatar)
+        self.title_bar.set_profile_avatar(self.profile_page.current_avatar_pixmap())
         right_layout.addWidget(self.profile_page, 1)
         self._profile_view_active = False
         self._profile_remote_tasks = TaskSupervisor(self, worker_registry=self.worker_supervisor)
