@@ -15,6 +15,7 @@ from PyQt6.QtGui import QColor, QImage, QPixmap
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QPushButton
 
 from core.profile_avatar_catalog import (
+    is_valid_avatar_bytes,
     normalize_avatar_catalog,
     read_cached_avatar,
     save_cached_avatar,
@@ -185,6 +186,13 @@ class ProfileModelTests(unittest.TestCase):
                 self.assertEqual(read_cached_avatar("r-1-1", digest), data)
                 self.assertEqual(read_cached_avatar("r-1-1", "0" * 64), b"")
                 self.assertEqual(read_cached_avatar("../outside", digest), b"")
+
+    def test_avatar_cache_validation_rejects_wrong_hash_and_oversized_data(self):
+        data = b"avatar-cache-fixture"
+        digest = hashlib.sha256(data).hexdigest()
+        self.assertTrue(is_valid_avatar_bytes(data, digest))
+        self.assertFalse(is_valid_avatar_bytes(data, "0" * 64))
+        self.assertFalse(is_valid_avatar_bytes(b"x" * (512 * 1024 + 1), digest))
 
     def test_settings_round_trip_is_bounded_and_json_safe(self):
         with tempfile.TemporaryDirectory() as directory:

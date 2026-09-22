@@ -66,6 +66,34 @@ class ResourceCacheTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_cache_validator_discards_invalid_persistent_value(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResourceCache(directory)
+            key = RequestKey("profile-avatar", "endpoint:1-1", "expected")
+            cache.put(key, b"corrupt", content_type="image/png")
+            manager = RequestManager(max_workers=1, cache=cache)
+            calls = []
+            try:
+                result = manager.request_cached(
+                    key,
+                    lambda _token: calls.append("network") or b"fresh",
+                    cache=cache,
+                    max_age_seconds=60,
+                    cache_validator=lambda value: value == b"fresh",
+                ).future.result(timeout=2)
+                self.assertEqual(result.value, b"fresh")
+                self.assertEqual(calls, ["network"])
+                loaded = None
+                deadline = time.time() + 1
+                while loaded is None and time.time() < deadline:
+                    loaded = ResourceCache(directory).get(key)
+                    if loaded is None:
+                        time.sleep(0.01)
+                self.assertIsNotNone(loaded)
+                self.assertEqual(loaded.value, b"fresh")
+            finally:
+                manager.shutdown()
+
     def test_stale_cache_is_emitted_before_refresh(self):
         manager = RequestManager(max_workers=1)
         try:

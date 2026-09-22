@@ -205,6 +205,7 @@ class RequestManager:
         *,
         max_age_seconds: float,
         cache: ResourceCache | None = None,
+        cache_validator: Callable[[object], bool] | None = None,
         priority: RequestPriority = RequestPriority.NORMAL,
         retry_policy=None,
         generation: int = 0,
@@ -234,6 +235,7 @@ class RequestManager:
             spec,
             target_cache,
             max_age_seconds=max_age_seconds,
+            cache_validator=cache_validator,
             stale_while_revalidate=stale_while_revalidate,
             content_type=content_type,
         )
@@ -283,6 +285,7 @@ class RequestManager:
         *,
         max_age_seconds: float,
         cache: ResourceCache | None = None,
+        cache_validator: Callable[[object], bool] | None = None,
         priority: RequestPriority = RequestPriority.NORMAL,
         retry_policy=None,
         generation: int = 0,
@@ -317,6 +320,7 @@ class RequestManager:
                 spec,
                 target_cache,
                 max_age_seconds=max_age_seconds,
+                cache_validator=cache_validator,
                 stale_while_revalidate=stale_while_revalidate,
                 content_type=content_type,
             )
@@ -442,6 +446,7 @@ class RequestManager:
         cache: ResourceCache,
         *,
         max_age_seconds: float,
+        cache_validator: Callable[[object], bool] | None = None,
         stale_while_revalidate: bool = True,
         content_type: str = "application/json",
     ) -> RequestHandle:
@@ -449,6 +454,14 @@ class RequestManager:
         with self._condition:
             self._cache_by_key[spec.key] = cache
         cached = cache.get(spec.key)
+        if cached is not None and cache_validator is not None:
+            try:
+                valid = bool(cache_validator(cached.value))
+            except Exception:
+                valid = False
+            if not valid:
+                cache.invalidate(spec.key)
+                cached = None
         if cached is not None and cached.is_fresh(max_age_seconds):
             self._increment_metric("cache_hits")
             self._increment_metric(

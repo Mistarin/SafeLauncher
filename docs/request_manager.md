@@ -64,7 +64,9 @@ embedding and older integrations.
 For data that can be reused, use `request_cached()` with a TTL. It returns a
 completed future for fresh values, emits stale values immediately while a
 refresh is scheduled, and preserves stale state if the refresh fails. Calling
-`invalidate()` also removes the associated shared cache entry.
+`invalidate()` also removes the associated shared cache entry. Callers with
+content-specific integrity requirements can provide `cache_validator`; a
+cached value that fails validation is discarded and reloaded.
 
 `request_many()` and `request_many_cached()` continue to return individual
 handles for per-item cancellation. They also accept `progress(completed,

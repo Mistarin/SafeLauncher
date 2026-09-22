@@ -22,6 +22,7 @@ MAX_AVATAR_CATEGORY_LENGTH = 32
 # Compatibility export for callers that still use the legacy disk catalog.
 # Managed ResourceCache callers use the same named policy directly.
 AVATAR_CATALOG_CACHE_TTL = cache_policy("profile-avatar-catalog").max_age_seconds
+AVATAR_IMAGE_CACHE_TTL = cache_policy("profile-avatar").max_age_seconds
 # The approved catalog is small enough to keep on disk after the first batch
 # fetch. The in-memory QPixmap cache remains deliberately smaller.
 MAX_CACHED_AVATAR_FILES = 64
@@ -108,6 +109,14 @@ def avatar_image_cache_path(avatar_id: str, sha256: str) -> Path:
     return avatar_cache_directory() / f"{normalized}-{digest}.image"
 
 
+def is_valid_avatar_bytes(data: Any, sha256: str = "") -> bool:
+    """Validate bounded avatar bytes before they are rendered or cached."""
+    if not isinstance(data, bytes) or not 0 < len(data) <= 512 * 1024:
+        return False
+    digest = str(sha256 or "").strip().lower()
+    return not digest or hashlib.sha256(data).hexdigest() == digest
+
+
 def load_cached_avatar_catalog(now: float | None = None) -> list[dict[str, Any]] | None:
     path = avatar_catalog_cache_path()
     try:
@@ -152,12 +161,12 @@ def read_cached_avatar(avatar_id: str, sha256: str) -> bytes:
     except ValueError:
         return b""
     try:
+        if time.time() - path.stat().st_mtime > AVATAR_IMAGE_CACHE_TTL:
+            return b""
         data = path.read_bytes()
     except OSError:
         return b""
-    if not 0 < len(data) <= 512 * 1024:
-        return b""
-    return data if hashlib.sha256(data).hexdigest() == str(sha256).strip().lower() else b""
+    return data if is_valid_avatar_bytes(data, sha256) else b""
 
 
 def save_cached_avatar(avatar_id: str, sha256: str, data: bytes) -> None:

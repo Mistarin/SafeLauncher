@@ -28,7 +28,9 @@ from core.profile_service import ProfileServiceError, get_profile_service_url, i
 from core.profile_resource_service import ProfileResourceService
 from core.cache_policy import cache_policy
 from core.profile_avatar_catalog import (
+    is_valid_avatar_bytes,
     load_cached_avatar_catalog,
+    normalize_avatar_catalog,
     read_cached_avatar,
     save_cached_avatar,
     save_cached_avatar_catalog,
@@ -2222,6 +2224,18 @@ class ProfilePageWidget(QWidget):
             None,
         )
 
+    def _avatar_cache_value_is_valid(self, value: Any, expected_hash: str) -> bool:
+        """Reject corrupt or catalog-mismatched disk entries before rendering."""
+        if not is_valid_avatar_bytes(value, expected_hash):
+            return False
+        return self._decode_avatar(value) is not None
+
+    @staticmethod
+    def _avatar_catalog_cache_value_is_valid(value: Any) -> bool:
+        """Reject malformed persisted catalogs before opening the picker."""
+        normalized = normalize_avatar_catalog(value)
+        return bool(normalized)
+
     def _avatar_reference(self, value: Any) -> str:
         """Resolve legacy local/profile aliases to the canonical asset number."""
         normalized = normalize_avatar_id(value)
@@ -2289,11 +2303,15 @@ class ProfilePageWidget(QWidget):
                 key = self._profile_resource_key(
                     "profile-avatar", avatar_id, expected_hash
                 )
-                had_cache = self.resource_cache.get(key) is not None
+                cache_validator = lambda value, expected_hash=expected_hash: self._avatar_cache_value_is_valid(
+                    value, expected_hash
+                )
+                cached = self.resource_cache.get(key)
+                had_cache = cached is not None and cache_validator(cached.value)
                 spec = self.profile_resources.request_spec(
                     key,
-                    lambda token, avatar_id=avatar_id: self._load_avatar_resource(
-                        avatar_id, service_url, token
+                    lambda token, avatar_id=avatar_id, expected_hash=expected_hash: self._load_avatar_resource(
+                        avatar_id, service_url, token, expected_hash
                     ),
                     priority=RequestPriority.NORMAL,
                     timeout_seconds=30,
@@ -2303,6 +2321,7 @@ class ProfilePageWidget(QWidget):
                     spec,
                     self.resource_cache,
                     max_age_seconds=cache_policy("profile-avatar").max_age_seconds,
+                    cache_validator=cache_validator,
                     content_type=cache_policy("profile-avatar").content_type,
                 )
                 self._bind_resource(
@@ -2346,7 +2365,13 @@ class ProfilePageWidget(QWidget):
             lambda _error, expected_ids=set(requested): self._avatar_batch_failed(expected_ids)
         )
 
-    def _load_avatar_resource(self, avatar_id: str, service_url: str, token) -> bytes:
+    def _load_avatar_resource(
+        self,
+        avatar_id: str,
+        service_url: str,
+        token,
+        expected_hash: str = "",
+    ) -> bytes:
         token.raise_if_cancelled()
         values = self.profile_resources.fetch_avatar_batch(
             [avatar_id],
@@ -2355,7 +2380,13 @@ class ProfilePageWidget(QWidget):
             max_total_bytes=MAX_PROFILE_AVATAR_BYTES,
         )
         token.raise_if_cancelled()
-        return values.get(avatar_id, b"")
+        data = values.get(avatar_id, b"")
+        if not is_valid_avatar_bytes(data, expected_hash):
+            raise ProfileServiceError(
+                "The profile service returned an invalid avatar.",
+                "invalid_avatar_response",
+            )
+        return data
 
     def _finish_profile_resource(self, key: RequestKey) -> None:
         binding = self._resource_bindings.pop(key, None)
@@ -2944,7 +2975,9 @@ class ProfilePageWidget(QWidget):
         service_url = get_profile_service_url()
         catalog_key = self._profile_resource_key("profile-avatar-catalog", "catalog")
         if self.request_manager is not None and self.resource_cache is not None:
-            had_cache = self.resource_cache.get(catalog_key) is not None
+            cache_validator = self._avatar_catalog_cache_value_is_valid
+            cached = self.resource_cache.get(catalog_key)
+            had_cache = cached is not None and cache_validator(cached.value)
             spec = self.profile_resources.request_spec(
                 catalog_key,
                 lambda token: (
@@ -2959,6 +2992,7 @@ class ProfilePageWidget(QWidget):
                 spec,
                 self.resource_cache,
                 max_age_seconds=cache_policy("profile-avatar-catalog").max_age_seconds,
+                cache_validator=cache_validator,
                 content_type=cache_policy("profile-avatar-catalog").content_type,
             )
             self._bind_resource(
