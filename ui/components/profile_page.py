@@ -2935,7 +2935,7 @@ class ProfilePageWidget(QWidget):
                     token.raise_if_cancelled(),
                     self.profile_resources.list_avatar_catalog(service_url),
                 )[1],
-                priority=RequestPriority.BACKGROUND,
+                priority=RequestPriority.NORMAL,
                 timeout_seconds=20,
                 tag="profile-avatar-catalog",
             )
@@ -2962,7 +2962,7 @@ class ProfilePageWidget(QWidget):
             lambda error: self._avatar_catalog_loaded(
                 ProfileServiceError(str(error), "catalog_fetch_failed")
             ),
-            priority=RequestPriority.BACKGROUND,
+            priority=RequestPriority.NORMAL,
             timeout_seconds=20,
         ) is not None:
             return

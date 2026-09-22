@@ -95,8 +95,11 @@ logic.
 `RequestManager.metrics()` returns counters for submitted, deduplicated,
 completed, retried, cancelled, offline, invalidated, cache-hit, stale, and
 cache-miss requests. It also separates memory and disk cache hits, reports a
-derived cache hit rate, and includes total/max duration plus peak active
-requests. The main window logs this snapshot during shutdown.
+derived cache hit rate, and includes total/max execution duration, total/max
+queue wait, plus peak active requests. Request timeouts begin when a worker
+starts executing the loader, so time spent waiting behind other work does not
+consume the loader's timeout budget. The main window logs this snapshot during
+shutdown.
 `MainWindow.performance_metrics()` adds time to first usable library render,
 time to first visible artwork, library refresh count/rate, and visible artwork
 updates/rate, allowing startup/render performance to be compared with the

@@ -57,6 +57,7 @@ class _RequestRecord:
     token: CancellationToken
     future: Future
     sequence: int
+    queued_at: float
     queued: bool = True
     started_at: float = 0.0
 
@@ -104,6 +105,8 @@ class RequestManager:
             "cache_disk_hits": 0,
             "duration_seconds_total": 0.0,
             "duration_seconds_max": 0.0,
+            "queue_wait_seconds_total": 0.0,
+            "queue_wait_seconds_max": 0.0,
             "active_peak": 0,
             "workers_peak": 0,
             "workers_configured": self.max_workers,
@@ -149,9 +152,10 @@ class RequestManager:
             record = _RequestRecord(
                 spec=spec,
                 request_id=uuid.uuid4().hex,
-                token=CancellationToken(spec.timeout_seconds),
+                token=CancellationToken(spec.timeout_seconds, start_immediately=False),
                 future=Future(),
                 sequence=self._sequence,
+                queued_at=time.monotonic(),
             )
             self._active[spec.key] = record
             self._metrics["submitted"] += 1
@@ -638,6 +642,21 @@ class RequestManager:
 
     def _run_record(self, record: _RequestRecord) -> None:
         record.started_at = time.monotonic()
+        queue_wait = max(0.0, record.started_at - record.queued_at)
+        with self._condition:
+            self._metrics["queue_wait_seconds_total"] += queue_wait
+            self._metrics["queue_wait_seconds_max"] = max(
+                self._metrics["queue_wait_seconds_max"], queue_wait
+            )
+        if queue_wait >= 1.0:
+            tag = str(record.spec.metadata.get("tag", "") or "")
+            logger.debug(
+                "Request %s%s waited %.2fs before execution",
+                record.spec.key,
+                f" ({tag})" if tag else "",
+                queue_wait,
+            )
+        record.token.start()
         if record.token.cancelled:
             self._finish(record, self._cancelled_result(record))
             return

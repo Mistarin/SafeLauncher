@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import unittest
 
 from core.request_contracts import (
@@ -45,6 +46,14 @@ class RequestContractTests(unittest.TestCase):
         self.assertTrue(token.cancelled)
         with self.assertRaises(RequestCancelled):
             token.raise_if_cancelled()
+
+    def test_deferred_cancellation_token_starts_timeout_on_demand(self):
+        token = CancellationToken(0.01, start_immediately=False)
+        time.sleep(0.02)
+        self.assertFalse(token.timed_out)
+        token.start()
+        time.sleep(0.02)
+        self.assertTrue(token.timed_out)
 
     def test_resource_result_reports_usable_cached_states(self):
         key = RequestKey("library", "account")

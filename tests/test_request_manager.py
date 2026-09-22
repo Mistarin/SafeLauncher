@@ -346,6 +346,71 @@ class RequestManagerTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_timeout_budget_starts_when_queued_request_begins(self):
+        manager = RequestManager(max_workers=1)
+        blocker_started = threading.Event()
+        release_blocker = threading.Event()
+        calls = []
+        try:
+            blocker = manager.request(
+                RequestKey("data", "timeout-queue-blocker"),
+                lambda _token: (
+                    blocker_started.set(),
+                    release_blocker.wait(2),
+                    "blocker",
+                )[2],
+            )
+            self.assertTrue(blocker_started.wait(2))
+
+            queued = manager.request(
+                RequestKey("data", "timeout-queue"),
+                lambda _token: calls.append(True) or "ready",
+                retry_policy=RetryPolicy(max_attempts=1),
+                timeout_seconds=0.05,
+            )
+            time.sleep(0.1)
+            release_blocker.set()
+
+            queued_result = queued.future.result(timeout=2)
+            self.assertEqual(queued_result.status, ResourceStatus.READY)
+            self.assertEqual(queued_result.value, "ready")
+            self.assertEqual(blocker.future.result(timeout=2).value, "blocker")
+            self.assertEqual(calls, [True])
+            self.assertGreaterEqual(manager.metrics()["queue_wait_seconds_max"], 0.1)
+        finally:
+            release_blocker.set()
+            manager.shutdown()
+
+    def test_queued_cancellation_still_prevents_loader_execution(self):
+        manager = RequestManager(max_workers=1)
+        blocker_started = threading.Event()
+        release_blocker = threading.Event()
+        calls = []
+        try:
+            blocker = manager.request(
+                RequestKey("data", "cancel-queue-blocker"),
+                lambda _token: (
+                    blocker_started.set(),
+                    release_blocker.wait(2),
+                    "blocker",
+                )[2],
+            )
+            self.assertTrue(blocker_started.wait(2))
+
+            queued = manager.request(
+                RequestKey("data", "cancel-queue"),
+                lambda _token: calls.append(True),
+            )
+            self.assertTrue(queued.cancel())
+            release_blocker.set()
+
+            self.assertEqual(queued.future.result(timeout=2).status, ResourceStatus.CANCELLED)
+            self.assertEqual(blocker.future.result(timeout=2).value, "blocker")
+            self.assertEqual(calls, [])
+        finally:
+            release_blocker.set()
+            manager.shutdown()
+
     def test_shutdown_cancels_active_cooperative_request(self):
         manager = RequestManager(max_workers=1)
         gate = threading.Event()

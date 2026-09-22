@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
 from threading import Event
-from time import time
+from time import monotonic, time
 from typing import Any, Callable, Generic, Mapping, TypeVar
 
 
@@ -279,9 +279,27 @@ def is_transient_error(error: BaseException) -> bool:
 class CancellationToken:
     """Thread-safe cooperative cancellation primitive passed to loaders."""
 
-    def __init__(self, timeout_seconds: float | None = None) -> None:
+    def __init__(
+        self,
+        timeout_seconds: float | None = None,
+        *,
+        start_immediately: bool = True,
+    ) -> None:
         self._event = Event()
-        self._deadline = time() + timeout_seconds if timeout_seconds is not None else None
+        self._timeout_seconds = timeout_seconds
+        self._deadline: float | None = None
+        if start_immediately:
+            self.start()
+
+    def start(self) -> None:
+        """Start the timeout clock once the associated work begins.
+
+        Tokens normally start immediately for backwards compatibility. The
+        request manager creates deferred tokens so time spent waiting in its
+        priority queue does not consume the loader's timeout budget.
+        """
+        if self._deadline is None and self._timeout_seconds is not None:
+            self._deadline = monotonic() + self._timeout_seconds
 
     def cancel(self) -> None:
         self._event.set()
@@ -292,7 +310,7 @@ class CancellationToken:
 
     @property
     def timed_out(self) -> bool:
-        return self._deadline is not None and time() >= self._deadline
+        return self._deadline is not None and monotonic() >= self._deadline
 
     def raise_if_cancelled(self) -> None:
         if self.cancelled:
@@ -304,7 +322,7 @@ class CancellationToken:
         """Wait for a duration, returning early when cancellation is set."""
         wait_seconds = max(0.0, float(seconds))
         if self._deadline is not None:
-            wait_seconds = min(wait_seconds, max(0.0, self._deadline - time()))
+            wait_seconds = min(wait_seconds, max(0.0, self._deadline - monotonic()))
         return self._event.wait(wait_seconds)
 
 
