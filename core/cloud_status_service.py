@@ -80,6 +80,7 @@ class CloudStatusService:
         coordinator: CloudSyncCoordinator | None = None,
         context_provider: Callable[[int], CloudContext] | None = None,
         status_store: SaveStateStore | None = None,
+        cache=None,
         cache_path: str | os.PathLike | None = None,
         legacy_cache_path: str | os.PathLike | None = None,
     ) -> None:
@@ -91,6 +92,7 @@ class CloudStatusService:
         self._lock = RLock()
         self._context: CloudContext | None = None
         self.status_store = status_store or SaveStateStore()
+        self.resource_cache = cache or getattr(request_manager, "cache", None)
         self.cache_path = Path(cache_path) if cache_path else None
         self._changed_diff_key = None
         self._changed_diff_handle = None
@@ -453,7 +455,24 @@ class CloudStatusService:
         return handles
 
     def _load_cache(self, legacy_cache_path: str | os.PathLike | None = None) -> None:
-        """Load the dedicated cache, migrating the old combined metadata file."""
+        """Load the shared snapshot, migrating the old combined metadata file."""
+        shared = self.resource_cache.get(self._snapshot_key()) if self.resource_cache is not None else None
+        if shared is not None and isinstance(shared.value, dict):
+            try:
+                if self._restore_payload(shared.value):
+                    if (
+                        self.cache_path is None
+                        and legacy_cache_path is not None
+                        and self.resource_cache is not None
+                        and self.resource_cache.directory is not None
+                    ):
+                        try:
+                            Path(legacy_cache_path).unlink()
+                        except OSError:
+                            pass
+                    return
+            except (TypeError, ValueError, KeyError):
+                pass
         path = self.cache_path
         source = path if path and path.is_file() else Path(legacy_cache_path) if legacy_cache_path else None
         if source is None or not source.is_file():
@@ -461,47 +480,66 @@ class CloudStatusService:
         try:
             with source.open("r", encoding="utf-8") as handle:
                 data = json.load(handle)
-            context = self.current_context()
-            if data.get("cloud_context") != context.fingerprint:
-                return
-            cloud_cache = data.get("cloud_save_status", data.get("statuses", data.get("status", {})))
-            from core.cloud_models import SaveStats, SyncStatus
-            for raw_game_id, entry in cloud_cache.items():
-                status_value = entry.get("status")
-                if not status_value:
-                    continue
-                game_id = int(raw_game_id)
-                local_stats = SaveStats(
-                    exists=entry.get("local_exists", False),
-                    last_modified=entry.get("local_mtime", 0.0),
-                    size_bytes=entry.get("local_size", 0),
-                    file_count=entry.get("local_count", 0),
-                    display_path=entry.get("display_path", ""),
+            if self._restore_payload(data) and self.resource_cache is not None:
+                self.resource_cache.put(
+                    self._snapshot_key(), data, content_type="application/json"
                 )
-                cloud_stats = SaveStats(
-                    exists=entry.get("cloud_exists", False),
-                    last_modified=entry.get("cloud_mtime", 0.0),
-                    size_bytes=entry.get("cloud_size", 0),
-                )
-                self.status_store.set_cloud_status(
-                    game_id,
-                    SyncStatus(status_value),
-                    local_stats,
-                    cloud_stats,
-                    checked_at=entry.get("checked_at", time.time()),
-                    context_generation=context.generation,
-                )
-            if source != path and self.status_store:
-                self.save_cache()
+                if self.cache_path is None and self.resource_cache.directory is not None:
+                    try:
+                        source.unlink()
+                    except OSError:
+                        pass
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             # Cache corruption must never prevent cloud status loading.
             return
 
+    def _snapshot_key(self) -> RequestKey:
+        return RequestKey("cloud-status-snapshot", self.current_context().cache_identity, "v1")
+
+    def _restore_payload(self, data: dict) -> bool:
+        context = self.current_context()
+        if not isinstance(data, dict) or data.get("cloud_context") != context.fingerprint:
+            return False
+        cloud_cache = data.get("cloud_save_status", data.get("statuses", data.get("status", {})))
+        if not isinstance(cloud_cache, dict):
+            return False
+        from core.cloud_models import SaveStats, SyncStatus
+        for raw_game_id, entry in cloud_cache.items():
+            if not isinstance(entry, dict):
+                continue
+            status_value = entry.get("status")
+            if not status_value:
+                continue
+            try:
+                game_id = int(raw_game_id)
+                status = SyncStatus(status_value)
+            except (TypeError, ValueError):
+                continue
+            local_stats = SaveStats(
+                exists=entry.get("local_exists", False),
+                last_modified=entry.get("local_mtime", 0.0),
+                size_bytes=entry.get("local_size", 0),
+                file_count=entry.get("local_count", 0),
+                display_path=entry.get("display_path", ""),
+            )
+            cloud_stats = SaveStats(
+                exists=entry.get("cloud_exists", False),
+                last_modified=entry.get("cloud_mtime", 0.0),
+                size_bytes=entry.get("cloud_size", 0),
+            )
+            self.status_store.set_cloud_status(
+                game_id,
+                status,
+                local_stats,
+                cloud_stats,
+                checked_at=entry.get("checked_at", time.time()),
+                context_generation=context.generation,
+            )
+        return True
+
     def save_cache(self) -> None:
         """Persist only cloud status data using an atomic, credential-free file."""
         with self._lock:
-            if self.cache_path is None:
-                return
             payload = {
                 "statuses": {},
                 "cloud_context": self.current_context().fingerprint,
@@ -521,6 +559,12 @@ class CloudStatusService:
                     "cloud_size": getattr(cloud_stats, "size_bytes", 0) if cloud_stats else 0,
                     "checked_at": self.status_store.checked_at(game_id),
                 }
+            if self.resource_cache is not None:
+                self.resource_cache.put(
+                    self._snapshot_key(), payload, content_type="application/json"
+                )
+            if self.cache_path is None:
+                return
             directory = self.cache_path.parent
             temporary = None
             try:

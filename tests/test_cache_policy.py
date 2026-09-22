@@ -9,11 +9,13 @@ class CachePolicyTests(unittest.TestCase):
         self.assertEqual(cache_policy("steam-tags").max_age_seconds, 7 * 24 * 60 * 60)
         self.assertEqual(cache_policy("profile-avatar").max_age_seconds, 30 * 24 * 60 * 60)
         self.assertEqual(cache_policy("profile-avatar-catalog").max_age_seconds, 24 * 60 * 60)
+        self.assertEqual(cache_policy("achievement-icons").max_age_seconds, 30 * 24 * 60 * 60)
 
     def test_image_policies_carry_safe_content_types(self):
         self.assertEqual(cache_policy("profile-artwork").content_type, "image/jpeg")
         self.assertEqual(cache_policy("profile-background").content_type, "image/jpeg")
         self.assertEqual(cache_policy("profile-avatar").content_type, "image/png")
+        self.assertEqual(cache_policy("achievement-icons").content_type, "application/json")
 
     def test_unknown_policy_is_not_silently_defaulted(self):
         with self.assertRaises(KeyError):

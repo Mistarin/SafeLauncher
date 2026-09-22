@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import threading
 import time
@@ -35,7 +36,14 @@ class CacheEntry:
 class ResourceCache:
     """LRU memory cache backed by bounded JSON/bytes files on disk."""
 
-    def __init__(self, directory: str | os.PathLike | None = None, *, max_entries: int = 256, max_disk_bytes: int = 64 * 1024 * 1024):
+    def __init__(
+        self,
+        directory: str | os.PathLike | None = None,
+        *,
+        max_entries: int = 256,
+        max_disk_bytes: int = 64 * 1024 * 1024,
+        legacy_directories: tuple[str | os.PathLike, ...] = (),
+    ):
         if max_entries < 1 or max_disk_bytes < 1:
             raise ValueError("Cache limits must be positive")
         self.directory = Path(directory) if directory else None
@@ -52,6 +60,8 @@ class ResourceCache:
                 # requirement. Sandboxed/read-only environments still get a
                 # fully functional bounded memory cache.
                 self.directory = None
+            else:
+                self._migrate_legacy_directories(legacy_directories)
 
     def get(self, key: RequestKey) -> CacheEntry | None:
         with self._lock:
@@ -146,6 +156,62 @@ class ResourceCache:
     def _path_for(self, key: RequestKey) -> Path:
         digest = hashlib.sha256(key.cache_key().encode("utf-8")).hexdigest()
         return self.directory / f"{digest}.json"
+
+    def _migrate_legacy_directories(
+        self,
+        legacy_directories: tuple[str | os.PathLike, ...],
+    ) -> None:
+        """Import old hashed resource files without trusting their contents."""
+        if not self.directory:
+            return
+        for raw_directory in legacy_directories:
+            source_directory = Path(raw_directory)
+            if source_directory == self.directory or not source_directory.is_dir():
+                continue
+            try:
+                for source in source_directory.glob("*.json"):
+                    target = self.directory / source.name
+                    source_valid = self._is_cache_document(source)
+                    target_valid = target.exists() and self._is_cache_document(target)
+                    if source_valid and not target_valid:
+                        temporary = self.directory / f".migrate-{source.name}.tmp"
+                        try:
+                            shutil.copyfile(source, temporary)
+                            os.replace(temporary, target)
+                        finally:
+                            try:
+                                temporary.unlink()
+                            except OSError:
+                                pass
+                        target_valid = True
+                    if source_valid and target_valid:
+                        try:
+                            source.unlink()
+                        except OSError:
+                            pass
+                try:
+                    if not any(source_directory.iterdir()):
+                        source_directory.rmdir()
+                except OSError:
+                    pass
+            except OSError:
+                # Cache migration is best effort and must never block startup.
+                continue
+
+    @staticmethod
+    def _is_cache_document(path: Path) -> bool:
+        """Return whether a legacy file has the shared cache envelope shape."""
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                document = json.load(handle)
+            return (
+                isinstance(document, dict)
+                and isinstance(document.get("cache_key"), str)
+                and document.get("encoding") in {"json", "base64"}
+                and "value" in document
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return False
 
     @staticmethod
     def _encode_value(value: Any) -> tuple[str | None, Any]:

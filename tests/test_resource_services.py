@@ -43,7 +43,11 @@ class _SteamClient:
 
 
 class _ArtworkClient:
+    def __init__(self):
+        self.search_calls = 0
+
     def search_game(self, name):
+        self.search_calls += 1
         return {"primary": {"appid": "480", "banner_url": "https://art/banner"}}
 
     def download_banner(self, _url):
@@ -112,6 +116,19 @@ class ResourceServiceTests(unittest.TestCase):
             self.assertEqual(first.key, second.key)
             self.assertEqual(first.future.result(timeout=2).value[0], "/cache/banner.jpg")
             self.assertEqual(second.future.result(timeout=2).value[2], "/cache/icon.png")
+        finally:
+            manager.shutdown()
+
+    def test_automatic_artwork_reuses_shared_search_cache(self):
+        manager = RequestManager(max_workers=2, cache=ResourceCache())
+        client = _ArtworkClient()
+        try:
+            service = ArtworkResourceService(manager, client=client)
+            target = ArtworkTarget(1, "Example", "480")
+            self.assertEqual(service.request_auto(target).future.result(timeout=2).status, ResourceStatus.READY)
+            search = service.request_search("Example").future.result(timeout=2)
+            self.assertEqual(search.value["primary"]["appid"], "480")
+            self.assertEqual(client.search_calls, 1)
         finally:
             manager.shutdown()
 

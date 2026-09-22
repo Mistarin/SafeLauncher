@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import inspect
+import os
 
 from core.artwork_client import ArtworkClient
 from core.cache_policy import cache_policy
@@ -91,7 +93,7 @@ class ArtworkResourceService:
 
         def load(token: CancellationToken):
             token.raise_if_cancelled()
-            value = self.client.download_banner(url)
+            value = self._transport_without_cache(self.client.download_banner, url)
             token.raise_if_cancelled()
             return value or ""
 
@@ -106,10 +108,18 @@ class ArtworkResourceService:
 
     def auto_spec(self, target: ArtworkTarget, *, priority: RequestPriority = RequestPriority.BACKGROUND, generation: int = 0) -> RequestSpec:
         key = self._key("artwork-auto", target.identity, "portrait-and-icon-v1")
+        shared_cache = getattr(self.request_manager, "cache", None)
+        search_key = self.search_key(target.game_name)
 
         def load(token: CancellationToken):
             token.raise_if_cancelled()
-            search = self.client.search_game(target.game_name)
+            search_entry = shared_cache.get(search_key) if shared_cache is not None else None
+            if search_entry is not None and search_entry.is_fresh(self.SEARCH_TTL_SECONDS):
+                search = search_entry.value
+            else:
+                search = self.client.search_game(target.game_name)
+                if shared_cache is not None:
+                    shared_cache.put(search_key, search, content_type="application/json")
             token.raise_if_cancelled()
             banner_path = ""
             resolved_appid = target.identity if not target.identity.startswith("name:") else ""
@@ -118,14 +128,32 @@ class ArtworkResourceService:
                 resolved_appid = str(primary.get("appid") or resolved_appid or "")
                 banner_url = str(primary.get("banner_url") or "")
                 if banner_url:
-                    banner_path = self.client.download_banner(banner_url) or ""
+                    cache_path = getattr(self.client, "banner_cache_path", None)
+                    existing = cache_path(banner_url) if callable(cache_path) else None
+                    if self._path_cache_validator(str(existing or "")):
+                        banner_path = str(existing)
+                    else:
+                        banner_path = self._transport_without_cache(
+                            self.client.download_banner, banner_url
+                        ) or ""
             token.raise_if_cancelled()
-            icon_path = self.client.fetch_and_cache_game_icon(
-                target.game_id,
-                resolved_appid,
-                target.game_name,
+            icon_cache_path = getattr(self.client, "get_icon_cached_path", None)
+            existing_icon = icon_cache_path(
+                steam_id=resolved_appid,
+                game_name=target.game_name,
                 exe_path=target.exe_path,
-            ) or ""
+                game_id=target.game_id,
+            ) if callable(icon_cache_path) else None
+            if self._path_cache_validator(str(existing_icon or "")):
+                icon_path = str(existing_icon)
+            else:
+                icon_path = self._transport_without_cache(
+                    self.client.fetch_and_cache_game_icon,
+                    target.game_id,
+                    resolved_appid,
+                    target.game_name,
+                    exe_path=target.exe_path,
+                ) or ""
             token.raise_if_cancelled()
             return (
                 banner_path,
@@ -140,7 +168,8 @@ class ArtworkResourceService:
 
         def load(token: CancellationToken):
             token.raise_if_cancelled()
-            value = self.client.download_hero_banner(
+            value = self._transport_without_cache(
+                self.client.download_hero_banner,
                 target.steam_id,
                 target.game_id,
                 target.game_name,
@@ -156,7 +185,8 @@ class ArtworkResourceService:
 
         def load(token: CancellationToken):
             token.raise_if_cancelled()
-            value = self.client.fetch_and_cache_game_icon(
+            value = self._transport_without_cache(
+                self.client.fetch_and_cache_game_icon,
                 target.game_id,
                 target.steam_id,
                 target.game_name,
@@ -168,7 +198,10 @@ class ArtworkResourceService:
         return RequestSpec(key, load, priority=priority, generation=int(generation), timeout_seconds=30)
 
     def request_auto(self, target: ArtworkTarget, **kwargs):
-        return self._request_cached(self.auto_spec(target, **kwargs))
+        return self._request_cached(
+            self.auto_spec(target, **kwargs),
+            cache_validator=self._auto_cache_validator,
+        )
 
     def request_search(self, game_name: str, **kwargs):
         return self._request_cached(
@@ -177,17 +210,69 @@ class ArtworkResourceService:
         )
 
     def request_banner(self, url: str, **kwargs):
+        cache_path = getattr(self.client, "banner_cache_path", None)
         return self._request_cached(
             self.banner_spec(url, **kwargs),
             max_age_seconds=self.ARTWORK_TTL_SECONDS,
+            legacy_value=cache_path(str(url or "")) if callable(cache_path) else None,
+            cache_validator=self._path_cache_validator,
             content_type="text/plain",
         )
 
     def request_hero(self, target: ArtworkTarget, **kwargs):
-        return self._request_cached(self.hero_spec(target, **kwargs), content_type="text/plain")
+        cache_path = getattr(self.client, "get_hero_cached_path", None)
+        return self._request_cached(
+            self.hero_spec(target, **kwargs),
+            legacy_value=cache_path(
+                steam_id=target.steam_id,
+                game_name=target.game_name,
+                exe_path=target.exe_path,
+                game_id=target.game_id,
+            ) if callable(cache_path) else None,
+            cache_validator=self._path_cache_validator,
+            content_type="text/plain",
+        )
 
     def request_icon(self, target: ArtworkTarget, **kwargs):
-        return self._request_cached(self.icon_spec(target, **kwargs), content_type="text/plain")
+        cache_path = getattr(self.client, "get_icon_cached_path", None)
+        return self._request_cached(
+            self.icon_spec(target, **kwargs),
+            legacy_value=cache_path(
+                steam_id=target.steam_id,
+                game_name=target.game_name,
+                exe_path=target.exe_path,
+                game_id=target.game_id,
+            ) if callable(cache_path) else None,
+            cache_validator=self._path_cache_validator,
+            content_type="text/plain",
+        )
+
+    @staticmethod
+    def _path_cache_validator(value) -> bool:
+        if not isinstance(value, str) or not value or not os.path.isfile(value):
+            return False
+        try:
+            return os.path.getsize(value) > 0
+        except OSError:
+            return False
+
+    @staticmethod
+    def _auto_cache_validator(value) -> bool:
+        if not isinstance(value, (tuple, list)) or len(value) < 3:
+            return False
+        paths = [str(value[0] or ""), str(value[2] or "")]
+        return all(not path or ArtworkResourceService._path_cache_validator(path) for path in paths)
+
+    @staticmethod
+    def _transport_without_cache(method, *args, **kwargs):
+        """Use raw transport in production while supporting older clients."""
+        try:
+            supports_flag = "use_cache" in inspect.signature(method).parameters
+        except (TypeError, ValueError):
+            supports_flag = False
+        if supports_flag:
+            kwargs["use_cache"] = False
+        return method(*args, **kwargs)
 
     def _request_cached(
         self,
@@ -195,10 +280,17 @@ class ArtworkResourceService:
         *,
         max_age_seconds: float | None = None,
         content_type: str = "application/json",
+        legacy_value=None,
+        cache_validator=None,
     ):
         cache = getattr(self.request_manager, "cache", None)
         if cache is None:
             return self.request_manager.submit(spec)
+        if legacy_value:
+            if isinstance(legacy_value, os.PathLike):
+                legacy_value = str(legacy_value)
+            if self._path_cache_validator(legacy_value) and cache.get(spec.key) is None:
+                cache.put(spec.key, str(legacy_value), content_type=content_type)
         return self.request_manager.cached_request(
             spec,
             cache,
@@ -208,6 +300,7 @@ class ArtworkResourceService:
                 else max_age_seconds
             ),
             stale_while_revalidate=True,
+            cache_validator=cache_validator,
             content_type=content_type,
         )
 

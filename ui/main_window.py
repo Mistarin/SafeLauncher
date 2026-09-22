@@ -226,10 +226,12 @@ class MainWindow(QMainWindow):
         # Keep the cache path available to every library presentation,
         # including the empty-filter branch used by compact view.
         self.cache_dir = self.sgdb_client.cache_dir
+        resource_cache_dir = self.cache_dir.parent / "resources"
         self.resource_cache = ResourceCache(
-            os.path.join(str(self.cache_dir), "resources"),
+            str(resource_cache_dir),
             max_entries=512,
             max_disk_bytes=64 * 1024 * 1024,
+            legacy_directories=(str(self.cache_dir / "resources"),),
         )
         self.performance_tracker = ResourcePerformanceTracker()
         self.games = []
@@ -294,8 +296,10 @@ class MainWindow(QMainWindow):
             self.request_manager,
             coordinator=self.cloud_sync_coordinator,
             status_store=self.save_state_store,
-            cache_path=os.path.join(os.path.dirname(os.fspath(self.cache_dir)), "cloud_status_cache.json"),
-            legacy_cache_path=os.path.join(os.path.dirname(os.fspath(self.cache_dir)), "metadata_cache.json"),
+            cache=self.resource_cache,
+            legacy_cache_path=os.path.join(
+                os.path.dirname(os.fspath(self.cache_dir)), "cloud_status_cache.json"
+            ),
         )
         self.cloud_status_polling = CloudStatusPollingService(
             self.cloud_status_service,
@@ -4762,20 +4766,47 @@ class MainWindow(QMainWindow):
         """
         return os.path.join(os.path.dirname(os.fspath(self.cache_dir)), "metadata_cache.json")
 
+    def _metadata_resource_key(self) -> RequestKey:
+        return RequestKey("library-metadata-projection", "local", "v1")
+
     def _load_persistent_cache(self):
-        """Load cached cloud save statuses, Steam check results, and attempted tag lookups from disk."""
+        """Load local metadata projections through the shared persistent cache."""
         self.achievement_state.checked_at.clear()
         self.achievement_state.status.clear()
         self.achievement_state.resolutions.clear()
-        self.library_metadata_state.load_legacy_cache(
+        key = self._metadata_resource_key()
+        shared = self.resource_cache.get(key) if self.resource_cache is not None else None
+        if shared is not None and self.library_metadata_state.load_payload(
+            shared.value, self.achievement_state
+        ):
+            if self.resource_cache is not None and self.resource_cache.directory is not None:
+                try:
+                    os.unlink(self._metadata_cache_path())
+                except OSError:
+                    pass
+            return
+        if self.library_metadata_state.load_legacy_cache(
             self._metadata_cache_path(), self.achievement_state
-        )
+        ) and self.resource_cache is not None:
+            self.resource_cache.put(
+                key,
+                self.library_metadata_state.cache_payload(self.achievement_state),
+                content_type="application/json",
+            )
+            if self.resource_cache.directory is not None:
+                try:
+                    os.unlink(self._metadata_cache_path())
+                except OSError:
+                    pass
 
     def _save_persistent_cache(self):
-        """Atomically persist metadata beside the shared resource cache."""
-        self.library_metadata_state.save_legacy_cache(
-            self._metadata_cache_path(), self.achievement_state
-        )
+        """Persist local metadata projections in the shared resource cache."""
+        if self.resource_cache is not None:
+            self.resource_cache.put(
+                self._metadata_resource_key(),
+                self.library_metadata_state.cache_payload(self.achievement_state),
+                content_type="application/json",
+            )
 
     def _on_steam_tags_found(self, game_id: int, tags_list: list, steam_app_id: str = ""):
         """Callback when background SteamTagsFetcher returns genres/categories"""

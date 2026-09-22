@@ -32,6 +32,8 @@ from core.profile_avatar_catalog import (
     load_cached_avatar_catalog,
     normalize_avatar_catalog,
     read_cached_avatar,
+    retire_cached_avatar,
+    retire_cached_avatar_catalog,
     save_cached_avatar,
     save_cached_avatar_catalog,
 )
@@ -276,7 +278,26 @@ class ProfilePageWidget(QWidget):
         self._profile_background_pixmap = QPixmap()
         self._profile_background_blurred = QPixmap()
         self._profile_background_blur_size = (0, 0)
-        self._avatar_catalog: list[dict[str, Any]] = load_cached_avatar_catalog() or []
+        legacy_avatar_catalog = load_cached_avatar_catalog() or []
+        self._avatar_catalog: list[dict[str, Any]] = []
+        if self.resource_cache is not None:
+            catalog_key = self._profile_resource_key("profile-avatar-catalog", "catalog")
+            shared_catalog = self.resource_cache.get(catalog_key)
+            if shared_catalog is not None and self._avatar_catalog_cache_value_is_valid(shared_catalog.value):
+                self._avatar_catalog = normalize_avatar_catalog(shared_catalog.value) or []
+                if self.resource_cache.directory is not None:
+                    retire_cached_avatar_catalog()
+            elif legacy_avatar_catalog:
+                self._avatar_catalog = legacy_avatar_catalog
+                self.resource_cache.put(
+                    catalog_key,
+                    legacy_avatar_catalog,
+                    content_type=cache_policy("profile-avatar-catalog").content_type,
+                )
+                if self.resource_cache.directory is not None:
+                    retire_cached_avatar_catalog()
+        else:
+            self._avatar_catalog = legacy_avatar_catalog
         self._avatar_catalog_loading = False
         self._avatar_dialog: ProfileAvatarCatalogDialog | None = None
         self._avatar_pixmaps = PresentationCache(MAX_PROFILE_AVATAR_CACHE_ITEMS)
@@ -1070,7 +1091,12 @@ class ProfilePageWidget(QWidget):
             return b""
         if self.resource_cache is not None:
             entry = self.resource_cache.get(self._profile_background_key(app_id))
-            if entry is not None and isinstance(entry.value, bytes) and entry.value:
+            if entry is not None and self._profile_background_cache_value_is_valid(entry.value):
+                if self.resource_cache.directory is not None:
+                    try:
+                        os.unlink(self._profile_background_cache_path(app_id))
+                    except OSError:
+                        pass
                 return entry.value
         path = self._profile_background_cache_path(app_id)
         if not path:
@@ -1078,11 +1104,35 @@ class ProfilePageWidget(QWidget):
         try:
             with open(path, "rb") as stream:
                 data = stream.read(MAX_PROFILE_BACKGROUND_BYTES + 1)
-            if 0 < len(data) <= MAX_PROFILE_BACKGROUND_BYTES:
+            if self._profile_background_cache_value_is_valid(data):
+                if self.resource_cache is not None:
+                    self.resource_cache.put(
+                        self._profile_background_key(app_id),
+                        data,
+                        content_type=cache_policy("profile-background").content_type,
+                    )
+                    if self.resource_cache.directory is not None:
+                        try:
+                            os.unlink(path)
+                        except OSError:
+                            pass
                 return data
         except OSError:
             pass
         return b""
+
+    @staticmethod
+    def _profile_background_cache_value_is_valid(value: Any) -> bool:
+        if not isinstance(value, bytes) or not 0 < len(value) <= MAX_PROFILE_BACKGROUND_BYTES:
+            return False
+        return ProfilePageWidget._decode_profile_background(value) is not None
+
+    @staticmethod
+    def _profile_artwork_cache_value_is_valid(value: Any) -> bool:
+        if not isinstance(value, bytes) or not 0 < len(value) <= 4 * 1024 * 1024:
+            return False
+        pixmap = QPixmap()
+        return pixmap.loadFromData(value) and pixmap.width() > 0 and pixmap.height() > 0
 
     @staticmethod
     def _decode_profile_background(data: bytes) -> QPixmap | None:
@@ -1145,6 +1195,7 @@ class ProfilePageWidget(QWidget):
                 spec,
                 self.resource_cache,
                 max_age_seconds=cache_policy("profile-background").max_age_seconds,
+                cache_validator=self._profile_background_cache_value_is_valid,
                 content_type=cache_policy("profile-background").content_type,
             ) if self.resource_cache is not None else self.request_manager.request(
                 key,
@@ -1211,7 +1262,7 @@ class ProfilePageWidget(QWidget):
                 data,
                 content_type="image/jpeg",
             )
-        if persist_legacy_cache:
+        if persist_legacy_cache and self.resource_cache is None:
             cache_path = self._profile_background_cache_path(app_id)
             if cache_path:
                 temp_path = f"{cache_path}.tmp"
@@ -1496,7 +1547,7 @@ class ProfilePageWidget(QWidget):
             card.set_artwork_bytes(self._artwork_cache[url])
         elif self.resource_cache is not None:
             cached = self.resource_cache.get(self._profile_artwork_key(url))
-            if cached is not None and isinstance(cached.value, bytes) and cached.value:
+            if cached is not None and self._profile_artwork_cache_value_is_valid(cached.value):
                 self._artwork_cache[url] = cached.value
                 card.set_artwork_bytes(cached.value)
             elif pending is not None and url not in self._artwork_inflight:
@@ -1545,6 +1596,7 @@ class ProfilePageWidget(QWidget):
                     spec,
                     self.resource_cache,
                     max_age_seconds=cache_policy("profile-artwork").max_age_seconds,
+                    cache_validator=self._profile_artwork_cache_value_is_valid,
                     content_type=cache_policy("profile-artwork").content_type,
                 ) if self.resource_cache is not None else self.request_manager.request(
                     key,
@@ -2307,6 +2359,19 @@ class ProfilePageWidget(QWidget):
                     value, expected_hash
                 )
                 cached = self.resource_cache.get(key)
+                if cached is None and expected_hash:
+                    legacy_data = read_cached_avatar(avatar_id, expected_hash)
+                    if legacy_data:
+                        self.resource_cache.put(
+                            key,
+                            legacy_data,
+                            content_type=cache_policy("profile-avatar").content_type,
+                        )
+                        if self.resource_cache.directory is not None:
+                            retire_cached_avatar(avatar_id, expected_hash)
+                        cached = self.resource_cache.get(key)
+                elif cached is not None and expected_hash and self.resource_cache.directory is not None:
+                    retire_cached_avatar(avatar_id, expected_hash)
                 had_cache = cached is not None and cache_validator(cached.value)
                 spec = self.profile_resources.request_spec(
                     key,

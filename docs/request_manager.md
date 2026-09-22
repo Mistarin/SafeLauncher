@@ -87,6 +87,13 @@ checks, and LRU eviction.
 Disk persistence degrades to the bounded memory cache if its directory becomes
 read-only or unavailable, so cache I/O cannot fail an otherwise successful
 resource request.
+The application uses one persistent resource cache at
+`<cache-location>/resources` for reusable remote-derived values. Profile
+catalog/avatar data, profile artwork/backgrounds, Steam metadata, artwork
+paths, achievement schemas/icons, and cloud-status snapshots all use the
+same manager/cache boundary. Older feature-specific resource-cache envelopes
+are imported into that directory on startup; materialized image files remain
+derived outputs for consumers that require filesystem paths.
 `cached_request()` emits stale data before refreshing it. If refresh ends
 offline or fails, the last stale value remains the manager's usable state while
 the request future still reports the original failure for diagnostics/retry

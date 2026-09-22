@@ -155,6 +155,14 @@ def save_cached_avatar_catalog(catalog: list[dict[str, Any]]) -> None:
                 pass
 
 
+def retire_cached_avatar_catalog() -> None:
+    """Remove the legacy catalog after it has been imported successfully."""
+    try:
+        avatar_catalog_cache_path().unlink()
+    except OSError:
+        pass
+
+
 def read_cached_avatar(avatar_id: str, sha256: str) -> bytes:
     try:
         path = avatar_image_cache_path(avatar_id, sha256)
@@ -199,6 +207,14 @@ def save_cached_avatar(avatar_id: str, sha256: str, data: bytes) -> None:
                 temporary.unlink()
             except OSError:
                 pass
+
+
+def retire_cached_avatar(avatar_id: str, sha256: str) -> None:
+    """Remove one legacy avatar file after shared-cache migration."""
+    try:
+        avatar_image_cache_path(avatar_id, sha256).unlink()
+    except (OSError, ValueError):
+        pass
 
 
 def _prune_avatar_images() -> None:

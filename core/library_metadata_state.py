@@ -56,6 +56,13 @@ class LibraryMetadataState:
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             return False
 
+        return self.load_payload(data, achievement_state)
+
+    def load_payload(self, data, achievement_state) -> bool:
+        """Load a validated local projection from the shared resource cache."""
+        if not isinstance(data, dict):
+            return False
+
         now = time.time()
         self.attempted_tags = {
             int(value) for value in data.get("attempted_tags", [])
@@ -96,6 +103,44 @@ class LibraryMetadataState:
                 continue
         return True
 
+    def cache_payload(
+        self,
+        achievement_state,
+        *,
+        cache_kind: str = "library-metadata-projection",
+    ) -> dict:
+        """Serialize the local projection for a ResourceCache JSON value."""
+        builds = {}
+        now = time.time()
+        for game_id, result in self.steam_check_results.items():
+            build_id, build_date, is_update, error = result
+            builds[str(int(game_id))] = {
+                "latest_build_id": build_id,
+                "latest_build_date": build_date,
+                "is_update": bool(is_update),
+                "error": str(error or ""),
+                "checked_at": self.steam_build_checked_at.get(int(game_id), now),
+            }
+
+        achievements = {}
+        for game_id, value in achievement_state.status.items():
+            unlocked, total, percentage, recent = value
+            achievements[str(int(game_id))] = {
+                "unlocked_count": unlocked,
+                "total_count": total,
+                "pct": percentage,
+                "recent": recent if isinstance(recent, list) else [],
+                "checked_at": achievement_state.checked_at.get(int(game_id), now),
+            }
+
+        return {
+            "cache_kind": str(cache_kind),
+            "attempted_tags": sorted(self.attempted_tags),
+            "steam_builds": builds,
+            "achievements": achievements,
+            "saved_at": now,
+        }
+
     def save_legacy_cache(self, cache_file, achievement_state) -> None:
         """Atomically write the credential-free compatibility projection."""
         path = Path(cache_file)
@@ -103,36 +148,10 @@ class LibraryMetadataState:
         fd = None
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            builds = {}
-            now = time.time()
-            for game_id, result in self.steam_check_results.items():
-                build_id, build_date, is_update, error = result
-                builds[str(int(game_id))] = {
-                    "latest_build_id": build_id,
-                    "latest_build_date": build_date,
-                    "is_update": bool(is_update),
-                    "error": str(error or ""),
-                    "checked_at": self.steam_build_checked_at.get(int(game_id), now),
-                }
-
-            achievements = {}
-            for game_id, value in achievement_state.status.items():
-                unlocked, total, percentage, recent = value
-                achievements[str(int(game_id))] = {
-                    "unlocked_count": unlocked,
-                    "total_count": total,
-                    "pct": percentage,
-                    "recent": recent if isinstance(recent, list) else [],
-                    "checked_at": achievement_state.checked_at.get(int(game_id), now),
-                }
-
-            payload = {
-                "cache_kind": "legacy-library-metadata-projection",
-                "attempted_tags": sorted(self.attempted_tags),
-                "steam_builds": builds,
-                "achievements": achievements,
-                "saved_at": now,
-            }
+            payload = self.cache_payload(
+                achievement_state,
+                cache_kind="legacy-library-metadata-projection",
+            )
             fd, temporary = tempfile.mkstemp(
                 prefix=".metadata-", suffix=".tmp", dir=str(path.parent)
             )

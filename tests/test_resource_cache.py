@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from core.request_contracts import RequestKey, RequestSpec, ResourceStatus
@@ -22,6 +23,20 @@ class ResourceCacheTests(unittest.TestCase):
             self.assertEqual(loaded.value, b"image")
             self.assertEqual(loaded.content_type, "image/png")
             self.assertEqual(loaded.source, "disk")
+
+    def test_legacy_resource_directory_is_migrated_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            legacy = f"{directory}/legacy"
+            current = f"{directory}/current"
+            key = RequestKey("asset", "legacy", "v1")
+            ResourceCache(legacy).put(key, {"path": "/tmp/asset"})
+
+            migrated = ResourceCache(current, legacy_directories=(legacy,))
+
+            entry = migrated.get(key)
+            self.assertIsNotNone(entry)
+            self.assertEqual(entry.value, {"path": "/tmp/asset"})
+            self.assertFalse(Path(legacy).exists())
 
     def test_memory_cache_is_bounded(self):
         cache = ResourceCache(max_entries=1)

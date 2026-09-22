@@ -188,7 +188,24 @@ class SteamGridDBClient:
     # unexpectedly large responses (e.g. compromised CDN or MITM attack).
     _MAX_BANNER_BYTES = 10 * 1024 * 1024  # 10 MB
 
-    def download_banner(self, url: str, game_id: Optional[int] = None) -> Optional[str]:
+    def banner_cache_path(self, url: str, game_id: Optional[int] = None) -> Path | None:
+        """Return the materialized banner path without performing I/O."""
+        if not url:
+            return None
+        url_hash = hashlib.md5(url.encode('utf-8')).hexdigest()[:12]
+        if game_id and game_id > 0:
+            filename = f"game_{game_id}_{url_hash}.jpg"
+        else:
+            filename = f"banner_{url_hash}.jpg"
+        return self.cache_dir / filename
+
+    def download_banner(
+        self,
+        url: str,
+        game_id: Optional[int] = None,
+        *,
+        use_cache: bool = True,
+    ) -> Optional[str]:
         """Download and cache banner locally, uniquely keyed by URL MD5 hash to prevent cache collisions.
         
         Security controls:
@@ -200,16 +217,12 @@ class SteamGridDBClient:
         
         response = None
         try:
-            url_hash = hashlib.md5(url.encode('utf-8')).hexdigest()[:12]
-            if game_id and game_id > 0:
-                filename = f"game_{game_id}_{url_hash}.jpg"
-            else:
-                filename = f"banner_{url_hash}.jpg"
-            
-            cache_file = self.cache_dir / filename
+            cache_file = self.banner_cache_path(url, game_id)
+            if cache_file is None:
+                return None
             
             # Return cached path if already downloaded
-            if cache_file.exists():
+            if use_cache and cache_file.exists():
                 return str(cache_file.resolve())
             
             # Download banner with streaming to enforce size cap
@@ -364,7 +377,15 @@ class SteamGridDBClient:
                 except OSError:
                     pass
 
-    def download_hero_banner(self, steam_id: Optional[Any], game_id: int, game_name: str, exe_path: str = "") -> Optional[str]:
+    def download_hero_banner(
+        self,
+        steam_id: Optional[Any],
+        game_id: int,
+        game_name: str,
+        exe_path: str = "",
+        *,
+        use_cache: bool = True,
+    ) -> Optional[str]:
         """Download and cache TRUE 16:9 wide library hero/background artwork (never 9:16 portrait cover art)."""
         try:
             hero_cache_dir = self.cache_dir / "heroes"
@@ -375,7 +396,7 @@ class SteamGridDBClient:
             legacy_file = hero_cache_dir / f"hero_{game_id}.jpg" if game_id else None
 
             # If canonical cache file exists, verify it's a 16:9 landscape image (width >= height)
-            if canonical_file.exists():
+            if use_cache and canonical_file.exists():
                 try:
                     from PIL import Image
                     with Image.open(canonical_file) as img:
@@ -499,7 +520,15 @@ class SteamGridDBClient:
 
         return None
 
-    def fetch_and_cache_game_icon(self, game_id: int, steam_id: Optional[str] = None, game_name: str = "", exe_path: Optional[str] = None) -> Optional[str]:
+    def fetch_and_cache_game_icon(
+        self,
+        game_id: int,
+        steam_id: Optional[str] = None,
+        game_name: str = "",
+        exe_path: Optional[str] = None,
+        *,
+        use_cache: bool = True,
+    ) -> Optional[str]:
         """Fetch and locally cache a game icon."""
         if not game_id and not steam_id and not game_name:
             return None
@@ -515,7 +544,7 @@ class SteamGridDBClient:
         cache_file = icons_dir / f"icon_{art_key}.png"
         legacy_file = icons_dir / f"icon_{game_id}.png" if game_id else None
 
-        if cache_file.exists() and cache_file.stat().st_size > 0:
+        if use_cache and cache_file.exists() and cache_file.stat().st_size > 0:
             if legacy_file and legacy_file != cache_file:
                 try:
                     shutil.copyfile(str(cache_file), str(legacy_file))

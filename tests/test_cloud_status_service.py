@@ -11,6 +11,7 @@ from core.cloud_status_service import CloudStatusService, CloudStatusTarget
 from core.cloud_save_sync import SaveStats, SyncStatus
 from core.request_contracts import ResourceStatus
 from core.request_manager import RequestManager
+from core.resource_cache import ResourceCache
 
 
 class _Coordinator:
@@ -166,6 +167,33 @@ class CloudStatusServiceTests(unittest.TestCase):
                 cached = restored.cached_status(42)
                 self.assertEqual(cached[0], SyncStatus.IN_SYNC)
                 self.assertEqual(cached[1].size_bytes, 12)
+                self.assertEqual(restored.checked_at(42), 123.0)
+            finally:
+                manager.shutdown()
+
+    def test_shared_resource_cache_round_trips_status_projection(self):
+        expected = CloudStatusResult("Example Game", SyncStatus.IN_SYNC)
+        coordinator = _Coordinator(expected)
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResourceCache(directory)
+            manager = RequestManager(max_workers=1, cache=cache)
+            try:
+                service = CloudStatusService(
+                    manager,
+                    coordinator=coordinator,
+                    context_provider=self._context_provider(),
+                    cache=cache,
+                )
+                service.record_status(42, SyncStatus.IN_SYNC, checked_at=123.0)
+
+                restored = CloudStatusService(
+                    manager,
+                    coordinator=coordinator,
+                    context_provider=self._context_provider(),
+                    cache=ResourceCache(directory),
+                )
+
+                self.assertEqual(restored.cached_status(42)[0], SyncStatus.IN_SYNC)
                 self.assertEqual(restored.checked_at(42), 123.0)
             finally:
                 manager.shutdown()

@@ -20,6 +20,7 @@ from core.disk_utils import get_dir_size, format_size, peek_dir_size
 from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
 from core.cache_policy import cache_policy
+from core.artwork_resource_service import ArtworkResourceService, ArtworkTarget
 
 logger = get_logger("UIThreads")
 
@@ -111,10 +112,11 @@ class BannerDownloader(SafeQThread):
                 self.download_failed.emit("Offline mode is enabled")
                 return
             if self.request_manager is not None:
-                from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
-                result = self.request_manager.request(
-                    RequestKey("artwork-banner", self.banner_url),
-                    lambda token: self._download(token),
+                from core.request_contracts import RequestPriority, ResourceStatus
+                result = ArtworkResourceService(
+                    self.request_manager, client=self.sgdb_client
+                ).request_banner(
+                    self.banner_url,
                     priority=RequestPriority.NORMAL,
                 ).future.result()
                 path = result.value if result.status == ResourceStatus.READY else ""
@@ -151,11 +153,17 @@ class BannerAutoFetcher(SafeQThread):
         
     def safe_run(self):
         if self.request_manager is not None:
-            from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
-            key = RequestKey("artwork-auto", f"{self.game_id}:{self.steam_id or self.game_name}")
-            handle = self.request_manager.request(
-                key,
-                lambda token: self._fetch_artwork(token),
+            from core.request_contracts import RequestPriority, ResourceStatus
+            target = ArtworkTarget(
+                self.game_id,
+                self.game_name,
+                self.steam_id,
+                self.exe_path,
+            )
+            handle = ArtworkResourceService(
+                self.request_manager, client=self.sgdb_client
+            ).request_auto(
+                target,
                 priority=RequestPriority.BACKGROUND,
             )
             result = handle.future.result()
@@ -399,10 +407,17 @@ class HeroFetcherThread(SafeQThread):
         if self.isInterruptionRequested() or not automatic_network_allowed():
             return
         if self.request_manager is not None:
-            from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
-            handle = self.request_manager.request(
-                RequestKey("artwork-hero", f"{self.game_id}:{self.steam_id or self.name}"),
-                lambda token: self._download_hero(token),
+            from core.request_contracts import RequestPriority, ResourceStatus
+            target = ArtworkTarget(
+                self.game_id,
+                self.name,
+                str(self.steam_id or ""),
+                self.exe_path,
+            )
+            handle = ArtworkResourceService(
+                self.request_manager, client=self.sgdb_client
+            ).request_hero(
+                target,
                 priority=RequestPriority.NORMAL,
             )
             result = handle.future.result()
@@ -438,10 +453,17 @@ class IconAutoFetcherThread(SafeQThread):
         if self.isInterruptionRequested() or not automatic_network_allowed():
             return
         if self.request_manager is not None:
-            from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
-            handle = self.request_manager.request(
-                RequestKey("artwork-icon", f"{self.game_id}:{self.steam_id or self.name}"),
-                lambda token: self._download_icon(token),
+            from core.request_contracts import RequestPriority, ResourceStatus
+            target = ArtworkTarget(
+                self.game_id,
+                self.name,
+                str(self.steam_id or ""),
+                self.exe_path,
+            )
+            handle = ArtworkResourceService(
+                self.request_manager, client=self.sgdb_client
+            ).request_icon(
+                target,
                 priority=RequestPriority.NORMAL,
             )
             result = handle.future.result()
