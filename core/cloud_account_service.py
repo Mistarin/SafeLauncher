@@ -148,8 +148,14 @@ class CloudAccountService:
             self._generation += 1
             self._context = self._context_provider(self._generation)
             current = self._context
-        if self.request_manager is not None and previous is not None:
-            self.request_manager.invalidate(self.snapshot_key(previous))
+        if self.request_manager is not None:
+            if previous is not None:
+                self.request_manager.invalidate(self.snapshot_key(previous))
+            # If configuration changed before the first read, there is no
+            # previous context object to invalidate. Clearing the newly
+            # materialized key still prevents a same-fingerprint generation
+            # from reusing an older disk entry.
+            self.request_manager.invalidate(self.snapshot_key(current))
         return current
 
     @staticmethod

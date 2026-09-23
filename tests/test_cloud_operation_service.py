@@ -184,6 +184,28 @@ class CloudOperationServiceTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_deduplicated_mutation_notifies_read_invalidator_once(self):
+        coordinator = _Coordinator()
+        manager = RequestManager(max_workers=1)
+        invalidations = []
+        try:
+            service = CloudOperationService(
+                manager,
+                coordinator=coordinator,
+                context_provider=self._context_provider,
+                read_invalidator=lambda target, operation, value: invalidations.append(
+                    (target.game_id, operation)
+                ),
+            )
+            target = CloudOperationTarget(81, "Example")
+            first = service.request_upload(target)
+            second = service.request_upload(target)
+            first.future.result(timeout=2)
+            second.future.result(timeout=2)
+            self.assertEqual(invalidations, [(81, "upload")])
+        finally:
+            manager.shutdown()
+
     def test_preflight_resolution_keeps_conflict_decision_typed(self):
         coordinator = _Coordinator()
         manager = RequestManager(max_workers=1)

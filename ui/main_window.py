@@ -2063,6 +2063,10 @@ class MainWindow(QMainWindow):
         self.cloud_operation_service.invalidate_context(generation=self._cloud_context_generation)
         self.cloud_account_service.invalidate_context()
         self.cloud_metadata_service.invalidate_context()
+        # Cloud Center owns derived overview/device/history projection keys;
+        # retire them after the shared context services move to the new
+        # identity so no old projection remains rendered.
+        self.cloud_center_service.invalidate_account_reads()
         self._close_managed_cloud_status_bindings()
         for widget in self.banner_widgets.values():
             widget.set_cloud_status(None)

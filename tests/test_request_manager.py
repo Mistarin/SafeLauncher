@@ -330,6 +330,41 @@ class RequestManagerTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_manager_cancel_detaches_projection_for_resource_bindings(self):
+        manager = RequestManager(max_workers=1)
+        try:
+            source = manager.request(RequestKey("source", "binding-cancel"), lambda _token: "ok")
+            projected = manager.project(
+                source,
+                RequestKey("projection", "binding-cancel"),
+                lambda value: value,
+            )
+            self.assertTrue(manager.cancel(projected.key, projected.generation))
+            self.assertEqual(projected.future.result(timeout=2).status, ResourceStatus.CANCELLED)
+            self.assertEqual(source.future.result(timeout=2).status, ResourceStatus.READY)
+        finally:
+            manager.shutdown()
+
+    def test_invalidating_source_retires_all_projections(self):
+        manager = RequestManager(max_workers=1)
+        try:
+            source = manager.request(RequestKey("source", "invalidate-projections"), lambda _token: "ok")
+            first = manager.project(
+                source,
+                RequestKey("projection", "invalidate-one"),
+                lambda value: value,
+            )
+            second = manager.project(
+                source,
+                RequestKey("projection", "invalidate-two"),
+                lambda value: value,
+            )
+            self.assertTrue(manager.invalidate(source.key))
+            self.assertEqual(first.future.result(timeout=2).status, ResourceStatus.CANCELLED)
+            self.assertEqual(second.future.result(timeout=2).status, ResourceStatus.CANCELLED)
+        finally:
+            manager.shutdown()
+
     def test_manager_invalidate_evicts_shared_cache(self):
         cache = ResourceCache()
         manager = RequestManager(max_workers=1, cache=cache)

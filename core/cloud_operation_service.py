@@ -92,6 +92,7 @@ class CloudOperationService:
         self._context: CloudContext | None = None
         self._records: dict[str, CloudOperationRecord] = {}
         self._handles = {}
+        self._read_invalidation_notified: set[str] = set()
         self._records_lock = RLock()
         self._read_invalidator = read_invalidator
 
@@ -222,7 +223,13 @@ class CloudOperationService:
                 error=str(error or ""),
                 error_category=error_category,
             )
+            notify_read_invalidator = False
             if state == CloudOperationState.COMPLETED and self._read_invalidator is not None:
+                with self._records_lock:
+                    if operation_id not in self._read_invalidation_notified:
+                        self._read_invalidation_notified.add(operation_id)
+                        notify_read_invalidator = True
+            if notify_read_invalidator:
                 try:
                     self._read_invalidator(target, operation, value)
                 except Exception:

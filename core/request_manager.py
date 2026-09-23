@@ -589,12 +589,19 @@ class RequestManager:
 
     def invalidate(self, key: RequestKey) -> bool:
         """Cancel current work and discard the current resource state."""
+        projections = []
         with self._condition:
-            projection = self._projections.pop(key, None)
-            if projection is not None:
-                projection.active = False
+            direct_projection = self._projections.pop(key, None)
+            if direct_projection is not None:
+                direct_projection.active = False
+                projections.append(direct_projection)
+            for projection_key, projection in tuple(self._projections.items()):
+                if projection.source.key == key:
+                    self._projections.pop(projection_key, None)
+                    projection.active = False
+                    projections.append(projection)
             record = self._active.get(key)
-            existed = record is not None or key in self._states or projection is not None
+            existed = record is not None or key in self._states or bool(projections)
             if existed:
                 self._metrics["invalidated"] += 1
             cache = self._cache_by_key.pop(key, None)
@@ -614,17 +621,19 @@ class RequestManager:
                 generation=generation,
             )
             self._states[key] = idle
-        if projection is not None:
+        for projection in projections:
             if projection.unsubscribe is not None:
                 projection.unsubscribe()
+            projection_result = ResourceResult(
+                key=projection.key,
+                status=ResourceStatus.CANCELLED,
+                error=RequestCancelled("Projection was invalidated"),
+                request_id=projection.request_id,
+                generation=projection.generation,
+            )
             if not projection.future.done():
-                projection.future.set_result(ResourceResult(
-                    key=key,
-                    status=ResourceStatus.CANCELLED,
-                    error=RequestCancelled("Projection was invalidated"),
-                    request_id=projection.request_id,
-                    generation=projection.generation,
-                ))
+                projection.future.set_result(projection_result)
+            self._notify(projection.key, projection_result)
         if cache is not None:
             cache.invalidate(key)
         elif self.cache is not None:
@@ -782,28 +791,42 @@ class RequestManager:
                 lambda: False,
             )
 
-        handle = self.submit(spec)
+        # Persist inside the managed loader, before RequestManager removes the
+        # active record. Attaching a Future callback here is racy for very fast
+        # loaders: the worker can finish before this method gets a chance to
+        # register that callback, allowing a second caller to start duplicate
+        # transport work before the cache is populated.
+        original_loader = spec.loader
 
-        def cache_result(future: Future) -> None:
+        def load_and_cache(token: CancellationToken):
+            value = original_loader(token)
+            token.raise_if_cancelled()
             try:
-                result = future.result()
-                if result.status == ResourceStatus.READY:
-                    value = result.value
-                    if cache_validator is not None and not cache_validator(value):
-                        return
-                    if cache_encoder is not None:
-                        value = cache_encoder(value)
-                    cache.put(
-                        spec.key,
-                        value,
-                        content_type=content_type,
-                        stored_at=result.updated_at or time.time(),
-                    )
+                if cache_validator is not None and not cache_validator(value):
+                    return value
+                encoded = cache_encoder(value) if cache_encoder is not None else value
+                cache.put(
+                    spec.key,
+                    encoded,
+                    content_type=content_type,
+                    stored_at=time.time(),
+                )
             except Exception:
+                # Cache persistence remains best effort; the network result is
+                # still a valid successful resource when disk writes fail.
                 pass
+            return value
 
-        handle.future.add_done_callback(cache_result)
-        return handle
+        spec = RequestSpec(
+            key=spec.key,
+            loader=load_and_cache,
+            priority=spec.priority,
+            retry_policy=spec.retry_policy,
+            generation=spec.generation,
+            metadata=spec.metadata,
+            timeout_seconds=spec.timeout_seconds,
+        )
+        return self.submit(spec)
 
     def subscribe(
         self,
@@ -834,12 +857,20 @@ class RequestManager:
         return unsubscribe
 
     def cancel(self, key: RequestKey, generation: int | None = None) -> bool:
+        projection = None
         with self._condition:
             record = self._active.get(key)
-            if record is None or (generation is not None and record.spec.generation != generation):
+            if record is not None:
+                if generation is not None and record.spec.generation != generation:
+                    return False
+                record.token.cancel()
+                return True
+            projection = self._projections.get(key)
+            if projection is None or (
+                generation is not None and projection.generation != generation
+            ):
                 return False
-            record.token.cancel()
-            return True
+        return self._cancel_projection(projection)
 
     def shutdown(self, wait: bool = True) -> None:
         """Stop accepting work and cooperatively stop all queued/running work."""
@@ -1023,8 +1054,6 @@ class RequestManager:
             self._increment_metric("cancelled")
         with self._condition:
             current = self._active.get(record.spec.key)
-            if current is record:
-                self._active.pop(record.spec.key, None)
             last_generation = self._last_generation.get(record.spec.key, -1)
             is_current_generation = result.generation >= last_generation
             listener_result = result
@@ -1054,7 +1083,15 @@ class RequestManager:
                     self._states[record.spec.key] = result
             listeners = list(self._listeners.get(record.spec.key, {}).values()) if is_current_generation else []
             if not record.future.done():
+                # Keep the completed record in _active while Future callbacks
+                # run. This closes the small race where a fast request is no
+                # longer active but its cached_request() callback has not yet
+                # persisted the successful value, allowing a second consumer
+                # to start duplicate transport work.
                 record.future.set_result(result)
+            current = self._active.get(record.spec.key)
+            if current is record:
+                self._active.pop(record.spec.key, None)
         for callback in listeners:
             try:
                 callback(listener_result)
