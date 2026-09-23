@@ -1325,7 +1325,7 @@ def run_cloud_setup_wizard() -> int:
                 print(f"  {GREEN}✔ Quota verification:{RESET} "
                       f"{_fmt_bytes(data.get('bytesUsed', 0))} used of {_fmt_bytes(data.get('quotaBytes', 0))} · "
                       f"max {_fmt_bytes(data.get('maxSaveBytes', 0))} per save · "
-                      f"keeping last {data.get('keepVersions', '?')} generations")
+                      f"keeping the last {data.get('keepVersions', '?')} versions")
             else:
                 print(f"  {YELLOW}● Warning: /api/me returned HTTP {resp_me.status_code}. (Check secret key if configured).{RESET}")
         finally:

@@ -32,7 +32,7 @@ class SaveHistoryDeviceTests(unittest.TestCase):
     def test_legacy_cloud_entry_does_not_render_an_opaque_id(self):
         entry = {"source": "cloud", "createdDeviceId": "opaque-secret-looking-id"}
         text = history_device_text(entry)
-        self.assertEqual(text, "Unavailable (older cloud generation)")
+        self.assertEqual(text, "Unavailable (older cloud version)")
         self.assertNotIn("opaque-secret-looking-id", text)
 
     def test_local_fork_is_identified_as_local(self):

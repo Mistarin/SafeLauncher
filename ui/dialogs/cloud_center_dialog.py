@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from core.cloud_center_service import CloudCenterService, CloudOverview
 from core.request_contracts import ResourceStatus
 from ui.components.popup_shell import PopupDialog
+from ui.components.cloud_ui import set_accessible_status
 from ui.icons import get_icon
 from ui.resource_binding import ResourceBinding, bind_request
 
@@ -99,9 +100,15 @@ class CloudCenterDialog(PopupDialog):
         status_text.setSpacing(2)
         self.lbl_status = QLabel("Checking cloud connection…")
         self.lbl_status.setStyleSheet("font-size: 14px; font-weight: 700; color: #F5F7FA;")
+        set_accessible_status(
+            self.lbl_status,
+            "Cloud connection status",
+            "Current private cloud connection and synchronization state.",
+        )
         self.lbl_message = QLabel("Loading your private-cloud overview.")
         self.lbl_message.setWordWrap(True)
         self.lbl_message.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        set_accessible_status(self.lbl_message, "Cloud status details")
         status_text.addWidget(self.lbl_status)
         status_text.addWidget(self.lbl_message)
         status_layout.addLayout(status_text, 1)
@@ -109,6 +116,7 @@ class CloudCenterDialog(PopupDialog):
         self.btn_sync.setIcon(get_icon("ph.arrows-clockwise-bold", "#FFFFFF"))
         self.btn_sync.setMinimumWidth(120)
         self.btn_sync.clicked.connect(self._sync_now)
+        self.btn_sync.setAccessibleName("Synchronize cloud saves")
         status_layout.addWidget(self.btn_sync)
         layout.addWidget(status_card)
 
@@ -143,6 +151,7 @@ class CloudCenterDialog(PopupDialog):
 
         self.lbl_last_sync = QLabel(_relative_time(self.last_sync_at))
         self.lbl_last_sync.setStyleSheet("color: #71717A; font-size: 10px;")
+        set_accessible_status(self.lbl_last_sync, "Last cloud synchronization")
         layout.addWidget(self.lbl_last_sync)
 
         devices_header = QHBoxLayout()
@@ -153,12 +162,14 @@ class CloudCenterDialog(PopupDialog):
         self.btn_history = QPushButton("Save history")
         self.btn_history.setIcon(get_icon("ph.clock-counter-clockwise-bold", "#A1A1AA"))
         self.btn_history.clicked.connect(self._open_history)
+        self.btn_history.setAccessibleName("Open cloud save history")
         devices_header.addWidget(self.btn_history)
         self.btn_review_conflicts = QPushButton("Review conflicts")
         self.btn_review_conflicts.setIcon(get_icon("ph.warning-bold", "#A1A1AA"))
         self.btn_review_conflicts.setEnabled(False)
         self.btn_review_conflicts.setToolTip("Available when this account has cloud-save conflicts")
         self.btn_review_conflicts.clicked.connect(self._open_conflicts)
+        self.btn_review_conflicts.setAccessibleName("Review cloud save conflicts")
         devices_header.addWidget(self.btn_review_conflicts)
         layout.addLayout(devices_header)
 
@@ -169,6 +180,7 @@ class CloudCenterDialog(PopupDialog):
             "QListWidget { background: #18181B; border: 1px solid #27272A; border-radius: 8px; color: #E5E7EB; }"
             "QListWidget::item { padding: 7px 8px; }"
         )
+        self.device_list.setAccessibleName("Devices using this private cloud")
         layout.addWidget(self.device_list)
 
         advanced_toggle = QToolButton()
@@ -200,12 +212,15 @@ class CloudCenterDialog(PopupDialog):
         advanced_buttons = QHBoxLayout()
         self.btn_setup = QPushButton("Set up / fix connection")
         self.btn_setup.clicked.connect(self._open_setup)
+        self.btn_setup.setAccessibleName("Set up or fix cloud connection")
         advanced_buttons.addWidget(self.btn_setup)
         self.btn_settings = QPushButton("Connection settings")
         self.btn_settings.clicked.connect(self._open_settings)
+        self.btn_settings.setAccessibleName("Open cloud connection settings")
         advanced_buttons.addWidget(self.btn_settings)
         self.btn_probe = QPushButton("Test connection")
         self.btn_probe.clicked.connect(self._probe_connection)
+        self.btn_probe.setAccessibleName("Test cloud connection")
         advanced_buttons.addWidget(self.btn_probe)
         advanced_buttons.addStretch()
         advanced_layout.addLayout(advanced_buttons)

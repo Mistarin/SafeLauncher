@@ -54,15 +54,15 @@ class SaveConflictDialog(PopupDialog):
         if self.local_is_newer:
             info_msg = (
                 f"Your local save file on this PC is newer than the Cloud copy for <b>{game_name}</b>.<br>"
-                "Either choice is safe: the version you don't pick is preserved as a backup "
-                "generation and can be restored from Game Properties → Cloud Save Synchronization."
+                "Either choice is safe: the version you don't pick is preserved as a local safety "
+                "backup and can be restored from Game Properties → Cloud Save Synchronization."
             )
         else:
             info_msg = (
                 f"A newer save file was found in your Cloud storage for <b>{game_name}</b> — "
                 "uploaded from another device.<br>"
-                "Either choice is safe: the version you don't pick is preserved as a backup "
-                "generation and can be restored from Game Properties → Cloud Save Synchronization."
+                "Either choice is safe: the version you don't pick is preserved as a local safety "
+                "backup and can be restored from Game Properties → Cloud Save Synchronization."
             )
         lbl_info = QLabel(info_msg)
         # Qt stylesheets do not support CSS line-height; QLabel word wrapping
@@ -111,9 +111,9 @@ class SaveConflictDialog(PopupDialog):
         lbl_cd.setStyleSheet("font-size: 11px; color: #F5F7FA;")
         cc_layout.addWidget(lbl_cd)
 
-        lbl_cs = QLabel(f"Size: {format_bytes(cloud_stats.size_bytes)}<br>Generations kept: {cloud_stats.file_count}")
+        lbl_cs = QLabel(f"Size: {format_bytes(cloud_stats.size_bytes)}<br>Versions kept: {cloud_stats.file_count}")
         lbl_cs.setStyleSheet("font-size: 11px; color: #A7ADB8;")
-        lbl_cs.setToolTip("Older cloud generations are retained and can be recovered.")
+        lbl_cs.setToolTip("Older cloud save versions are retained and can be recovered.")
         cc_layout.addWidget(lbl_cs)
 
         cards_row.addWidget(cloud_card, 1)

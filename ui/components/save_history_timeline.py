@@ -47,7 +47,7 @@ UserRole = Qt.ItemDataRole.UserRole
 
 
 class SaveHistoryTimeline(QWidget):
-    """Date-grouped, selectable timeline for cloud generations and local forks."""
+    """Date-grouped, selectable timeline for cloud versions and local backups."""
 
     entry_selected = pyqtSignal(object)
 
@@ -64,6 +64,10 @@ class SaveHistoryTimeline(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         self.scroll = QScrollArea()
+        self.scroll.setAccessibleName("Save history")
+        self.scroll.setAccessibleDescription(
+            "Select a cloud save version or local safety backup to restore it."
+        )
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
@@ -103,7 +107,7 @@ class SaveHistoryTimeline(QWidget):
                 widget.deleteLater()
 
         if not self._entries:
-            empty = QLabel("No saved generations or local safety backups found.")
+            empty = QLabel("No saved versions or local safety backups found.")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setStyleSheet("color: #71717A; padding: 28px 12px;")
             self.content_layout.addWidget(empty)
@@ -196,6 +200,11 @@ class SaveHistoryTimeline(QWidget):
         button.setToolTip(
             f"{entry.title}\n{entry.date_label} at {entry.time_label}\n"
             f"{entry.device_text}\nSize: {_format_bytes(entry.size_bytes)}"
+        )
+        button.setAccessibleName(entry.title)
+        button.setAccessibleDescription(
+            f"{entry.version_label}. {entry.date_label} at {entry.time_label}. "
+            f"{entry.device_text}. Size {_format_bytes(entry.size_bytes)}."
         )
         button.setProperty("historyIdentity", entry.identity)
         return button

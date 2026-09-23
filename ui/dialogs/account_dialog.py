@@ -3,7 +3,7 @@ Cloud Account manager dialog — profile, quota, and per-game save versions.
 
 Opened from Settings → Cloud ("Open Account Manager…"). Shows the signed-in
 identity, a visual quota bar against the server-enforced budget, and lets the
-user inspect/delete historical save generations hosted on the Convex backend.
+user inspect/delete historical cloud save versions hosted on the Convex backend.
 Network work happens on daemon threads; results marshal back via signals.
 """
 
@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
 from ui.components.save_history_timeline import SaveHistoryTimeline
+from ui.components.cloud_ui import confirm_delete, confirm_restore, set_accessible_status
 from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
 from core.cloud_account_service import CloudAccountService, CloudAccountSnapshot
@@ -73,7 +74,9 @@ class AccountDialog(PopupDialog):
         cloud_operation_service=None,
     ):
         super().__init__("Cloud History & Devices", parent)
-        self.setFixedSize(780, 560)
+        self.setMinimumSize(700, 500)
+        self.resize(860, 620)
+        self.setSizeGripEnabled(True)
         self._games = []
         self._quota = {}
         self._busy = False
@@ -92,6 +95,11 @@ class AccountDialog(PopupDialog):
         self.lbl_avatar = QLabel("?")
         self.lbl_avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_avatar.setFixedSize(44, 44)
+        set_accessible_status(
+            self.lbl_avatar,
+            "Cloud account avatar",
+            "Initials placeholder for the connected private cloud account.",
+        )
         self._style_avatar("?", ok=False)
         header_row.addWidget(self.lbl_avatar)
 
@@ -100,9 +108,11 @@ class AccountDialog(PopupDialog):
         self.lbl_email = QLabel("Not signed in")
         self.lbl_email.setFont(QFont("Arial", 13, QFont.Weight.Bold))
         self.lbl_email.setStyleSheet("color: #F5F7FA;")
+        set_accessible_status(self.lbl_email, "Cloud account identity")
         ident_col.addWidget(self.lbl_email)
         self.lbl_subject = QLabel("")
         self.lbl_subject.setStyleSheet("color: #6F7682; font-size: 11px;")
+        set_accessible_status(self.lbl_subject, "Cloud account details")
         ident_col.addWidget(self.lbl_subject)
         header_row.addLayout(ident_col)
         header_row.addStretch()
@@ -113,6 +123,7 @@ class AccountDialog(PopupDialog):
         self.combo_backend.setCurrentIndex(1 if self.cloud_account_service.mode() == "convex" else 0)
         self.combo_backend.currentIndexChanged.connect(self._on_backend_changed)
         self.combo_backend.setMinimumWidth(220)
+        self.combo_backend.setAccessibleName("Cloud backend")
         header_row.addWidget(self.combo_backend)
         body_layout.addLayout(header_row)
 
@@ -141,6 +152,7 @@ class AccountDialog(PopupDialog):
         quota_layout.addWidget(self.bar_quota)
         self.lbl_quota_text = QLabel("Connect an account to see cloud usage.")
         self.lbl_quota_text.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        set_accessible_status(self.lbl_quota_text, "Cloud storage usage")
         quota_layout.addWidget(self.lbl_quota_text)
         body_layout.addWidget(quota_box)
 
@@ -168,6 +180,7 @@ class AccountDialog(PopupDialog):
             "QPushButton:hover { border-color:#F05D6C; }"
         )
         self.btn_revoke_device.clicked.connect(self._revoke_selected_device)
+        self.btn_revoke_device.setAccessibleName("Revoke selected device")
         self.btn_revoke_device.hide()
         devices_row.addWidget(self.btn_revoke_device)
         body_layout.addLayout(devices_row)
@@ -207,22 +220,24 @@ class AccountDialog(PopupDialog):
         self.history_timeline.entry_selected.connect(self._on_history_entry_selected)
         ver_btn_row = QHBoxLayout()
         ver_btn_row.setSpacing(6)
-        self.btn_restore = QPushButton("Restore Selected to Game")
+        self.btn_restore = QPushButton("Restore selected version")
         self.btn_restore.setStyleSheet(
             "QPushButton { background:#3B9FE8; color:#FFFFFF; border:1px solid #2563EB;"
             "border-radius:5px; padding:6px 12px; font-weight:bold; }"
             "QPushButton:hover { background:#2563EB; }"
         )
         self.btn_restore.clicked.connect(self._restore_selected_version)
+        self.btn_restore.setAccessibleName("Restore selected cloud save version")
         ver_btn_row.addWidget(self.btn_restore)
 
-        self.btn_delete_generation = QPushButton("Delete Selected Generation")
+        self.btn_delete_generation = QPushButton("Delete selected version")
         self.btn_delete_generation.setStyleSheet(
             "QPushButton { background:#27272A; color:#F05D6C; border:1px solid #3F3F46;"
             "border-radius:5px; padding:6px 12px; }"
             "QPushButton:hover { border-color:#F05D6C; }"
         )
         self.btn_delete_generation.clicked.connect(self._delete_selected_version)
+        self.btn_delete_generation.setAccessibleName("Delete selected cloud save version")
         ver_btn_row.addWidget(self.btn_delete_generation)
         right_layout.addWidget(self.history_timeline, 1)
         right_layout.addLayout(ver_btn_row)
@@ -234,17 +249,20 @@ class AccountDialog(PopupDialog):
         # --- footer actions ----------------------------------------------------
         footer = QHBoxLayout()
         footer.setSpacing(8)
-        btn_refresh = QPushButton("Refresh")
-        btn_refresh.clicked.connect(self.reload)
-        footer.addWidget(btn_refresh)
+        self.btn_refresh = QPushButton("Refresh")
+        self.btn_refresh.clicked.connect(self.reload)
+        self.btn_refresh.setAccessibleName("Refresh cloud account data")
+        footer.addWidget(self.btn_refresh)
         self.btn_auth_toggle = QPushButton("Sign In…")
         self.btn_auth_toggle.clicked.connect(self._auth_action)
+        self.btn_auth_toggle.setAccessibleName("Cloud account connection")
         footer.addWidget(self.btn_auth_toggle)
         footer.addStretch()
 
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.accept)
         btn_close.setDefault(True)
+        btn_close.setAccessibleName("Close cloud account manager")
         footer.addWidget(btn_close)
         body_layout.addLayout(footer)
 
@@ -422,14 +440,17 @@ class AccountDialog(PopupDialog):
                 if not result.usable:
                     raise result.error or RuntimeError("Cloud account data unavailable")
                 snapshot = CloudAccountSnapshot.from_payload(result.value)
+                is_stale = result.status == ResourceStatus.STALE
             else:
                 snapshot = self.cloud_account_service.snapshot()
+                is_stale = False
             return {
                 "ok": {
                     "email": snapshot.overview.get("email") or "SafeLauncher Cloud",
                     "listing": snapshot.listing,
                     "overview": snapshot.overview,
                 },
+                "stale": is_stale,
             }
         except Exception as e:
             logger.warning(f"Account data load failed: {e}")
@@ -467,8 +488,14 @@ class AccountDialog(PopupDialog):
         site = get_site_url()
         concurrent = overview.get("concurrentDevices", 1)
         dev_summary = f" · {concurrent} device(s) online" if concurrent else ""
-        self.lbl_email.setText("Private Cloud Connected")
-        self.lbl_subject.setText(f"Endpoint: {site}{dev_summary} · Server-enforced quota")
+        is_stale = bool(payload.get("stale"))
+        self.lbl_email.setText(
+            "Private Cloud Connected · using cached data" if is_stale else "Private Cloud Connected"
+        )
+        self.lbl_subject.setText(
+            f"Endpoint: {site}{dev_summary} · Server-enforced quota"
+            + (" · refresh pending" if is_stale else "")
+        )
         self._style_avatar("C", ok=True)
 
         used_bytes = self._quota["used"]
@@ -495,7 +522,7 @@ class AccountDialog(PopupDialog):
         self.lbl_quota_text.setText(
             f"{format_bytes(used_bytes)} of {format_bytes(total_bytes)} "
             f"used ({format_bytes(max(0, free))} free) · max {format_bytes(overview.get('maxSaveBytes', 0))} per save · "
-            f"keeping last {overview.get('keepVersions', '?')} generations{tier_note}"
+            f"keeping the last {overview.get('keepVersions', '?')} versions{tier_note}"
         )
 
         self.btn_auth_toggle.setText("Disconnect")
@@ -590,7 +617,7 @@ class AccountDialog(PopupDialog):
             size_txt = format_bytes(g.get("totalBytes", 0))
             item = QListWidgetItem(
                 f"{g.get('displayName', g.get('nameKey'))}\n"
-                f"{count} generation(s) · {size_txt} · updated {_relative_time(g.get('latestSourceMtime', 0))}"
+                f"{count} version(s) · {size_txt} · updated {_relative_time(g.get('latestSourceMtime', 0))}"
             )
             item.setData(Qt.ItemDataRole.UserRole, g.get("nameKey"))
             self.lst_games.addItem(item)
@@ -613,7 +640,7 @@ class AccountDialog(PopupDialog):
             entry = dict(version)
             entry.update({
                 "source": "cloud",
-                "display_name": f"Cloud Generation v{entry.get('version', '?')}",
+                "display_name": f"Cloud save version {entry.get('version', '?')}",
                 "size_bytes": entry.get("sizeBytes", 0),
                 "created_at": entry.get("createdAt", 0),
                 "uploaded_at": entry.get("uploadedAt", 0),
@@ -634,7 +661,7 @@ class AccountDialog(PopupDialog):
         selected = self.history_timeline.selected_entry()
         if not game_item or selected is None:
             QMessageBox.information(self, "Nothing Selected",
-                                    "Pick a game and a stored generation first.")
+                                    "Pick a game and a stored version first.")
             return
         name_key = game_item.data(Qt.ItemDataRole.UserRole)
         version = selected.raw.get("version")
@@ -659,26 +686,25 @@ class AccountDialog(PopupDialog):
         if not matched_game:
             QMessageBox.warning(
                 self, "Game Not Found",
-                f"Could not find an installed library game matching '{name_key}'.\n"
+                f"Could not find an installed library game matching '{display_name}'.\n"
                 "Please ensure the game is added to your SafeLauncher library."
             )
             return
 
-        confirm = QMessageBox.question(
-            self, "Restore Cloud Save",
-            f"Restore generation v{version} to '{matched_game.name}'?\n\n"
-            f"Target Directory: {matched_game.path}\n\n"
-            "Your existing local save will be preserved in your local save backups before overwriting.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
+        confirm = confirm_restore(
+            self,
+            game_name=matched_game.name,
+            entry=selected,
+            target_path=matched_game.path,
+            title="Restore cloud save version",
         )
-        if confirm != QMessageBox.StandardButton.Yes:
+        if not confirm:
             return
 
         if self._busy:
             return
         self._busy = True
-        self.lbl_quota_text.setText(f"Restoring generation v{version} for '{matched_game.name}'…")
+        self.lbl_quota_text.setText(f"Restoring cloud save version {version} for '{matched_game.name}'…")
 
         if self.cloud_operation_service is not None:
             target = CloudOperationTarget(
@@ -696,11 +722,11 @@ class AccountDialog(PopupDialog):
             def _restore_result(result):
                 if result.success:
                     return {
-                        "restored": f"Successfully restored generation v{version} for '{matched_game.name}'.",
+                        "restored": f"Successfully restored cloud save version {version} for '{matched_game.name}'.",
                         "name": matched_game.name,
                     }
                 return {
-                    "error": result.error or f"Failed to restore generation v{version} for '{matched_game.name}'.",
+                    "error": result.error or f"Failed to restore cloud save version {version} for '{matched_game.name}'.",
                     "guidance": result.guidance,
                     "category": result.category,
                 }
@@ -723,18 +749,17 @@ class AccountDialog(PopupDialog):
         selected = self.history_timeline.selected_entry()
         if not game_item or selected is None:
             QMessageBox.information(self, "Nothing selected",
-                                    "Pick a game and a stored generation first.")
+                                    "Pick a game and a stored version first.")
             return
         name_key = game_item.data(Qt.ItemDataRole.UserRole)
+        display_name = game_item.text().split("\n")[0].strip()
         version = selected.raw.get("version")
-        confirm = QMessageBox.question(
-            self, "Delete generation",
-            f"Permanently delete generation v{version} of '{name_key}'?\n"
-            "This cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+        confirm = confirm_delete(
+            self,
+            game_name=display_name or "this game",
+            version=version,
         )
-        if confirm != QMessageBox.StandardButton.Yes:
+        if not confirm:
             return
         if self._busy:
             return
@@ -745,14 +770,14 @@ class AccountDialog(PopupDialog):
                 name_key,
                 int(version),
                 priority=RequestPriority.NORMAL,
-                tag="account_generation_delete",
+                tag="account_version_delete",
             )
             self._bind_cloud_operation(
                 "SafeLauncher-SaveDelete",
                 handle,
                 self._op_done.emit,
-                lambda deleted: {"deleted": bool(deleted), "name": name_key}
-                if deleted else {"error": "The cloud generation could not be deleted."},
+                lambda deleted: {"deleted": bool(deleted), "name": display_name}
+                if deleted else {"error": "The cloud save version could not be deleted."},
             )
             return
 
@@ -786,8 +811,8 @@ class AccountDialog(PopupDialog):
         self._show_toast_like(name_val)
         self.reload()
 
-    def _show_toast_like(self, name_key: str):
-        self.lbl_quota_text.setText(f"Deleted old generation for '{name_key}'.")
+    def _show_toast_like(self, game_name: str):
+        self.lbl_quota_text.setText(f"Deleted an older cloud save version for '{game_name}'.")
 
     def _notify_ancestor_cloud_changed(self):
         """Cloud config just changed here — make the main window drop every

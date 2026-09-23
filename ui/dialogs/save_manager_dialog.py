@@ -10,7 +10,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QProgressBar,
-    QTabWidget, QProgressDialog, QApplication
+    QTabWidget, QApplication
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
@@ -37,6 +37,7 @@ from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
 from ui.resource_binding import ResourceBinding, bind_request
 from ui.components.save_history_timeline import SaveHistoryTimeline
+from ui.components.cloud_ui import cloud_progress, confirm_restore, set_accessible_status
 
 logger = get_logger("SaveManagerDialog")
 
@@ -88,7 +89,9 @@ class SaveManagerDialog(PopupDialog):
         self._history_loaded.connect(self._on_history_loaded)
 
 
-        self.setFixedSize(640, 550)
+        self.setMinimumSize(600, 500)
+        self.resize(760, 620)
+        self.setSizeGripEnabled(True)
         body_layout = self.popup_layout(margins=(20, 16, 20, 16), spacing=12)
 
         # Header Info Banner
@@ -113,6 +116,11 @@ class SaveManagerDialog(PopupDialog):
         source_note = "Ludusavi CLI Engine" if LudusaviDetector.is_cli_available() else "Heuristic Wine/UMU Prefix Detector"
         self.lbl_status = QLabel(f"<font color='#6F7682'>Discovery Engine:</font> <font color='#3B9FE8'>{source_note}</font>")
         self.lbl_status.setStyleSheet("font-size: 11px;")
+        set_accessible_status(
+            self.lbl_status,
+            "Save manager status",
+            "Current local save discovery and cloud operation status.",
+        )
         h_layout.addWidget(self.lbl_status)
 
         body_layout.addWidget(header_frame)
@@ -274,7 +282,7 @@ class SaveManagerDialog(PopupDialog):
         btn_import.clicked.connect(self._import_snapshot)
         footer_layout.addWidget(btn_import)
 
-        self.btn_cloud = QPushButton("Restore from Cloud")
+        self.btn_cloud = QPushButton("Restore latest cloud save")
         self.btn_cloud.setIcon(get_icon("ph.cloud-arrow-down-bold", "#3B9FE8"))
         self.btn_cloud.setFixedHeight(36)
         self.btn_cloud.setStyleSheet("""
@@ -293,9 +301,10 @@ class SaveManagerDialog(PopupDialog):
             }
         """)
         self.btn_cloud.clicked.connect(self._restore_from_cloud)
+        self.btn_cloud.setAccessibleName("Restore latest cloud save")
         footer_layout.addWidget(self.btn_cloud)
 
-        self.btn_upload = QPushButton("Upload Selected to Cloud")
+        self.btn_upload = QPushButton("Upload selected saves")
         self.btn_upload.setIcon(get_icon("ph.cloud-arrow-up-bold", "#35C98A"))
         self.btn_upload.setFixedHeight(36)
         self.btn_upload.setEnabled(False)
@@ -320,11 +329,12 @@ class SaveManagerDialog(PopupDialog):
             }
         """)
         self.btn_upload.clicked.connect(self._upload_selected)
+        self.btn_upload.setAccessibleName("Upload selected saves to cloud")
         footer_layout.addWidget(self.btn_upload)
 
         footer_layout.addStretch()
 
-        self.btn_export = QPushButton("Export Selected Saves")
+        self.btn_export = QPushButton("Export selected saves")
         self.btn_export.setIcon(get_app_icon("export"))
         self.btn_export.setFixedHeight(36)
         self.btn_export.setStyleSheet("""
@@ -348,6 +358,7 @@ class SaveManagerDialog(PopupDialog):
         """)
         self.btn_export.clicked.connect(self._export_selected)
         footer_layout.addWidget(self.btn_export)
+        self.btn_export.setAccessibleName("Export selected local saves")
         tab_files_layout.addLayout(footer_layout)
 
         self.tabs.addTab(self.tab_files, "Live Save Files")
@@ -359,10 +370,14 @@ class SaveManagerDialog(PopupDialog):
         tab_history_layout.setSpacing(10)
 
         history_header = QHBoxLayout()
-        lbl_hist = QLabel("Retained Generations & Backups")
+        lbl_hist = QLabel("Cloud save versions & local backups")
         lbl_hist.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         lbl_hist.setStyleSheet("color: #F5F7FA;")
         history_header.addWidget(lbl_hist)
+        self.lbl_history_state = QLabel("")
+        self.lbl_history_state.setStyleSheet("color: #A7ADB8; font-size: 10px;")
+        set_accessible_status(self.lbl_history_state, "Cloud history status")
+        history_header.addWidget(self.lbl_history_state)
         history_header.addStretch()
 
         btn_refresh_hist = QPushButton("Refresh")
@@ -399,13 +414,13 @@ class SaveManagerDialog(PopupDialog):
         history_footer.setSpacing(10)
 
         lbl_hint = self.info_hint(
-            "Select any saved version above to restore it to your local game.",
+            "Select a saved version above to restore it to your local game.",
             tooltip="Restoring a version preserves the current local save in a safety backup before replacement.",
         )
         history_footer.addWidget(lbl_hint)
         history_footer.addStretch()
 
-        self.btn_restore_history = QPushButton("Restore Selected Save")
+        self.btn_restore_history = QPushButton("Restore selected version")
         self.btn_restore_history.setIcon(get_icon("ph.clock-counter-clockwise-bold"))
         self.btn_restore_history.setFixedHeight(36)
         self.btn_restore_history.setStyleSheet("""
@@ -429,6 +444,7 @@ class SaveManagerDialog(PopupDialog):
         """)
         self.btn_restore_history.setEnabled(False)
         self.btn_restore_history.clicked.connect(self._restore_selected_history_save)
+        self.btn_restore_history.setAccessibleName("Restore selected cloud save version")
         history_footer.addWidget(self.btn_restore_history)
 
         tab_history_layout.addLayout(history_footer)
@@ -751,9 +767,9 @@ class SaveManagerDialog(PopupDialog):
 
         confirm = QMessageBox.question(
             self,
-            "Upload Saves to Cloud",
+            "Upload local saves",
             f"Upload {len(snapshot.locations)} selected save location(s) for '{self.game_name}'?\n\n"
-            "This creates or updates the cloud save snapshot. Your local files will not be changed.",
+            "This creates or updates a cloud save version. Your local files will not be changed.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -767,11 +783,9 @@ class SaveManagerDialog(PopupDialog):
         self.btn_upload.setEnabled(False)
         self.btn_export.setEnabled(False)
         self.btn_cloud.setEnabled(False)
-        progress = QProgressDialog(f"Uploading saves for '{self.game_name}'…", None, 0, 0, self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setCancelButton(None)
-        progress.setMinimumDuration(0)
-        progress.show()
+        progress = cloud_progress(
+            self, f"Uploading saves for '{self.game_name}'…"
+        )
         self._upload_progress = progress
         self._last_operation_retry = self._upload_selected
         if self.cloud_operation_service is not None:
@@ -922,8 +936,9 @@ class SaveManagerDialog(PopupDialog):
         self.btn_restore_history.setEnabled(entry is not None)
 
     def _load_history(self):
-        """Asynchronously fetch and populate all available cloud generations and local forks."""
-        self.history_timeline.set_message("Loading history from cloud and disk…")
+        """Asynchronously fetch cloud save versions and local safety backups."""
+        self.lbl_history_state.setText("Refreshing…")
+        self.history_timeline.set_message("Loading cloud save versions and local backups…")
         self.history_timeline.setEnabled(False)
         self.btn_restore_history.setEnabled(False)
 
@@ -948,9 +963,12 @@ class SaveManagerDialog(PopupDialog):
 
             def _deliver(resource):
                 try:
-                    if resource.status == ResourceStatus.READY:
+                    if resource.status in {ResourceStatus.READY, ResourceStatus.STALE}:
                         versions, error = resource.value
-                        self._history_loaded.emit(error if error is not None else versions)
+                        self._history_loaded.emit({
+                            "versions": error if error is not None else versions,
+                            "stale": resource.status == ResourceStatus.STALE,
+                        })
                         return
                     error = SaveOperationResult(
                         False,
@@ -980,9 +998,17 @@ class SaveManagerDialog(PopupDialog):
 
     def _on_history_loaded(self, versions):
         """Populate history list on the main thread after async worker finishes."""
+        stale = False
+        if isinstance(versions, dict) and "versions" in versions:
+            stale = bool(versions.get("stale"))
+            versions = versions.get("versions")
+        self.lbl_history_state.setText(
+            "Using cached history · refresh pending" if stale else ""
+        )
         if isinstance(versions, SaveOperationResult) and not versions.success:
+            self.lbl_history_state.setText("History unavailable")
             self.history_timeline.setEnabled(True)
-            self.history_timeline.set_message("History could not be loaded. Use Retry below to try again.")
+            self.history_timeline.set_message("Cloud save history could not be loaded. Use Retry below to try again.")
             self.save_state_store.set_operation(self.game_id, versions)
             self._show_recovery(
                 versions,
@@ -1005,15 +1031,14 @@ class SaveManagerDialog(PopupDialog):
             return
 
         title = selected.title
-        confirm = QMessageBox.question(
-            self, "Restore Selected Save",
-            f"Restore '{title}' to '{self.game_name}'?\n\n"
-            f"Target Directory: {self.game_path}\n\n"
-            "Your existing local save will be preserved in your local backups before overwriting.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
+        confirm = confirm_restore(
+            self,
+            game_name=self.game_name,
+            entry=selected,
+            target_path=self.game_path,
+            title="Restore cloud save version",
         )
-        if confirm != QMessageBox.StandardButton.Yes:
+        if not confirm:
             return
 
         self.btn_restore_history.setEnabled(False)
@@ -1070,11 +1095,9 @@ class SaveManagerDialog(PopupDialog):
         if hasattr(self, "btn_cloud"):
             self.btn_cloud.setEnabled(False)
 
-        prog = QProgressDialog(f"Checking cloud saves for '{self.game_name}'...", None, 0, 0, self)
-        prog.setWindowModality(Qt.WindowModality.WindowModal)
-        prog.setCancelButton(None)
-        prog.setMinimumDuration(0)
-        prog.show()
+        prog = cloud_progress(
+            self, f"Checking cloud saves for '{self.game_name}'…"
+        )
         self._cloud_preflight_progress = prog
 
         if self.cloud_operation_service is not None:
@@ -1152,16 +1175,14 @@ class SaveManagerDialog(PopupDialog):
                 )
                 return
 
-            confirm = QMessageBox.question(
-                self, "Restore Cloud Save",
-                f"Restore cloud save for '{self.game_name}'?\n\n"
-                f"Target Directory: {self.game_path}\n"
-                f"Cloud Save Details: {display_path}\n\n"
-                "Your existing local save will be preserved in your local backups before overwriting.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
+            confirm = confirm_restore(
+                self,
+                game_name=self.game_name,
+                target_path=self.game_path,
+                technical_details=f"Cloud archive: {display_path}",
+                title="Restore latest cloud save",
             )
-            if confirm != QMessageBox.StandardButton.Yes:
+            if not confirm:
                 return
 
             # Now actually run the restore

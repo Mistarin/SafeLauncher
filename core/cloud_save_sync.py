@@ -1235,7 +1235,7 @@ class CloudSaveSyncEngine:
                     results.append({
                         "version": v_num,
                         "source": "cloud",
-                        "display_name": f"Cloud Generation v{v_num}",
+                        "display_name": f"Cloud save version {v_num}",
                         "mtime": v_mtime,
                         "created_at": v.get("createdAt", v.get("created_at", 0)),
                         "uploaded_at": v.get("uploadedAt", v.get("uploaded_at", 0)),

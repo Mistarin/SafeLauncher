@@ -7823,7 +7823,7 @@ class MainWindow(QMainWindow):
                 )
                 return False
             self._show_toast(
-                f"Deleted all local data for '{game_name}'. Remote cloud-save generations were kept."
+                f"Deleted all local data for '{game_name}'. Remote cloud save versions were kept."
             )
 
         self._finish_game_lifecycle_change(game_id)

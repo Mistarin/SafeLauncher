@@ -2176,7 +2176,7 @@ class CustomRemoveDialog(PopupDialog):
         btn_delete.setIcon(get_icon("ph.trash-bold", color="#F05D6C"))
         btn_delete.setToolTip(
             "Permanently delete the game files, SafeLauncher entry, local history, and achievements. "
-            "Remote cloud-save generations are not deleted."
+            "Remote cloud save versions are not deleted."
         )
         btn_delete.setStyleSheet("""
             QPushButton {
@@ -2230,7 +2230,7 @@ class CustomRemoveDialog(PopupDialog):
             self,
             "Permanently delete game?",
             "This permanently deletes the game files, SafeLauncher entry, achievements, "
-            "playtime, and profile history. Remote cloud-save generations are not deleted. Continue?",
+            "playtime, and profile history. Remote cloud save versions are not deleted. Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         ) != QMessageBox.StandardButton.Yes:

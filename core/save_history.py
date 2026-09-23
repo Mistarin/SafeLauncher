@@ -1,7 +1,7 @@
 """Transport-independent save-history normalization and presentation helpers.
 
 Cloud history contains two different kinds of records: retained remote
-generations and local safety forks.  Keeping their ordering and display rules
+versions and local safety forks. Keeping their ordering and display rules
 here prevents each dialog from inventing a slightly different interpretation
 of timestamps, provenance, or duplicate records.
 """
@@ -81,7 +81,7 @@ def history_device_text(entry: Any) -> str:
         return f"Created and uploaded on {created}"
     if uploaded:
         return f"Uploaded from {uploaded}"
-    return "Unavailable (older cloud generation)"
+    return "Unavailable (older cloud version)"
 
 
 @dataclass(frozen=True)
@@ -127,7 +127,7 @@ class HistoryEntry:
     @property
     def version_label(self) -> str:
         if self.source == "cloud":
-            return f"Generation v{self.version}"
+            return f"Cloud save version {self.version}"
         return "Local safety backup"
 
 
@@ -147,8 +147,8 @@ def normalize_history_entries(entries: Iterable[Any] | None) -> list[HistoryEntr
     """Normalize, deduplicate, and newest-first sort history records.
 
     Upload/creation metadata is preferred over content mtime because the
-    latter describes the save contents, not when the retained generation was
-    created.  All values retained in ``raw`` come from the existing history
+    latter describes the save contents, not when the retained version was
+    created. All values retained in ``raw`` come from the existing history
     response and are only used for restore operations; callers should display
     the normalized fields instead.
     """
@@ -178,7 +178,7 @@ def normalize_history_entries(entries: Iterable[Any] | None) -> list[HistoryEntr
         except (TypeError, ValueError):
             file_count = 0
         title = str(raw.get("display_name") or raw.get("displayName") or (
-            f"Cloud Generation v{version}" if source == "cloud" else "Local safety backup"
+            f"Cloud save version {version}" if source == "cloud" else "Local safety backup"
         ))
         normalized.append(HistoryEntry(
             raw=raw,

@@ -5,9 +5,9 @@ from html import escape as html_escape
 from typing import Optional, Dict
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
-    QFileDialog, QFrame, QScrollArea, QMessageBox, QGridLayout,
+    QFileDialog, QFrame, QScrollArea, QMessageBox, QGridLayout, QToolButton,
     QTabWidget, QCheckBox, QSlider, QComboBox, QSpinBox, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView, QProgressDialog, QApplication
+    QTableWidgetItem, QHeaderView, QAbstractItemView, QApplication
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
@@ -29,6 +29,7 @@ from core.request_contracts import RequestPriority, ResourceStatus
 from core.zip_backup import ZipBackupManager
 from ui.resource_binding import ResourceBinding, bind_request
 from ui.components.save_history_timeline import SaveHistoryTimeline
+from ui.components.cloud_ui import confirm_restore, cloud_progress, set_accessible_status
 from core.performance_env import (
     ENABLE_GAMEMODE,
     GAMEMODE_MODE,
@@ -602,37 +603,71 @@ class GamePropertiesDialog(PopupDialog):
         # Status badge
         self.lbl_cloud_status = QLabel("<font color='#6F7682'>Checking cloud status…</font>")
         self.lbl_cloud_status.setStyleSheet("font-size: 12px;")
+        set_accessible_status(
+            self.lbl_cloud_status,
+            "Cloud save status",
+            "Current synchronization state for this game's local and cloud saves.",
+        )
         syc_layout.addWidget(self.lbl_cloud_status)
 
         from core.cloud_storage import get_cloud_root
         cloud_root = get_cloud_root()
-        lbl_cloud_dir = QLabel(f"<font color='#6F7682'>Cloud Root:</font> <font color='#A7ADB8' face='monospace'>{cloud_root}</font>")
-        lbl_cloud_dir.setStyleSheet("font-size: 10px;")
-        lbl_cloud_dir.setWordWrap(True)
-        syc_layout.addWidget(lbl_cloud_dir)
+        details_toggle = QToolButton()
+        details_toggle.setText("Technical details")
+        details_toggle.setCheckable(True)
+        details_toggle.setChecked(False)
+        details_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        details_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        details_toggle.setStyleSheet(
+            "QToolButton { color: #A7ADB8; background: transparent; border: none; "
+            "padding: 2px 0; font-size: 11px; font-weight: 600; text-align: left; }"
+            "QToolButton:hover { color: #F5F7FA; }"
+        )
+        details_toggle.setAccessibleName("Show cloud technical details")
+        syc_layout.addWidget(details_toggle)
+
+        self.lbl_cloud_dir = QLabel(
+            f"<font color='#6F7682'>Local cloud storage:</font> "
+            f"<font color='#A7ADB8' face='monospace'>{html_escape(str(cloud_root))}</font>"
+        )
+        self.lbl_cloud_dir.setStyleSheet("font-size: 10px;")
+        self.lbl_cloud_dir.setWordWrap(True)
+        self.lbl_cloud_dir.setVisible(False)
+        self.lbl_cloud_dir.setAccessibleName("Local cloud storage location")
+        syc_layout.addWidget(self.lbl_cloud_dir)
+
+        def _toggle_cloud_details(checked: bool) -> None:
+            details_toggle.setArrowType(
+                Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+            )
+            self.lbl_cloud_dir.setVisible(bool(checked))
+
+        details_toggle.toggled.connect(_toggle_cloud_details)
 
         sync_btn_row = QHBoxLayout()
-        self.btn_sync_up = QPushButton(" Upload to Cloud Now")
+        self.btn_sync_up = QPushButton(" Upload local save")
         self.btn_sync_up.setIcon(get_app_icon("export"))
         self.btn_sync_up.setStyleSheet("QPushButton { background: #161A22; color: #3B9FE8; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #202633; }")
         self.btn_sync_up.clicked.connect(self._sync_up_now)
+        self.btn_sync_up.setAccessibleName("Upload local save to cloud")
         sync_btn_row.addWidget(self.btn_sync_up)
 
-        self.btn_sync_down = QPushButton(" Download from Cloud")
+        self.btn_sync_down = QPushButton(" Restore latest cloud save")
         self.btn_sync_down.setIcon(get_app_icon("import"))
         self.btn_sync_down.setStyleSheet("QPushButton { background: #161A22; color: #35C98A; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #202633; }")
         self.btn_sync_down.clicked.connect(self._sync_down_now)
+        self.btn_sync_down.setAccessibleName("Restore latest cloud save")
         self.btn_sync_down.hide()
         sync_btn_row.addWidget(self.btn_sync_down)
 
         sync_btn_row.addStretch()
         syc_layout.addLayout(sync_btn_row)
 
-        # Retained cloud generations (active + history) with manual selection & restore
+        # Retained cloud versions (active + history) with manual selection & restore
         self.ver_selector_layout = QVBoxLayout()
         self.ver_selector_layout.setSpacing(6)
 
-        lbl_ver_title = QLabel("Cloud Save Versions & History")
+        lbl_ver_title = QLabel("Cloud save versions & history")
         lbl_ver_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #F5F7FA;")
         self.ver_selector_layout.addWidget(lbl_ver_title)
 
@@ -646,7 +681,7 @@ class GamePropertiesDialog(PopupDialog):
         self.history_timeline.entry_selected.connect(self._on_history_entry_selected)
         timeline_row.addWidget(self.history_timeline)
 
-        self.btn_restore_selected = QPushButton(" Restore Selected")
+        self.btn_restore_selected = QPushButton(" Restore selected version")
         self.btn_restore_selected.setIcon(get_icon("ph.clock-counter-clockwise-bold"))
         self.btn_restore_selected.setFixedHeight(32)
         self.btn_restore_selected.setStyleSheet("""
@@ -668,6 +703,7 @@ class GamePropertiesDialog(PopupDialog):
             }
         """)
         self.btn_restore_selected.clicked.connect(self._restore_selected_version_now)
+        self.btn_restore_selected.setAccessibleName("Restore selected cloud save version")
         self.btn_restore_backup = self.btn_restore_selected  # Backwards compatibility
         timeline_row.addWidget(self.btn_restore_selected)
 
@@ -687,7 +723,7 @@ class GamePropertiesDialog(PopupDialog):
         body_layout.addWidget(sync_card)
 
         # ── 3. Interactive Save Manager Button ──
-        btn_open_mgr = QPushButton(" Open Full Save Inspector & Backup Manager")
+        btn_open_mgr = QPushButton(" Open save inspector & backup manager")
         btn_open_mgr.setIcon(get_icon("ph.archive-bold"))
         btn_open_mgr.setFixedHeight(38)
         btn_open_mgr.setStyleSheet("""
@@ -782,6 +818,7 @@ class GamePropertiesDialog(PopupDialog):
                 "local": None,
                 "cloud": None,
                 "operation_result": None,
+                "resource_status": None,
                 "versions": None,
                 "status_done": False,
                 "history_done": False,
@@ -794,16 +831,15 @@ class GamePropertiesDialog(PopupDialog):
                     return
                 # The signal intentionally carries one tuple so the
                 # compatibility payload shape is identical for managed and
-                # standalone dialogs.  Emitting the five tuple members as
-                # separate Qt arguments violates the one-object signal
-                # contract and crashes the GUI when the managed resources
-                # finish.
+                # standalone dialogs. Emitting the tuple as separate Qt
+                # arguments would violate the one-object signal contract.
                 self._save_stats_ready.emit((
                     state["status"],
                     state["local"],
                     state["cloud"],
                     state["versions"],
                     state["operation_result"],
+                    state["resource_status"],
                 ))
 
             def bind_read(handle, callback) -> None:
@@ -836,6 +872,7 @@ class GamePropertiesDialog(PopupDialog):
 
             def apply_status(resource) -> None:
                 state["status_done"] = True
+                state["resource_status"] = resource.status
                 if resource.status not in {ResourceStatus.READY, ResourceStatus.STALE}:
                     state["operation_result"] = getattr(resource, "error", None)
                     return
@@ -911,8 +948,12 @@ class GamePropertiesDialog(PopupDialog):
             # Compatibility with older task payloads from an already-open dialog.
             status, local_stats, cloud_stats, versions = payload
             operation_result = None
-        else:
+            resource_state = None
+        elif len(payload) == 5:
             status, local_stats, cloud_stats, versions, operation_result = payload
+            resource_state = None
+        else:
+            status, local_stats, cloud_stats, versions, operation_result, resource_state = payload
         if status is None or local_stats is None:
             message = getattr(operation_result, "error", "Save status check failed.")
             guidance = getattr(operation_result, "guidance", "")
@@ -950,10 +991,14 @@ class GamePropertiesDialog(PopupDialog):
             self.btn_open_save_folder.setEnabled(False)
 
         meta = cloud_indicator(status)
+        status_prefix = "Using cached data · " if resource_state == ResourceStatus.STALE else ""
         self.lbl_cloud_status.setText(
-            f"<font color='{meta.color}'><b>{html_escape(meta.label)}</b></font>"
+            f"<font color='{meta.color}'><b>{html_escape(status_prefix + meta.label)}</b></font>"
         )
-        self.lbl_cloud_status.setToolTip(meta.tooltip)
+        self.lbl_cloud_status.setToolTip(
+            f"{meta.tooltip} Cached data will refresh when the cloud is reachable."
+            if resource_state == ResourceStatus.STALE else meta.tooltip
+        )
 
         if cloud_stats and cloud_stats.exists:
             self.btn_sync_down.show()
@@ -963,11 +1008,11 @@ class GamePropertiesDialog(PopupDialog):
         self._render_generations(versions, local_exists=local_stats.exists)
 
     def _render_generations(self, versions, local_exists: bool = True):
-        """Show retained cloud generations and local forks in one timeline."""
+        """Show retained cloud versions and local safety backups in one timeline."""
         self._cloud_versions = list(versions or [])
         if not self._cloud_versions:
             self._backup_version = None
-            self.history_timeline.set_message("No saved generations or local safety backups found.")
+            self.history_timeline.set_message("No saved versions or local safety backups found.")
             self.ver_selector_widget.hide()
             self.btn_restore_selected.setEnabled(False)
             return
@@ -987,7 +1032,7 @@ class GamePropertiesDialog(PopupDialog):
         else:
             self._backup_version = None
 
-        count_str = f"{len(normalized)} dated cloud generation(s) and local safety backup(s)."
+        count_str = f"{len(normalized)} cloud version(s) and local safety backup(s)."
         self.lbl_generations.setText(f"<font color='#6F7682'>History:</font> {count_str}")
         self.lbl_generations.show()
         self.btn_restore_selected.setEnabled(self.history_timeline.selected_entry() is not None)
@@ -1002,18 +1047,17 @@ class GamePropertiesDialog(PopupDialog):
             return
         entry = selected.raw
         version = entry.get("version")
-        source_label = "cloud generation" if selected.source == "cloud" else "local safety backup"
+        source_label = "cloud save version" if selected.source == "cloud" else "local safety backup"
         title = selected.title
 
-        answer = QMessageBox.question(
-            self, "Restore Save History Entry",
-            f"Restore this {source_label} for '{self.game_name}'?\n\n"
-            f"Target Directory: {self.game_path}\n\n"
-            "Your existing local save will be preserved in your local backups before overwriting.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
+        answer = confirm_restore(
+            self,
+            game_name=self.game_name,
+            entry=selected,
+            target_path=self.game_path,
+            title=f"Restore {source_label}",
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        if not answer:
             return
 
         self.btn_restore_selected.setEnabled(False)
@@ -1053,7 +1097,7 @@ class GamePropertiesDialog(PopupDialog):
                     from core.save_models import SaveOperationResult
                     result = SaveOperationResult(
                         False,
-                        "Generation restore",
+                        "Cloud save restore",
                         self.game_name,
                         error=error or "Cloud restore failed.",
                         category="backend_unavailable",
@@ -1065,7 +1109,7 @@ class GamePropertiesDialog(PopupDialog):
             return
 
         self._gen_restore_done.emit(
-            self._cloud_unavailable_result("Generation restore"), int(version or 0)
+            self._cloud_unavailable_result("Cloud save restore"), int(version or 0)
         )
 
     def _on_local_history_restore_done(self, success: bool, title: str) -> None:
@@ -1078,17 +1122,17 @@ class GamePropertiesDialog(PopupDialog):
         self._load_save_stats_async()
 
     def _restore_backup_now(self):
-        """Backwards-compatible wrapper for restoring backup generation."""
+        """Backwards-compatible wrapper for restoring a selected version."""
         self._restore_selected_version_now()
 
     def _on_gen_restore_done(self, result, version: int):
         self.btn_restore_selected.setEnabled(True)
         if getattr(result, "success", bool(result)):
             QMessageBox.information(self, "Cloud Sync",
-                                    f"Save generation v{version} restored successfully.")
+                                    f"Cloud save version {version} restored successfully.")
             self._notify_parent_cloud_changed()
         else:
-            message = getattr(result, "error", "") or f"Failed to restore save generation v{version}."
+            message = getattr(result, "error", "") or f"Failed to restore cloud save version {version}."
             guidance = getattr(result, "guidance", "")
             QMessageBox.critical(self, "Cloud Sync",
                                  f"{message}\n\n{guidance}".strip())
@@ -1153,11 +1197,9 @@ class GamePropertiesDialog(PopupDialog):
         if hasattr(self, "btn_restore_selected"):
             self.btn_restore_selected.setEnabled(False)
 
-        prog = QProgressDialog(f"Uploading local save for '{self.game_name}'...", None, 0, 0, self)
-        prog.setWindowModality(Qt.WindowModality.WindowModal)
-        prog.setCancelButton(None)
-        prog.setMinimumDuration(0)
-        prog.show()
+        prog = cloud_progress(
+            self, f"Uploading local save for '{self.game_name}'…"
+        )
         self._active_manual_sync_progress = prog
 
         if self.cloud_center_service is not None or self.cloud_operation_service is not None:
@@ -1195,7 +1237,7 @@ class GamePropertiesDialog(PopupDialog):
             self.btn_restore_selected.setEnabled(True)
 
         if getattr(result, "success", bool(result)):
-            QMessageBox.information(self, "Cloud Sync", "Local save successfully uploaded to Cloud save repository.")
+            QMessageBox.information(self, "Cloud Sync", "Local save uploaded successfully.")
             self._load_save_stats_async()
             self._notify_parent_cloud_changed()
         else:
@@ -1227,7 +1269,7 @@ class GamePropertiesDialog(PopupDialog):
                 self, "Game Is Running",
                 f"'{self.game_name}' appears to be running. Its in-memory state overwrites the "
                 "save files when it exits, so restoring the cloud save now would be undone.\n\n"
-                "Close the game first, then download the cloud save.")
+                "Close the game first, then restore the cloud save.")
             return
 
         self.btn_sync_up.setEnabled(False)
@@ -1235,11 +1277,9 @@ class GamePropertiesDialog(PopupDialog):
         if hasattr(self, "btn_restore_selected"):
             self.btn_restore_selected.setEnabled(False)
 
-        prog = QProgressDialog(f"Restoring cloud save for '{self.game_name}'...", None, 0, 0, self)
-        prog.setWindowModality(Qt.WindowModality.WindowModal)
-        prog.setCancelButton(None)
-        prog.setMinimumDuration(0)
-        prog.show()
+        prog = cloud_progress(
+            self, f"Restoring latest cloud save for '{self.game_name}'…"
+        )
         self._active_manual_sync_progress = prog
 
         if self.cloud_center_service is not None or self.cloud_operation_service is not None:
