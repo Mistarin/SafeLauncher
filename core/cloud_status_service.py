@@ -214,6 +214,21 @@ class CloudStatusService:
             self.save_cache()
             return True
 
+    def invalidate_game(self, game_id: int) -> None:
+        """Drop one managed status request and its persisted status value."""
+        game_id = int(game_id)
+        self.request_manager.invalidate(self.key_for(game_id))
+        self.forget_status(game_id)
+
+    def invalidate_listing(self) -> None:
+        """Drop the shared changed-listing resource after a cloud mutation."""
+        context = self.current_context()
+        self.request_manager.invalidate(
+            context.request_key("cloud-save-listing-diff", "library", "v1")
+        )
+        with self._lock:
+            self._changed_diff_handle = None
+
     def plan_recheck(
         self,
         targets: Iterable[CloudStatusTarget],

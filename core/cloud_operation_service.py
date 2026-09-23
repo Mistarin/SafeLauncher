@@ -82,6 +82,7 @@ class CloudOperationService:
         *,
         coordinator: CloudSyncCoordinator | None = None,
         context_provider: Callable[[int], CloudContext] | None = None,
+        read_invalidator: Callable[[CloudOperationTarget, str, object], None] | None = None,
     ) -> None:
         self.request_manager = request_manager
         self.coordinator = coordinator or CloudSyncCoordinator()
@@ -92,6 +93,14 @@ class CloudOperationService:
         self._records: dict[str, CloudOperationRecord] = {}
         self._handles = {}
         self._records_lock = RLock()
+        self._read_invalidator = read_invalidator
+
+    def set_read_invalidator(
+        self,
+        callback: Callable[[CloudOperationTarget, str, object], None] | None,
+    ) -> None:
+        """Attach the application-owned cloud-read invalidation callback."""
+        self._read_invalidator = callback
 
     def current_context(self) -> CloudContext:
         candidate = self._context_provider(self.coordinator.generation)
@@ -213,6 +222,13 @@ class CloudOperationService:
                 error=str(error or ""),
                 error_category=error_category,
             )
+            if state == CloudOperationState.COMPLETED and self._read_invalidator is not None:
+                try:
+                    self._read_invalidator(target, operation, value)
+                except Exception:
+                    # A cache invalidation hook must never change the outcome
+                    # of a completed cloud mutation.
+                    pass
 
         handle.future.add_done_callback(_finish)
         return handle

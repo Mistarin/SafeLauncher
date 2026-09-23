@@ -24,7 +24,7 @@ from ui.components.popup_shell import PopupDialog
 from ui.components.save_history_timeline import SaveHistoryTimeline
 from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
-from core.cloud_account_service import CloudAccountService
+from core.cloud_account_service import CloudAccountService, CloudAccountSnapshot
 from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.date_formatting import format_datetime_timestamp
@@ -403,7 +403,27 @@ class AccountDialog(PopupDialog):
             site = get_site_url()
             if not site:
                 return {"ok": None}   # not connected state
-            snapshot = self.cloud_account_service.snapshot()
+            if (
+                self.request_manager is not None
+                and self.cloud_account_service.request_manager is not None
+            ):
+                handle = self.cloud_account_service.request_snapshot(
+                    priority=RequestPriority.CRITICAL,
+                    tag="account_dialog",
+                )
+                result = handle.future.result(timeout=25)
+                if not result.usable:
+                    # A stale cache may be exposed through the manager state
+                    # after an offline/error completion, even when the Future
+                    # carries the transport failure state.
+                    state = self.request_manager.state(handle.key)
+                    if state.usable:
+                        result = state
+                if not result.usable:
+                    raise result.error or RuntimeError("Cloud account data unavailable")
+                snapshot = CloudAccountSnapshot.from_payload(result.value)
+            else:
+                snapshot = self.cloud_account_service.snapshot()
             return {
                 "ok": {
                     "email": snapshot.overview.get("email") or "SafeLauncher Cloud",

@@ -183,7 +183,10 @@ class CloudCenterServiceTests(unittest.TestCase):
         self.assertEqual(probe.value["version"], "1.7.0")
         self.assertEqual(devices.status, ResourceStatus.READY)
         self.assertEqual(len(devices.value["devices"]), 2)
-        self.assertEqual(account.list_calls, 1)
+        # Compact history and device views now project the same canonical
+        # account snapshot instead of issuing a separate listing request.
+        self.assertEqual(account.snapshot_calls, 1)
+        self.assertEqual(account.list_calls, 0)
         self.assertEqual(account.health_calls, 1)
         self.assertNotIn("private.example", history.key.cache_key())
         self.assertNotIn("secret", repr(probe.value).lower())

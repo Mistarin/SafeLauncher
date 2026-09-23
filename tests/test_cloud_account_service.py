@@ -1,11 +1,13 @@
 import unittest
+import tempfile
 from unittest.mock import patch
 
-from core.cloud_account_service import CloudAccountService
+from core.cloud_account_service import CloudAccountService, CloudAccountSnapshot
 from core.cloud_backend import normalize_site_url
 from core.cloud_context import CloudContext
-from core.request_contracts import ResourceStatus
+from core.request_contracts import RequestPriority, ResourceStatus
 from core.request_manager import RequestManager
+from core.resource_cache import ResourceCache
 
 
 class _FakeCloudClient:
@@ -98,6 +100,118 @@ class CloudAccountServiceTests(unittest.TestCase):
         self.assertTrue(service.delete_generation("game-key", 3))
         self.assertEqual(len(_FakeCloudClient.instances), 3)
         self.assertTrue(all(client.closed for client in _FakeCloudClient.instances))
+
+    def test_managed_snapshot_is_shared_and_persistent(self):
+        context = CloudContext(
+            mode="convex",
+            endpoint="https://private.example",
+            fingerprint="opaque-account-context",
+            generation=0,
+            network_allowed=True,
+            backend_active=True,
+            authentication_configured=True,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResourceCache(directory)
+            manager = RequestManager(max_workers=1, cache=cache)
+            try:
+                service = CloudAccountService(
+                    client_factory=_FakeCloudClient,
+                    request_manager=manager,
+                    context_provider=lambda generation: CloudContext(
+                        mode=context.mode,
+                        endpoint=context.endpoint,
+                        fingerprint=context.fingerprint,
+                        generation=generation,
+                        network_allowed=True,
+                        backend_active=True,
+                        authentication_configured=True,
+                    ),
+                )
+                first = service.request_snapshot(priority=RequestPriority.CRITICAL)
+                second = service.request_snapshot()
+                first_result = first.future.result(timeout=2)
+                second_result = second.future.result(timeout=2)
+                self.assertEqual(first_result.status, ResourceStatus.READY)
+                self.assertEqual(second_result.status, ResourceStatus.READY)
+                self.assertEqual(len(_FakeCloudClient.instances), 1)
+                self.assertEqual(
+                    _FakeCloudClient.instances[0].calls,
+                    ["list_games", "account"],
+                )
+            finally:
+                manager.shutdown()
+
+            # A new manager/process can decode the shared disk envelope into
+            # the typed snapshot without contacting the backend.
+            manager = RequestManager(max_workers=1, cache=ResourceCache(directory))
+            try:
+                service = CloudAccountService(
+                    client_factory=_FakeCloudClient,
+                    request_manager=manager,
+                    context_provider=lambda generation: CloudContext(
+                        mode=context.mode,
+                        endpoint=context.endpoint,
+                        fingerprint=context.fingerprint,
+                        generation=generation,
+                        network_allowed=True,
+                        backend_active=True,
+                        authentication_configured=True,
+                    ),
+                )
+                result = service.request_snapshot().future.result(timeout=2)
+                self.assertTrue(result.from_cache)
+                self.assertIsInstance(result.value, CloudAccountSnapshot)
+                self.assertEqual(len(_FakeCloudClient.instances), 1)
+            finally:
+                manager.shutdown()
+
+    def test_forced_snapshot_refresh_survives_invalidation_generation(self):
+        context = CloudContext(
+            mode="convex",
+            endpoint="https://private.example",
+            fingerprint="opaque-account-context",
+            generation=0,
+            network_allowed=True,
+            backend_active=True,
+            authentication_configured=True,
+        )
+        manager = RequestManager(max_workers=1, cache=ResourceCache())
+        try:
+            service = CloudAccountService(
+                client_factory=_FakeCloudClient,
+                request_manager=manager,
+                context_provider=lambda generation: CloudContext(
+                    mode=context.mode,
+                    endpoint=context.endpoint,
+                    fingerprint=context.fingerprint,
+                    generation=generation,
+                    network_allowed=True,
+                    backend_active=True,
+                    authentication_configured=True,
+                ),
+            )
+            service.request_snapshot().future.result(timeout=2)
+            refreshed = service.request_snapshot(force=True).future.result(timeout=2)
+            self.assertEqual(refreshed.status, ResourceStatus.READY)
+            self.assertEqual(len(_FakeCloudClient.instances), 2)
+        finally:
+            manager.shutdown()
+
+    def test_successful_admin_mutation_notifies_read_invalidator(self):
+        manager = RequestManager(max_workers=1)
+        invalidations = []
+        try:
+            service = CloudAccountService(
+                client_factory=_FakeCloudClient,
+                request_manager=manager,
+                read_invalidator=invalidations.append,
+            )
+            result = service.request_revoke_device("device-1").future.result(timeout=2)
+            self.assertEqual(result.status, ResourceStatus.READY)
+            self.assertEqual(invalidations, [None])
+        finally:
+            manager.shutdown()
 
     def test_verify_connection_keeps_explicit_credentials_in_memory_only(self):
         health = {

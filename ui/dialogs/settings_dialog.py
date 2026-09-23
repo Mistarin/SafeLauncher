@@ -41,7 +41,7 @@ from ui.dialogs.save_conflict_dialog import format_bytes
 
 from core.version import APP_VERSION, MIN_CONVEX_BACKEND_VERSION
 from core.updater import check_for_updates, download_and_apply_appimage_update, restart_application, is_appimage
-from core.cloud_account_service import CloudAccountService
+from core.cloud_account_service import CloudAccountService, CloudAccountSnapshot
 from core.cloud_center_service import CloudOverview
 from core.cloud_backend import normalize_site_url
 from core.cloud_detector import detect_local_cloud_installation
@@ -1986,10 +1986,30 @@ class UserSettingsDialog(PopupDialog):
                 site = get_site_url()
                 if not site:
                     return "Not connected."
-                overview = self.cloud_account_service.account()
+                if (
+                    self.request_manager is not None
+                    and self.cloud_account_service.request_manager is not None
+                ):
+                    handle = self.cloud_account_service.request_snapshot(
+                        priority=RequestPriority.NORMAL,
+                        tag="settings_account_status",
+                    )
+                    result = handle.future.result(timeout=25)
+                    if not result.usable:
+                        state = self.request_manager.state(handle.key)
+                        if state.usable:
+                            result = state
+                    if not result.usable:
+                        raise result.error or RuntimeError("Cloud account data unavailable")
+                    snapshot = CloudAccountSnapshot.from_payload(result.value)
+                    overview = snapshot.overview
+                    listing = snapshot.listing
+                else:
+                    overview = self.cloud_account_service.account()
+                    listing = {}
                 used = overview.get("bytesUsed", 0)
                 quota = overview.get("quotaBytes", 1)
-                games = len(overview.get("games", []))
+                games = len(listing.get("games", overview.get("games", [])))
                 concurrent = overview.get("concurrentDevices", 1)
                 devices_total = overview.get("totalDevices", 1)
                 msg = f"Connected ({format_bytes(used)} / {format_bytes(quota)} used · {games} game(s) · {concurrent} concurrent device(s) online · 1 GB free, referrals can expand storage)"

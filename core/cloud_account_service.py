@@ -23,10 +23,12 @@ from core.cloud_backend import (
 )
 from core.cloud_client import CloudClient
 from core.cloud_context import CloudContext
+from core.cache_policy import cache_policy
 from core.request_contracts import (
     CancellationToken,
     RequestKey,
     RequestPriority,
+    RequestSpec,
     RetryPolicy,
     is_transient_error,
 )
@@ -39,6 +41,25 @@ class CloudAccountSnapshot:
 
     listing: dict[str, Any]
     overview: dict[str, Any]
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return the JSON-safe shared-cache representation."""
+        return {
+            "listing": dict(self.listing),
+            "overview": dict(self.overview),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> "CloudAccountSnapshot":
+        if isinstance(payload, cls):
+            return payload
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid cloud account snapshot")
+        listing = payload.get("listing")
+        overview = payload.get("overview")
+        if not isinstance(listing, dict) or not isinstance(overview, dict):
+            raise ValueError("Invalid cloud account snapshot")
+        return cls(dict(listing), dict(overview))
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +81,7 @@ class CloudAccountService:
         client_factory: Callable[..., CloudClient] = CloudClient,
         request_manager=None,
         context_provider: Callable[[int], CloudContext] | None = None,
+        read_invalidator: Callable[[int | None], None] | None = None,
     ):
         self._client_factory = client_factory
         self.request_manager = request_manager
@@ -69,6 +91,16 @@ class CloudAccountService:
         self._context: CloudContext | None = None
         self._generation = 0
         self._context_lock = RLock()
+        self._read_invalidator = read_invalidator
+
+    SNAPSHOT_TTL_SECONDS = cache_policy("cloud-account-snapshot").max_age_seconds
+
+    def set_read_invalidator(
+        self,
+        callback: Callable[[int | None], None] | None,
+    ) -> None:
+        """Attach the application-owned read-cache invalidation callback."""
+        self._read_invalidator = callback
 
     # UI-facing cloud administration stays behind this service. These small
     # configuration/matching adapters delegate to the existing domain code so
@@ -112,9 +144,13 @@ class CloudAccountService:
     def invalidate_context(self) -> CloudContext:
         """Retire account-admin requests from the previous cloud identity."""
         with self._context_lock:
+            previous = self._context
             self._generation += 1
             self._context = self._context_provider(self._generation)
-            return self._context
+            current = self._context
+        if self.request_manager is not None and previous is not None:
+            self.request_manager.invalidate(self.snapshot_key(previous))
+        return current
 
     @staticmethod
     def request_key(
@@ -155,6 +191,97 @@ class CloudAccountService:
             )
         finally:
             client.close()
+
+    def snapshot_key(self, context: CloudContext | None = None) -> RequestKey:
+        """Return the opaque, context-isolated account snapshot key."""
+        context = context or self.current_context()
+        return context.request_key("cloud-account-snapshot", "account", "v1")
+
+    @staticmethod
+    def _snapshot_validator(value: object) -> bool:
+        try:
+            CloudAccountSnapshot.from_payload(value)
+            return True
+        except (TypeError, ValueError, KeyError):
+            return False
+
+    @staticmethod
+    def _snapshot_encoder(value: object) -> dict[str, Any]:
+        return CloudAccountSnapshot.from_payload(value).to_payload()
+
+    @staticmethod
+    def _snapshot_decoder(value: object) -> CloudAccountSnapshot:
+        return CloudAccountSnapshot.from_payload(value)
+
+    def request_snapshot(
+        self,
+        *,
+        force: bool = False,
+        priority: RequestPriority = RequestPriority.NORMAL,
+        tag: str = "",
+    ):
+        """Request one shared account/listing snapshot through the manager.
+
+        All account, quota, device, and compact history projections use this
+        resource.  The persisted envelope contains only response data; the
+        context key remains opaque and no credentials are retained.
+        """
+        if self.request_manager is None:
+            raise RuntimeError("CloudAccountService has no RequestManager")
+        context = self.current_context()
+        key = self.snapshot_key(context)
+        if force:
+            self.request_manager.invalidate(key)
+        request_generation = max(
+            int(context.generation),
+            int(self.request_manager.state(key).generation),
+        )
+
+        def load(token: CancellationToken) -> CloudAccountSnapshot:
+            token.raise_if_cancelled()
+            if not context.remote_requests_allowed:
+                # Do not replace a stale authenticated snapshot with an empty
+                # setup/offline value. RequestManager will expose stale data
+                # when available and otherwise surface this as unavailable.
+                raise RuntimeError("Cloud account is not configured")
+            client = self._client()
+            try:
+                listing = client.list_games()
+                token.raise_if_cancelled()
+                overview = client.account()
+                token.raise_if_cancelled()
+                if not isinstance(listing, dict) or not isinstance(overview, dict):
+                    raise ValueError("Cloud account returned an invalid snapshot")
+                return CloudAccountSnapshot(dict(listing), dict(overview))
+            finally:
+                client.close()
+
+        spec = RequestSpec(
+            key,
+            load,
+            priority=priority,
+            retry_policy=RetryPolicy(retry_if=is_transient_error),
+            generation=request_generation,
+            timeout_seconds=20,
+            metadata={
+                "cloud_context": context.cache_identity,
+                "cloud_generation": request_generation,
+                "operation": "cloud-account-snapshot",
+                "tag": str(tag),
+            },
+        )
+        if getattr(self.request_manager, "cache", None) is None:
+            return self.request_manager.submit(spec)
+        return self.request_manager.cached_request(
+            spec,
+            self.request_manager.cache,
+            max_age_seconds=self.SNAPSHOT_TTL_SECONDS,
+            cache_validator=self._snapshot_validator,
+            cache_encoder=self._snapshot_encoder,
+            cache_decoder=self._snapshot_decoder,
+            stale_while_revalidate=True,
+            content_type="application/json",
+        )
 
     def account(self) -> dict[str, Any]:
         """Load the authenticated account/quota overview."""
@@ -240,13 +367,15 @@ class CloudAccountService:
             token.raise_if_cancelled()
             return return_value
 
-        return self._managed_mutation(
+        handle = self._managed_mutation(
             "cloud-device-revoke",
             identity,
             load,
             priority=priority,
             tag=tag,
         )
+        self._attach_read_invalidation(handle)
+        return handle
 
     def request_delete_generation(
         self,
@@ -267,13 +396,37 @@ class CloudAccountService:
             token.raise_if_cancelled()
             return return_value
 
-        return self._managed_mutation(
+        handle = self._managed_mutation(
             "cloud-generation-delete",
             identity,
             load,
             priority=priority,
             tag=tag,
         )
+        self._attach_read_invalidation(handle)
+        return handle
+
+    def _attach_read_invalidation(self, handle) -> None:
+        callback = self._read_invalidator
+        if callback is None:
+            return
+
+        def done(future) -> None:
+            try:
+                result = future.result()
+            except Exception:
+                return
+            status = getattr(getattr(result, "status", None), "value", "")
+            if status != "ready" or not result.value:
+                return
+            try:
+                callback(None)
+            except Exception:
+                # Cache invalidation is a consistency enhancement and must
+                # never turn a successful admin mutation into a failed one.
+                return
+
+        handle.future.add_done_callback(done)
 
     @staticmethod
     def health(

@@ -51,6 +51,10 @@ _POLICIES = {
     "achievement-icons": CachePolicy("achievement-icons", 30 * 24 * 60 * 60),
     "cloud-status": CachePolicy("cloud-status", 2 * 60 * 60),
     "cloud-listing": CachePolicy("cloud-listing", 2 * 60 * 60),
+    # Account, quota, device, and compact listing projections share this
+    # short-lived authenticated snapshot.  Derived projections must not each
+    # establish their own transport/cache lifecycle.
+    "cloud-account-snapshot": CachePolicy("cloud-account-snapshot", 30),
     "library-update": CachePolicy("library-update", 15 * 60),
     "artwork-search": CachePolicy("artwork-search", 24 * 60 * 60),
 }

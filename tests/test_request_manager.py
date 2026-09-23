@@ -278,6 +278,58 @@ class RequestManagerTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_projection_maps_shared_source_and_deduplicates_consumers(self):
+        manager = RequestManager(max_workers=1)
+        try:
+            source = manager.request(RequestKey("source", "account"), lambda _token: {"value": 7})
+            first = manager.project(
+                source,
+                RequestKey("projection", "one"),
+                lambda value: value["value"] * 2,
+            )
+            second = manager.project(
+                source,
+                RequestKey("projection", "one"),
+                lambda value: value["value"] * 3,
+            )
+            result = first.future.result(timeout=2)
+            self.assertEqual(first.request_id, second.request_id)
+            self.assertEqual(result.status, ResourceStatus.READY)
+            self.assertEqual(result.value, 14)
+            self.assertEqual(manager.state(first.key).value, 14)
+        finally:
+            manager.shutdown()
+
+    def test_projection_mapper_failure_is_a_managed_error(self):
+        manager = RequestManager(max_workers=1)
+        try:
+            source = manager.request(RequestKey("source", "mapper-error"), lambda _token: 7)
+            projected = manager.project(
+                source,
+                RequestKey("projection", "mapper-error"),
+                lambda _value: (_ for _ in ()).throw(ValueError("bad projection")),
+            )
+            result = projected.future.result(timeout=2)
+            self.assertEqual(result.status, ResourceStatus.ERROR)
+            self.assertIsInstance(result.error, ValueError)
+        finally:
+            manager.shutdown()
+
+    def test_cancelling_projection_does_not_cancel_source(self):
+        manager = RequestManager(max_workers=1)
+        try:
+            source = manager.request(RequestKey("source", "projection-cancel"), lambda _token: "ok")
+            projected = manager.project(
+                source,
+                RequestKey("projection", "projection-cancel"),
+                lambda value: value,
+            )
+            self.assertTrue(projected.cancel())
+            self.assertEqual(projected.future.result(timeout=2).status, ResourceStatus.CANCELLED)
+            self.assertEqual(source.future.result(timeout=2).status, ResourceStatus.READY)
+        finally:
+            manager.shutdown()
+
     def test_manager_invalidate_evicts_shared_cache(self):
         cache = ResourceCache()
         manager = RequestManager(max_workers=1, cache=cache)

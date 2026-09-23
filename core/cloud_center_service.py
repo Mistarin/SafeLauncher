@@ -13,6 +13,7 @@ from enum import StrEnum
 from typing import Any
 
 from core.cloud_account_service import CloudAccountService
+from core.cache_policy import cache_policy
 from core.cloud_context import CloudContext
 from core.cloud_metadata_service import CloudMetadataService
 from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
@@ -169,7 +170,7 @@ class CloudOverview:
 class CloudCenterService:
     """Single application entry point for private-cloud overview and sync."""
 
-    CACHE_TTL_SECONDS = 30.0
+    CACHE_TTL_SECONDS = cache_policy("cloud-account-snapshot").max_age_seconds
 
     def __init__(
         self,
@@ -189,6 +190,12 @@ class CloudCenterService:
         self.metadata_service = metadata_service
         self.operation_service = operation_service
         self.settings = settings
+        if hasattr(self.account_service, "set_read_invalidator"):
+            self.account_service.set_read_invalidator(self.invalidate_account_reads)
+        if self.operation_service is not None and hasattr(
+            self.operation_service, "set_read_invalidator"
+        ):
+            self.operation_service.set_read_invalidator(self.handle_operation_success)
 
     def current_context(self) -> CloudContext:
         if self.status_service is not None:
@@ -198,6 +205,72 @@ class CloudCenterService:
     def overview_key(self, context: CloudContext | None = None) -> RequestKey:
         context = context or self.current_context()
         return context.request_key("cloud-center-overview", "account", "v1")
+
+    def snapshot_key(self, context: CloudContext | None = None) -> RequestKey:
+        context = context or self.current_context()
+        if hasattr(self.account_service, "snapshot_key"):
+            return self.account_service.snapshot_key(context)
+        return context.request_key("cloud-account-snapshot", "account", "v1")
+
+    def _request_snapshot(
+        self,
+        context: CloudContext,
+        *,
+        force: bool,
+        priority: RequestPriority,
+    ):
+        """Request the canonical snapshot, with a compatibility fallback."""
+        request_snapshot = getattr(self.account_service, "request_snapshot", None)
+        if callable(request_snapshot):
+            return request_snapshot(
+                force=force,
+                priority=priority,
+                tag="cloud_center_snapshot",
+            )
+
+        # Third-party/test account adapters from before the canonical API can
+        # still participate in the manager lifecycle. Production services all
+        # implement request_snapshot above.
+        key = self.snapshot_key(context)
+        if force:
+            self.request_manager.invalidate(key)
+        request_generation = max(
+            int(context.generation),
+            int(self.request_manager.state(key).generation),
+        )
+
+        def loader(token: CancellationToken):
+            token.raise_if_cancelled()
+            value = self.account_service.snapshot()
+            token.raise_if_cancelled()
+            if hasattr(value, "to_payload"):
+                return value.to_payload()
+            if hasattr(value, "listing") and hasattr(value, "overview"):
+                return {
+                    "listing": dict(value.listing),
+                    "overview": dict(value.overview),
+                }
+            return value
+
+        if getattr(self.request_manager, "cache", None) is not None:
+            return self.request_manager.request_cached(
+                key,
+                loader,
+                max_age_seconds=self.CACHE_TTL_SECONDS,
+                priority=priority,
+                generation=request_generation,
+                retry_policy=RetryPolicy(retry_if=is_transient_error),
+                timeout_seconds=20,
+                stale_while_revalidate=True,
+            )
+        return self.request_manager.request(
+            key,
+            loader,
+            priority=priority,
+            generation=request_generation,
+            retry_policy=RetryPolicy(retry_if=is_transient_error),
+            timeout_seconds=20,
+        )
 
     def _local_summary(self, context: CloudContext) -> tuple[int, int]:
         pending = 0
@@ -250,14 +323,15 @@ class CloudCenterService:
             conflict_count=conflicts,
         )
 
-    def _load_overview(self, token: CancellationToken, context: CloudContext) -> dict[str, Any]:
-        token.raise_if_cancelled()
-        local = self._local_overview(context)
-        if not context.remote_requests_allowed:
-            return local.to_payload()
+    def _overview_from_snapshot(
+        self,
+        snapshot,
+        context: CloudContext,
+    ) -> dict[str, Any]:
+        if not hasattr(snapshot, "overview"):
+            from core.cloud_account_service import CloudAccountSnapshot
 
-        snapshot = self.account_service.snapshot()
-        token.raise_if_cancelled()
+            snapshot = CloudAccountSnapshot.from_payload(snapshot)
         overview = snapshot.overview or {}
         listing = snapshot.listing or {}
         devices = tuple(
@@ -289,6 +363,15 @@ class CloudCenterService:
         )
         return result.to_payload()
 
+    def _load_overview(self, token: CancellationToken, context: CloudContext) -> dict[str, Any]:
+        """Compatibility loader retained for integrations using this hook."""
+        token.raise_if_cancelled()
+        if not context.remote_requests_allowed:
+            return self._local_overview(context).to_payload()
+        snapshot = self.account_service.snapshot()
+        token.raise_if_cancelled()
+        return self._overview_from_snapshot(snapshot, context)
+
     def request_overview(
         self,
         *,
@@ -299,25 +382,31 @@ class CloudCenterService:
         key = self.overview_key(context)
         if force:
             self.request_manager.invalidate(key)
-        loader = lambda token: self._load_overview(token, context)
-        if getattr(self.request_manager, "cache", None) is not None:
-            return self.request_manager.request_cached(
+        request_generation = max(
+            int(context.generation),
+            int(self.request_manager.state(key).generation),
+        )
+        if not context.remote_requests_allowed:
+            return self.request_manager.request(
                 key,
-                loader,
-                max_age_seconds=self.CACHE_TTL_SECONDS,
+                lambda token: (
+                    token.raise_if_cancelled(),
+                    self._local_overview(context).to_payload(),
+                )[1],
                 priority=priority,
-                generation=context.generation,
-                retry_policy=RetryPolicy(retry_if=is_transient_error),
-                timeout_seconds=20,
-                stale_while_revalidate=True,
+                generation=request_generation,
+                metadata={"allow_offline": True},
             )
-        return self.request_manager.request(
-            key,
-            loader,
+        source = self._request_snapshot(
+            context,
+            force=force,
             priority=priority,
-            generation=context.generation,
-            retry_policy=RetryPolicy(retry_if=is_transient_error),
-            timeout_seconds=20,
+        )
+        return self.request_manager.project(
+            source,
+            key,
+            lambda snapshot: self._overview_from_snapshot(snapshot, context),
+            generation=request_generation,
         )
 
     def request_sync(self, db_path: str | None = None):
@@ -345,13 +434,27 @@ class CloudCenterService:
         key = context.request_key("cloud-devices", "account", "v1")
         if force:
             self.request_manager.invalidate(key)
+        request_generation = max(
+            int(context.generation),
+            int(self.request_manager.state(key).generation),
+        )
+        if not context.remote_requests_allowed:
+            return self.request_manager.request(
+                key,
+                lambda token: (
+                    token.raise_if_cancelled(),
+                    {"devices": [], "offline": True},
+                    )[1],
+                    priority=priority,
+                    generation=request_generation,
+                    metadata={"allow_offline": True},
+            )
 
-        def loader(token: CancellationToken) -> dict[str, Any]:
-            token.raise_if_cancelled()
-            if not context.remote_requests_allowed:
-                return {"devices": [], "offline": True}
-            snapshot = self.account_service.snapshot()
-            token.raise_if_cancelled()
+        def devices_from_snapshot(snapshot):
+            if not hasattr(snapshot, "overview"):
+                from core.cloud_account_service import CloudAccountSnapshot
+
+                snapshot = CloudAccountSnapshot.from_payload(snapshot)
             devices = []
             for item in (snapshot.overview or {}).get("devices", ()):
                 if not isinstance(item, dict):
@@ -364,18 +467,17 @@ class CloudCenterService:
                 })
             return {"devices": devices}
 
-        kwargs = dict(
+        source = self._request_snapshot(
+            context,
+            force=force,
             priority=priority,
-            generation=context.generation,
-            retry_policy=RetryPolicy(retry_if=is_transient_error),
-            timeout_seconds=20,
         )
-        if getattr(self.request_manager, "cache", None) is not None:
-            return self.request_manager.request_cached(
-                key, loader, max_age_seconds=self.CACHE_TTL_SECONDS,
-                stale_while_revalidate=True, **kwargs,
-            )
-        return self.request_manager.request(key, loader, **kwargs)
+        return self.request_manager.project(
+            source,
+            key,
+            devices_from_snapshot,
+            generation=request_generation,
+        )
 
     def request_save_history(
         self,
@@ -411,24 +513,43 @@ class CloudCenterService:
         key = context.request_key("cloud-save-history", str(int(game_id)), "v1")
         if force:
             self.request_manager.invalidate(key)
-
-        def loader(token: CancellationToken) -> dict[str, Any]:
-            token.raise_if_cancelled()
-            if not context.remote_requests_allowed:
-                return {"game_id": int(game_id), "games": [], "offline": True}
-            listing = self.account_service.list_games()
-            token.raise_if_cancelled()
-            return {"game_id": int(game_id), "games": listing.get("games", [])}
-
-        request = self.request_manager.request(
-            key,
-            loader,
-            priority=priority,
-            generation=context.generation,
-            retry_policy=RetryPolicy(retry_if=is_transient_error),
-            timeout_seconds=20,
+        request_generation = max(
+            int(context.generation),
+            int(self.request_manager.state(key).generation),
         )
-        return request
+        if not context.remote_requests_allowed:
+            return self.request_manager.request(
+                key,
+                lambda token: (
+                    token.raise_if_cancelled(),
+                    {"game_id": int(game_id), "games": [], "offline": True},
+                    )[1],
+                priority=priority,
+                generation=request_generation,
+                metadata={"allow_offline": True},
+            )
+
+        def history_from_snapshot(snapshot):
+            if not hasattr(snapshot, "listing"):
+                from core.cloud_account_service import CloudAccountSnapshot
+
+                snapshot = CloudAccountSnapshot.from_payload(snapshot)
+            return {
+                "game_id": int(game_id),
+                "games": (snapshot.listing or {}).get("games", []),
+            }
+
+        source = self._request_snapshot(
+            context,
+            force=force,
+            priority=priority,
+        )
+        return self.request_manager.project(
+            source,
+            key,
+            history_from_snapshot,
+            generation=request_generation,
+        )
 
     def request_upload(self, target: CloudOperationTarget, **kwargs):
         """Delegate one upload without exposing operation internals to UI."""
@@ -478,13 +599,67 @@ class CloudCenterService:
             timeout_seconds=8,
         )
 
+    def invalidate_account_reads(self, game_id: int | None = None) -> None:
+        """Invalidate the canonical snapshot and its non-persistent views."""
+        context = self.current_context()
+        keys = [
+            self.snapshot_key(context),
+            self.overview_key(context),
+            context.request_key("cloud-devices", "account", "v1"),
+        ]
+        if game_id is not None:
+            keys.append(
+                context.request_key("cloud-save-history", str(int(game_id)), "v1")
+            )
+        for key in keys:
+            self.request_manager.invalidate(key)
+        if self.status_service is not None:
+            if game_id is None:
+                invalidate_listing = getattr(self.status_service, "invalidate_listing", None)
+                if invalidate_listing is not None:
+                    invalidate_listing()
+            else:
+                invalidate_game = getattr(self.status_service, "invalidate_game", None)
+                if invalidate_game is not None:
+                    invalidate_game(int(game_id))
+
+    def handle_operation_success(self, target, operation: str, value) -> None:
+        """Invalidate reads after a successful cloud mutation."""
+        operation_name = str(operation or "").split(":", 1)[0]
+        mutated = operation_name in {
+            "upload",
+            "restore",
+            "restore-with-preflight",
+        }
+        if operation_name == "exit-sync":
+            mutated = isinstance(value, dict) and value.get("outcome") == "uploaded"
+        if operation_name == "prelaunch":
+            cloud_result = value.get("cloud_result") if isinstance(value, dict) else None
+            mutated = bool(
+                cloud_result is not None
+                and getattr(cloud_result, "success", True)
+                and not (
+                    isinstance(cloud_result, dict)
+                    and cloud_result.get("outcome") == "failed"
+                )
+            )
+        if mutated:
+            self.invalidate_account_reads(int(target.game_id))
+
     def invalidate_context(self) -> CloudContext:
         """Invalidate overview and status resources for the current context."""
-        context = (
-            self.status_service.invalidate_context()
-            if self.status_service is not None
-            else self.account_service.invalidate_context()
-        )
+        if self.status_service is not None:
+            context = self.status_service.invalidate_context()
+            # CloudStatusService and CloudAccountService normally share the
+            # configured fingerprint but own separate generation counters.
+            # Retire both so the canonical snapshot cannot outlive a context
+            # change initiated through this facade.
+            invalidate_account = getattr(self.account_service, "invalidate_context", None)
+            if invalidate_account is not None:
+                invalidate_account()
+        else:
+            context = self.account_service.invalidate_context()
+        self.request_manager.invalidate(self.snapshot_key(context))
         self.request_manager.invalidate(self.overview_key(context))
         for resource in ("cloud-devices", "cloud-connection-probe"):
             self.request_manager.invalidate(context.request_key(resource, "account", "v1"))

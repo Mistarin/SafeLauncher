@@ -62,6 +62,20 @@ class _RequestRecord:
     started_at: float = 0.0
 
 
+@dataclass
+class _ProjectionRecord:
+    """Lifecycle state for a manager-owned derived resource."""
+
+    key: RequestKey
+    source: RequestHandle
+    request_id: str
+    generation: int
+    future: Future
+    mapper: Callable[[object], object]
+    unsubscribe: Callable[[], None] | None = None
+    active: bool = True
+
+
 class RequestManager:
     """Schedule bounded background work with deduplication and retries."""
 
@@ -88,6 +102,7 @@ class RequestManager:
         self._states: dict[RequestKey, ResourceResult] = {}
         self._cache_by_key: dict[RequestKey, ResourceCache] = {}
         self._listeners: dict[RequestKey, dict[str, Callable[[ResourceResult], None]]] = {}
+        self._projections: dict[RequestKey, _ProjectionRecord] = {}
         self._last_generation: dict[RequestKey, int] = {}
         self._metrics = {
             "submitted": 0,
@@ -337,6 +352,185 @@ class RequestManager:
         self._attach_batch_callbacks(handles, progress, on_complete)
         return handles
 
+    def project(
+        self,
+        source: RequestHandle,
+        key: RequestKey,
+        mapper: Callable[[object], object],
+        *,
+        generation: int | None = None,
+    ) -> RequestHandle:
+        """Expose a derived resource without starting another transport.
+
+        A projection follows the source request's lifecycle and maps its
+        values into a separate manager key for existing UI bindings.  It has
+        no independent persistent cache: the source remains the sole cache
+        authority.  Cancelling a projection detaches that consumer only and
+        deliberately leaves the shared source request alive for other users.
+        """
+        if not isinstance(key, RequestKey):
+            raise TypeError("project requires a RequestKey")
+        if not callable(mapper):
+            raise TypeError("project requires a callable mapper")
+        target_generation = max(
+            int(source.generation),
+            int(source.generation if generation is None else generation),
+        )
+        projection_id = "projection-" + uuid.uuid4().hex
+        future = Future()
+        record = _ProjectionRecord(
+            key=key,
+            source=source,
+            request_id=projection_id,
+            generation=target_generation,
+            future=future,
+            mapper=mapper,
+        )
+
+        previous = None
+        previous_cancelled = None
+        with self._condition:
+            target_generation = max(
+                target_generation,
+                self._last_generation.get(key, -1),
+            )
+            record.generation = target_generation
+            previous = self._projections.get(key)
+            if (
+                previous is not None
+                and previous.active
+                and previous.source.request_id == source.request_id
+                and target_generation <= previous.generation
+            ):
+                self._metrics["deduplicated"] += 1
+                return RequestHandle(
+                    key,
+                    previous.request_id,
+                    previous.generation,
+                    previous.future,
+                    lambda previous=previous: self._cancel_projection(previous),
+                )
+            if previous is not None:
+                target_generation = max(target_generation, previous.generation + 1)
+                record.generation = target_generation
+                previous.active = False
+                previous_cancelled = ResourceResult(
+                    key=previous.key,
+                    status=ResourceStatus.CANCELLED,
+                    error=RequestCancelled("Projection was superseded"),
+                    request_id=previous.request_id,
+                    generation=previous.generation,
+                )
+            self._projections[key] = record
+            self._last_generation[key] = max(
+                self._last_generation.get(key, -1), target_generation
+            )
+
+        if previous is not None and previous.unsubscribe is not None:
+            previous.unsubscribe()
+        if previous_cancelled is not None:
+            if not previous.future.done():
+                previous.future.set_result(previous_cancelled)
+            self._notify(key, previous_cancelled)
+
+        def map_result(result: ResourceResult) -> ResourceResult:
+            value = None
+            error = result.error
+            status = result.status
+            if result.value is not None and status in {
+                ResourceStatus.READY,
+                ResourceStatus.STALE,
+            }:
+                try:
+                    value = mapper(result.value)
+                except Exception as exc:
+                    status = ResourceStatus.ERROR
+                    error = exc
+            return ResourceResult(
+                key=key,
+                status=status,
+                value=value,
+                error=error,
+                request_id=projection_id,
+                generation=target_generation,
+                from_cache=result.from_cache,
+                cache_source=result.cache_source,
+                updated_at=result.updated_at,
+            )
+
+        def on_source_state(result: ResourceResult) -> None:
+            with self._condition:
+                if not record.active or self._projections.get(key) is not record:
+                    return
+            self._notify(key, map_result(result))
+
+        unsubscribe = self.subscribe(source.key, on_source_state, emit_current=True)
+        with self._condition:
+            if not record.active or self._projections.get(key) is not record:
+                unsubscribe()
+            else:
+                record.unsubscribe = unsubscribe
+
+        def on_source_done(source_future: Future) -> None:
+            try:
+                source_future.result()
+            except Exception as exc:
+                source_result = ResourceResult(
+                    key=source.key,
+                    status=ResourceStatus.ERROR,
+                    error=exc,
+                    request_id=source.request_id,
+                    generation=source.generation,
+                )
+            else:
+                # cached_request() can complete its Future before emitting a
+                # stale fallback notification.  Prefer the manager's latest
+                # state when it is available so subscribers and the returned
+                # projection agree on the usable value.
+                source_result = self.state(source.key)
+                if source_result.status == ResourceStatus.IDLE:
+                    source_result = source_future.result()
+            projected = map_result(source_result)
+            with self._condition:
+                if not record.active or self._projections.get(key) is not record:
+                    return
+                record.active = False
+                self._projections.pop(key, None)
+                if not future.done():
+                    future.set_result(projected)
+            if record.unsubscribe is not None:
+                record.unsubscribe()
+            self._notify(key, projected)
+
+        source.future.add_done_callback(on_source_done)
+        return RequestHandle(
+            key,
+            projection_id,
+            target_generation,
+            future,
+            lambda record=record: self._cancel_projection(record),
+        )
+
+    def _cancel_projection(self, record: _ProjectionRecord) -> bool:
+        with self._condition:
+            if not record.active or self._projections.get(record.key) is not record:
+                return False
+            record.active = False
+            self._projections.pop(record.key, None)
+            result = ResourceResult(
+                key=record.key,
+                status=ResourceStatus.CANCELLED,
+                error=RequestCancelled("Projection was cancelled"),
+                request_id=record.request_id,
+                generation=record.generation,
+            )
+            if not record.future.done():
+                record.future.set_result(result)
+        if record.unsubscribe is not None:
+            record.unsubscribe()
+        self._notify(record.key, result)
+        return True
+
     @staticmethod
     def _attach_batch_callbacks(
         handles: list[RequestHandle],
@@ -396,8 +590,11 @@ class RequestManager:
     def invalidate(self, key: RequestKey) -> bool:
         """Cancel current work and discard the current resource state."""
         with self._condition:
+            projection = self._projections.pop(key, None)
+            if projection is not None:
+                projection.active = False
             record = self._active.get(key)
-            existed = record is not None or key in self._states
+            existed = record is not None or key in self._states or projection is not None
             if existed:
                 self._metrics["invalidated"] += 1
             cache = self._cache_by_key.pop(key, None)
@@ -417,6 +614,17 @@ class RequestManager:
                 generation=generation,
             )
             self._states[key] = idle
+        if projection is not None:
+            if projection.unsubscribe is not None:
+                projection.unsubscribe()
+            if not projection.future.done():
+                projection.future.set_result(ResourceResult(
+                    key=key,
+                    status=ResourceStatus.CANCELLED,
+                    error=RequestCancelled("Projection was invalidated"),
+                    request_id=projection.request_id,
+                    generation=projection.generation,
+                ))
         if cache is not None:
             cache.invalidate(key)
         elif self.cache is not None:
