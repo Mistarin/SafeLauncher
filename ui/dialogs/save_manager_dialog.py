@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QProgressBar,
     QTabWidget, QApplication
 )
+from PyQt6.QtWidgets import QToolButton
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 from PyQt6.QtCore import QUrl
@@ -37,7 +38,14 @@ from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
 from ui.resource_binding import ResourceBinding, bind_request
 from ui.components.save_history_timeline import SaveHistoryTimeline
-from ui.components.cloud_ui import cloud_progress, confirm_restore, set_accessible_status
+from ui.components.cloud_ui import (
+    CloudStatusPanel,
+    cloud_progress,
+    confirm_restore,
+    set_accessible_status,
+    set_cloud_focus_order,
+    set_cloud_initial_focus,
+)
 
 logger = get_logger("SaveManagerDialog")
 
@@ -77,6 +85,8 @@ class SaveManagerDialog(PopupDialog):
         self.save_state_store = getattr(parent, "save_state_store", None) or SaveStateStore()
         self.save_locations: list[SaveLocation] = []
         self.checkboxes: list[tuple[QCheckBox, SaveLocation]] = []
+        self._file_path_labels: list[QLabel] = []
+        self._show_file_details = False
         # Every operation that can touch the cloud or package saves belongs to
         # this dialog. Keeping explicit references prevents a QThread from
         # being garbage-collected while it is running and lets closeEvent wait
@@ -216,6 +226,16 @@ class SaveManagerDialog(PopupDialog):
         list_header.addWidget(list_lbl)
         list_header.addStretch()
 
+        details_toggle = QToolButton()
+        details_toggle.setText("Technical details")
+        details_toggle.setCheckable(True)
+        details_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        details_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        details_toggle.setAccessibleName("Show save technical details")
+        details_toggle.setToolTip("Show local save paths and diagnostic details")
+        details_toggle.toggled.connect(self._toggle_file_details)
+        list_header.addWidget(details_toggle)
+
         btn_rescan = QPushButton("Rescan")
         btn_rescan.setIcon(get_icon("ph.arrows-clockwise-bold", color="#A7ADB8"))
         btn_rescan.setIconSize(QSize(12, 12))
@@ -261,7 +281,7 @@ class SaveManagerDialog(PopupDialog):
         footer_layout = QHBoxLayout()
         footer_layout.setSpacing(10)
 
-        btn_import = QPushButton("Import Snapshot (.zip)")
+        btn_import = QPushButton("Import local save archive (.zip)")
         btn_import.setIcon(get_app_icon("import"))
         btn_import.setFixedHeight(36)
         btn_import.setStyleSheet("""
@@ -304,7 +324,7 @@ class SaveManagerDialog(PopupDialog):
         self.btn_cloud.setAccessibleName("Restore latest cloud save")
         footer_layout.addWidget(self.btn_cloud)
 
-        self.btn_upload = QPushButton("Upload selected saves")
+        self.btn_upload = QPushButton("Upload local save")
         self.btn_upload.setIcon(get_icon("ph.cloud-arrow-up-bold", "#35C98A"))
         self.btn_upload.setFixedHeight(36)
         self.btn_upload.setEnabled(False)
@@ -329,12 +349,12 @@ class SaveManagerDialog(PopupDialog):
             }
         """)
         self.btn_upload.clicked.connect(self._upload_selected)
-        self.btn_upload.setAccessibleName("Upload selected saves to cloud")
+        self.btn_upload.setAccessibleName("Upload local save to cloud")
         footer_layout.addWidget(self.btn_upload)
 
         footer_layout.addStretch()
 
-        self.btn_export = QPushButton("Export selected saves")
+        self.btn_export = QPushButton("Export local save archive")
         self.btn_export.setIcon(get_app_icon("export"))
         self.btn_export.setFixedHeight(36)
         self.btn_export.setStyleSheet("""
@@ -358,7 +378,7 @@ class SaveManagerDialog(PopupDialog):
         """)
         self.btn_export.clicked.connect(self._export_selected)
         footer_layout.addWidget(self.btn_export)
-        self.btn_export.setAccessibleName("Export selected local saves")
+        self.btn_export.setAccessibleName("Export local save archive")
         tab_files_layout.addLayout(footer_layout)
 
         self.tabs.addTab(self.tab_files, "Live Save Files")
@@ -374,10 +394,6 @@ class SaveManagerDialog(PopupDialog):
         lbl_hist.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         lbl_hist.setStyleSheet("color: #F5F7FA;")
         history_header.addWidget(lbl_hist)
-        self.lbl_history_state = QLabel("")
-        self.lbl_history_state.setStyleSheet("color: #A7ADB8; font-size: 10px;")
-        set_accessible_status(self.lbl_history_state, "Cloud save versions status")
-        history_header.addWidget(self.lbl_history_state)
         history_header.addStretch()
 
         btn_refresh_hist = QPushButton("Refresh")
@@ -399,8 +415,14 @@ class SaveManagerDialog(PopupDialog):
             }
         """)
         btn_refresh_hist.clicked.connect(self._load_history)
+        btn_refresh_hist.setAccessibleName("Refresh cloud save versions")
         history_header.addWidget(btn_refresh_hist)
         tab_history_layout.addLayout(history_header)
+
+        self.cloud_status_panel = CloudStatusPanel(self, compact=True)
+        self.cloud_status_panel.action_requested.connect(self._load_history)
+        self.lbl_history_state = self.cloud_status_panel.lbl_status
+        tab_history_layout.addWidget(self.cloud_status_panel)
 
         self.history_timeline = SaveHistoryTimeline()
         # Compatibility alias for older integrations that only inspect the
@@ -467,6 +489,18 @@ class SaveManagerDialog(PopupDialog):
         self._last_operation_retry = None
         self._last_operation_result: SaveOperationResult | None = None
         self._last_operation_log_path = os.path.expanduser("~/.local/state/safelauncher/safelauncher.log")
+
+        set_cloud_focus_order(
+            self,
+            btn_import,
+            self.btn_cloud,
+            self.btn_upload,
+            self.btn_export,
+            self.tabs,
+            btn_refresh_hist,
+            self.btn_restore_history,
+        )
+        set_cloud_initial_focus(self, btn_import)
 
     def _start_managed_task(self, name: str, work, on_complete):
         """Run a dialog operation with an owned, observable lifetime."""
@@ -657,6 +691,7 @@ class SaveManagerDialog(PopupDialog):
                 item.widget().deleteLater()
 
         self.checkboxes.clear()
+        self._file_path_labels.clear()
         self.save_locations = LudusaviDetector.detect_saves(self.game_name, self.game_path, self.steam_id)
         self.save_state_store.set_locations(self.game_id, self.save_locations)
         validation_results = validate_save_locations(self.save_locations)
@@ -735,6 +770,8 @@ class SaveManagerDialog(PopupDialog):
             lbl_path = QLabel(f"<font color='#6F7682'>{loc.path}</font> <font color='#555'>· Modified: {date_str}</font>")
             lbl_path.setStyleSheet("font-size: 10px;")
             lbl_path.setWordWrap(True)
+            lbl_path.setVisible(self._show_file_details)
+            self._file_path_labels.append(lbl_path)
             info_vbox.addWidget(lbl_path)
 
             c_layout.addLayout(info_vbox, 1)
@@ -743,11 +780,19 @@ class SaveManagerDialog(PopupDialog):
 
         self._update_export_state()
 
+    def _toggle_file_details(self, expanded: bool) -> None:
+        self._show_file_details = bool(expanded)
+        sender = self.sender()
+        if isinstance(sender, QToolButton):
+            sender.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        for label in self._file_path_labels:
+            label.setVisible(self._show_file_details)
+
     def _update_export_state(self):
         selected = any(cb.isChecked() for cb, _loc in self.checkboxes)
         self.btn_export.setEnabled(selected)
         self.btn_upload.setEnabled(selected)
-        self.btn_export.setText("Export selected saves" if selected else "Choose saves to export")
+        self.btn_export.setText("Export local save archive" if selected else "Choose saves to export")
 
     def _upload_selected(self):
         """Upload the checked detected save locations to the active cloud backend."""
@@ -767,8 +812,8 @@ class SaveManagerDialog(PopupDialog):
 
         confirm = QMessageBox.question(
             self,
-            "Upload local saves",
-            f"Upload {len(snapshot.locations)} selected save location(s) for '{self.game_name}'?\n\n"
+            "Upload local save",
+            f"Upload {len(snapshot.locations)} selected local save location(s) for '{self.game_name}'?\n\n"
             "This creates or updates a cloud save version. Your local files will not be changed.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
@@ -864,7 +909,7 @@ class SaveManagerDialog(PopupDialog):
                 snapshot=snapshot,
             )
             if success:
-                QMessageBox.information(self, "Export Successful", f"Save snapshot saved to:\n{export_path}")
+                QMessageBox.information(self, "Export Successful", f"Local save archive saved to:\n{export_path}")
             else:
                 result = SaveOperationResult(
                     False,
@@ -883,7 +928,7 @@ class SaveManagerDialog(PopupDialog):
     def _import_snapshot(self):
         import_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Save Snapshot",
+            "Select local save archive",
             "",
             "ZIP Files (*.zip)"
         )
@@ -896,11 +941,11 @@ class SaveManagerDialog(PopupDialog):
 
             success = self.backup_mgr.import_save(import_path, target_dest, game_path=self.game_path)
             if success:
-                QMessageBox.information(self, "Import Successful", "Game save snapshot restored successfully.")
+                QMessageBox.information(self, "Import Successful", "Local save archive restored successfully.")
                 self._scan_saves()
                 self._notify_parent_changed()
             else:
-                QMessageBox.critical(self, "Import Error", "Failed to extract save snapshot.")
+                QMessageBox.critical(self, "Import Error", "Failed to import the local save archive.")
 
     def _notify_parent_changed(self):
         """Notify parent window or dialog that saves changed so stats refresh immediately."""
@@ -937,7 +982,7 @@ class SaveManagerDialog(PopupDialog):
 
     def _load_history(self):
         """Asynchronously fetch cloud save versions and local safety backups."""
-        self.lbl_history_state.setText("Refreshing…")
+        self.cloud_status_panel.set_loading("Loading cloud save versions and local safety backups…")
         self.history_timeline.set_message("Loading cloud save versions and local backups…")
         self.history_timeline.setEnabled(False)
         self.btn_restore_history.setEnabled(False)
@@ -968,6 +1013,7 @@ class SaveManagerDialog(PopupDialog):
                         self._history_loaded.emit({
                             "versions": error if error is not None else versions,
                             "stale": resource.status == ResourceStatus.STALE,
+                            "offline": resource.status == ResourceStatus.OFFLINE,
                         })
                         return
                     error = SaveOperationResult(
@@ -999,14 +1045,37 @@ class SaveManagerDialog(PopupDialog):
     def _on_history_loaded(self, versions):
         """Populate history list on the main thread after async worker finishes."""
         stale = False
+        offline = False
         if isinstance(versions, dict) and "versions" in versions:
             stale = bool(versions.get("stale"))
+            offline = bool(versions.get("offline"))
             versions = versions.get("versions")
-        self.lbl_history_state.setText(
-            "Using cached history · refresh pending" if stale else ""
-        )
+        if offline:
+            self.cloud_status_panel.set_offline(
+                "Cloud is offline; cached save history may be unavailable.",
+                action_text="Retry",
+            )
+        elif stale:
+            self.cloud_status_panel.set_ready(
+                "Cloud history is cached; refresh pending.",
+                stale=True,
+                action_text="Refresh",
+            )
+        else:
+            self.cloud_status_panel.set_ready("Cloud history is up to date.", action_text="Refresh")
         if isinstance(versions, SaveOperationResult) and not versions.success:
-            self.lbl_history_state.setText("History unavailable")
+            detail = (
+                f"{versions.error or 'Could not load cloud save versions.'} "
+                f"{versions.guidance or ''}"
+            ).strip()
+            if offline:
+                self.cloud_status_panel.set_offline(detail, action_text="Retry")
+            else:
+                self.cloud_status_panel.set_error(
+                    detail,
+                    title="Cloud history unavailable",
+                    action_text="Retry",
+                )
             self.history_timeline.setEnabled(True)
             self.history_timeline.set_message("Cloud save versions could not be loaded. Use Retry below to try again.")
             self.save_state_store.set_operation(self.game_id, versions)

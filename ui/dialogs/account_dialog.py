@@ -21,7 +21,14 @@ from PyQt6.QtWidgets import (
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
 from ui.components.save_history_timeline import SaveHistoryTimeline
-from ui.components.cloud_ui import confirm_delete, confirm_restore, set_accessible_status
+from ui.components.cloud_ui import (
+    CloudStatusPanel,
+    confirm_delete,
+    confirm_restore,
+    set_accessible_status,
+    set_cloud_focus_order,
+    set_cloud_initial_focus,
+)
 from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
 from core.cloud_account_service import CloudAccountService, CloudAccountSnapshot
@@ -152,6 +159,9 @@ class AccountDialog(PopupDialog):
             self.lbl_endpoint_details.setVisible(bool(checked))
 
         self.btn_account_details.toggled.connect(_toggle_account_details)
+
+        self.cloud_status_panel = CloudStatusPanel(self, compact=True, show_action=False)
+        body_layout.addWidget(self.cloud_status_panel)
 
         # --- quota bar --------------------------------------------------------
         quota_box = QWidget()
@@ -291,6 +301,22 @@ class AccountDialog(PopupDialog):
         btn_close.setAccessibleName("Close cloud storage manager")
         footer.addWidget(btn_close)
         body_layout.addLayout(footer)
+
+        set_cloud_focus_order(
+            self,
+            self.btn_refresh,
+            self.combo_backend,
+            self.btn_account_details,
+            self.lst_devices,
+            self.btn_revoke_device,
+            self.lst_games,
+            self.history_timeline,
+            self.btn_restore,
+            self.btn_delete_generation,
+            self.btn_auth_toggle,
+            btn_close,
+        )
+        set_cloud_initial_focus(self, self.btn_refresh)
 
         add_soft_shadow(self)
 
@@ -438,6 +464,7 @@ class AccountDialog(PopupDialog):
         if self._busy:
             return
         self._busy = True
+        self.cloud_status_panel.set_loading("Loading account, device, and cloud-save data…", action_text="")
         self.lbl_quota_text.setText("Loading…")
         self._start_task("SafeLauncher-AccountLoad", self._load_worker, self._data_ready.emit)
 
@@ -464,6 +491,11 @@ class AccountDialog(PopupDialog):
                     if state.usable:
                         result = state
                 if not result.usable:
+                    if result.status == ResourceStatus.OFFLINE:
+                        return {
+                            "error": "Cloud is offline and no account cache is available.",
+                            "offline": True,
+                        }
                     raise result.error or RuntimeError("Cloud account data unavailable")
                 snapshot = CloudAccountSnapshot.from_payload(result.value)
                 is_stale = result.status == ResourceStatus.STALE
@@ -496,6 +528,14 @@ class AccountDialog(PopupDialog):
                 if is_missing_endpoint else "Check the endpoint and Secret Access Key."
             )
             self.lbl_quota_text.setText(payload["error"])
+            if payload.get("offline"):
+                self.cloud_status_panel.set_offline(str(payload["error"]), action_text="")
+            else:
+                self.cloud_status_panel.set_error(
+                    str(payload["error"]),
+                    title="Cloud account unavailable",
+                    action_text="",
+                )
             self.btn_auth_toggle.setText("Retry")
             self._populate_devices([])
             self._populate_games([])
@@ -517,6 +557,14 @@ class AccountDialog(PopupDialog):
         self.lbl_email.setText(
             "Private Cloud Connected · using cached data" if is_stale else "Private Cloud Connected"
         )
+        if is_stale:
+            self.cloud_status_panel.set_ready(
+                "Showing cached account data; refresh pending.",
+                stale=True,
+                action_text="",
+            )
+        else:
+            self.cloud_status_panel.set_ready("Account and cloud storage data is current.", action_text="")
         subject_parts = []
         if concurrent:
             subject_parts.append(f"{concurrent} device(s) online")
@@ -618,6 +666,10 @@ class AccountDialog(PopupDialog):
         })
 
     def _render_signed_out(self):
+        self.cloud_status_panel.set_empty(
+            "Connect a cloud account to manage devices and save versions.",
+            action_text="",
+        )
         self.lbl_email.setText("Not connected")
         self.lbl_subject.setText("Convex backend not configured")
         self.btn_account_details.setChecked(False)

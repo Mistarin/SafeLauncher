@@ -780,7 +780,8 @@ class MainWindow(QMainWindow):
         self.detail_cloud_status.setStyleSheet("color: #A1A1A6; font-size: 11px; font-weight: 500; background: transparent;")
         cloud_box_layout.addWidget(self.detail_cloud_status)
 
-        self.btn_detail_cloud_restore = QPushButton("Restore")
+        self.btn_detail_cloud_restore = QPushButton("Restore latest cloud save")
+        self.btn_detail_cloud_restore.setAccessibleName("Restore latest cloud save")
         self.btn_detail_cloud_restore.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_detail_cloud_restore.setToolTip("Restore latest cloud save for this game")
         self.btn_detail_cloud_restore.setStyleSheet(
@@ -4726,7 +4727,27 @@ class MainWindow(QMainWindow):
         # refresh cannot replay the stale update badge.
         self.steam_check_results[game_id] = (build_id, build_date, False, "")
         self.library_metadata_state.steam_build_checked_at[game_id] = time.time()
-        self._set_game_update_status(game_id, False)
+        if hasattr(self, "_set_game_update_status"):
+            self._set_game_update_status(game_id, False)
+        elif hasattr(self, "update_status_by_game_id"):
+            # Keep lightweight hosts/test doubles in sync with the canonical
+            # status cache when they do not provide the renderer helper.
+            self.update_status_by_game_id[game_id] = False
+            if hasattr(self, "game_status_by_id"):
+                current = self.game_status_by_id.get(game_id, GameStatusState())
+                try:
+                    self.game_status_by_id[game_id] = replace(
+                        current,
+                        update_available=False,
+                        update_error="",
+                    )
+                except (TypeError, AttributeError):
+                    # Non-dataclass lightweight hosts can still expose a
+                    # mutable status object for the same contract.
+                    if hasattr(current, "update_available"):
+                        current.update_available = False
+                    if hasattr(current, "update_error"):
+                        current.update_error = ""
         self._save_persistent_cache()
 
     def _mark_build_current_from_config(self, game_id: int):

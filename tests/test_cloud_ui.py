@@ -1,10 +1,17 @@
 import unittest
 from unittest.mock import patch
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDialog, QPushButton
 
 from core.save_history import normalize_history_entries
-from ui.components.cloud_ui import confirm_delete, confirm_restore, cloud_version_details
+from ui.components.cloud_ui import (
+    CloudStatusPanel,
+    confirm_delete,
+    confirm_restore,
+    cloud_version_details,
+    set_cloud_focus_order,
+    set_cloud_initial_focus,
+)
 from ui.components.save_history_timeline import SaveHistoryTimeline
 
 
@@ -161,6 +168,45 @@ class CloudUiPresentationTests(unittest.TestCase):
         self.assertEqual(button.accessibleName(), "Cloud save version 2")
         self.assertIn("Created and uploaded on Desktop", button.accessibleDescription())
         timeline.deleteLater()
+
+    def test_shared_cloud_status_panel_covers_all_states_with_text(self):
+        panel = CloudStatusPanel(show_action=True)
+        states = (
+            ("loading", panel.set_loading, ""),
+            ("ready", lambda: panel.set_ready("Current"), "Refresh"),
+            ("stale", lambda: panel.set_ready("Cached", stale=True), "Refresh"),
+            ("offline", panel.set_offline, "Retry"),
+            ("empty", panel.set_empty, ""),
+            ("error", lambda: panel.set_error("Try again"), "Retry"),
+        )
+        for expected, setter, action in states:
+            setter()
+            self.assertEqual(panel.state, expected)
+            self.assertTrue(panel.lbl_status.text())
+            self.assertTrue(panel.lbl_message.text())
+            self.assertEqual(panel.btn_action.text(), action)
+            self.assertEqual(panel.lbl_status.accessibleName(), "Cloud status")
+            self.assertTrue(panel.lbl_status.accessibleDescription())
+        panel.deleteLater()
+
+    def test_cloud_focus_order_is_explicit_and_recorded(self):
+        dialog = QDialog()
+        first = QPushButton("Refresh", dialog)
+        second = QPushButton("Restore", dialog)
+        third = QPushButton("Close", dialog)
+        order = set_cloud_focus_order(dialog, first, second, third)
+        self.assertEqual(order, (first, second, third))
+        self.assertEqual(dialog._cloud_focus_order, order)
+        dialog.deleteLater()
+
+    def test_cloud_initial_focus_uses_a_safe_primary_control(self):
+        dialog = QDialog()
+        refresh = QPushButton("Refresh", dialog)
+        restore = QPushButton("Restore", dialog)
+        set_cloud_initial_focus(dialog, refresh)
+        self.assertIs(dialog._cloud_initial_focus, refresh)
+        self.assertIsNot(dialog._cloud_initial_focus, restore)
+        dialog.deleteLater()
 
 
 if __name__ == "__main__":

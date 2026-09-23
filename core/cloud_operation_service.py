@@ -444,51 +444,19 @@ class CloudOperationService:
         generation=None,
         tag="",
     ):
-        """Preflight and restore as one deduplicated UI operation."""
-        progress = _ProgressReporter(self)
+        """Return restore metadata without mutating local files.
 
-        def load(token: CancellationToken) -> CloudOperationResult:
-            token.raise_if_cancelled()
-            progress(0.05)
-            preflight = self.coordinator.preflight(
-                target.game_id, target.game_name, target.game_path, target.steam_id
-            )
-            token.raise_if_cancelled()
-            progress(0.25)
-            if preflight.error is not None:
-                progress(1.0)
-                return preflight.error
-            if not preflight.cloud_stats or not preflight.cloud_stats.exists:
-                progress(1.0)
-                return CloudOperationResult(
-                    False,
-                    "Cloud restore",
-                    target.game_name,
-                    error="No cloud save is available to restore.",
-                    category="cloud_missing",
-                    guidance="Upload a local save first, then try restoring again.",
-                )
-            result = self.coordinator.restore_cloud_save(
-                target.game_id,
-                target.game_name,
-                target.game_path,
-                steam_id=target.steam_id,
-                cancel_check=lambda: token.cancelled,
-                progress_callback=_scaled_progress(progress, 0.25, 0.95),
-            )
-            token.raise_if_cancelled()
-            progress(1.0)
-            return result
-
-        return self._request(
+        This legacy method used to combine preflight with an immediate
+        restore.  That was unsafe for callers that only intended to show a
+        confirmation dialog.  Keep the API for compatibility, but make it a
+        strict read-only alias.  A caller must confirm explicitly and then
+        call :meth:`request_restore`.
+        """
+        return self.request_restore_preflight(
             target,
-            "restore-with-preflight",
-            load,
             priority=priority,
             generation=generation,
-            tag=tag,
-            timeout_seconds=None,
-            progress_hook=progress,
+            tag=tag or "restore_preflight",
         )
 
     def request_exit_sync(

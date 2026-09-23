@@ -255,6 +255,22 @@ class CloudOperationServiceTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_legacy_restore_with_preflight_is_read_only(self):
+        coordinator = _HistoryCoordinator()
+        manager = RequestManager(max_workers=1)
+        try:
+            service = CloudOperationService(
+                manager,
+                coordinator=coordinator,
+                context_provider=self._context_provider,
+            )
+            target = CloudOperationTarget(92, "Example", "/games/example")
+            result = service.request_restore_with_preflight(target).future.result(timeout=2)
+            self.assertEqual(result.status, ResourceStatus.READY)
+            self.assertNotIn("restore", [call[0] for call in coordinator.calls])
+        finally:
+            manager.shutdown()
+
     def test_auto_prefer_newer_runs_restore_inside_managed_request(self):
         coordinator = _Coordinator()
         manager = RequestManager(max_workers=1)

@@ -922,7 +922,7 @@ class DialogTitleBar(QFrame):
         layout.addStretch()
 
         control_style = """
-            QPushButton {
+            QToolButton {
                 background: transparent;
                 color: #A1A1AA;
                 border: none;
@@ -931,42 +931,45 @@ class DialogTitleBar(QFrame):
                 margin: 0;
                 text-align: center;
             }
-            QPushButton:hover {
+            QToolButton:hover {
                 background: #202024;
                 color: #FFFFFF;
             }
-            QPushButton#dialogClose:hover {
+            QToolButton#dialogClose:hover {
                 background: rgba(255, 69, 58, 0.2);
                 color: #FF453A;
             }
         """
 
-        self.btn_min = QPushButton()
+        self.btn_min = QToolButton()
         self.btn_min.setObjectName("dialogMinimize")
         self.btn_min.setIcon(get_app_icon("minimize", color="#A1A1AA"))
         self.btn_min.setIconSize(QSize(10, 10))
         self.btn_min.setFixedSize(26, 26)
         self.btn_min.setToolTip("Minimize")
+        self.btn_min.setAccessibleName("Minimize dialog")
         self.btn_min.setStyleSheet(control_style)
         self.btn_min.clicked.connect(self.dialog.showMinimized)
         layout.addWidget(self.btn_min)
 
-        self.btn_max = QPushButton()
+        self.btn_max = QToolButton()
         self.btn_max.setObjectName("dialogMaximize")
         self.btn_max.setIcon(get_app_icon("maximize", color="#A1A1AA"))
         self.btn_max.setIconSize(QSize(10, 10))
         self.btn_max.setFixedSize(26, 26)
         self.btn_max.setToolTip("Maximize")
+        self.btn_max.setAccessibleName("Maximize dialog")
         self.btn_max.setStyleSheet(control_style)
         self.btn_max.clicked.connect(self._toggle_max_restore)
         layout.addWidget(self.btn_max)
 
-        self.btn_close = QPushButton()
+        self.btn_close = QToolButton()
         self.btn_close.setObjectName("dialogClose")
         self.btn_close.setIcon(get_app_icon("close", color="#A1A1AA"))
         self.btn_close.setIconSize(QSize(10, 10))
         self.btn_close.setFixedSize(26, 26)
         self.btn_close.setToolTip("Close")
+        self.btn_close.setAccessibleName("Close dialog")
         self.btn_close.setStyleSheet(control_style)
         self.btn_close.clicked.connect(self.dialog.reject)
         layout.addWidget(self.btn_close)

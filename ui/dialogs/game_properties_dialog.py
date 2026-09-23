@@ -29,7 +29,14 @@ from core.request_contracts import RequestPriority, ResourceStatus
 from core.zip_backup import ZipBackupManager
 from ui.resource_binding import ResourceBinding, bind_request
 from ui.components.save_history_timeline import SaveHistoryTimeline
-from ui.components.cloud_ui import confirm_restore, cloud_progress, set_accessible_status
+from ui.components.cloud_ui import (
+    CloudStatusPanel,
+    confirm_restore,
+    cloud_progress,
+    set_accessible_status,
+    set_cloud_focus_order,
+    set_cloud_initial_focus,
+)
 from core.performance_env import (
     ENABLE_GAMEMODE,
     GAMEMODE_MODE,
@@ -163,7 +170,7 @@ class GamePropertiesDialog(PopupDialog):
 
         # Tab 3: Saves & Snapshots
         self.tab_saves = self._create_saves_tab()
-        self.tabs.addTab(self.tab_saves, "Saves && Snapshots")
+        self.tabs.addTab(self.tab_saves, "Saves && Backups")
 
         root_layout.addWidget(self.tabs)
 
@@ -231,18 +238,45 @@ class GamePropertiesDialog(PopupDialog):
         lbl_n.setStyleSheet("color: #F5F7FA;")
         sum_layout.addWidget(lbl_n, 0, 1)
 
-        sum_layout.addWidget(QLabel("<font color='#6F7682'>Directory:</font>"), 1, 0)
+        overview_directory_label = QLabel("<font color='#6F7682'>Directory:</font>")
+        sum_layout.addWidget(overview_directory_label, 1, 0)
         lbl_p = QLabel(self.game_path)
         lbl_p.setStyleSheet("color: #A7ADB8; font-family: monospace; font-size: 11px;")
         lbl_p.setWordWrap(True)
+        overview_directory_label.setVisible(False)
+        lbl_p.setVisible(False)
         sum_layout.addWidget(lbl_p, 1, 1)
 
-        sum_layout.addWidget(QLabel("<font color='#6F7682'>Executable:</font>"), 2, 0)
+        overview_executable_label = QLabel("<font color='#6F7682'>Executable:</font>")
+        sum_layout.addWidget(overview_executable_label, 2, 0)
         lbl_e = QLabel(self.game_exe or "Auto-detect")
         lbl_e.setStyleSheet("color: #A7ADB8; font-family: monospace; font-size: 11px;")
+        overview_executable_label.setVisible(False)
+        lbl_e.setVisible(False)
         sum_layout.addWidget(lbl_e, 2, 1)
 
         body_layout.addWidget(summary_card)
+        overview_details = QToolButton()
+        overview_details.setText("Technical details")
+        overview_details.setCheckable(True)
+        overview_details.setArrowType(Qt.ArrowType.RightArrow)
+        overview_details.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        overview_details.setAccessibleName("Show game technical details")
+
+        def _toggle_overview_details(expanded: bool) -> None:
+            overview_details.setArrowType(
+                Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+            )
+            for widget in (
+                overview_directory_label,
+                lbl_p,
+                overview_executable_label,
+                lbl_e,
+            ):
+                widget.setVisible(bool(expanded))
+
+        overview_details.toggled.connect(_toggle_overview_details)
+        body_layout.addWidget(overview_details)
         self.polish_property_grid(sum_layout)
 
         # Imported-game build references and the latest public Steam match.
@@ -574,6 +608,7 @@ class GamePropertiesDialog(PopupDialog):
         row_path = QHBoxLayout()
         self.lbl_folder_path = QLabel("<b>Path:</b> <font color='#6F7682'>Scanning save directory…</font>")
         self.lbl_folder_path.setWordWrap(True)
+        self.lbl_folder_path.setVisible(False)
         row_path.addWidget(self.lbl_folder_path, 1)
 
         self.btn_open_save_folder = QPushButton(" Open Folder")
@@ -586,6 +621,22 @@ class GamePropertiesDialog(PopupDialog):
         self.lbl_save_details = QLabel("<font color='#6F7682'>Scanning save metadata…</font>")
         self.lbl_save_details.setStyleSheet("font-size: 11px; color: #F5F7FA;")
         sc_layout.addWidget(self.lbl_save_details)
+
+        save_details_toggle = QToolButton()
+        save_details_toggle.setText("Technical details")
+        save_details_toggle.setCheckable(True)
+        save_details_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        save_details_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        save_details_toggle.setAccessibleName("Show local save technical details")
+
+        def _toggle_save_details(expanded: bool) -> None:
+            save_details_toggle.setArrowType(
+                Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+            )
+            self.lbl_folder_path.setVisible(bool(expanded))
+
+        save_details_toggle.toggled.connect(_toggle_save_details)
+        sc_layout.addWidget(save_details_toggle)
 
         body_layout.addWidget(save_card)
 
@@ -600,15 +651,11 @@ class GamePropertiesDialog(PopupDialog):
         syc_layout = QVBoxLayout(sync_card)
         syc_layout.setSpacing(10)
 
-        # Status badge
-        self.lbl_cloud_status = QLabel("<font color='#6F7682'>Checking cloud status…</font>")
-        self.lbl_cloud_status.setStyleSheet("font-size: 12px;")
-        set_accessible_status(
-            self.lbl_cloud_status,
-            "Cloud save status",
-            "Current synchronization state for this game's local and cloud saves.",
-        )
-        syc_layout.addWidget(self.lbl_cloud_status)
+        # Shared status presentation keeps loading, stale, offline, and error
+        # states readable and consistent with Cloud Center and Save Manager.
+        self.cloud_status_panel = CloudStatusPanel(self, compact=True, show_action=False)
+        self.lbl_cloud_status = self.cloud_status_panel.lbl_status
+        syc_layout.addWidget(self.cloud_status_panel)
 
         from core.cloud_storage import get_cloud_root
         cloud_root = get_cloud_root()
@@ -749,6 +796,16 @@ class GamePropertiesDialog(PopupDialog):
 
         body_layout.addStretch()
         scroll.setWidget(body)
+
+        set_cloud_focus_order(
+            self,
+            self.btn_sync_up,
+            self.btn_sync_down,
+            self.btn_restore_selected,
+            btn_open_mgr,
+            save_details_toggle,
+        )
+        set_cloud_initial_focus(self, self.btn_sync_up)
 
         # Trigger async save status load
         self._load_save_stats_async()
@@ -962,8 +1019,10 @@ class GamePropertiesDialog(PopupDialog):
             message = getattr(operation_result, "error", "Save status check failed.")
             guidance = getattr(operation_result, "guidance", "")
             detail = f"{message} {guidance}".strip()
-            self.lbl_cloud_status.setText(
-                f"<font color='#F05D6C'>{html_escape(detail)}</font>"
+            self.cloud_status_panel.set_error(
+                detail,
+                title="Cloud save status unavailable",
+                action_text="",
             )
             self.lbl_generations.hide()
             self.btn_restore_backup.hide()
@@ -996,10 +1055,15 @@ class GamePropertiesDialog(PopupDialog):
 
         meta = cloud_indicator(status)
         status_prefix = "Using cached data · " if resource_state == ResourceStatus.STALE else ""
-        self.lbl_cloud_status.setText(
-            f"<font color='{meta.color}'><b>{html_escape(status_prefix + meta.label)}</b></font>"
+        self.cloud_status_panel.set_state(
+            "offline"
+            if resource_state == ResourceStatus.OFFLINE
+            else ("stale" if resource_state == ResourceStatus.STALE else "ready"),
+            status_prefix + meta.label,
+            meta.tooltip,
+            action_text="",
         )
-        self.lbl_cloud_status.setToolTip(
+        self.cloud_status_panel.setToolTip(
             f"{meta.tooltip} Cached data will refresh when the cloud is reachable."
             if resource_state == ResourceStatus.STALE else meta.tooltip
         )

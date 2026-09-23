@@ -20,7 +20,12 @@ from PyQt6.QtWidgets import (
 from core.cloud_center_service import CloudCenterService, CloudOverview
 from core.request_contracts import ResourceStatus
 from ui.components.popup_shell import PopupDialog
-from ui.components.cloud_ui import set_accessible_status
+from ui.components.cloud_ui import (
+    CloudStatusPanel,
+    set_accessible_status,
+    set_cloud_focus_order,
+    set_cloud_initial_focus,
+)
 from ui.icons import get_icon
 from ui.resource_binding import ResourceBinding, bind_request
 
@@ -84,41 +89,19 @@ class CloudCenterDialog(PopupDialog):
         )
         layout.addWidget(intro)
 
-        status_card = QFrame()
-        status_card.setObjectName("cloudCenterStatusCard")
-        status_card.setStyleSheet(
-            "QFrame#cloudCenterStatusCard { background: #18181B; border: 1px solid #27272A; border-radius: 10px; }"
-        )
-        status_layout = QHBoxLayout(status_card)
-        status_layout.setContentsMargins(16, 14, 16, 14)
-        status_layout.setSpacing(12)
-        self.lbl_status_icon = QLabel()
-        self.lbl_status_icon.setFixedSize(28, 28)
-        self.lbl_status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_layout.addWidget(self.lbl_status_icon)
-        status_text = QVBoxLayout()
-        status_text.setSpacing(2)
-        self.lbl_status = QLabel("Checking cloud connection…")
-        self.lbl_status.setStyleSheet("font-size: 14px; font-weight: 700; color: #F5F7FA;")
-        set_accessible_status(
-            self.lbl_status,
-            "Cloud connection status",
-            "Current private cloud connection and synchronization state.",
-        )
-        self.lbl_message = QLabel("Loading your private-cloud overview.")
-        self.lbl_message.setWordWrap(True)
-        self.lbl_message.setStyleSheet("color: #A1A1AA; font-size: 11px;")
-        set_accessible_status(self.lbl_message, "Cloud status details")
-        status_text.addWidget(self.lbl_status)
-        status_text.addWidget(self.lbl_message)
-        status_layout.addLayout(status_text, 1)
-        self.btn_sync = QPushButton("Sync now")
-        self.btn_sync.setIcon(get_icon("ph.arrows-clockwise-bold", "#FFFFFF"))
-        self.btn_sync.setMinimumWidth(120)
-        self.btn_sync.clicked.connect(self._sync_now)
-        self.btn_sync.setAccessibleName("Synchronize cloud saves")
-        status_layout.addWidget(self.btn_sync)
-        layout.addWidget(status_card)
+        self.cloud_status = CloudStatusPanel(self)
+        self.cloud_status.btn_action.setText("Sync now")
+        self.cloud_status.btn_action.setVisible(True)
+        self.cloud_status.btn_action.setIcon(get_icon("ph.arrows-clockwise-bold", "#FFFFFF"))
+        self.cloud_status.btn_action.setMinimumWidth(120)
+        self.cloud_status.btn_action.setAccessibleName("Synchronize cloud saves")
+        self.cloud_status.action_requested.connect(self._sync_now)
+        # Compatibility aliases keep existing rendering/update code simple.
+        self.lbl_status_icon = self.cloud_status.lbl_status_icon
+        self.lbl_status = self.cloud_status.lbl_status
+        self.lbl_message = self.cloud_status.lbl_message
+        self.btn_sync = self.cloud_status.btn_action
+        layout.addWidget(self.cloud_status)
 
         summary = QGridLayout()
         summary.setHorizontalSpacing(8)
@@ -184,7 +167,7 @@ class CloudCenterDialog(PopupDialog):
         layout.addWidget(self.device_list)
 
         advanced_toggle = QToolButton()
-        advanced_toggle.setText("Advanced cloud controls")
+        advanced_toggle.setText("Technical details")
         advanced_toggle.setCheckable(True)
         advanced_toggle.setChecked(False)
         advanced_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -237,8 +220,22 @@ class CloudCenterDialog(PopupDialog):
         footer.addStretch()
         close_button = QPushButton("Close")
         close_button.clicked.connect(self.accept)
+        close_button.setAccessibleName("Close Cloud Center")
         footer.addWidget(close_button)
         layout.addLayout(footer)
+
+        set_cloud_focus_order(
+            self,
+            self.btn_sync,
+            self.btn_history,
+            self.btn_review_conflicts,
+            advanced_toggle,
+            self.btn_setup,
+            self.btn_settings,
+            self.btn_probe,
+            close_button,
+        )
+        set_cloud_initial_focus(self, self.btn_sync)
 
         self._request_overview()
 
@@ -315,7 +312,7 @@ class CloudCenterDialog(PopupDialog):
 
     def _apply_overview_result(self, result) -> None:
         if result.status in (ResourceStatus.IDLE, ResourceStatus.LOADING):
-            self.lbl_status.setText("Checking cloud connection…")
+            self.cloud_status.set_loading("Loading your private-cloud overview.", action_text="")
             self.btn_review_conflicts.setEnabled(False)
             return
         if result.status == ResourceStatus.CANCELLED:
@@ -350,16 +347,16 @@ class CloudCenterDialog(PopupDialog):
         else:
             title = "Cloud status unavailable"
             message = str(result.error or "Could not load the cloud overview.")
-        self.lbl_status.setText(title)
-        self.lbl_message.setText(message)
-        self.btn_sync.setText(
+        action = (
             "Fix connection"
             if status in (ResourceStatus.AUTHENTICATION_REQUIRED, ResourceStatus.UNAVAILABLE)
             else "Retry"
         )
+        if status == ResourceStatus.OFFLINE:
+            self.cloud_status.set_offline(message, action_text=action)
+        else:
+            self.cloud_status.set_error(message, title=title, action_text=action)
         self.btn_sync.setEnabled(True)
-        self.lbl_status_icon.setText("!")
-        self.lbl_status_icon.setStyleSheet("color: #F59E0B; font-size: 20px; font-weight: 700;")
 
     def _render_overview(self, overview: CloudOverview, *, stale: bool = False) -> None:
         labels = {
@@ -371,11 +368,21 @@ class CloudCenterDialog(PopupDialog):
         title, color = labels.get(overview.connection, ("Cloud unavailable", "#F05D6C"))
         if stale and overview.connection == "ready":
             title = "Cloud connected · refreshing"
-        self.lbl_status.setText(title)
-        self.lbl_status.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {color};")
-        self.lbl_message.setText(overview.message)
-        self.lbl_status_icon.setText("✓" if overview.connection == "ready" else "•")
-        self.lbl_status_icon.setStyleSheet(f"color: {color}; font-size: 22px; font-weight: 700;")
+        if overview.connection == "offline":
+            self.cloud_status.set_offline(overview.message, action_text="Retry")
+        elif overview.connection == "setup_required":
+            self.cloud_status.set_error(
+                overview.message,
+                title=title,
+                action_text="Fix connection",
+            )
+        else:
+            self.cloud_status.set_state(
+                "stale" if stale else "ready",
+                title,
+                overview.message,
+                action_text="Sync now",
+            )
         self.overview_changed.emit(overview)
         self.btn_sync.setText("Sync now" if overview.connection in ("ready", "offline") else "Fix connection")
         self.btn_sync.setEnabled(not self._syncing)
@@ -425,15 +432,14 @@ class CloudCenterDialog(PopupDialog):
             return
         self._syncing = True
         self.btn_sync.setEnabled(False)
-        self.btn_sync.setText("Syncing…")
+        self.cloud_status.set_loading("Synchronizing local metadata with the cloud…", action_text="")
         self._close_binding(self._sync_binding)
         try:
             handle = self.cloud_center_service.request_sync(self.db_path)
         except Exception as error:
             self._syncing = False
             self.btn_sync.setEnabled(True)
-            self.btn_sync.setText("Retry")
-            self.lbl_message.setText(str(error))
+            self.cloud_status.set_error(str(error), title="Cloud sync failed", action_text="Retry")
             return
         self._sync_binding = bind_request(
             self.cloud_center_service.request_manager,
@@ -456,12 +462,22 @@ class CloudCenterDialog(PopupDialog):
             if success:
                 self.last_sync_at = time.time()
                 self.lbl_last_sync.setText(_relative_time(self.last_sync_at))
-                self.lbl_message.setText("Local metadata synchronized. Refreshing cloud status…")
+                self.cloud_status.set_loading(
+                    "Local metadata synchronized. Refreshing cloud status…",
+                    action_text="",
+                )
                 self.sync_finished.emit(value)
             else:
-                self.lbl_message.setText("Sync is queued locally and will retry when the cloud is available.")
+                self.cloud_status.set_offline(
+                    "Sync is queued locally and will retry when the cloud is available.",
+                    action_text="Retry",
+                )
         else:
-            self.lbl_message.setText(str(result.error or "Sync failed; local data was preserved."))
+            self.cloud_status.set_error(
+                str(result.error or "Sync failed; local data was preserved."),
+                title="Cloud sync failed",
+                action_text="Retry",
+            )
         self._request_overview(force=True)
 
     def closeEvent(self, event) -> None:

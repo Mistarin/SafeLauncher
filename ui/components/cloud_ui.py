@@ -9,8 +9,157 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QWidget
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+
+class CloudStatusPanel(QFrame):
+    """Shared, text-readable status surface for cloud workflows.
+
+    Every state has a textual title and explanation; the icon/color is only
+    supplemental.  Dialogs can reuse the same widget while choosing their own
+    retry/setup action through ``action_requested``.
+    """
+
+    action_requested = pyqtSignal()
+
+    _STATE_SYMBOLS = {
+        "loading": "…",
+        "ready": "✓",
+        "stale": "↻",
+        "offline": "•",
+        "empty": "—",
+        "error": "!",
+    }
+    _STATE_COLORS = {
+        "loading": "#A1A1AA",
+        "ready": "#35C98A",
+        "stale": "#F0A35B",
+        "offline": "#F0A35B",
+        "empty": "#A1A1AA",
+        "error": "#F05D6C",
+    }
+
+    def __init__(self, parent=None, *, compact: bool = False, show_action: bool = True):
+        super().__init__(parent)
+        self.state = "loading"
+        self._show_action = bool(show_action)
+        self.setObjectName("cloudStatusPanel")
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setStyleSheet(
+            "QFrame#cloudStatusPanel { background: #18181B; border: 1px solid #27272A; border-radius: 10px; }"
+        )
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12 if compact else 16, 10 if compact else 14,
+                                  12 if compact else 16, 10 if compact else 14)
+        layout.setSpacing(10)
+        self.lbl_status_icon = QLabel("…")
+        self.lbl_status_icon.setFixedSize(28, 28)
+        self.lbl_status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.lbl_status_icon)
+
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+        self.lbl_status = QLabel()
+        self.lbl_status.setStyleSheet("font-size: 13px; font-weight: 700; color: #F5F7FA;")
+        set_accessible_status(
+            self.lbl_status,
+            "Cloud status",
+            "Current cloud connection and synchronization state.",
+        )
+        self.lbl_message = QLabel()
+        self.lbl_message.setWordWrap(True)
+        self.lbl_message.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        set_accessible_status(self.lbl_message, "Cloud status details")
+        text_layout.addWidget(self.lbl_status)
+        text_layout.addWidget(self.lbl_message)
+        layout.addLayout(text_layout, 1)
+
+        self.btn_action = QPushButton()
+        self.btn_action.setMinimumWidth(96)
+        self.btn_action.setAccessibleName("Cloud status action")
+        self.btn_action.clicked.connect(self.action_requested)
+        layout.addWidget(self.btn_action)
+        self.set_state("loading", "Checking cloud connection…", "Loading cloud data.")
+
+    def set_state(
+        self,
+        state: str,
+        title: str,
+        message: str = "",
+        *,
+        action_text: str = "",
+        action_enabled: bool = True,
+    ) -> None:
+        state = str(state or "error").casefold()
+        if state not in self._STATE_SYMBOLS:
+            state = "error"
+        self.state = state
+        color = self._STATE_COLORS[state]
+        self.lbl_status_icon.setText(self._STATE_SYMBOLS[state])
+        self.lbl_status_icon.setStyleSheet(
+            f"color: {color}; font-size: 18px; font-weight: 700;"
+        )
+        self.lbl_status.setText(str(title or "Cloud status"))
+        self.lbl_status.setStyleSheet(
+            f"color: {color}; font-size: 13px; font-weight: 700;"
+        )
+        self.lbl_message.setText(str(message or ""))
+        self.lbl_status_icon.setAccessibleName(f"Cloud status: {title}")
+        self.lbl_status_icon.setAccessibleDescription(str(message or ""))
+        self.lbl_status.setAccessibleDescription(str(message or ""))
+        visible = bool(self._show_action and action_text)
+        self.btn_action.setText(str(action_text or ""))
+        self.btn_action.setVisible(visible)
+        self.btn_action.setEnabled(bool(action_enabled))
+        if visible:
+            self.btn_action.setAccessibleName(str(action_text))
+
+    def set_loading(self, message: str = "Loading cloud data…", *, action_text: str = "") -> None:
+        self.set_state("loading", "Checking cloud connection…", message, action_text=action_text)
+
+    def set_ready(self, message: str = "Cloud data is up to date.", *, stale: bool = False,
+                  action_text: str = "Refresh") -> None:
+        self.set_state(
+            "stale" if stale else "ready",
+            "Using cached cloud data" if stale else "Cloud ready",
+            message,
+            action_text=action_text,
+        )
+
+    def set_offline(self, message: str = "Cloud is unavailable; showing cached data.", *, action_text: str = "Retry") -> None:
+        self.set_state("offline", "Offline", message, action_text=action_text)
+
+    def set_empty(self, message: str = "No cloud data is available.", *, action_text: str = "") -> None:
+        self.set_state("empty", "No cloud data", message, action_text=action_text)
+
+    def set_error(self, message: str, *, title: str = "Cloud status unavailable", action_text: str = "Retry") -> None:
+        self.set_state("error", title, message, action_text=action_text)
+
+
+def set_cloud_focus_order(dialog: QWidget, *widgets: QWidget) -> tuple[QWidget, ...]:
+    """Set and record an explicit, predictable tab sequence for a cloud dialog."""
+    ordered = tuple(widget for widget in widgets if widget is not None)
+    dialog._cloud_focus_order = ordered
+    for previous, current in zip(ordered, ordered[1:]):
+        dialog.setTabOrder(previous, current)
+    return ordered
+
+
+def set_cloud_initial_focus(dialog: QWidget, widget: QWidget) -> None:
+    """Focus a safe, non-destructive control when a cloud dialog opens."""
+    dialog._cloud_initial_focus = widget
+    QTimer.singleShot(0, widget.setFocus)
 
 
 def _entry_value(entry: Any, attribute: str, key: str, default: str = "") -> str:
@@ -135,10 +284,13 @@ def cloud_progress(parent: QWidget, message: str) -> QProgressDialog:
 
 
 __all__ = [
+    "CloudStatusPanel",
     "cloud_version_label",
     "cloud_version_details",
     "confirm_restore",
     "confirm_delete",
     "set_accessible_status",
+    "set_cloud_focus_order",
+    "set_cloud_initial_focus",
     "cloud_progress",
 ]
