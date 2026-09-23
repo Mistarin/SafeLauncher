@@ -80,7 +80,7 @@ class CloudCenterDialog(PopupDialog):
 
         intro = self.info_hint(
             "Private cloud saves, devices, and synchronization in one place.",
-            tooltip="This private-cloud center manages synchronization and save history. Public profile data remains separate.",
+            tooltip="This private-cloud center manages synchronization and cloud save versions. Public profile data remains separate.",
         )
         layout.addWidget(intro)
 
@@ -159,10 +159,10 @@ class CloudCenterDialog(PopupDialog):
         devices_title.setStyleSheet("color: #A1A1AA; font-size: 10px; font-weight: 700; letter-spacing: 0.7px;")
         devices_header.addWidget(devices_title)
         devices_header.addStretch()
-        self.btn_history = QPushButton("Save history")
+        self.btn_history = QPushButton("Manage storage & devices")
         self.btn_history.setIcon(get_icon("ph.clock-counter-clockwise-bold", "#A1A1AA"))
         self.btn_history.clicked.connect(self._open_history)
-        self.btn_history.setAccessibleName("Open cloud save history")
+        self.btn_history.setAccessibleName("Manage cloud storage and devices")
         devices_header.addWidget(self.btn_history)
         self.btn_review_conflicts = QPushButton("Review conflicts")
         self.btn_review_conflicts.setIcon(get_icon("ph.warning-bold", "#A1A1AA"))
@@ -337,7 +337,7 @@ class CloudCenterDialog(PopupDialog):
             message = "This account is not allowed to access the configured private cloud."
         elif status == ResourceStatus.CONFLICT:
             title = "Sync needs attention"
-            message = "A cloud revision conflict needs to be resolved from Save history."
+            message = "A cloud revision conflict needs to be resolved from cloud save versions."
         elif status == ResourceStatus.OFFLINE:
             title = "Offline"
             message = "Offline mode is enabled. Previously cached cloud data is still usable."
@@ -385,7 +385,7 @@ class CloudCenterDialog(PopupDialog):
         has_conflicts = int(overview.conflict_count or 0) > 0
         self.btn_review_conflicts.setEnabled(has_conflicts)
         self.btn_review_conflicts.setToolTip(
-            "Open Save History to review current cloud-save conflicts"
+            "Open cloud storage management to review current cloud-save conflicts"
             if has_conflicts else
             "Available when this account has cloud-save conflicts"
         )

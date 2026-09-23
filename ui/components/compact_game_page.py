@@ -467,8 +467,8 @@ class CompactActionBar(QFrame):
         self.btn_save.setStyleSheet(quick_btn_style)
         cloud_menu = QMenu(self.btn_save)
         self._resolve_conflict_action = None
-        for action_name, label in (("upload", "Upload"), ("restore", "Restore"),
-                                   ("history", "Save history"), ("resolve", "Resolve conflict"),
+        for action_name, label in (("upload", "Upload local save"), ("restore", "Restore latest cloud save"),
+                                   ("history", "Open Save Manager"), ("resolve", "Resolve conflict"),
                                    ("center", "Open Cloud Center")):
             action = cloud_menu.addAction(label)
             if action_name == "resolve":

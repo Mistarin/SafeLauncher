@@ -663,11 +663,12 @@ class GamePropertiesDialog(PopupDialog):
         sync_btn_row.addStretch()
         syc_layout.addLayout(sync_btn_row)
 
-        # Retained cloud versions (active + history) with manual selection & restore
+        # Keep the per-game surface lightweight. Detailed version selection,
+        # local backups, import/export, and deletion live in Save Manager.
         self.ver_selector_layout = QVBoxLayout()
         self.ver_selector_layout.setSpacing(6)
 
-        lbl_ver_title = QLabel("Cloud save versions & history")
+        lbl_ver_title = QLabel("Cloud version summary")
         lbl_ver_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #F5F7FA;")
         self.ver_selector_layout.addWidget(lbl_ver_title)
 
@@ -679,6 +680,7 @@ class GamePropertiesDialog(PopupDialog):
         self.combo_cloud_versions = self.history_timeline
         self.history_timeline.setMinimumHeight(150)
         self.history_timeline.entry_selected.connect(self._on_history_entry_selected)
+        self.history_timeline.hide()
         timeline_row.addWidget(self.history_timeline)
 
         self.btn_restore_selected = QPushButton(" Restore selected version")
@@ -704,6 +706,7 @@ class GamePropertiesDialog(PopupDialog):
         """)
         self.btn_restore_selected.clicked.connect(self._restore_selected_version_now)
         self.btn_restore_selected.setAccessibleName("Restore selected cloud save version")
+        self.btn_restore_selected.hide()
         self.btn_restore_backup = self.btn_restore_selected  # Backwards compatibility
         timeline_row.addWidget(self.btn_restore_selected)
 
@@ -723,7 +726,7 @@ class GamePropertiesDialog(PopupDialog):
         body_layout.addWidget(sync_card)
 
         # ── 3. Interactive Save Manager Button ──
-        btn_open_mgr = QPushButton(" Open save inspector & backup manager")
+        btn_open_mgr = QPushButton(" Open Save Manager · files, backups & versions")
         btn_open_mgr.setIcon(get_icon("ph.archive-bold"))
         btn_open_mgr.setFixedHeight(38)
         btn_open_mgr.setStyleSheet("""
@@ -741,6 +744,7 @@ class GamePropertiesDialog(PopupDialog):
             }
         """)
         btn_open_mgr.clicked.connect(self._open_save_manager)
+        btn_open_mgr.setAccessibleName("Open Save Manager for detailed cloud save management")
         body_layout.addWidget(btn_open_mgr)
 
         body_layout.addStretch()
@@ -1012,8 +1016,11 @@ class GamePropertiesDialog(PopupDialog):
         self._cloud_versions = list(versions or [])
         if not self._cloud_versions:
             self._backup_version = None
-            self.history_timeline.set_message("No saved versions or local safety backups found.")
-            self.ver_selector_widget.hide()
+            self.lbl_generations.setText(
+                "No cloud save versions found yet. Upload a local save or open Save Manager for local files and backups."
+            )
+            self.lbl_generations.show()
+            self.ver_selector_widget.show()
             self.btn_restore_selected.setEnabled(False)
             return
 
@@ -1032,8 +1039,8 @@ class GamePropertiesDialog(PopupDialog):
         else:
             self._backup_version = None
 
-        count_str = f"{len(normalized)} cloud version(s) and local safety backup(s)."
-        self.lbl_generations.setText(f"<font color='#6F7682'>History:</font> {count_str}")
+        count_str = f"{len(normalized)} cloud version(s) and local safety backup(s) available in Save Manager."
+        self.lbl_generations.setText(f"<font color='#6F7682'>Available:</font> {count_str}")
         self.lbl_generations.show()
         self.btn_restore_selected.setEnabled(self.history_timeline.selected_entry() is not None)
         self.ver_selector_widget.show()
@@ -1115,10 +1122,10 @@ class GamePropertiesDialog(PopupDialog):
     def _on_local_history_restore_done(self, success: bool, title: str) -> None:
         self.btn_restore_selected.setEnabled(True)
         if success:
-            QMessageBox.information(self, "Save History", f"'{title}' was restored successfully.")
+            QMessageBox.information(self, "Cloud save restored", f"'{title}' was restored successfully.")
             self._notify_parent_cloud_changed()
         else:
-            QMessageBox.critical(self, "Save History", f"Could not restore '{title}'.")
+            QMessageBox.critical(self, "Cloud restore failed", f"Could not restore '{title}'.")
         self._load_save_stats_async()
 
     def _restore_backup_now(self):
@@ -1270,6 +1277,20 @@ class GamePropertiesDialog(PopupDialog):
                 f"'{self.game_name}' appears to be running. Its in-memory state overwrites the "
                 "save files when it exits, so restoring the cloud save now would be undone.\n\n"
                 "Close the game first, then restore the cloud save.")
+            return
+
+        cloud_entries = [
+            entry for entry in self.history_timeline.entries()
+            if entry.source == "cloud"
+        ]
+        latest_entry = cloud_entries[0] if cloud_entries else None
+        if not confirm_restore(
+            self,
+            game_name=self.game_name,
+            entry=latest_entry,
+            target_path=self.game_path,
+            title="Restore latest cloud save",
+        ):
             return
 
         self.btn_sync_up.setEnabled(False)

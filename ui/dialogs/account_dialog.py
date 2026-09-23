@@ -1,9 +1,8 @@
 """
-Cloud Account manager dialog — profile, quota, and per-game save versions.
+Advanced cloud storage and device management dialog.
 
-Opened from Settings → Cloud ("Open Account Manager…"). Shows the signed-in
-identity, a visual quota bar against the server-enforced budget, and lets the
-user inspect/delete historical cloud save versions hosted on the Convex backend.
+Opened from Cloud Center. It shows the signed-in identity, quota, registered
+devices, and per-game cloud save versions hosted on the configured backend.
 Network work happens on daemon threads; results marshal back via signals.
 """
 
@@ -16,7 +15,7 @@ from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QPushButton,
     QProgressBar, QListWidget, QListWidgetItem, QMessageBox, QSplitter,
-    QComboBox,
+    QComboBox, QToolButton,
 )
 
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
@@ -73,7 +72,7 @@ class AccountDialog(PopupDialog):
         cloud_account_service=None,
         cloud_operation_service=None,
     ):
-        super().__init__("Cloud History & Devices", parent)
+        super().__init__("Cloud Storage & Devices", parent)
         self.setMinimumSize(700, 500)
         self.resize(860, 620)
         self.setSizeGripEnabled(True)
@@ -126,6 +125,33 @@ class AccountDialog(PopupDialog):
         self.combo_backend.setAccessibleName("Cloud backend")
         header_row.addWidget(self.combo_backend)
         body_layout.addLayout(header_row)
+
+        self.btn_account_details = QToolButton()
+        self.btn_account_details.setText("Technical details")
+        self.btn_account_details.setCheckable(True)
+        self.btn_account_details.setArrowType(Qt.ArrowType.RightArrow)
+        self.btn_account_details.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_account_details.setStyleSheet(
+            "QToolButton { color: #A7ADB8; background: transparent; border: none; "
+            "padding: 2px 0; font-size: 11px; font-weight: 600; text-align: left; }"
+            "QToolButton:hover { color: #F5F7FA; }"
+        )
+        self.btn_account_details.setAccessibleName("Show cloud account technical details")
+        body_layout.addWidget(self.btn_account_details)
+        self.lbl_endpoint_details = QLabel("Endpoint: —")
+        self.lbl_endpoint_details.setStyleSheet("color: #6F7682; font-size: 10px; font-family: monospace;")
+        self.lbl_endpoint_details.setWordWrap(True)
+        self.lbl_endpoint_details.setVisible(False)
+        set_accessible_status(self.lbl_endpoint_details, "Cloud account endpoint")
+        body_layout.addWidget(self.lbl_endpoint_details)
+
+        def _toggle_account_details(checked: bool) -> None:
+            self.btn_account_details.setArrowType(
+                Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+            )
+            self.lbl_endpoint_details.setVisible(bool(checked))
+
+        self.btn_account_details.toggled.connect(_toggle_account_details)
 
         # --- quota bar --------------------------------------------------------
         quota_box = QWidget()
@@ -211,7 +237,7 @@ class AccountDialog(PopupDialog):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
-        lbl_versions = QLabel("Stored versions")
+        lbl_versions = QLabel("Cloud save versions")
         lbl_versions.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         lbl_versions.setStyleSheet("color: #FFFFFF;")
         right_layout.addWidget(lbl_versions)
@@ -262,7 +288,7 @@ class AccountDialog(PopupDialog):
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.accept)
         btn_close.setDefault(True)
-        btn_close.setAccessibleName("Close cloud account manager")
+        btn_close.setAccessibleName("Close cloud storage manager")
         footer.addWidget(btn_close)
         body_layout.addLayout(footer)
 
@@ -487,15 +513,18 @@ class AccountDialog(PopupDialog):
         from core.cloud_backend import get_site_url
         site = get_site_url()
         concurrent = overview.get("concurrentDevices", 1)
-        dev_summary = f" · {concurrent} device(s) online" if concurrent else ""
         is_stale = bool(payload.get("stale"))
         self.lbl_email.setText(
             "Private Cloud Connected · using cached data" if is_stale else "Private Cloud Connected"
         )
-        self.lbl_subject.setText(
-            f"Endpoint: {site}{dev_summary} · Server-enforced quota"
-            + (" · refresh pending" if is_stale else "")
-        )
+        subject_parts = []
+        if concurrent:
+            subject_parts.append(f"{concurrent} device(s) online")
+        subject_parts.append("Server-enforced quota")
+        if is_stale:
+            subject_parts.append("refresh pending")
+        self.lbl_subject.setText(" · ".join(subject_parts))
+        self.lbl_endpoint_details.setText(f"Endpoint: {site}")
         self._style_avatar("C", ok=True)
 
         used_bytes = self._quota["used"]
@@ -544,7 +573,7 @@ class AccountDialog(PopupDialog):
             state = "online" if d.get("isOnline") else "offline"
             item = QListWidgetItem(
                 f"{d.get('deviceName', 'Device')} ({d.get('platform', '?')}) · "
-                f"{state} · last seen {seen} · id {d.get('deviceId', '')[:8]}"
+                f"{state} · last seen {seen}"
             )
             item.setData(Qt.ItemDataRole.UserRole, d.get("deviceId", ""))
             self.lst_devices.addItem(item)
@@ -591,6 +620,8 @@ class AccountDialog(PopupDialog):
     def _render_signed_out(self):
         self.lbl_email.setText("Not connected")
         self.lbl_subject.setText("Convex backend not configured")
+        self.btn_account_details.setChecked(False)
+        self.lbl_endpoint_details.setText("Endpoint: Not configured")
         self._style_avatar("?", ok=False)
         self.bar_quota.setValue(0)
         self.lbl_quota_text.setText(
@@ -604,7 +635,7 @@ class AccountDialog(PopupDialog):
     def _populate_games(self, games):
         self._games = games
         self.lst_games.clear()
-        self.history_timeline.set_message("Select a game to see its retained history.")
+        self.history_timeline.set_message("Select a game to see its cloud save versions.")
         self.btn_restore.setEnabled(False)
         self.btn_delete_generation.setEnabled(False)
         if not games:
@@ -615,8 +646,9 @@ class AccountDialog(PopupDialog):
         for g in sorted(games, key=lambda x: x.get("latestSourceMtime", 0), reverse=True):
             count = len(g.get("versions", []))
             size_txt = format_bytes(g.get("totalBytes", 0))
+            display_name = str(g.get("displayName") or "Unnamed game")
             item = QListWidgetItem(
-                f"{g.get('displayName', g.get('nameKey'))}\n"
+                f"{display_name}\n"
                 f"{count} version(s) · {size_txt} · updated {_relative_time(g.get('latestSourceMtime', 0))}"
             )
             item.setData(Qt.ItemDataRole.UserRole, g.get("nameKey"))
@@ -630,7 +662,7 @@ class AccountDialog(PopupDialog):
         self.btn_restore.setEnabled(False)
         self.btn_delete_generation.setEnabled(False)
         if row < 0 or row >= len(self._games):
-            self.history_timeline.set_message("Select a game to see its retained history.")
+            self.history_timeline.set_message("Select a game to see its cloud save versions.")
             return
         game = sorted(self._games, key=lambda x: x.get("latestSourceMtime", 0), reverse=True)[row]
         entries = []

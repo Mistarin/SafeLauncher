@@ -1055,11 +1055,17 @@ class UserSettingsDialog(PopupDialog):
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
 
-        sec_account = QLabel("Cloud Center · Connection")
+        sec_account = QLabel("Cloud Settings · Connection")
         sec_account.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_account.setStyleSheet("color: #ffffff; padding-bottom: 2px;")
         layout.addWidget(sec_account)
         self._add_section_divider(layout)
+
+        layout.addWidget(self.info_hint(
+            "Use Cloud Center for account status, storage, devices, conflicts, and cloud save versions. "
+            "This page is for connection and backend settings.",
+            tooltip="Cloud Center is the account-wide cloud dashboard; Settings keeps only configuration and diagnostics.",
+        ))
 
         from core.cloud_backend import get_site_url, normalize_site_url
         settings = QSettings("SafeLauncher", "SafeLauncher")
@@ -1226,19 +1232,22 @@ class UserSettingsDialog(PopupDialog):
         self.btn_sign_in = QPushButton("Test & Connect…")
         self.btn_sign_in.clicked.connect(self._cloud_connect)
         acct_btns.addWidget(self.btn_sign_in)
-        btn_account_mgr = QPushButton("Advanced history & devices…")
-        btn_account_mgr.clicked.connect(self._open_account_manager)
-        acct_btns.addWidget(btn_account_mgr)
+        self.btn_open_cloud_center = QPushButton("Open Cloud Center…")
+        self.btn_open_cloud_center.setAccessibleName("Open Cloud Center")
+        self.btn_open_cloud_center.clicked.connect(self._open_cloud_center_from_settings)
+        acct_btns.addWidget(self.btn_open_cloud_center)
         self.btn_review_conflicts = QPushButton("Review conflicts")
         self.btn_review_conflicts.setIcon(get_icon("ph.warning-bold", color="#A1A1AA"))
         self.btn_review_conflicts.setEnabled(False)
         self.btn_review_conflicts.setToolTip("Available when this account has cloud-save conflicts")
         self.btn_review_conflicts.clicked.connect(self._open_conflict_review)
-        acct_btns.addWidget(self.btn_review_conflicts)
+        # Conflict review belongs to Cloud Center. Keep the object for
+        # compatibility with older embedders, but do not duplicate that
+        # account-wide action inside connection settings.
         self.btn_refresh_quota = QPushButton("Refresh Quota")
         self.btn_refresh_quota.clicked.connect(self._refresh_account_status)
         self.btn_refresh_quota.clicked.connect(self._refresh_cloud_conflict_summary)
-        acct_btns.addWidget(self.btn_refresh_quota)
+        # Quota is presented in Cloud Center alongside devices and storage.
         self.btn_logout = QPushButton("Disconnect")
         self.btn_logout.clicked.connect(self._cloud_disconnect)
         acct_btns.addWidget(self.btn_logout)
@@ -1371,7 +1380,7 @@ class UserSettingsDialog(PopupDialog):
             has_conflicts = int(overview.conflict_count or 0) > 0
             button.setEnabled(has_conflicts)
             button.setToolTip(
-                "Open Save History to review current cloud-save conflicts"
+                "Open cloud storage management to review current cloud-save conflicts"
                 if has_conflicts else
                 "No cloud-save conflicts in the current account"
             )
@@ -1835,22 +1844,27 @@ class UserSettingsDialog(PopupDialog):
                 self.edit_convex_deploy_key.clear()
                 self._refresh_backend_health()
 
-    def _open_account_manager(self):
-        """Launch the full profile/quota/version manager dialog."""
-        try:
-            from ui.dialogs.account_dialog import AccountDialog
-            parent = self.parent()
-            dialog = AccountDialog(
+    def _open_cloud_center_from_settings(self):
+        """Open the canonical account-wide cloud dashboard."""
+        parent = self.parent()
+        if parent is None or not hasattr(parent, "_open_cloud_center"):
+            QMessageBox.warning(
                 self,
-                request_manager=self.request_manager,
-                cloud_account_service=getattr(parent, "cloud_account_service", None),
-                cloud_operation_service=getattr(parent, "cloud_operation_service", None),
+                "Cloud Center",
+                "Cloud Center is available from the main SafeLauncher window.",
             )
-            dialog.exec()
-            self._refresh_account_status()  # picker may have changed session/state
+            return
+        self.hide()
+        try:
+            parent._open_cloud_center()
+        finally:
+            self.show()
+            self._refresh_account_status()
             self._refresh_backend_health()
-        except Exception as e:
-            QMessageBox.warning(self, "Account Manager", f"Could not open: {e}")
+
+    def _open_account_manager(self):
+        """Compatibility alias for older callers; Cloud Center is canonical."""
+        self._open_cloud_center_from_settings()
 
     def _cloud_connect(self):
         """Test and save Convex cloud backend connection."""

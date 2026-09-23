@@ -363,7 +363,7 @@ class SaveManagerDialog(PopupDialog):
 
         self.tabs.addTab(self.tab_files, "Live Save Files")
 
-        # ── Tab 2: Save History & Cloud ──
+        # ── Tab 2: Cloud versions and local backups ──
         self.tab_history = QWidget()
         tab_history_layout = QVBoxLayout(self.tab_history)
         tab_history_layout.setContentsMargins(12, 12, 12, 12)
@@ -376,7 +376,7 @@ class SaveManagerDialog(PopupDialog):
         history_header.addWidget(lbl_hist)
         self.lbl_history_state = QLabel("")
         self.lbl_history_state.setStyleSheet("color: #A7ADB8; font-size: 10px;")
-        set_accessible_status(self.lbl_history_state, "Cloud history status")
+        set_accessible_status(self.lbl_history_state, "Cloud save versions status")
         history_header.addWidget(self.lbl_history_state)
         history_header.addStretch()
 
@@ -448,7 +448,7 @@ class SaveManagerDialog(PopupDialog):
         history_footer.addWidget(self.btn_restore_history)
 
         tab_history_layout.addLayout(history_footer)
-        self.tabs.addTab(self.tab_history, "Save History & Cloud")
+        self.tabs.addTab(self.tab_history, "Cloud Versions & Backups")
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
         body_layout.addWidget(self.tabs)
@@ -974,7 +974,7 @@ class SaveManagerDialog(PopupDialog):
                         False,
                         "History load",
                         self.game_name,
-                        error=str(resource.error or "Could not load cloud history."),
+                        error=str(resource.error or "Could not load cloud save versions."),
                         category="backend_unavailable",
                         guidance="Check the cloud connection and try again.",
                     )
@@ -1008,7 +1008,7 @@ class SaveManagerDialog(PopupDialog):
         if isinstance(versions, SaveOperationResult) and not versions.success:
             self.lbl_history_state.setText("History unavailable")
             self.history_timeline.setEnabled(True)
-            self.history_timeline.set_message("Cloud save history could not be loaded. Use Retry below to try again.")
+            self.history_timeline.set_message("Cloud save versions could not be loaded. Use Retry below to try again.")
             self.save_state_store.set_operation(self.game_id, versions)
             self._show_recovery(
                 versions,
@@ -1031,12 +1031,13 @@ class SaveManagerDialog(PopupDialog):
             return
 
         title = selected.title
+        is_cloud_version = entry.get("source") == "cloud"
         confirm = confirm_restore(
             self,
             game_name=self.game_name,
             entry=selected,
             target_path=self.game_path,
-            title="Restore cloud save version",
+            title="Restore cloud save version" if is_cloud_version else "Restore previous version",
         )
         if not confirm:
             return
@@ -1046,7 +1047,7 @@ class SaveManagerDialog(PopupDialog):
         if hasattr(self, "btn_cloud"):
             self.btn_cloud.setEnabled(False)
 
-        if (self.cloud_center_service is not None or self.cloud_operation_service is not None) and entry.get("source") == "cloud":
+        if (self.cloud_center_service is not None or self.cloud_operation_service is not None) and is_cloud_version:
             v_num = entry.get("version")
             target = CloudOperationTarget(
                 self.game_id, self.game_name, self.game_path, self.steam_id
@@ -1067,6 +1068,89 @@ class SaveManagerDialog(PopupDialog):
                 )
 
             self._bind_cloud_operation(handle, _deliver)
+            return
+
+        if not is_cloud_version:
+            fork_path = str(entry.get("path") or "")
+            if not fork_path or not os.path.isfile(fork_path):
+                self._restore_done.emit(
+                    False,
+                    "__restore_error__The selected local safety backup is no longer available.",
+                )
+                return
+
+            current_locations = list(self.save_locations)
+            target_dest = os.path.join(self.game_path, "prefix")
+            if not os.path.isdir(target_dest):
+                target_dest = self.game_path
+
+            def _restore_local_backup():
+                """Back up the current local files, then import the selected fork."""
+                manager = ZipBackupManager()
+                if current_locations:
+                    validation = validate_save_locations(current_locations)
+                    failures = describe_validation_failures(validation)
+                    if failures:
+                        return SaveOperationResult(
+                            False,
+                            "Restore previous version",
+                            self.game_name,
+                            error=failures,
+                            category="local_save_unreadable",
+                            guidance="Rescan Save Locations before restoring the local backup.",
+                        )
+                    snapshot = snapshot_from_validation(
+                        self.game_name,
+                        self.game_path,
+                        validation,
+                        source="save-manager-restore",
+                    )
+                    prefix = os.path.basename(fork_path).split("_fork_", 1)[0] or "game"
+                    safety_path = os.path.join(
+                        os.path.dirname(fork_path),
+                        f"{prefix}_fork_{int(time.time())}_before_restore.zip",
+                    )
+                    if not manager.export_save_locations(
+                        current_locations,
+                        safety_path,
+                        game_name=self.game_name,
+                        game_path=self.game_path,
+                        snapshot=snapshot,
+                    ):
+                        return SaveOperationResult(
+                            False,
+                            "Restore previous version",
+                            self.game_name,
+                            error=manager.last_error or "Could not create a safety backup of the current local save.",
+                            category="local_save_unreadable",
+                            guidance="The selected backup was not restored; your current save was left unchanged.",
+                        )
+
+                success = manager.import_save(
+                    fork_path,
+                    target_dest,
+                    game_path=self.game_path,
+                )
+                return SaveOperationResult(
+                    bool(success),
+                    "Restore previous version",
+                    self.game_name,
+                    error="The selected local safety backup could not be restored." if not success else "",
+                    category="local_save_unreadable" if not success else "unknown",
+                    guidance="Check the backup file and save locations, then try again." if not success else "",
+                )
+
+            def _local_restore_done(result):
+                self._restore_done.emit(
+                    bool(result.success),
+                    title if result.success else f"__restore_error__{result.error or result.guidance}",
+                )
+
+            self._start_managed_task(
+                "SafeLauncher-LocalBackupRestore",
+                _restore_local_backup,
+                _local_restore_done,
+            )
             return
 
         self._restore_done.emit(

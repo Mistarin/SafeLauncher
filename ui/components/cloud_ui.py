@@ -2,7 +2,7 @@
 
 The cloud services own transport, caching, and operation semantics.  This
 module keeps the user-facing vocabulary and safety prompts consistent across
-the Cloud Center, Account Manager, Game Properties, and Save Manager dialogs.
+the Cloud Center, Cloud Storage & Devices, Game Properties, and Save Manager dialogs.
 """
 
 from __future__ import annotations

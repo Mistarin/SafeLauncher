@@ -90,6 +90,18 @@ class _FailingCoordinator(_Coordinator):
         )
 
 
+class _HistoryCoordinator(_Coordinator):
+    def load_history(self, game_id, game_name, game_path, steam_id=""):
+        self.calls.append(("history", game_id))
+        return [{
+            "source": "cloud",
+            "version": 4,
+            "createdAt": 1_700_000_000,
+            "sizeBytes": 4096,
+            "deviceName": "Steam Deck",
+        }], None
+
+
 class CloudOperationServiceTests(unittest.TestCase):
     @staticmethod
     def _context_provider(generation):
@@ -221,6 +233,25 @@ class CloudOperationServiceTests(unittest.TestCase):
             self.assertTrue(result.value["needs_conflict"])
             self.assertEqual(result.value["status"], SyncStatus.CLOUD_NEWER)
             self.assertEqual([call[0] for call in coordinator.calls], ["preflight"])
+        finally:
+            manager.shutdown()
+
+    def test_restore_preflight_exposes_metadata_without_mutating_local_saves(self):
+        coordinator = _HistoryCoordinator()
+        manager = RequestManager(max_workers=1)
+        try:
+            service = CloudOperationService(
+                manager,
+                coordinator=coordinator,
+                context_provider=self._context_provider,
+            )
+            target = CloudOperationTarget(91, "Example", "/games/example")
+            result = service.request_restore_preflight(target).future.result(timeout=2)
+            self.assertEqual(result.status, ResourceStatus.READY)
+            self.assertEqual(result.value["kind"], "ready")
+            self.assertEqual(result.value["history_entry"]["version"], 4)
+            self.assertEqual([call[0] for call in coordinator.calls], ["history", "preflight"])
+            self.assertNotIn("restore", [call[0] for call in coordinator.calls])
         finally:
             manager.shutdown()
 

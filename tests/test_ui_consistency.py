@@ -63,6 +63,21 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             dialog.deleteLater()
             self.app.processEvents()
 
+    def test_cloud_settings_routes_account_work_to_cloud_center(self):
+        dialog = UserSettingsDialog("Player", parent=None)
+        try:
+            self.assertEqual(dialog.btn_open_cloud_center.text(), "Open Cloud Center…")
+            self.assertFalse(dialog.btn_review_conflicts.isVisible())
+            self.assertFalse(dialog.btn_refresh_quota.isVisible())
+            self.assertTrue(any(
+                "Use Cloud Center" in label.text()
+                for label in dialog.findChildren(QLabel)
+            ))
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+            self.app.processEvents()
+
     def test_launch_failure_actions_reflow_without_gaps(self):
         dialog = SafeLaunchDialog("Test Game", process=None)
         try:

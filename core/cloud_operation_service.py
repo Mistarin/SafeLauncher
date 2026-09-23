@@ -681,7 +681,11 @@ class CloudOperationService:
                 return {"kind": "error", "error": history_error}
             cloud_versions = [version for version in versions if version.get("source") == "cloud"]
             if len(cloud_versions) > 1:
-                return {"kind": "history"}
+                return {
+                    "kind": "history",
+                    "display_path": "Latest cloud save version",
+                    "history_entry": cloud_versions[0],
+                }
             preflight = self.coordinator.preflight(
                 target.game_id, target.game_name, target.game_path, target.steam_id
             )
@@ -694,6 +698,11 @@ class CloudOperationService:
                 "kind": "ready",
                 "display_path": cloud_stats.display_path if cloud_stats else "Unavailable",
                 "cloud_exists": bool(cloud_stats and cloud_stats.exists),
+                # Keep the newest version metadata available to UI callers so
+                # a restore confirmation can explain exactly what will replace
+                # the local save. The raw entry is still treated as transport
+                # data and normalized by the presentation layer.
+                "history_entry": cloud_versions[0] if cloud_versions else None,
             }
 
         return self._request(

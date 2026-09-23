@@ -64,7 +64,7 @@ class SaveHistoryTimeline(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         self.scroll = QScrollArea()
-        self.scroll.setAccessibleName("Save history")
+        self.scroll.setAccessibleName("Cloud save versions and local backups")
         self.scroll.setAccessibleDescription(
             "Select a cloud save version or local safety backup to restore it."
         )

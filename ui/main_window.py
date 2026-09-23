@@ -132,6 +132,7 @@ from core.secret_store import get_secret
 from core.network_policy import automatic_network_allowed, is_offline_mode
 from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
+from ui.components.cloud_ui import cloud_progress, confirm_restore
 from core.central_auth import CentralAuthSession
 from core.profile_service import get_profile_service_url
 from core.profile_resource_service import ProfileResourceService
@@ -140,6 +141,7 @@ from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.request_manager import RequestManager
 from core.resource_cache import ResourceCache
 from core.performance_metrics import ResourcePerformanceTracker
+from core.save_history import normalize_history_entries
 from core.steam_client import SteamClient
 from ui.resource_binding import ResourceBinding, ResourceBindingRegistry, bind_resource, bind_request
 
@@ -780,7 +782,7 @@ class MainWindow(QMainWindow):
 
         self.btn_detail_cloud_restore = QPushButton("Restore")
         self.btn_detail_cloud_restore.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_detail_cloud_restore.setToolTip("Restore cloud save for this game")
+        self.btn_detail_cloud_restore.setToolTip("Restore latest cloud save for this game")
         self.btn_detail_cloud_restore.setStyleSheet(
             "QPushButton { background: #2563EB; color: #FFFFFF; border: none; border-radius: 4px; "
             "padding: 2px 8px; font-size: 10px; font-weight: bold; } "
@@ -1633,7 +1635,7 @@ class MainWindow(QMainWindow):
             self.btn_detail_videos: "Open selected game videos",
             self.btn_detail_achievements: "Open selected game achievements",
             self.btn_detail_remove: "Uninstall or permanently delete the selected game",
-            self.btn_detail_cloud_restore: "Restore selected game cloud save",
+            self.btn_detail_cloud_restore: "Restore latest cloud save for selected game",
             self.btn_update_banner_action: "Download and apply SafeLauncher update",
             self.btn_update_banner_dismiss: "Dismiss update notification",
         }
@@ -1922,7 +1924,7 @@ class MainWindow(QMainWindow):
         self._open_settings(initial_tab=3)
 
     def _open_cloud_history_from_center(self) -> None:
-        """Open detailed save history as an explicit advanced workflow."""
+        """Open advanced account-wide storage and device management."""
         try:
             from ui.dialogs.account_dialog import AccountDialog
             dialog = AccountDialog(
@@ -1934,7 +1936,7 @@ class MainWindow(QMainWindow):
             dialog.exec()
             self.request_cloud_recheck(None, "cloud-history")
         except Exception as error:
-            self._show_toast(f"Could not open cloud history: {error}", is_error=True)
+            self._show_toast(f"Could not open cloud storage management: {error}", is_error=True)
 
     def _open_settings(self, initial_tab: int | None = None):
         """Open Settings once at a time and keep menu/dialog lifecycles separate."""
@@ -4901,8 +4903,8 @@ class MainWindow(QMainWindow):
         """Restore cloud save for the currently selected library game.
 
         Shows a progress dialog immediately (before any network I/O) so the
-        user gets instant feedback.  The status check and restore both run on
-        a daemon worker thread; the result comes back via _save_restore_finished.
+        user gets instant feedback. The preflight runs first; replacement is
+        dispatched only after the user explicitly confirms the restore.
         """
         game = self.selected_game
         if not game:
@@ -4922,37 +4924,39 @@ class MainWindow(QMainWindow):
         self._active_restore_progress = progress
 
         target = CloudOperationTarget(game_id, game_name, game_path, steam_id)
-        handle = self.cloud_operation_service.request_restore_with_preflight(
-            target,
-            priority=RequestPriority.CRITICAL,
-            tag="manual_restore",
-        )
+        try:
+            handle = self.cloud_operation_service.request_restore_preflight(
+                target,
+                priority=RequestPriority.CRITICAL,
+                tag="manual_restore",
+            )
+        except Exception as exc:
+            if hasattr(self, "_active_restore_progress") and self._active_restore_progress:
+                self._active_restore_progress.close()
+                self._active_restore_progress.deleteLater()
+                self._active_restore_progress = None
+            if hasattr(self, "btn_detail_cloud_restore"):
+                self.btn_detail_cloud_restore.setEnabled(True)
+            self._show_toast(f"Could not check the cloud save: {exc}", is_error=True)
+            return
 
         def _deliver(future):
-            from core.cloud_operations import CloudOperationResult
             try:
                 resource = future.result()
-                result = resource.value if resource.status == ResourceStatus.READY else None
+                value = resource.value if resource.status == ResourceStatus.READY else None
             except Exception as exc:
-                result = None
+                value = None
                 error = str(exc)
             else:
-                error = ""
-            if result is None:
-                result = CloudOperationResult(
-                    False,
-                    "Cloud restore",
-                    game_name,
-                    error=error or "Cloud restore failed.",
-                    category="backend_unavailable",
-                    guidance="Check the cloud connection and try again.",
-                )
+                error = str(resource.error or "") if value is None else ""
             self._save_restore_finished.emit({
                 "game_id": game_id,
                 "game_name": game_name,
-                "result": result,
-                "error": result.error,
-                "guidance": result.guidance,
+                "game_path": game_path,
+                "steam_id": steam_id,
+                "phase": "preflight",
+                "preflight": value,
+                "error": error or (value.get("error") if isinstance(value, dict) else ""),
             })
 
         handle.future.add_done_callback(_deliver)
@@ -4968,6 +4972,110 @@ class MainWindow(QMainWindow):
         game_id = payload.get("game_id")
         game_name = payload.get("game_name", "")
         result = payload.get("result")
+
+        if payload.get("phase") == "preflight":
+            preflight = payload.get("preflight")
+            if not isinstance(preflight, dict) or preflight.get("kind") == "error":
+                detail = preflight.get("error") if isinstance(preflight, dict) else None
+                message = (
+                    getattr(detail, "error", None)
+                    or detail
+                    or payload.get("error")
+                    or "Could not check the cloud save."
+                )
+                guidance = getattr(detail, "guidance", "")
+                self._show_toast(f"{message} {guidance}".strip(), is_error=True)
+                if hasattr(self, "btn_detail_cloud_restore"):
+                    self.btn_detail_cloud_restore.setEnabled(True)
+                return
+
+            if preflight.get("kind") not in {"ready", "history"} or not preflight.get("cloud_exists", True):
+                display_name = game_name or "this game"
+                QMessageBox.information(
+                    self, "No Cloud Save",
+                    f"No cloud save found for '{display_name}'.",
+                )
+                if hasattr(self, "btn_detail_cloud_restore"):
+                    self.btn_detail_cloud_restore.setEnabled(True)
+                return
+
+            entries = normalize_history_entries([preflight.get("history_entry")])
+            selected_entry = entries[0] if entries else None
+            if not confirm_restore(
+                self,
+                game_name=game_name,
+                entry=selected_entry,
+                target_path=payload.get("game_path", ""),
+                technical_details=str(preflight.get("display_path") or ""),
+                title="Restore latest cloud save",
+            ):
+                if hasattr(self, "btn_detail_cloud_restore"):
+                    self.btn_detail_cloud_restore.setEnabled(True)
+                return
+
+            if hasattr(self, "btn_detail_cloud_restore"):
+                self.btn_detail_cloud_restore.setEnabled(False)
+            progress = cloud_progress(
+                self, f"Restoring latest cloud save for '{game_name}'…"
+            )
+            self._active_restore_progress = progress
+            target = CloudOperationTarget(
+                game_id,
+                game_name,
+                payload.get("game_path", ""),
+                payload.get("steam_id", ""),
+            )
+            try:
+                handle = self.cloud_operation_service.request_restore(
+                    target,
+                    priority=RequestPriority.CRITICAL,
+                    tag="manual_restore",
+                )
+            except Exception as exc:
+                from core.cloud_operations import CloudOperationResult
+                self._save_restore_finished.emit({
+                    "game_id": game_id,
+                    "game_name": game_name,
+                    "phase": "restore",
+                    "result": CloudOperationResult(
+                        False,
+                        "Cloud restore",
+                        game_name,
+                        error=str(exc),
+                        category="backend_unavailable",
+                        guidance="Check the cloud connection and try again.",
+                    ),
+                })
+                return
+
+            def _deliver_restore(future):
+                from core.cloud_operations import CloudOperationResult
+                try:
+                    resource = future.result()
+                    restored = resource.value if resource.status == ResourceStatus.READY else None
+                    error = str(resource.error or "") if restored is None else ""
+                except Exception as exc:
+                    restored = None
+                    error = str(exc)
+                if restored is None:
+                    restored = CloudOperationResult(
+                        False,
+                        "Cloud restore",
+                        game_name,
+                        error=error or "Cloud restore failed.",
+                        category="backend_unavailable",
+                        guidance="Check the cloud connection and try again.",
+                    )
+                self._save_restore_finished.emit({
+                    "game_id": game_id,
+                    "game_name": game_name,
+                    "phase": "restore",
+                    "result": restored,
+                })
+
+            handle.future.add_done_callback(_deliver_restore)
+            return
+
         ok = bool(getattr(result, "success", False))
         # Re-enable the restore button regardless of outcome (L-5 companion)
         if hasattr(self, "btn_detail_cloud_restore"):
@@ -5621,15 +5729,16 @@ class MainWindow(QMainWindow):
 
         elif payload.get("needs_cloud_only_prompt"):
             c_stats = payload.get("cloud_stats")
-            ans = QMessageBox.question(
-                self, "Restore Cloud Save",
-                f"A cloud save is available for '{game_name}':\n\n"
-                f"{c_stats.display_path}\n\n"
-                "Would you like to restore this cloud save to the game before launching?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
+            should_restore = confirm_restore(
+                self,
+                game_name=game_name,
+                target_path=ctx.get("path", ""),
+                technical_details=(
+                    f"Cloud save: {getattr(c_stats, 'display_path', 'Latest cloud save version')}"
+                ),
+                title="Restore latest cloud save",
             )
-            if ans == QMessageBox.StandardButton.Yes:
+            if should_restore:
                 self._queue_prelaunch_cloud_operation(
                     ctx,
                     "restore",
@@ -7877,9 +7986,9 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.setTitle(str(game[1]))
         for name, label, icon_name in (
-            ("upload", "Upload", "ph.cloud-arrow-up-bold"),
-            ("restore", "Restore", "ph.cloud-arrow-down-bold"),
-            ("history", "Save history", "ph.clock-counter-clockwise-bold"),
+            ("upload", "Upload local save", "ph.cloud-arrow-up-bold"),
+            ("restore", "Restore latest cloud save", "ph.cloud-arrow-down-bold"),
+            ("history", "Open Save Manager", "ph.clock-counter-clockwise-bold"),
             ("resolve", "Resolve conflict", "ph.warning-bold"),
         ):
             action = menu.addAction(get_icon(icon_name, color="#A1A1AA"), label)

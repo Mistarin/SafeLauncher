@@ -171,7 +171,7 @@ class CloudSyncCoordinator:
 
     def load_history(self, game_id: int, game_name: str, game_path: str, steam_id: str = "") -> tuple[list, Optional[CloudOperationResult]]:
         if not self.claim(game_id, "history"):
-            return [], _failure("History load", game_name, "Save history is already loading for this game.")
+            return [], _failure("Cloud versions load", game_name, "Cloud save versions are already loading for this game.")
         try:
             return CloudOperationCoordinator.load_history(game_name, game_path, steam_id)
         finally:
