@@ -379,10 +379,9 @@ class FriendsDialog(PopupDialog):
             self._pending_success_message = ""
             self._update_gate()
             self.status_label.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.status_label.setText(
-                f"{pending} The list could not be refreshed: {result}"
-                if pending else str(result)
-            )
+            message = self._friendly_social_error(result, "refresh")
+            self.status_label.setText(f"{pending} {message}".strip())
+            self.status_label.setToolTip(str(result))
             return
         pending = self._pending_success_message
         self._pending_success_message = ""
@@ -531,7 +530,8 @@ class FriendsDialog(PopupDialog):
         self._social_mutating = False
         if isinstance(result, Exception):
             self.status_label.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.status_label.setText(str(result))
+            self.status_label.setText(self._friendly_social_error(result, "update"))
+            self.status_label.setToolTip(str(result))
             self._update_gate()
             return
         self.status_label.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
@@ -548,6 +548,28 @@ class FriendsDialog(PopupDialog):
             )
         self._pending_success_message = success
         self.refresh()
+
+    @staticmethod
+    def _friendly_social_error(error: Exception, operation: str) -> str:
+        """Keep ordinary social errors actionable without exposing transport text."""
+        code = str(getattr(error, "code", "") or "").lower()
+        if code == "offline":
+            return "Offline mode is enabled. Connect to refresh friends."
+        if code in {"not_signed_in", "owner_token_missing"}:
+            return "Sign in to SafeLauncher to use friends."
+        if code == "unconfigured":
+            return "The profile service is not configured yet."
+        if code in {"unreachable", "social_refresh_failed", "social_operation_failed"}:
+            return (
+                "Friends could not be refreshed. Check your connection and try again."
+                if operation == "refresh" else
+                "That friend action could not be completed. Check your connection and try again."
+            )
+        return (
+            "Friends could not be refreshed. Try again."
+            if operation == "refresh" else
+            "That friend action could not be completed. Try again."
+        )
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

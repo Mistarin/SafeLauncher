@@ -101,6 +101,8 @@ class UserSettingsDialog(PopupDialog):
         self._account_probe_generation = 0
         self._health_probe_generation = 0
         self._profile_action_status_custom = False
+        self._cloud_settings_committed = False
+        self._cloud_settings_snapshot = self._capture_cloud_settings()
 
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
         self.setMinimumSize(820, 600)
@@ -968,16 +970,24 @@ class UserSettingsDialog(PopupDialog):
     def _execute_live_probe(self, button: QPushButton):
         button.setEnabled(False)
         button.setText("Testing isolation…")
-        res = run_live_sandbox_verification()
-        button.setEnabled(True)
-        button.setText("Run Sandbox Isolation Test")
+        self.probe_output_lbl.setStyleSheet("color: #A1A1AA; font-weight: 500;")
+        self.probe_output_lbl.setText("Running a short sandbox verification in the background…")
 
-        if res["success"]:
-            self.probe_output_lbl.setStyleSheet("color: #4ade80; font-weight: bold;")
-            self.probe_output_lbl.setText(f"Pass: {res['message']}")
-        else:
-            self.probe_output_lbl.setStyleSheet("color: #f87171; font-weight: bold;")
-            self.probe_output_lbl.setText(f"Fail: {res['message']}")
+        def _apply(result):
+            button.setEnabled(True)
+            button.setText("Run Sandbox Isolation Test")
+            if result.get("success"):
+                self.probe_output_lbl.setStyleSheet("color: #4ade80; font-weight: bold;")
+                self.probe_output_lbl.setText(f"Pass: {result.get('message', 'Sandbox verification passed.')}")
+            else:
+                self.probe_output_lbl.setStyleSheet("color: #f87171; font-weight: bold;")
+                self.probe_output_lbl.setText(f"Fail: {result.get('message', 'Sandbox verification failed.')}")
+
+        self._start_managed_task(
+            "SafeLauncher-SandboxVerification",
+            run_live_sandbox_verification,
+            _apply,
+        )
 
     # -------------------------------------------------------------
     # TAB 3: Storage & Logs
@@ -1292,8 +1302,11 @@ class UserSettingsDialog(PopupDialog):
         # compatibility with older embedders, but do not duplicate that
         # account-wide action inside connection settings.
         self.btn_refresh_quota = QPushButton("Refresh Quota")
+        self.btn_refresh_quota.setAccessibleName("Refresh cloud account status")
+        self.btn_refresh_quota.setToolTip("Refresh cloud account usage and device status")
         self.btn_refresh_quota.clicked.connect(self._refresh_account_status)
         self.btn_refresh_quota.clicked.connect(self._refresh_cloud_conflict_summary)
+        acct_btns.addWidget(self.btn_refresh_quota)
         # Quota is presented in Cloud Center alongside devices and storage.
         self.btn_logout = QPushButton("Disconnect")
         self.btn_logout.setProperty("settingsButtonRole", "destructive")
@@ -1783,7 +1796,17 @@ class UserSettingsDialog(PopupDialog):
             button.setText(f"Error: {msg}")
 
     def _save(self):
-        if self.name_input.text().strip():
+        display_name = self.name_input.text().strip()
+        if not display_name:
+            self.name_input.setFocus()
+            self.name_input.setStyleSheet("border: 1px solid #EF4444;")
+            self.lbl_profile_action_status.setStyleSheet("color: #F87171; font-size: 12px;")
+            self.lbl_profile_action_status.setText("Display name cannot be empty.")
+            self._switch_tab(0)
+            return
+
+        self.name_input.setStyleSheet("")
+        if display_name:
             settings = QSettings("SafeLauncher", "SafeLauncher")
             url = normalize_site_url(self.edit_convex_url.text())
             if url and not url.startswith(("http://", "https://")):
@@ -1808,12 +1831,10 @@ class UserSettingsDialog(PopupDialog):
             set_offline_mode(self.chk_offline_mode.isChecked(), settings)
 
             cloud_dir = self.edit_cloud_saves_dir.text().strip()
-            if cloud_dir:
-                settings.setValue("cloud_saves_dir", cloud_dir)
+            settings.setValue("cloud_saves_dir", cloud_dir)
 
             dev_name = self.edit_device_name.text().strip()
-            if dev_name:
-                settings.setValue("cloud_device_name", dev_name)
+            settings.setValue("cloud_device_name", dev_name)
             settings.setValue("cloud_sync_workers", self.spin_sync_workers.value())
 
             if hasattr(self, "chk_achievement_notifications"):
@@ -1824,6 +1845,7 @@ class UserSettingsDialog(PopupDialog):
                 self.date_format = self.combo_date_format.currentData() or get_date_format_key()
                 settings.setValue("date_format", self.date_format)
 
+            self._cloud_settings_committed = True
             self.accept()
 
     def _browse_proton(self):
@@ -1849,7 +1871,10 @@ class UserSettingsDialog(PopupDialog):
         return automatic_network_allowed(QSettings("SafeLauncher", "SafeLauncher"))
 
     def _on_cloud_mode_changed(self, index: int):
-        self.cloud_account_service.set_mode(self.combo_cloud_mode.itemData(index) or "local")
+        # Cloud settings are committed by Save.  Do not mutate QSettings or the
+        # shared backend merely because the user browsed the combo box; this is
+        # what makes Cancel behave like Cancel everywhere else in Settings.
+        self._pending_cloud_mode = self.combo_cloud_mode.itemData(index) or "local"
 
     def _open_cloud_wizard(self):
         """Launch the step-by-step Convex cloud setup wizard."""
@@ -1862,7 +1887,9 @@ class UserSettingsDialog(PopupDialog):
                 settings = QSettings("SafeLauncher", "SafeLauncher")
                 self.edit_cloud_secret_key.setText(get_secret("cloud_secret_key", legacy_name="cloud_secret_key"))
                 self.edit_convex_deploy_key.setText(get_secret("convex_deploy_key", legacy_name="convex_deploy_key"))
+                settings.setValue("cloud_mode", "convex")
                 self.combo_cloud_mode.setCurrentIndex(1)
+                self._remember_cloud_settings_as_baseline()
                 self._refresh_account_status()
                 self._refresh_backend_health()
         except Exception as e:
@@ -1876,6 +1903,7 @@ class UserSettingsDialog(PopupDialog):
             if wizard.exec():
                 self.edit_convex_deploy_key.setText(get_secret("convex_deploy_key", legacy_name="convex_deploy_key"))
                 self.edit_cloud_secret_key.setText(get_secret("cloud_secret_key", legacy_name="cloud_secret_key"))
+                self._remember_cloud_settings_as_baseline()
                 self._refresh_backend_health()
         except Exception as e:
             QMessageBox.warning(self, "Deploy Key Setup", f"Could not open wizard: {e}")
@@ -1892,6 +1920,7 @@ class UserSettingsDialog(PopupDialog):
         if answer == QMessageBox.StandardButton.Yes:
             if delete_secret("convex_deploy_key"):
                 self.edit_convex_deploy_key.clear()
+                self._remember_cloud_settings_as_baseline()
                 self._refresh_backend_health()
 
     def _open_cloud_center_from_settings(self):
@@ -1909,6 +1938,7 @@ class UserSettingsDialog(PopupDialog):
             parent._open_cloud_center()
         finally:
             self.show()
+            self._remember_cloud_settings_as_baseline()
             self._refresh_account_status()
             self._refresh_backend_health()
 
@@ -1930,6 +1960,7 @@ class UserSettingsDialog(PopupDialog):
 
         settings = QSettings("SafeLauncher", "SafeLauncher")
         settings.setValue("convex_site_url", url)
+        settings.setValue("cloud_mode", "convex")
         if key:
             set_secret("cloud_secret_key", key)
         else:
@@ -1938,6 +1969,7 @@ class UserSettingsDialog(PopupDialog):
         self.cloud_account_service.reset_backend()
         self.cloud_account_service.set_mode("convex")
         self.combo_cloud_mode.setCurrentIndex(1)
+        self._remember_cloud_settings_as_baseline()
         self.lbl_account_status.setText("Connecting to cloud…")
         self._refresh_account_status()
         self._refresh_backend_health()
@@ -1947,10 +1979,53 @@ class UserSettingsDialog(PopupDialog):
         """Revert cloud backend to local folder sync."""
         self.cloud_account_service.set_mode("local")
         self.cloud_account_service.reset_backend()
+        QSettings("SafeLauncher", "SafeLauncher").setValue("cloud_mode", "local")
         self.combo_cloud_mode.setCurrentIndex(0)
+        self._remember_cloud_settings_as_baseline()
         self.accountStatusReady.emit("Disconnected (using Local sync).")
         self._refresh_backend_health()
         self._refresh_cloud_conflict_summary()
+
+    def _capture_cloud_settings(self) -> dict[str, Any]:
+        """Capture mutable cloud state so Cancel can roll back live probes."""
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        return {
+            "cloud_mode": settings.value("cloud_mode", "local", type=str),
+            "convex_site_url": settings.value("convex_site_url", "", type=str),
+            "cloud_saves_dir": settings.value("cloud_saves_dir", "", type=str),
+            "cloud_device_name": settings.value("cloud_device_name", "", type=str),
+            "cloud_sync_workers": settings.value("cloud_sync_workers", 3, type=int),
+            "cloud_secret_key": get_secret("cloud_secret_key", legacy_name="cloud_secret_key"),
+            "convex_deploy_key": get_secret("convex_deploy_key", legacy_name="convex_deploy_key"),
+            "service_mode": self.cloud_account_service.mode(),
+        }
+
+    def _restore_cloud_settings(self) -> None:
+        """Restore cloud state changed by an in-dialog probe or wizard."""
+        if self._cloud_settings_committed:
+            return
+        snapshot = getattr(self, "_cloud_settings_snapshot", None)
+        if not snapshot:
+            return
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        for key in ("cloud_mode", "convex_site_url", "cloud_saves_dir", "cloud_device_name", "cloud_sync_workers"):
+            settings.setValue(key, snapshot[key])
+        for key in ("cloud_secret_key", "convex_deploy_key"):
+            value = snapshot[key]
+            if value:
+                set_secret(key, value)
+            else:
+                delete_secret(key)
+        self.cloud_account_service.reset_backend()
+        self.cloud_account_service.set_mode(snapshot["service_mode"] or "local")
+
+    def _remember_cloud_settings_as_baseline(self) -> None:
+        """Make an explicitly accepted nested cloud action the new Cancel baseline."""
+        self._cloud_settings_snapshot = self._capture_cloud_settings()
+
+    def reject(self) -> None:
+        self._restore_cloud_settings()
+        super().reject()
 
     def _start_managed_task(self, name: str, work, on_complete):
         """Run a settings operation and expose it in the global Activity drawer."""
@@ -2020,22 +2095,6 @@ class UserSettingsDialog(PopupDialog):
             )
         return worker
 
-    def closeEvent(self, event):
-        """Keep Qt workers alive until their cooperative cancellation completes."""
-        if self.request_manager is not None:
-            if self._cloud_overview_binding is not None:
-                self._cloud_overview_binding.close()
-                self._cloud_overview_binding = None
-            for binding in tuple(self._resource_bindings.values()):
-                binding.close()
-            self._resource_bindings.clear()
-        self._task_supervisor.cancel_all(100)
-        if self._task_supervisor.has_running_tasks():
-            QTimer.singleShot(100, self.close)
-            event.ignore()
-            return
-        super().closeEvent(event)
-
     def _refresh_account_status(self):
         self._account_probe_generation += 1
         generation = self._account_probe_generation
@@ -2092,6 +2151,8 @@ class UserSettingsDialog(PopupDialog):
         """Probe backend health endpoint, measure latency, and check version parity."""
         self._health_probe_generation += 1
         generation = self._health_probe_generation
+        self.btn_probe_health.setEnabled(False)
+        self.btn_probe_health.setText("Checking…")
         if not self._dialog_network_allowed():
             self.lbl_health_status.setText("Offline mode")
             self.lbl_health_latency.setText("--")
@@ -2099,6 +2160,8 @@ class UserSettingsDialog(PopupDialog):
             self.lbl_version_warning.setText(
                 "Offline mode is enabled; backend health is not probed."
             )
+            self.btn_probe_health.setEnabled(True)
+            self.btn_probe_health.setText("Check Health")
             return
         url = normalize_site_url(self.edit_convex_url.text())
         key = self.edit_cloud_secret_key.text().strip()
@@ -2121,6 +2184,8 @@ class UserSettingsDialog(PopupDialog):
 
     def _apply_backend_health(self, health: dict):
         """Update live health card with latency, status, and version parity badges."""
+        self.btn_probe_health.setEnabled(True)
+        self.btn_probe_health.setText("Check Health")
         status = health.get("status", "unreachable")
         lat = health.get("latency_ms", -1)
         ver = health.get("version", "unknown")
@@ -2148,8 +2213,11 @@ class UserSettingsDialog(PopupDialog):
         elif status == "unconfigured":
             self.lbl_health_status.setText("<font color='#9CA3AF'>● Not Configured</font>")
         else:
-            err = health.get("error") or "Unreachable"
-            self.lbl_health_status.setText(f"<font color='#EF4444'>● Unreachable ({err})</font>")
+            err = str(health.get("error") or "The configured backend could not be reached.")
+            self.lbl_health_status.setText(
+                "<font color='#EF4444'>● Unreachable</font>"
+            )
+            self.lbl_health_status.setToolTip(err)
 
         if ver != "unknown":
             self.lbl_health_version.setText(f"v{ver}")
@@ -3193,6 +3261,17 @@ class DiskManagerDialog(PopupDialog):
             pass  # dialog already destroyed
 
     def closeEvent(self, event):
+        # This is the effective close handler for the full Settings dialog;
+        # keep the window-manager close button consistent with Cancel even
+        # while worker cleanup is being coordinated below.
+        self._restore_cloud_settings()
+        if self.request_manager is not None:
+            if self._cloud_overview_binding is not None:
+                self._cloud_overview_binding.close()
+                self._cloud_overview_binding = None
+            for binding in tuple(self._resource_bindings.values()):
+                binding.close()
+            self._resource_bindings.clear()
         self._task_supervisor.cancel_all(100)
         if self._task_supervisor.has_running_tasks():
             QTimer.singleShot(100, self.close)

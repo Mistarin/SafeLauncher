@@ -128,7 +128,7 @@ def cloud_indicator(status: SyncStatus | None) -> StatusIndicator:
             "ph.key-bold",
             "#E5A93D",
         ),
-        SyncStatus.CLOUD_OFFLINE: ("Cloud Save: Offline", "Cloud status is unknown because the backend is unavailable.", "ph.cloud-slash-bold", "#6F7682"),
+        SyncStatus.CLOUD_OFFLINE: ("Cloud Save: Offline", "Offline mode is enabled; cloud status will be checked again when online.", "ph.cloud-slash-bold", "#6F7682"),
         SyncStatus.CLOUD_UNAVAILABLE: ("Cloud Save: Unavailable", "Online mode is enabled, but the cloud backend could not be reached.", "ph.cloud-slash-bold", "#E5A93D"),
     }
     label, tooltip, icon, color = values.get(

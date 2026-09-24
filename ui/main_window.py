@@ -3,6 +3,7 @@ import re
 import time
 import shutil
 import subprocess
+import uuid
 from dataclasses import replace
 from html import escape
 from typing import Optional, List, Dict, Tuple, Any, Set
@@ -797,6 +798,19 @@ class MainWindow(QMainWindow):
         self.btn_detail_cloud_restore.hide()
         self.btn_detail_cloud_restore.clicked.connect(self._restore_selected_game_cloud_save)
         cloud_box_layout.addWidget(self.btn_detail_cloud_restore)
+
+        self.btn_detail_cloud_upload = QPushButton("Upload local save")
+        self.btn_detail_cloud_upload.setAccessibleName("Upload local save")
+        self.btn_detail_cloud_upload.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_detail_cloud_upload.setToolTip("Open Save Manager to choose and upload local save files")
+        self.btn_detail_cloud_upload.setStyleSheet(
+            "QPushButton { background: #14532D; color: #86EFAC; border: 1px solid #238636; border-radius: 4px; "
+            "padding: 2px 8px; font-size: 10px; font-weight: bold; } "
+            "QPushButton:hover { background: #166534; color: #FFFFFF; }"
+        )
+        self.btn_detail_cloud_upload.hide()
+        self.btn_detail_cloud_upload.clicked.connect(self._upload_selected_game_cloud_save)
+        cloud_box_layout.addWidget(self.btn_detail_cloud_upload)
         cloud_box_layout.addStretch()
 
         spec_layout.addWidget(cloud_box, 3, 1)
@@ -1097,7 +1111,7 @@ class MainWindow(QMainWindow):
             ("all", "All", "ph.squares-four-bold"),
             ("installed", "Installed", "ph.check-circle-bold"),
             ("favorites", "Favorites", "ph.heart-bold"),
-            ("archived", "Archived", "ph.archive-bold"),
+            ("archived", "Not installed", "ph.archive-bold"),
         )
         filter_button_style = f"""
             QPushButton {{
@@ -1399,10 +1413,10 @@ class MainWindow(QMainWindow):
         footer_divider.setStyleSheet("background-color: rgba(255, 255, 255, 0.1); border: none;")
         footer_layout.addWidget(footer_divider)
 
-        btn_labels = {"compact": "▦ Grid", "grid": "☷ List", "list": "≡ Compact", "steam": "▦ Grid"}
-        self.btn_view_toggle = QPushButton(btn_labels.get(self.library_view_mode, "▦ Grid"))
+        view_labels = {"compact": "Compact", "grid": "Grid", "list": "List", "steam": "Compact"}
+        self.btn_view_toggle = QPushButton(f"View: {view_labels.get(self.library_view_mode, 'Grid')}")
         self.btn_view_toggle.setObjectName("viewToggleButton")
-        self.btn_view_toggle.setToolTip("Toggle Compact, Grid, or List library view")
+        self.btn_view_toggle.setToolTip("Change library view (currently " + view_labels.get(self.library_view_mode, "Grid") + ")")
         self.btn_view_toggle.clicked.connect(self._toggle_library_view)
         self.btn_view_toggle.setFixedHeight(26)
         self.btn_view_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1700,6 +1714,7 @@ class MainWindow(QMainWindow):
             self.btn_detail_achievements: "Open selected game achievements",
             self.btn_detail_remove: "Uninstall or permanently delete the selected game",
             self.btn_detail_cloud_restore: "Restore latest cloud save for selected game",
+            self.btn_detail_cloud_upload: "Upload local save for selected game",
             self.btn_update_banner_action: "Download and apply SafeLauncher update",
             self.btn_update_banner_dismiss: "Dismiss update notification",
         }
@@ -2719,8 +2734,10 @@ class MainWindow(QMainWindow):
                 self._update_detail_panel()
             else:
                 self.btn_reveal_detail.setVisible(True)
-        btn_labels = {"compact": "▦ Grid", "grid": "☷ List", "list": "≡ Compact", "steam": "▦ Grid"}
-        self.btn_view_toggle.setText(btn_labels.get(self.library_view_mode, "▦ Grid"))
+        view_labels = {"compact": "Compact", "grid": "Grid", "list": "List", "steam": "Compact"}
+        current_label = view_labels.get(self.library_view_mode, "Grid")
+        self.btn_view_toggle.setText(f"View: {current_label}")
+        self.btn_view_toggle.setToolTip(f"Change library view (currently {current_label})")
 
     def _visible_library_ids(self) -> set[int]:
         return self.library_view_host.visible_ids(self.library_view_mode)
@@ -5177,6 +5194,10 @@ class MainWindow(QMainWindow):
                     self.btn_detail_cloud_restore.show()
                 else:
                     self.btn_detail_cloud_restore.hide()
+                if status == SyncStatus.LOCAL_NEWER:
+                    self.btn_detail_cloud_upload.show()
+                else:
+                    self.btn_detail_cloud_upload.hide()
 
     def _set_detail_cloud_checking(self) -> None:
         """Show a clear in-flight state while the selected save is probed."""
@@ -5186,6 +5207,14 @@ class MainWindow(QMainWindow):
         self.detail_cloud_status.setToolTip("Checking the configured cloud backend and save status…")
         if hasattr(self, "btn_detail_cloud_restore"):
             self.btn_detail_cloud_restore.hide()
+        if hasattr(self, "btn_detail_cloud_upload"):
+            self.btn_detail_cloud_upload.hide()
+
+    def _upload_selected_game_cloud_save(self) -> None:
+        """Open Save Manager directly from the local-newer detail state."""
+        game = self.selected_game
+        if game:
+            self._open_save_manager_for_game(game)
 
     def _restore_selected_game_cloud_save(self):
         """Restore cloud save for the currently selected library game.
@@ -8260,6 +8289,8 @@ class MainWindow(QMainWindow):
             return False, "Refusing to delete a symlinked game directory. Remove the library record instead."
 
         target_path = os.path.realpath(raw_path)
+        if target_path != raw_path:
+            return False, "Refusing to delete a path containing a symlink. Remove the library record instead."
         protected_paths = {
             os.path.realpath(os.path.abspath(os.sep)),
             os.path.realpath(os.path.expanduser("~")),
@@ -8294,9 +8325,68 @@ class MainWindow(QMainWindow):
         if failures or os.path.lexists(target_path):
             detail = failures[0] if failures else "the directory still exists"
             logger.warning(f"Could not remove game files at '{target_path}': {detail}")
-            return False, f"Could not remove the game files: {detail}"
+            return False, "Could not remove the game files. Check permissions and try again."
         logger.info(f"Removed game files from disk: {target_path}")
         return True, ""
+
+    @staticmethod
+    def _stage_game_files_for_lifecycle(game_path: str) -> tuple[str | None, str]:
+        """Move game files aside until the corresponding DB mutation succeeds.
+
+        Lifecycle operations must not delete an installation and only then
+        discover that the library transaction failed.  The staging name stays
+        beside the original path, so the move is normally atomic and can be
+        rolled back without copying multi-gigabyte game data.
+        """
+        raw_value = os.path.expanduser(str(game_path or "").strip())
+        if not raw_value:
+            return None, ""
+        raw_path = os.path.abspath(raw_value)
+        if os.path.islink(raw_path):
+            return None, "Refusing to move a symlinked game directory. Remove the library record instead."
+
+        target_path = os.path.realpath(raw_path)
+        if target_path != raw_path:
+            return None, "Refusing to move a path containing a symlink. Remove the library record instead."
+        protected_paths = {
+            os.path.realpath(os.path.abspath(os.sep)),
+            os.path.realpath(os.path.expanduser("~")),
+            os.path.realpath(os.path.expanduser(DEFAULT_SANDBOX_DIR)),
+        }
+        if target_path in protected_paths:
+            return None, "Refusing to move a protected system, home, or sandbox directory."
+        if not os.path.lexists(target_path):
+            return None, ""
+
+        staged_path = f"{target_path}.safelauncher-pending-{uuid.uuid4().hex}"
+        try:
+            shutil.move(target_path, staged_path)
+        except Exception as exc:
+            logger.warning(f"Could not stage game files at '{target_path}': {exc}")
+            return None, "Could not prepare the game files safely. Check permissions and try again."
+        return staged_path, ""
+
+    @staticmethod
+    def _restore_staged_game_files(staged_path: str, original_path: str) -> tuple[bool, str]:
+        """Restore a staged installation after a failed library mutation."""
+        if not staged_path or not os.path.lexists(staged_path):
+            return True, ""
+        original_path = os.path.abspath(os.path.expanduser(str(original_path or "").strip()))
+        if not original_path:
+            return False, "The original game path is empty; staged files were preserved."
+        try:
+            if os.path.lexists(original_path):
+                return False, "The original game path is no longer empty; staged files were preserved."
+            shutil.move(staged_path, original_path)
+            return True, ""
+        except Exception as exc:
+            logger.warning(
+                "Could not restore staged game files from '%s' to '%s': %s",
+                staged_path,
+                original_path,
+                exc,
+            )
+            return False, "Could not restore the staged game files; they were preserved for safety."
 
     def _finish_game_lifecycle_change(self, game_id: int) -> None:
         """Drop stale UI/runtime state after a game row changes lifecycle."""
@@ -8329,39 +8419,79 @@ class MainWindow(QMainWindow):
         game_id = int(game[0])
         game_name = str(game[1] or "Game")
         library_service = MainWindow._get_library_service(self)
+        game_path = str(game[2] if len(game) > 2 else "")
+        staged_path, stage_error = MainWindow._stage_game_files_for_lifecycle(game_path)
+        if stage_error:
+            self._show_toast(stage_error, is_error=True)
+            return False
+
+        def _restore_after_failure(message: str) -> bool:
+            restored, restore_error = MainWindow._restore_staged_game_files(staged_path, game_path)
+            detail = restore_error if not restored else "The installation was left unchanged."
+            self._show_toast(f"{message} {detail}", is_error=True)
+            return False
+
+        def _finish_success() -> None:
+            self._finish_game_lifecycle_change(game_id)
+            if action == "uninstall" and hasattr(self, "_sync_launcher_metadata_async"):
+                self._sync_launcher_metadata_async(game_id)
+            elif action != "delete_all_data" and hasattr(self, "_sync_profile_metadata_async"):
+                self._sync_profile_metadata_async()
+
+        try:
+            mutation_ok = (
+                bool(library_service and library_service.archive_game(game_id))
+                if action == "uninstall"
+                else bool(library_service and library_service.delete_all_game_data(game_id))
+            )
+        except Exception as exc:
+            logger.exception("Game lifecycle database mutation failed for %s", game_id)
+            mutation_ok = False
+
+        if not mutation_ok:
+            action_label = "mark" if action == "uninstall" else "delete"
+            return _restore_after_failure(
+                f"Could not {action_label} local data for '{game_name}'. Try again."
+            )
+
         if action == "uninstall":
-            deleted, error = self._remove_game_files_from_disk(game[2] if len(game) > 2 else "")
-            if not deleted:
-                self._show_toast(error, is_error=True)
-                return False
-            if not library_service or not library_service.archive_game(game_id):
-                self._show_toast(f"Could not mark '{game_name}' as uninstalled.", is_error=True)
-                return False
+            if staged_path:
+                deleted, error = MainWindow._remove_game_files_from_disk(staged_path)
+                if not deleted:
+                    restored, restore_error = MainWindow._restore_staged_game_files(staged_path, game_path)
+                    if restored:
+                        detail = "The files were restored; the record remains marked uninstalled."
+                    else:
+                        detail = f"The staged files were preserved: {restore_error or error}"
+                    _finish_success()
+                    self._show_toast(
+                        f"'{game_name}' was marked uninstalled, but its files could not be removed. {detail}",
+                        is_error=True,
+                    )
+                    return True
             self._show_toast(
                 f"Uninstalled '{game_name}'. The SafeLauncher record and statistics were preserved."
             )
         else:
-            game_path = game[2] if len(game) > 2 else ""
-            if game_path:
-                deleted, error = self._remove_game_files_from_disk(game_path)
+            if staged_path:
+                deleted, error = MainWindow._remove_game_files_from_disk(staged_path)
                 if not deleted:
-                    self._show_toast(error, is_error=True)
-                    return False
-            if not library_service or not library_service.delete_all_game_data(game_id):
-                self._show_toast(
-                    f"Could not delete all local data for '{game_name}'.",
-                    is_error=True,
-                )
-                return False
+                    restored, restore_error = MainWindow._restore_staged_game_files(staged_path, game_path)
+                    if restored:
+                        detail = "The files were restored, but the local SafeLauncher record was deleted."
+                    else:
+                        detail = f"The staged files were preserved: {restore_error or error}"
+                    _finish_success()
+                    self._show_toast(
+                        f"Local data for '{game_name}' was deleted, but its files could not be removed. {detail}",
+                        is_error=True,
+                    )
+                    return True
             self._show_toast(
                 f"Deleted all local data for '{game_name}'. Remote cloud save versions were kept."
             )
 
-        self._finish_game_lifecycle_change(game_id)
-        if action == "uninstall" and hasattr(self, "_sync_launcher_metadata_async"):
-            self._sync_launcher_metadata_async(game_id)
-        elif action != "delete_all_data" and hasattr(self, "_sync_profile_metadata_async"):
-            self._sync_profile_metadata_async()
+        _finish_success()
         return True
 
     def _on_remove(self):

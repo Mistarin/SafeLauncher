@@ -4,11 +4,12 @@ from PyQt6.QtWidgets import (
     QApplication, QFormLayout, QLineEdit, QLabel, QToolButton, QFrame,
     QPushButton, QMainWindow,
 )
+from PyQt6.QtCore import QSettings
 from unittest.mock import Mock, patch
 
 from core.launch_diagnostics import LaunchDiagnostics
 from ui.components.popup_shell import PopupDialog
-from ui.dialogs.game_dialogs import SafeLaunchDialog
+from ui.dialogs.game_dialogs import AddGameDialog, SafeLaunchDialog
 from ui.dialogs.settings_dialog import UserSettingsDialog
 from ui.components.sidebar import CustomTitleBar
 from ui.main_window import MainWindow
@@ -71,11 +72,39 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         try:
             self.assertEqual(dialog.btn_open_cloud_center.text(), "Open Cloud Center…")
             self.assertFalse(dialog.btn_review_conflicts.isVisible())
-            self.assertFalse(dialog.btn_refresh_quota.isVisible())
+            self.assertFalse(dialog.btn_refresh_quota.isHidden())
             self.assertTrue(any(
                 "Use Cloud Center" in label.text()
                 for label in dialog.findChildren(QLabel)
             ))
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+            self.app.processEvents()
+
+    def test_cloud_backend_selector_does_not_persist_until_save(self):
+        settings = QSettings("SafeLauncher", "SafeLauncher")
+        original = settings.value("cloud_mode", "local", type=str)
+        settings.setValue("cloud_mode", "local")
+        dialog = UserSettingsDialog("Player", parent=None)
+        try:
+            dialog.combo_cloud_mode.setCurrentIndex(1)
+            self.assertEqual(settings.value("cloud_mode", "local", type=str), "local")
+            dialog.reject()
+            self.assertEqual(settings.value("cloud_mode", "local", type=str), "local")
+        finally:
+            settings.setValue("cloud_mode", original)
+            dialog.deleteLater()
+            self.app.processEvents()
+
+    def test_add_game_keeps_invalid_form_open(self):
+        dialog = AddGameDialog(parent=None)
+        try:
+            dialog.name_input.setText("Example")
+            dialog.exe_combo.setEditText("game.exe")
+            dialog.add_btn.click()
+            self.assertEqual(dialog.result(), 0)
+            self.assertIn("existing game directory", dialog.status_label.text())
         finally:
             dialog.close()
             dialog.deleteLater()

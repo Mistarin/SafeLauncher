@@ -495,6 +495,7 @@ class VirtualizedGameGridView(QListView):
         item = self._items_by_game_id.get(game_id)
         if item:
             item.setData(status, CLOUD_STATUS_ROLE)
+            item.setData(cloud_indicator(status).tooltip, Qt.ItemDataRole.ToolTipRole)
             self.viewport().update(self.visualRect(item.index()))
 
     def set_game_selected(self, game_id: int, selected: bool) -> None:

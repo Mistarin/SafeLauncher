@@ -439,6 +439,89 @@ class ProfileModelTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_lifecycle_database_failure_restores_staged_installation(self):
+        from ui.main_window import MainWindow
+
+        class FailingService:
+            def archive_game(self, _game_id):
+                raise RuntimeError("database is temporarily unavailable")
+
+        class LifecycleHost:
+            def __init__(self, db):
+                self.db = db
+                self.library_service = FailingService()
+                self.toasts = []
+
+            def _show_toast(self, message, is_error=False):
+                self.toasts.append((message, is_error))
+
+        db = GameDatabase(":memory:")
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                game_path = Path(directory) / "rollback-game"
+                game_path.mkdir()
+                save_path = game_path / "save.dat"
+                save_path.write_text("save", encoding="utf-8")
+                game_id = db.add_game("Rollback Game", str(game_path), "game.exe", "umu")
+                host = LifecycleHost(db)
+
+                self.assertFalse(
+                    MainWindow._apply_game_lifecycle_action(
+                        host, db.get_all_games()[0], "uninstall"
+                    )
+                )
+                self.assertTrue(game_path.is_dir())
+                self.assertEqual(save_path.read_text(encoding="utf-8"), "save")
+                self.assertFalse(db.get_all_games()[0][17])
+                self.assertTrue(host.toasts[-1][1])
+                self.assertIn("left unchanged", host.toasts[-1][0])
+                self.assertEqual(db.get_all_games()[0][0], game_id)
+        finally:
+            db.close()
+
+    def test_lifecycle_cleanup_failure_keeps_ui_consistent_and_restores_files(self):
+        from ui.main_window import MainWindow
+
+        class LifecycleHost:
+            def __init__(self, db):
+                self.db = db
+                self.finished = []
+                self.toasts = []
+
+            def _finish_game_lifecycle_change(self, game_id):
+                self.finished.append(game_id)
+
+            def _show_toast(self, message, is_error=False):
+                self.toasts.append((message, is_error))
+
+        db = GameDatabase(":memory:")
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                game_path = Path(directory) / "cleanup-game"
+                game_path.mkdir()
+                (game_path / "save.dat").write_text("save", encoding="utf-8")
+                game_id = db.add_game("Cleanup Game", str(game_path), "game.exe", "umu")
+                host = LifecycleHost(db)
+
+                with patch.object(
+                    MainWindow,
+                    "_remove_game_files_from_disk",
+                    return_value=(False, "permission denied"),
+                ):
+                    self.assertTrue(
+                        MainWindow._apply_game_lifecycle_action(
+                            host, db.get_all_games()[0], "uninstall"
+                        )
+                    )
+
+                self.assertTrue(game_path.is_dir())
+                self.assertEqual(host.finished, [game_id])
+                self.assertTrue(db.get_all_games()[0][17])
+                self.assertTrue(host.toasts[-1][1])
+                self.assertIn("files were restored", host.toasts[-1][0])
+        finally:
+            db.close()
+
     def test_marking_current_build_clears_cached_update_state(self):
         from ui.main_window import MainWindow
 

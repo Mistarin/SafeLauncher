@@ -287,7 +287,14 @@ class CloudCenterDialog(PopupDialog):
         if result.status in (ResourceStatus.CANCELLED,):
             return
         if result.status not in (ResourceStatus.READY, ResourceStatus.STALE):
-            self.lbl_probe.setText(str(result.error or "Connection probe failed."))
+            if result.status == ResourceStatus.OFFLINE:
+                message = "Offline mode is enabled. Connect to test the cloud backend."
+            elif result.status == ResourceStatus.AUTHENTICATION_REQUIRED:
+                message = "Cloud setup is required. Add credentials and try again."
+            else:
+                message = "The cloud backend could not be reached. Check the connection and try again."
+            self.lbl_probe.setText(message)
+            self.lbl_probe.setToolTip(str(result.error or ""))
             return
         payload = result.value if isinstance(result.value, dict) else {}
         if payload.get("healthy"):
@@ -302,7 +309,8 @@ class CloudCenterDialog(PopupDialog):
             # cannot leave its own projection stale if a shell consumer fails.
             self.connection_restored.emit()
         else:
-            self.lbl_probe.setText(str(payload.get("message") or "Backend is not available."))
+            self.lbl_probe.setText("The cloud backend is not available. Check the connection and try again.")
+            self.lbl_probe.setToolTip(str(payload.get("message") or ""))
 
     def _close_binding(self, binding: ResourceBinding | None) -> None:
         if binding is not None:
@@ -365,7 +373,8 @@ class CloudCenterDialog(PopupDialog):
             message = "The cloud request was cancelled before it completed."
         else:
             title = "Cloud status unavailable"
-            message = str(result.error or "Could not load the cloud overview.")
+            message = "Could not load the cloud overview. Check the connection and try again."
+            self.cloud_status.setToolTip(str(result.error or ""))
         action = (
             "Fix connection"
             if status in (ResourceStatus.AUTHENTICATION_REQUIRED, ResourceStatus.UNAVAILABLE)

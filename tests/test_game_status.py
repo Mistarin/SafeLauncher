@@ -18,6 +18,13 @@ class CloudConflictActionStateTests(unittest.TestCase):
         self.assertEqual(indicator.label, "Cloud Save: Unavailable")
         self.assertIn("Online mode", indicator.tooltip)
 
+    def test_explicit_offline_status_explains_when_it_will_be_checked_again(self):
+        indicator = cloud_indicator(SyncStatus.CLOUD_OFFLINE)
+
+        self.assertEqual(indicator.label, "Cloud Save: Offline")
+        self.assertIn("Offline mode is enabled", indicator.tooltip)
+        self.assertIn("checked again when online", indicator.tooltip)
+
 
 if __name__ == "__main__":
     unittest.main()

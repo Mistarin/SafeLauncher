@@ -214,10 +214,11 @@ class AddGameDialog(PopupDialog):
         # Launch Mode
         self.mode_combo = QComboBox()
         self.mode_combo.setMinimumHeight(36)
-        # Both UMU entries currently launch with full host networking (see
-        # FirejailSandboxRunner) — labels must not claim otherwise.
+        # UMU currently launches with full host networking (see
+        # FirejailSandboxRunner).  Keep the legacy ``umu_net`` value readable
+        # when editing old records, but do not present two identical choices
+        # to users creating a new game.
         self.mode_combo.addItem(get_app_icon("shield"), "UMU – Standard (networked)", "umu")
-        self.mode_combo.addItem(get_app_icon("globe"), "UMU – Network Enabled (alias)", "umu_net")
         self.mode_combo.addItem(get_app_icon("wine"), "Wine – Legacy (offline)", "wine")
         self.mode_combo.addItem(get_app_icon("terminal"), "Native Linux", "linux")
         form_layout.addRow("Runner Mode:", self.mode_combo)
@@ -737,7 +738,6 @@ class AddGameDialog(PopupDialog):
         if mode not in ("umu", "umu_net", "wine", "linux"):
             mode = {
                 "UMU – Standard (networked)": "umu",
-                "UMU – Network Enabled (alias)": "umu_net",
                 "Wine – Legacy (offline)": "wine",
                 "Native Linux": "linux",
             }.get(self.mode_combo.currentText().strip(), "umu")
@@ -761,7 +761,9 @@ class AddGameDialog(PopupDialog):
         )
 
     def _accept_form(self):
-        """Snapshot all form values before WA_DeleteOnClose destroys children."""
+        """Validate and snapshot form values before closing the dialog."""
+        if not self._validate_form():
+            return
         self._form_result = self._read_form_values()
         self._steam_id_result = self.steam_id_input.text().strip()
         self._version_result = (
@@ -773,6 +775,43 @@ class AddGameDialog(PopupDialog):
         if hasattr(self, "build_date_input"):
             self._build_date_result = self.get_build_date()
         self.accept()
+
+    def _set_form_error(self, message: str, widget: QWidget | None = None) -> None:
+        """Keep invalid forms open and explain the correction inline."""
+        self.status_label.setStyleSheet(
+            "color: #F87171; background: transparent; border: none; "
+            "font-weight: bold; font-size: 11px; padding: 0px;"
+        )
+        self.status_label.setText(message)
+        if widget is not None:
+            widget.setStyleSheet("border: 1px solid #EF4444;")
+            widget.setFocus()
+
+    def _validate_form(self) -> bool:
+        name = self.name_input.text().strip()
+        raw_path = self.path_input.text().strip()
+        path = os.path.abspath(os.path.expanduser(raw_path)) if raw_path else ""
+        executable = self.exe_combo.currentData() or self.exe_combo.currentText().strip()
+        executable = str(executable or "").split(" · ", 1)[0].strip()
+
+        if not name:
+            self._set_form_error("Enter a game name.", self.name_input)
+            return False
+        if not path or not os.path.isdir(path):
+            self._set_form_error("Choose an existing game directory.", self.path_input)
+            return False
+        if not executable:
+            self._set_form_error("Choose or enter the game's executable file.", self.exe_combo)
+            return False
+
+        for field in (self.name_input, self.path_input, self.exe_combo):
+            field.setStyleSheet("")
+        self.status_label.setText("")
+        self.status_label.setStyleSheet(
+            "color: #4ADE80; background: transparent; border: none; "
+            "font-weight: bold; font-size: 11px; padding: 0px;"
+        )
+        return True
 
     def get_values(self):
         """Return the accepted form snapshot, or current values before exec()."""
@@ -851,6 +890,14 @@ class EditGameDialog(AddGameDialog):
                 self.exe_combo.setEditText(effective_exe)
             
         mode_idx = self.mode_combo.findData(mode)
+        if mode_idx < 0:
+            if mode == "umu_net":
+                self.mode_combo.addItem(
+                    get_app_icon("shield"),
+                    "UMU – Standard (legacy compatibility)",
+                    "umu_net",
+                )
+                mode_idx = self.mode_combo.findData(mode)
         if mode_idx < 0:
             mode_idx = self.mode_combo.findText(mode)
         if mode_idx >= 0:
@@ -980,14 +1027,6 @@ class LaunchOptionsDialog(PopupDialog):
         )
         btn_umu.clicked.connect(lambda: self._select("umu"))
         body_layout.addWidget(btn_umu)
-
-        btn_umu_net = self._create_option_button(
-            "UMU – Network Enabled (alias)",
-            "Alias of UMU Standard — kept for compatibility with existing libraries.",
-            "globe"
-        )
-        btn_umu_net.clicked.connect(lambda: self._select("umu_net"))
-        body_layout.addWidget(btn_umu_net)
 
         btn_wine = self._create_option_button(
             "Wine – Legacy (offline)",
