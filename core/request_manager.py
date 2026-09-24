@@ -230,6 +230,7 @@ class RequestManager:
         timeout_seconds: float | None = None,
         stale_while_revalidate: bool = True,
         content_type: str = "application/json",
+        force_network: bool = False,
     ) -> RequestHandle:
         """Request one resource through the manager's shared cache.
 
@@ -257,6 +258,7 @@ class RequestManager:
             cache_decoder=cache_decoder,
             stale_while_revalidate=stale_while_revalidate,
             content_type=content_type,
+            force_network=force_network,
         )
 
     def request_many(
@@ -313,6 +315,7 @@ class RequestManager:
         timeout_seconds: float | None = None,
         stale_while_revalidate: bool = True,
         content_type: str = "application/json",
+        force_network: bool = False,
         progress=None,
         on_complete: Callable[[list[ResourceResult]], None] | None = None,
     ) -> list[RequestHandle]:
@@ -346,6 +349,7 @@ class RequestManager:
                 cache_decoder=cache_decoder,
                 stale_while_revalidate=stale_while_revalidate,
                 content_type=content_type,
+                force_network=force_network,
             )
             for spec in specs
         ]
@@ -676,10 +680,28 @@ class RequestManager:
         cache_decoder: Callable[[object], object] | None = None,
         stale_while_revalidate: bool = True,
         content_type: str = "application/json",
+        force_network: bool = False,
     ) -> RequestHandle:
-        """Serve fresh cache data or refresh stale data in the background."""
+        """Serve cache data or force a new transport request.
+
+        ``force_network`` is for explicit recovery/manual refresh actions. It
+        invalidates the resource before submitting work, so an active request
+        and a fresh cache entry cannot silently satisfy the refresh. Normal
+        callers retain the existing stale-while-revalidate behavior.
+        """
         with self._condition:
             self._cache_by_key[spec.key] = cache
+        if force_network:
+            self.invalidate(spec.key)
+            # ``invalidate`` advances the manager tombstone so a late result
+            # from the superseded request cannot win. The replacement must be
+            # submitted at that same-or-newer generation, otherwise its own
+            # completion would be discarded as stale.
+            invalidated_generation = self.state(spec.key).generation
+            if invalidated_generation > spec.generation:
+                spec = replace(spec, generation=invalidated_generation)
+            with self._condition:
+                self._cache_by_key[spec.key] = cache
         cached = cache.get(spec.key)
         if cached is not None and cache_decoder is not None:
             try:

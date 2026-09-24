@@ -257,7 +257,11 @@ class MainWindow(QMainWindow):
         # cloud configuration generations.
         self._cloud_context_generation = self.cloud_sync_coordinator.generation
         self._cloud_status_bindings = ResourceBindingRegistry()
-        self._cloud_status_callbacks: dict[RequestKey, tuple[int, int, object]] = {}
+        # A library sweep, selected-game detail panel, and manual action can
+        # all observe the same managed resource. Keep every consumer instead
+        # of letting the last caller overwrite the previous callback.
+        self._cloud_status_callbacks: dict[RequestKey, list[tuple[int, int, object]]] = {}
+        self._cloud_status_target_ids: dict[RequestKey, int] = {}
         self.achievement_state = AchievementStateStore()
         self.achievement_persistence_service = AchievementPersistenceService(self.db)
         self._achievement_poll_timer = None
@@ -1621,6 +1625,11 @@ class MainWindow(QMainWindow):
             self._show_toast("Online mode enabled — refreshing optional metadata.")
             self._refresh_library()
             self._start_cloud_poll_timer()
+            # Do not let an unavailable account snapshot survive a policy
+            # transition. The next Cloud Center open must perform a real read.
+            cloud_center_service = getattr(self, "cloud_center_service", None)
+            if cloud_center_service is not None:
+                cloud_center_service.invalidate_account_reads()
             # Offline verdicts are deliberately persisted so the library can
             # render a useful state without networking.  Re-entering online
             # mode must immediately re-check those verdicts instead of
@@ -5464,6 +5473,7 @@ class MainWindow(QMainWindow):
                 self._on_cloud_save_status_calculated,
                 "detail",
                 generation=self.cloud_sync_coordinator.generation,
+                force=True,
             )
 
         local_build_id = game[11] if len(game) > 11 and game[11] else ""
@@ -7055,6 +7065,10 @@ class MainWindow(QMainWindow):
                 self._mark_cloud_auth_required(game_ids)
             return
         tag = f" ({reason})" if reason else ""
+        # Explicit recovery and user actions must not be satisfied by the
+        # resource-cache entry created before the action. Startup and polling
+        # retain normal TTL behavior to avoid unnecessary network traffic.
+        force_refresh = reason not in {"", "startup", "poll", "listing-diff"}
         generation = context.generation
         games_snapshot = [
             (g[0], g[1], g[2], str(g[6]).strip() if len(g) > 6 and g[6] else "")
@@ -7082,6 +7096,7 @@ class MainWindow(QMainWindow):
                 self._accept_cloud_status_for_context(g, gid, status, local, cloud),
                 tag,
                 generation=generation,
+                force=force_refresh,
                 on_batch_complete=lambda results, g=generation: self._managed_cloud_batch_done.emit(
                     (g, results)
                 ),
@@ -7098,7 +7113,11 @@ class MainWindow(QMainWindow):
             self._spawn_status_fetchers(
                 [(target.game_id, target.game_name, target.game_path, target.steam_id)
                  for target in plan.targets if target.game_id in by_id],
-                self._on_cloud_save_status_calculated, tag, generation=generation)
+                self._on_cloud_save_status_calculated,
+                tag,
+                generation=generation,
+                force=force_refresh,
+            )
             return
 
         # Changed-only: diff a fresh listing against the cached statuses on a
@@ -7197,6 +7216,7 @@ class MainWindow(QMainWindow):
         tag: str = "",
         generation=None,
         on_batch_complete=None,
+        force: bool = False,
     ):
         """Request per-game cloud statuses through the shared manager."""
         if not self._automatic_network_allowed():
@@ -7232,7 +7252,10 @@ class MainWindow(QMainWindow):
                 tag=tag,
             )
             key = spec.key
-            self._cloud_status_callbacks[key] = (generation, target.game_id, on_result)
+            self._cloud_status_callbacks.setdefault(key, []).append(
+                (generation, target.game_id, on_result)
+            )
+            self._cloud_status_target_ids[key] = target.game_id
             if key not in self._cloud_status_bindings:
                 self._cloud_status_bindings[key] = bind_resource(
                     self.request_manager,
@@ -7249,38 +7272,57 @@ class MainWindow(QMainWindow):
             priority=priority,
             generation=generation,
             tag=tag,
+            force=force,
             on_complete=on_batch_complete,
         )
 
     def _on_managed_cloud_status_state(self, key: RequestKey, result) -> None:
         """Apply a managed cloud status only on the current UI generation."""
-        callback_data = self._cloud_status_callbacks.get(key)
-        if callback_data is None:
+        callback_data = list(self._cloud_status_callbacks.get(key, ()))
+        if not callback_data:
             return
-        generation, game_id, callback = callback_data
-        if result.status == ResourceStatus.CANCELLED:
+        if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
             return
+
+        # A stale notification without an error is the normal first phase of
+        # stale-while-revalidate. Keep subscribers until the network result
+        # arrives. A stale notification carrying an error is terminal.
+        if result.status == ResourceStatus.STALE and result.error is None:
+            return
+
         if result.status != ResourceStatus.READY:
-            if result.status in {
-                ResourceStatus.ERROR,
-                ResourceStatus.OFFLINE,
-                ResourceStatus.UNAVAILABLE,
-                ResourceStatus.AUTHENTICATION_REQUIRED,
-                ResourceStatus.PERMISSION_DENIED,
-                ResourceStatus.CONFLICT,
-            }:
-                logger.debug(
-                    "Managed cloud status request failed for game %s: %s",
-                    game_id,
-                    result.error or result.status.value,
-                )
+            status = self._cloud_status_failure_status(result)
+            self._deliver_managed_cloud_status(
+                key,
+                callback_data,
+                status,
+                None,
+                None,
+                error=result.error or result.status.value,
+            )
             return
+
+        status = None
+        local_stats = None
+        cloud_stats = None
         if isinstance(result.value, CloudStatusResult):
             if result.value.error is not None:
                 logger.debug(
                     "Managed cloud status result failed for game %s: %s",
-                    game_id,
+                    self._cloud_status_target_ids.get(key, "unknown"),
                     result.value.error.error,
+                )
+                failure = self._cloud_status_failure_status(
+                    result,
+                    domain_error=result.value.error,
+                )
+                self._deliver_managed_cloud_status(
+                    key,
+                    callback_data,
+                    failure,
+                    None,
+                    None,
+                    error=result.value.error.error,
                 )
                 return
             status = result.value.status
@@ -7290,16 +7332,87 @@ class MainWindow(QMainWindow):
             # Compatibility with any already-completed request submitted by
             # an older embedding caller during the service migration.
             status, local_stats, cloud_stats = result.value
-        else:
-            return
-        if not self.cloud_sync_coordinator.accepts(generation):
-            logger.debug(
-                "Discarded cloud status for game %s from retired context %s",
-                game_id,
-                generation,
+        if status is None:
+            failure = self._cloud_status_failure_status(result)
+            self._deliver_managed_cloud_status(
+                key,
+                callback_data,
+                failure,
+                None,
+                None,
+                error="invalid cloud status payload",
             )
             return
-        callback(game_id, status, local_stats, cloud_stats)
+        self._deliver_managed_cloud_status(
+            key,
+            callback_data,
+            status,
+            local_stats,
+            cloud_stats,
+        )
+
+    def _deliver_managed_cloud_status(
+        self,
+        key: RequestKey,
+        callback_data,
+        status,
+        local_stats,
+        cloud_stats,
+        *,
+        error=None,
+    ) -> None:
+        """Fan out one terminal resource state and retire its subscribers."""
+        try:
+            for generation, game_id, callback in callback_data:
+                if not self.cloud_sync_coordinator.accepts(generation):
+                    logger.debug(
+                        "Discarded cloud status for game %s from retired context %s",
+                        game_id,
+                        generation,
+                    )
+                    continue
+                if error is not None:
+                    logger.debug(
+                        "Managed cloud status request failed for game %s: %s",
+                        game_id,
+                        error,
+                    )
+                try:
+                    callback(game_id, status, local_stats, cloud_stats)
+                except Exception:
+                    logger.exception(
+                        "Cloud status consumer failed for game %s",
+                        game_id,
+                    )
+        finally:
+            current = self._cloud_status_callbacks.get(key, [])
+            if current[:len(callback_data)] == callback_data:
+                remaining = current[len(callback_data):]
+            else:
+                remaining = [item for item in current if item not in callback_data]
+            if remaining:
+                self._cloud_status_callbacks[key] = remaining
+            else:
+                self._cloud_status_callbacks.pop(key, None)
+
+    def _cloud_status_failure_status(self, result, *, domain_error=None):
+        """Map every managed request failure to a final cloud-save verdict."""
+        if result.status == ResourceStatus.OFFLINE or not self._automatic_network_allowed():
+            return SyncStatus.CLOUD_OFFLINE
+        category = str(
+            getattr(domain_error, "category", "")
+            or getattr(result, "error_category", "")
+            or ""
+        ).strip().lower().replace("-", "_")
+        if result.status == ResourceStatus.AUTHENTICATION_REQUIRED or category in {
+            "auth",
+            "authentication",
+            "authentication_required",
+            "auth_required",
+            "unauthorized",
+        }:
+            return SyncStatus.CLOUD_AUTH_REQUIRED
+        return SyncStatus.CLOUD_UNAVAILABLE
 
     def _on_managed_cloud_batch_done(self, payload: object) -> None:
         generation, results = payload
@@ -7318,10 +7431,9 @@ class MainWindow(QMainWindow):
                 status = result.value[0]
             else:
                 continue
-            callback_data = self._cloud_status_callbacks.get(result.key)
+            game_id = self._cloud_status_target_ids.get(result.key)
             name = ""
-            if callback_data is not None:
-                game_id = callback_data[1]
+            if game_id is not None:
                 game = self.games_by_id.get(game_id)
                 name = game[1] if game and len(game) > 1 else ""
             if status == SyncStatus.LOCAL_NEWER:
@@ -7335,6 +7447,7 @@ class MainWindow(QMainWindow):
             binding.close()
             binding.deleteLater()
         self._cloud_status_callbacks.clear()
+        self._cloud_status_target_ids.clear()
 
     def _start_background_cloud_sync(self):
         """Startup cloud save check & sync queue across the library."""

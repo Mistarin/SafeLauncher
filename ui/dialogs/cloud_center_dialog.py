@@ -238,7 +238,10 @@ class CloudCenterDialog(PopupDialog):
         )
         set_cloud_initial_focus(self, self.btn_sync)
 
-        self._request_overview()
+        # Opening Cloud Center is an explicit request to verify the current
+        # backend, so do not reuse an unavailable/fresh snapshot from before a
+        # network or offline-mode transition.
+        self._request_overview(force=True)
 
     def _toggle_advanced(self, expanded: bool) -> None:
         sender = self.sender()
@@ -292,11 +295,12 @@ class CloudCenterDialog(PopupDialog):
             latency = payload.get("latency_ms")
             suffix = f" · {latency} ms" if latency else ""
             self.lbl_probe.setText(f"Backend reachable · v{version}{suffix}")
+            self._request_overview(force=True)
             # A successful probe repairs two independent stale surfaces: the
             # center overview and the per-game save-status projections owned
-            # by MainWindow.
+            # by MainWindow. Emit after scheduling the overview so the dialog
+            # cannot leave its own projection stale if a shell consumer fails.
             self.connection_restored.emit()
-            self._request_overview(force=True)
         else:
             self.lbl_probe.setText(str(payload.get("message") or "Backend is not available."))
 

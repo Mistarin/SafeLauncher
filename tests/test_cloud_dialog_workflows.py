@@ -88,6 +88,7 @@ class CloudDialogWorkflowTests(unittest.TestCase):
             dialog = CloudCenterDialog(
                 cloud_center_service=_CloudCenterService(),
             )
+            request_overview.assert_called_once_with(force=True)
             restored = []
             dialog.connection_restored.connect(lambda: restored.append(True))
             try:

@@ -12,3 +12,8 @@ and the footer remains visible while the policy blocks automatic networking.
 When a connection probe succeeds, Cloud Center refreshes its overview and
 signals the shell to recheck library save statuses. The selected-game detail
 shows an explicit Checking state during that targeted request.
+
+Reconnect, manual, and detail status checks must bypass fresh per-game cloud
+status cache entries. Transport failures must resolve to an explicit Offline,
+Unavailable, or Setup required verdict; they must not leave the detail panel
+in Checking indefinitely.

@@ -223,6 +223,26 @@ class RequestManagerTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_forced_cached_request_bypasses_fresh_entry(self):
+        cache = ResourceCache()
+        manager = RequestManager(max_workers=1, cache=cache)
+        try:
+            key = RequestKey("data", "forced")
+            cache.put(key, "old")
+            calls = []
+            result = manager.request_cached(
+                key,
+                lambda _token: calls.append(True) or "new",
+                max_age_seconds=60,
+                force_network=True,
+            ).future.result(timeout=2)
+            self.assertEqual(result.status, ResourceStatus.READY)
+            self.assertEqual(result.value, "new")
+            self.assertFalse(result.from_cache)
+            self.assertEqual(calls, [True])
+        finally:
+            manager.shutdown()
+
     def test_cached_request_codec_round_trips_disk_values_and_rejects_invalid_results(self):
         cache = ResourceCache()
         manager = RequestManager(max_workers=1, cache=cache)

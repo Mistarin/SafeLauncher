@@ -92,6 +92,12 @@ UI or feature coordinator
 
 Cached stale values remain usable while refreshes run. Offline mode short-circuits network loaders and permits stale-cache presentation where available. See [request-resource-manager.md](architecture/request-resource-manager.md) and [workflows/offline-mode.md](workflows/offline-mode.md).
 
+Explicit cloud recovery, manual refresh, and selected-game detail checks use
+the request manager's forced-network path. That path invalidates the current
+resource and active batch before submitting work, so a fresh pre-transition
+cache entry cannot satisfy a reconnect check. Cloud status batches retain all
+completion consumers when requests are deduplicated.
+
 ## Runtime lifecycle
 
 Startup creates the Qt application, initializes environment and database state, constructs the shared managers and clients, then loads the local library before optional remote resources. Shutdown closes page bindings, active feature work, clients, and the request manager in a controlled sequence.

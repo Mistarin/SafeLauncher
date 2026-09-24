@@ -12,12 +12,13 @@ import json
 import os
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import RLock
 from typing import Callable, Iterable
 
 from core.cloud_context import CloudContext
+from core.logger import get_logger
 from core.cloud_operations import (
     CloudStatusResult,
     CloudSyncCoordinator,
@@ -35,6 +36,9 @@ from core.request_contracts import (
     RetryPolicy,
     is_transient_error,
 )
+
+
+logger = get_logger("CloudStatusService")
 
 
 class CloudStatusRequestError(RuntimeError):
@@ -75,6 +79,14 @@ class CloudStatusPlan:
     reason: str = ""
 
 
+@dataclass
+class _ActiveStatusBatch:
+    """Shared handles and completion consumers for one target batch."""
+
+    handles: list
+    callbacks: list[Callable[[list[ResourceResult]], None]]
+
+
 class CloudStatusService:
     """Build and submit context-safe cloud status resources."""
 
@@ -107,12 +119,12 @@ class CloudStatusService:
         # Batch lifecycle belongs to the cloud service.  The UI can keep its
         # binding registry, but it must not maintain a second "batch running"
         # flag that can drift from RequestManager state.
-        self._active_batches: dict[tuple, list] = {}
+        self._active_batches: dict[tuple, _ActiveStatusBatch] = {}
         self._load_cache(legacy_cache_path)
 
     def _cancel_active_batches_locked(self) -> None:
-        for handles in self._active_batches.values():
-            for handle in handles:
+        for batch in self._active_batches.values():
+            for handle in batch.handles:
                 try:
                     handle.cancel()
                 except Exception:
@@ -482,8 +494,18 @@ class CloudStatusService:
             raise ValueError("Invalid cloud listing cache document") from exc
         return decoded
 
-    def _request_status_cached(self, spec: RequestSpec[CloudStatusResult]):
+    def _request_status_cached(
+        self,
+        spec: RequestSpec[CloudStatusResult],
+        *,
+        force: bool = False,
+    ):
         if self.resource_cache is None:
+            if force:
+                self.request_manager.invalidate(spec.key)
+                invalidated_generation = self.request_manager.state(spec.key).generation
+                if invalidated_generation > spec.generation:
+                    spec = replace(spec, generation=invalidated_generation)
             return self.request_manager.submit(spec)
         return self.request_manager.cached_request(
             spec,
@@ -494,6 +516,7 @@ class CloudStatusService:
             cache_decoder=self._status_cache_decoder,
             stale_while_revalidate=True,
             content_type="application/json",
+            force_network=force,
         )
 
     def _request_listing_cached(self, spec: RequestSpec[list[CloudStatusTarget]]):
@@ -565,6 +588,7 @@ class CloudStatusService:
         priority: RequestPriority = RequestPriority.NORMAL,
         generation: int | None = None,
         tag: str = "",
+        force: bool = False,
     ):
         """Submit one cloud status resource through RequestManager."""
         return self._request_status_cached(
@@ -573,7 +597,8 @@ class CloudStatusService:
                 priority=priority,
                 generation=generation,
                 tag=tag,
-            )
+            ),
+            force=force,
         )
 
     def request_many(
@@ -584,8 +609,13 @@ class CloudStatusService:
         generation: int | None = None,
         tag: str = "",
         on_complete: Callable[[list[ResourceResult]], None] | None = None,
+        force: bool = False,
     ):
-        """Submit a deduplicated batch while retaining individual handles."""
+        """Submit a deduplicated batch while retaining individual handles.
+
+        A forced batch supersedes an older batch for the same targets. Normal
+        callers share the active request and all consumers receive completion.
+        """
         specs = [
             self.status_spec(
                 target,
@@ -599,18 +629,53 @@ class CloudStatusService:
             tuple(sorted(spec.key.cache_key() for spec in specs)),
             tuple(sorted(int(spec.generation) for spec in specs)),
         )
+        cancelled_batch = None
         with self._lock:
             active = self._active_batches.get(batch_key)
-            if active and any(not handle.future.done() for handle in active):
-                return active
+            if active and any(not handle.future.done() for handle in active.handles):
+                if not force:
+                    if on_complete is not None:
+                        active.callbacks.append(on_complete)
+                    return active.handles
+                cancelled_batch = self._active_batches.pop(batch_key, None)
+
+        if cancelled_batch is not None:
+            for handle in cancelled_batch.handles:
+                try:
+                    handle.cancel()
+                except Exception:
+                    pass
+
+        batch = _ActiveStatusBatch(
+            handles=[],
+            callbacks=[on_complete] if on_complete is not None else [],
+        )
 
         def completed(results):
             with self._lock:
-                self._active_batches.pop(batch_key, None)
-            if on_complete is not None:
-                on_complete(results)
+                if self._active_batches.get(batch_key) is batch:
+                    self._active_batches.pop(batch_key, None)
+                callbacks = list(batch.callbacks)
+            for callback in callbacks:
+                try:
+                    callback(results)
+                except Exception:
+                    logger.exception("Cloud status batch completion callback failed")
 
         if self.resource_cache is None:
+            if force:
+                for spec in specs:
+                    self.request_manager.invalidate(spec.key)
+                specs = [
+                    replace(
+                        spec,
+                        generation=max(
+                            int(spec.generation),
+                            int(self.request_manager.state(spec.key).generation),
+                        ),
+                    )
+                    for spec in specs
+                ]
             handles = self.request_manager.request_many(specs, on_complete=completed)
         else:
             handles = self.request_manager.request_many_cached(
@@ -622,10 +687,13 @@ class CloudStatusService:
                 cache_decoder=self._status_cache_decoder,
                 stale_while_revalidate=True,
                 content_type="application/json",
+                force_network=force,
                 on_complete=completed,
             )
+        batch.handles = handles
         with self._lock:
-            self._active_batches[batch_key] = handles
+            if any(not handle.future.done() for handle in handles):
+                self._active_batches[batch_key] = batch
         return handles
 
     def _load_cache(self, legacy_cache_path: str | os.PathLike | None = None) -> None:

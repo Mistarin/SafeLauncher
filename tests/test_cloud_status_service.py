@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 
 from core.cloud_context import CloudContext
@@ -284,6 +285,84 @@ class CloudStatusServiceTests(unittest.TestCase):
                 self.assertEqual(second_coordinator.calls, [])
             finally:
                 second_manager.shutdown()
+
+    def test_forced_status_recheck_bypasses_fresh_shared_cache(self):
+        expected = CloudStatusResult("Example Game", SyncStatus.IN_SYNC)
+        coordinator = _Coordinator(expected)
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResourceCache(directory)
+            manager = RequestManager(max_workers=1, cache=cache)
+            try:
+                service = CloudStatusService(
+                    manager,
+                    coordinator=coordinator,
+                    context_provider=self._context_provider(),
+                    cache=cache,
+                )
+                target = CloudStatusTarget(42, "Example Game", "/games/example", "480")
+                first = service.request_status(target).future.result(timeout=2)
+                self.assertFalse(first.from_cache)
+                service.record_status(42, SyncStatus.CLOUD_OFFLINE)
+
+                refreshed = service.request_status(target, force=True).future.result(timeout=2)
+                self.assertEqual(refreshed.status, ResourceStatus.READY)
+                self.assertFalse(refreshed.from_cache)
+                self.assertEqual(len(coordinator.calls), 2)
+            finally:
+                manager.shutdown()
+
+    def test_forced_status_recheck_without_cache_keeps_generation_current(self):
+        coordinator = _Coordinator(CloudStatusResult("Example Game", SyncStatus.IN_SYNC))
+        manager = RequestManager(max_workers=1)
+        try:
+            service = CloudStatusService(
+                manager,
+                coordinator=coordinator,
+                context_provider=self._context_provider(),
+            )
+            target = CloudStatusTarget(42, "Example Game")
+            service.request_status(target).future.result(timeout=2)
+            refreshed = service.request_status(target, force=True).future.result(timeout=2)
+            self.assertEqual(refreshed.status, ResourceStatus.READY)
+            self.assertEqual(manager.state(refreshed.key).status, ResourceStatus.READY)
+            self.assertEqual(len(coordinator.calls), 2)
+        finally:
+            manager.shutdown()
+
+    def test_active_batch_completion_is_delivered_to_all_consumers(self):
+        class BlockingCoordinator(_Coordinator):
+            def __init__(self):
+                super().__init__(CloudStatusResult("Example Game", SyncStatus.IN_SYNC))
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def check_status(self, *args):
+                self.started.set()
+                self.release.wait(2)
+                return super().check_status(*args)
+
+        coordinator = BlockingCoordinator()
+        manager = RequestManager(max_workers=1)
+        try:
+            service = CloudStatusService(
+                manager,
+                coordinator=coordinator,
+                context_provider=self._context_provider(),
+            )
+            target = CloudStatusTarget(42, "Example Game")
+            first_done = []
+            second_done = []
+            first = service.request_many([target], on_complete=first_done.append)
+            self.assertTrue(coordinator.started.wait(2))
+            second = service.request_many([target], on_complete=second_done.append)
+            self.assertIs(first[0].future, second[0].future)
+            coordinator.release.set()
+            self.assertEqual(first[0].future.result(timeout=2).status, ResourceStatus.READY)
+            self.assertEqual(len(first_done), 1)
+            self.assertEqual(len(second_done), 1)
+        finally:
+            coordinator.release.set()
+            manager.shutdown()
 
     def test_changed_listing_uses_shared_cache_with_typed_target_codec(self):
         class ListingCoordinator(_Coordinator):

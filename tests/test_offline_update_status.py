@@ -9,8 +9,11 @@ from unittest.mock import Mock, patch
 from PyQt6.QtWidgets import QApplication
 
 from core.achievement_state_store import AchievementStateStore
+from core.cloud_models import SyncStatus
+from core.cloud_operations import CloudStatusResult
 from core.game_status import GameStatusState, update_indicator
 from core.library_metadata_state import LibraryMetadataState
+from core.request_contracts import RequestKey, ResourceResult, ResourceStatus
 from ui.library_list import LibraryListItemWidget
 from ui.main_window import MainWindow
 
@@ -125,6 +128,7 @@ class OfflineUpdateStatusTests(unittest.TestCase):
             _show_toast=Mock(),
             _refresh_library=Mock(),
             _start_cloud_poll_timer=Mock(),
+            cloud_center_service=SimpleNamespace(invalidate_account_reads=Mock()),
             request_cloud_recheck=Mock(),
             _check_all_steam_updates=Mock(),
             _start_background_achievement_sync=Mock(),
@@ -139,6 +143,7 @@ class OfflineUpdateStatusTests(unittest.TestCase):
             MainWindow._apply_network_policy_change(fake, True)
 
         fake.request_cloud_recheck.assert_called_once_with(None, "online-mode")
+        fake.cloud_center_service.invalidate_account_reads.assert_called_once_with()
         self.assertTrue(any(
             len(call.args) == 2 and call.args[0] == 300
             and call.args[1] is fake._check_all_steam_updates
@@ -160,6 +165,57 @@ class OfflineUpdateStatusTests(unittest.TestCase):
 
         self.assertIn("Checking", detail.text())
         self.assertFalse(restore.isVisible())
+
+    def test_managed_cloud_error_resolves_detail_to_unavailable(self):
+        key = RequestKey("cloud-save-status", "context:4", "v1")
+        received = []
+        fake = SimpleNamespace(
+            _cloud_status_callbacks={key: [(0, 4, lambda *args: received.append(args))]},
+            _cloud_status_target_ids={key: 4},
+            cloud_sync_coordinator=SimpleNamespace(accepts=lambda generation: generation == 0),
+            _automatic_network_allowed=lambda: True,
+        )
+        fake._cloud_status_failure_status = MainWindow._cloud_status_failure_status.__get__(fake)
+        fake._deliver_managed_cloud_status = MainWindow._deliver_managed_cloud_status.__get__(fake)
+
+        MainWindow._on_managed_cloud_status_state(
+            fake,
+            key,
+            ResourceResult(
+                key=key,
+                status=ResourceStatus.ERROR,
+                error=TimeoutError("backend timed out"),
+            ),
+        )
+
+        self.assertEqual(received, [(4, SyncStatus.CLOUD_UNAVAILABLE, None, None)])
+        self.assertNotIn(key, fake._cloud_status_callbacks)
+
+    def test_managed_cloud_status_fans_out_to_detail_and_library(self):
+        key = RequestKey("cloud-save-status", "context:4", "v1")
+        received = []
+        callback = lambda name: lambda *args: received.append((name, args))
+        fake = SimpleNamespace(
+            _cloud_status_callbacks={key: [
+                (0, 4, callback("library")),
+                (0, 4, callback("detail")),
+            ]},
+            _cloud_status_target_ids={key: 4},
+            cloud_sync_coordinator=SimpleNamespace(accepts=lambda generation: generation == 0),
+            _automatic_network_allowed=lambda: True,
+        )
+        fake._cloud_status_failure_status = MainWindow._cloud_status_failure_status.__get__(fake)
+        fake._deliver_managed_cloud_status = MainWindow._deliver_managed_cloud_status.__get__(fake)
+        expected = CloudStatusResult("Example", SyncStatus.IN_SYNC)
+
+        MainWindow._on_managed_cloud_status_state(
+            fake,
+            key,
+            ResourceResult(key=key, status=ResourceStatus.READY, value=expected),
+        )
+
+        self.assertEqual([item[0] for item in received], ["library", "detail"])
+        self.assertTrue(all(item[1][1] == SyncStatus.IN_SYNC for item in received))
 
 
 if __name__ == "__main__":
