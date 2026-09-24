@@ -3777,13 +3777,13 @@
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "qt_connection",
-      "line": 151,
+      "line": 181,
       "value": "connect"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "qt_connection",
-      "line": 164,
+      "line": 194,
       "value": "connect"
     },
     {
@@ -9309,19 +9309,19 @@
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 8405,
+      "line": 8409,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 8768,
+      "line": 8772,
       "value": "connect"
     },
     {
       "file": "ui/main_window.py",
       "kind": "qt_connection",
-      "line": 8775,
+      "line": 8779,
       "value": "connect"
     },
     {
@@ -9631,5 +9631,5 @@
       "value": "cancel"
     }
   ],
-  "generated_at": "2026-09-24T21:48:59+00:00"
+  "generated_at": "2026-09-24T22:07:39+00:00"
 }

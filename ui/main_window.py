@@ -8332,7 +8332,11 @@ class MainWindow(QMainWindow):
 
         super().closeEvent(event)
 
-    def _on_add(self, collection_name: str = ""):
+    def _on_add(self, collection_name: object = ""):
+        # QPushButton.clicked carries a boolean checked argument when this
+        # slot is connected directly.  Treat that signal payload as “no
+        # collection” instead of allowing it to reach string-only code below.
+        collection_name = collection_name.strip() if isinstance(collection_name, str) else ""
         dialog = AddGameDialog(self, self.sgdb_client, request_manager=self.request_manager)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name, path, exe, mode, banner_path = dialog.get_values()

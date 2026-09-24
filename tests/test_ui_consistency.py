@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from PyQt6.QtWidgets import (
     QApplication, QFormLayout, QLineEdit, QLabel, QToolButton, QFrame,
@@ -113,6 +114,35 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
             self.app.processEvents()
+
+    def test_add_game_button_checked_payload_is_not_treated_as_collection(self):
+        dialog = Mock()
+        dialog.exec.return_value = 1  # QDialog.DialogCode.Accepted
+        dialog.get_values.return_value = ("Example", "/tmp", "game.exe", "sandbox", "")
+        dialog.get_steam_id.return_value = ""
+        dialog.get_version_metadata.return_value = ("", "")
+        dialog.get_build_id.return_value = ""
+        dialog.get_build_date.return_value = ""
+
+        service = Mock()
+        service.upsert_game.return_value = 42
+        fake_window = SimpleNamespace(
+            sgdb_client=Mock(),
+            request_manager=Mock(),
+            library_service=service,
+            _record_initial_steam_build=Mock(),
+            _refresh_library=Mock(),
+            _sync_launcher_metadata_async=Mock(),
+            _show_toast=Mock(),
+        )
+
+        with patch("ui.main_window.AddGameDialog", return_value=dialog), \
+                patch("ui.main_window.save_sandbox_config"):
+            # QPushButton.clicked emits False/True even though the slot needs
+            # no argument. This must not become the literal collection name.
+            MainWindow._on_add(fake_window, True)
+
+        service.update_collection_membership.assert_not_called()
 
     def test_header_view_menu_exposes_only_library_profile_and_friends(self):
         class _HeaderWindow(QMainWindow):

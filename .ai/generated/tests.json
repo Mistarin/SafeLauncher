@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T21:48:59+00:00",
+  "generated_at": "2026-09-24T22:07:39+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -2236,85 +2236,91 @@
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 26,
+      "line": 27,
       "name": "test_property_form_aligns_labels_and_expands_fields"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 41,
+      "line": 42,
       "name": "test_info_hint_is_muted_and_accessible"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 55,
+      "line": 56,
       "name": "test_settings_uses_shared_section_surfaces_and_contrasting_fields"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 73,
+      "line": 74,
       "name": "test_cloud_settings_routes_account_work_to_cloud_center"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 88,
+      "line": 89,
       "name": "test_cloud_backend_selector_does_not_persist_until_save"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 103,
+      "line": 104,
       "name": "test_add_game_keeps_invalid_form_open"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 116,
+      "line": 117,
+      "name": "test_add_game_button_checked_payload_is_not_treated_as_collection"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 146,
       "name": "test_header_view_menu_exposes_only_library_profile_and_friends"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 132,
+      "line": 162,
       "name": "test_social_navigation_is_not_duplicated_in_identity_menu"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 147,
+      "line": 177,
       "name": "test_cloud_badge_is_an_actionable_control"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 160,
+      "line": 190,
       "name": "test_virtual_grid_exposes_upload_shortcut_for_selected_game"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 184,
+      "line": 214,
       "name": "test_virtual_grid_exposes_cloud_tooltip_and_accessible_text"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 203,
+      "line": 233,
       "name": "test_cloud_action_is_deferred_until_menu_event_finishes"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 214,
+      "line": 244,
       "name": "test_launch_failure_actions_reflow_without_gaps"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test_class",
-      "line": 20,
+      "line": 21,
       "name": "PopupPropertyConsistencyTests"
     }
   ]

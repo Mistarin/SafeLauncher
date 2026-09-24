@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T21:48:59+00:00",
+  "generated_at": "2026-09-24T22:07:39+00:00",
   "imports": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -7033,68 +7033,73 @@
     },
     {
       "file": "tests/test_ui_consistency.py",
+      "import": "types",
+      "line": 2
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
       "import": "PyQt6.QtWidgets",
-      "line": 3
+      "line": 4
     },
     {
       "file": "tests/test_ui_consistency.py",
       "import": "PyQt6.QtCore",
-      "line": 7
-    },
-    {
-      "file": "tests/test_ui_consistency.py",
-      "import": "PyQt6.QtGui",
       "line": 8
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "unittest.mock",
+      "import": "PyQt6.QtGui",
       "line": 9
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "core.launch_diagnostics",
-      "line": 11
+      "import": "unittest.mock",
+      "line": 10
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "ui.components.popup_shell",
+      "import": "core.launch_diagnostics",
       "line": 12
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "ui.dialogs.game_dialogs",
+      "import": "ui.components.popup_shell",
       "line": 13
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "ui.dialogs.settings_dialog",
+      "import": "ui.dialogs.game_dialogs",
       "line": 14
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "ui.components.sidebar",
+      "import": "ui.dialogs.settings_dialog",
       "line": 15
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "ui.main_window",
+      "import": "ui.components.sidebar",
       "line": 16
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "ui.components.banner_card",
+      "import": "ui.main_window",
       "line": 17
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "ui.components.virtual_grid",
+      "import": "ui.components.banner_card",
       "line": 18
     },
     {
       "file": "tests/test_ui_consistency.py",
-      "import": "core.cloud_models",
+      "import": "ui.components.virtual_grid",
       "line": 19
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "import": "core.cloud_models",
+      "line": 20
     },
     {
       "file": "ui/components/achievement_toast.py",

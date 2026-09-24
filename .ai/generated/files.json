@@ -1933,8 +1933,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 10335,
-      "lines": 245,
+      "bytes": 11632,
+      "lines": 275,
       "path": "tests/test_ui_consistency.py",
       "suffix": ".py"
     },
@@ -2173,8 +2173,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 417277,
-      "lines": 8845,
+      "bytes": 417603,
+      "lines": 8849,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2209,5 +2209,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-24T21:48:59+00:00"
+  "generated_at": "2026-09-24T22:07:39+00:00"
 }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T21:48:59+00:00",
+  "generated_at": "2026-09-24T22:07:39+00:00",
   "hashes": {
     ".ai/ARCHITECTURE.md": "4f97d42bca2cd2f9942733698986f598a55431fc1d3b33ef9b0d975691aa7b90",
     ".ai/CONTEXT.md": "9ea9cff3d0c75075d8b6344d6b1bf2cac437ca72a212d80792be6159e41e1e45",
@@ -323,7 +323,7 @@
     "tests/test_save_history.py": "bf99a8a24b472196d4c7e773c303ce0de2acb55e88182c88240a638399a4cf43",
     "tests/test_security_and_threads.py": "becb33ec14afdc90b06af24297be00031806a724d3ab360ebb84c7d1e3761bcd",
     "tests/test_steam_client.py": "81d29ac5fd7dc7f450f00d81d81b41ba9870be3e0da704029f07dfcb41a1a388",
-    "tests/test_ui_consistency.py": "085e4382f2b882965ddc5674fe94955348699154b129a51436b4b9d861289b70",
+    "tests/test_ui_consistency.py": "6cbaa4947464bf53073219f9a3c45c6cbee88fa66ff8870e9b7ba3b411cf32b6",
     "ui/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "ui/components/__init__.py": "4fe194b295849585aec2ccdc3ceb63d8f1c59980975af2edf5111b5e79f0e472",
     "ui/components/achievement_toast.py": "4fe7ae478d5365a1a435cfa8a8cf399d6527f88797bf7521a0aa3feb8619a6c3",
@@ -363,7 +363,7 @@
     "ui/dialogs/welcome_wizard.py": "0ef00aef2a0e28665fc6bf43cbaf2196540283fe5de4a920b1589de8b542009e",
     "ui/icons.py": "3d00e467bf2b848e7c10cf7c9b87143faf4f468c41dbaa2932f66d82c250a1ab",
     "ui/library_list.py": "f18091e92a791b371cea7a3006ec25795cf2c1db66db2cd0ab26ed7dc2acf418",
-    "ui/main_window.py": "75ee8e2034f73e6b5c19ffa004315bfff9765a31ed6923b7bd336f16c7417475",
+    "ui/main_window.py": "7e83135434c8c3858682a4794cc8cf26b3c9575fda81818a8d6b1fe1d2180314",
     "ui/maintenance_dialogs.py": "53f322f9118904bb9425b76ff80fd5109421d2edba27b332b7b22d73ced43781",
     "ui/profile_theme.py": "00ea6565088fb26bc509b460eefb590e27fa575f5412c4a5b271740b7b7b5921",
     "ui/resource_binding.py": "b683fc097ef8f5c605952eb7be08d2f5051fb48675364aa07d51b79c023477f4",

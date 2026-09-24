@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T21:48:59+00:00",
+  "generated_at": "2026-09-24T22:07:39+00:00",
   "symbols": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -12832,115 +12832,121 @@
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "class",
-      "line": 22,
+      "line": 23,
       "name": "PopupPropertyConsistencyTests"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 24,
+      "line": 25,
       "name": "setUpClass"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 27,
+      "line": 28,
       "name": "test_property_form_aligns_labels_and_expands_fields"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 42,
+      "line": 43,
       "name": "test_info_hint_is_muted_and_accessible"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 56,
+      "line": 57,
       "name": "test_settings_uses_shared_section_surfaces_and_contrasting_fields"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 74,
+      "line": 75,
       "name": "test_cloud_settings_routes_account_work_to_cloud_center"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 89,
+      "line": 90,
       "name": "test_cloud_backend_selector_does_not_persist_until_save"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 104,
+      "line": 105,
       "name": "test_add_game_keeps_invalid_form_open"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 117,
+      "line": 118,
+      "name": "test_add_game_button_checked_payload_is_not_treated_as_collection"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "function",
+      "line": 147,
       "name": "test_header_view_menu_exposes_only_library_profile_and_friends"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "class",
-      "line": 118,
+      "line": 148,
       "name": "_HeaderWindow"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 119,
+      "line": 149,
       "name": "_toggle_maximize"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 133,
+      "line": 163,
       "name": "test_social_navigation_is_not_duplicated_in_identity_menu"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "class",
-      "line": 134,
+      "line": 164,
       "name": "_HeaderWindow"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 135,
+      "line": 165,
       "name": "_toggle_maximize"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 148,
+      "line": 178,
       "name": "test_cloud_badge_is_an_actionable_control"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 161,
+      "line": 191,
       "name": "test_virtual_grid_exposes_upload_shortcut_for_selected_game"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 185,
+      "line": 215,
       "name": "test_virtual_grid_exposes_cloud_tooltip_and_accessible_text"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 204,
+      "line": 234,
       "name": "test_cloud_action_is_deferred_until_menu_event_finishes"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "function",
-      "line": 215,
+      "line": 245,
       "name": "test_launch_failure_actions_reflow_without_gaps"
     },
     {
@@ -21130,133 +21136,133 @@
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8372,
+      "line": 8376,
       "name": "_on_card_size_changed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8379,
+      "line": 8383,
       "name": "set_virtualization_threshold"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8386,
+      "line": 8390,
       "name": "_show_toast"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8391,
+      "line": 8395,
       "name": "_on_edit"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8458,
+      "line": 8462,
       "name": "_on_sync_sandbox"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8495,
+      "line": 8499,
       "name": "_remove_game_files_from_disk"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8519,
+      "line": 8523,
       "name": "_handle_readonly"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8546,
+      "line": 8550,
       "name": "_stage_game_files_for_lifecycle"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8583,
+      "line": 8587,
       "name": "_restore_staged_game_files"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8604,
+      "line": 8608,
       "name": "_finish_game_lifecycle_change"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8623,
+      "line": 8627,
       "name": "_apply_game_lifecycle_action"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8641,
+      "line": 8645,
       "name": "_restore_after_failure"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8647,
+      "line": 8651,
       "name": "_finish_success"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8710,
+      "line": 8714,
       "name": "_on_remove"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8723,
+      "line": 8727,
       "name": "_on_export"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8732,
+      "line": 8736,
       "name": "_game_by_id"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8746,
+      "line": 8750,
       "name": "_show_game_cloud_menu"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8779,
+      "line": 8783,
       "name": "_on_card_cloud_badge_clicked"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8786,
+      "line": 8790,
       "name": "_on_game_cloud_action"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8804,
+      "line": 8808,
       "name": "_perform_game_cloud_action"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8820,
+      "line": 8824,
       "name": "_open_save_manager_for_game"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8836,
+      "line": 8840,
       "name": "_on_import"
     },
     {
