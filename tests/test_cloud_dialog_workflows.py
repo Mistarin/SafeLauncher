@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication, QToolButton
+
+from core.request_contracts import ResourceStatus
 
 try:
     from ui.dialogs.account_dialog import AccountDialog
@@ -25,6 +28,11 @@ class _AccountService:
 
 class _CloudCenterService:
     request_manager = None
+
+
+class _OfflineCloudCenterService(_CloudCenterService):
+    def current_context(self):
+        return SimpleNamespace(network_allowed=False)
 
 
 @unittest.skipIf(_DIALOG_IMPORT_ERROR is not None, f"cloud dialog dependencies unavailable: {_DIALOG_IMPORT_ERROR}")
@@ -52,6 +60,24 @@ class CloudDialogWorkflowTests(unittest.TestCase):
                 if button.text() == "Technical details"
             ]
             self.assertEqual(len(technical), 1)
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+            self.app.processEvents()
+
+    def test_late_cloud_transport_error_is_presented_as_offline(self):
+        with patch.object(CloudCenterDialog, "_request_overview"):
+            dialog = CloudCenterDialog(
+                cloud_center_service=_OfflineCloudCenterService(),
+            )
+        try:
+            dialog._show_resource_error(SimpleNamespace(
+                status=ResourceStatus.ERROR,
+                error=RuntimeError("DNS lookup failed"),
+            ))
+            self.assertEqual(dialog.cloud_status.state, "offline")
+            self.assertEqual(dialog.cloud_status.lbl_status.text(), "Offline")
+            self.assertNotIn("DNS lookup failed", dialog.cloud_status.lbl_message.text())
         finally:
             dialog.close()
             dialog.deleteLater()

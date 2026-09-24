@@ -94,6 +94,23 @@ class OfflineUpdateStatusTests(unittest.TestCase):
         self.assertIn("Last checked online", row.update_badge.toolTip())
         row.deleteLater()
 
+    def test_footer_stays_visible_when_a_late_callback_reports_online(self):
+        class Settings:
+            def value(self, key, default=None, type=None):
+                if key == "offline_mode":
+                    return True
+                return default
+
+        label = Mock()
+        fake = SimpleNamespace(settings=Settings(), lbl_network_status=label)
+
+        # A late live-result callback passes offline=False, but the persisted
+        # policy remains authoritative for the footer.
+        MainWindow._set_network_status(fake, False)
+
+        label.setVisible.assert_called_once_with(True)
+        self.assertTrue(fake._network_offline_detected)
+
 
 if __name__ == "__main__":
     unittest.main()

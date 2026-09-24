@@ -623,6 +623,18 @@ class CloudCenterService:
                 if invalidate_game is not None:
                     invalidate_game(int(game_id))
 
+    def cancel_pending_reads(self) -> None:
+        """Cancel active account reads without evicting usable cloud cache."""
+        context = self.current_context()
+        keys = (
+            self.snapshot_key(context),
+            self.overview_key(context),
+            context.request_key("cloud-devices", "account", "v1"),
+            context.request_key("cloud-connection-probe", "account", "v1"),
+        )
+        for key in keys:
+            self.request_manager.cancel(key)
+
     def handle_operation_success(self, target, operation: str, value) -> None:
         """Invalidate reads after a successful cloud mutation."""
         operation_name = str(operation or "").split(":", 1)[0]

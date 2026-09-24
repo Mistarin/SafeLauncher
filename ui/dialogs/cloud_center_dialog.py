@@ -326,6 +326,15 @@ class CloudCenterDialog(PopupDialog):
     def _show_resource_error(self, result) -> None:
         self.btn_review_conflicts.setEnabled(False)
         status = result.status
+        # A request may have started just before the user enabled Offline
+        # mode.  Re-read the policy when presenting its completion so a late
+        # DNS/transport error cannot overwrite the explicit offline state.
+        if status == ResourceStatus.ERROR:
+            try:
+                if not self.cloud_center_service.current_context().network_allowed:
+                    status = ResourceStatus.OFFLINE
+            except Exception:
+                pass
         if status == ResourceStatus.AUTHENTICATION_REQUIRED:
             title = "Cloud setup required"
             message = "Add the Secret Access Key in the advanced connection settings."

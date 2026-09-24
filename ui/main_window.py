@@ -1556,12 +1556,17 @@ class MainWindow(QMainWindow):
 
     def _set_network_status(self, offline: bool, reason: str = "") -> None:
         """Keep the compact footer's network state explicit and non-blocking."""
-        self._network_offline_detected = bool(offline)
+        # A late successful callback must not hide the footer while the
+        # persisted policy still blocks all automatic network access.
+        policy_offline = not automatic_network_allowed(getattr(self, "settings", None))
+        effective_offline = bool(offline) or policy_offline
+        self._offline_mode = is_offline_mode(getattr(self, "settings", None))
+        self._network_offline_detected = effective_offline
         label = getattr(self, "lbl_network_status", None)
         if label is None:
             return
-        label.setVisible(bool(offline))
-        if offline:
+        label.setVisible(effective_offline)
+        if effective_offline:
             label.setToolTip(
                 reason
                 or "Remote metadata checks are paused or unavailable. Cached and local data remain available."
@@ -1599,6 +1604,7 @@ class MainWindow(QMainWindow):
                     pass
             self._cancel_metadata_fetchers()
             self._cancel_optional_network_tasks()
+            self.cloud_center_service.cancel_pending_reads()
             profile_page = getattr(self, "profile_page", None)
             if profile_page is not None:
                 try:
