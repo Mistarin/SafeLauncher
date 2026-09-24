@@ -87,6 +87,7 @@ class LibraryViewHost(QStackedWidget):
         self.virtual_grid.game_launch_clicked.connect(self.game_launch_requested.emit)
         self.virtual_grid.favorite_clicked.connect(self.favorite_requested.emit)
         self.virtual_grid.game_right_clicked.connect(self.cloud_menu_requested.emit)
+        self.virtual_grid.cloud_action_requested.connect(self.cloud_action_requested.emit)
 
         compact = self.compact_container
         compact.game_selected.connect(self.game_selected.emit)

@@ -4,7 +4,8 @@ from PyQt6.QtWidgets import (
     QApplication, QFormLayout, QLineEdit, QLabel, QToolButton, QFrame,
     QPushButton, QMainWindow,
 )
-from PyQt6.QtCore import QSettings
+from PyQt6.QtCore import QEvent, QSettings, Qt
+from PyQt6.QtGui import QKeyEvent
 from unittest.mock import Mock, patch
 
 from core.launch_diagnostics import LaunchDiagnostics
@@ -13,6 +14,9 @@ from ui.dialogs.game_dialogs import AddGameDialog, SafeLaunchDialog
 from ui.dialogs.settings_dialog import UserSettingsDialog
 from ui.components.sidebar import CustomTitleBar
 from ui.main_window import MainWindow
+from ui.components.banner_card import GameBannerWidget
+from ui.components.virtual_grid import VirtualizedGameGridView
+from core.cloud_models import SyncStatus
 
 
 class PopupPropertyConsistencyTests(unittest.TestCase):
@@ -124,6 +128,58 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         finally:
             title_bar.deleteLater()
             window.deleteLater()
+            self.app.processEvents()
+
+    def test_social_navigation_is_not_duplicated_in_identity_menu(self):
+        class _HeaderWindow(QMainWindow):
+            def _toggle_maximize(self):
+                pass
+
+        window = _HeaderWindow()
+        title_bar = CustomTitleBar(window)
+        try:
+            labels = [action.text() for action in title_bar.profile_menu.actions() if not action.isSeparator()]
+            self.assertEqual(labels, ["Cloud Center", "Settings…"])
+        finally:
+            title_bar.deleteLater()
+            window.deleteLater()
+            self.app.processEvents()
+
+    def test_cloud_badge_is_an_actionable_control(self):
+        card = GameBannerWidget(42, "Test Game")
+        actions = []
+        card.cloudActionRequested.connect(actions.append)
+        try:
+            card.set_cloud_status(SyncStatus.LOCAL_NEWER)
+            card.cloud_badge.click()
+            self.assertEqual(actions, [42])
+            self.assertIn("Cloud save actions", card.cloud_badge.accessibleName())
+        finally:
+            card.deleteLater()
+            self.app.processEvents()
+
+    def test_virtual_grid_exposes_upload_shortcut_for_selected_game(self):
+        grid = VirtualizedGameGridView()
+        actions = []
+        grid.cloud_action_requested.connect(lambda game_id, action: actions.append((game_id, action)))
+        game = (1, "Test Game", "", "game", "umu", "", "", 0, 0, "", "", "", "", "", "", "", "", 0, "")
+        try:
+            grid.set_games(
+                [game],
+                selected_ids={1},
+                cloud_status_map={1: (SyncStatus.LOCAL_NEWER, None, None)},
+            )
+            grid.setCurrentIndex(grid.model.index(0, 0))
+            grid.keyPressEvent(
+                QKeyEvent(
+                    QEvent.Type.KeyPress,
+                    Qt.Key.Key_U,
+                    Qt.KeyboardModifier.ControlModifier,
+                )
+            )
+            self.assertEqual(actions, [(1, "upload")])
+        finally:
+            grid.deleteLater()
             self.app.processEvents()
 
     def test_cloud_action_is_deferred_until_menu_event_finishes(self):

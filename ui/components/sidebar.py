@@ -628,17 +628,13 @@ class HeaderBar(QFrame):
         self.btn_tools.setMenu(self.tools_menu)
         layout.addWidget(self.btn_tools)
 
-        # Identity menu stays adjacent to the window controls.  It is a
-        # navigation surface only; the page owns profile editing and state.
+        # Identity menu stays adjacent to the window controls. Social page
+        # navigation lives in View, so this menu only contains account-wide
+        # utilities and settings instead of duplicating Profile/Friends.
         self.profile_menu = QMenu(self)
         self.profile_menu.setStyleSheet(menu_style)
-        act_my_profile = self.profile_menu.addAction(get_icon("ph.user-circle-bold", color="#FFFFFF"), "My Profile")
-        act_my_profile.triggered.connect(self.profile_requested.emit)
         act_cloud_center = self.profile_menu.addAction(get_icon("ph.cloud-bold", color="#FFFFFF"), "Cloud Center")
         act_cloud_center.triggered.connect(self.cloud_center_requested.emit)
-        act_find_friends = self.profile_menu.addAction(get_icon("ph.magnifying-glass-bold", color="#FFFFFF"), "Find Friends…")
-        act_find_friends.triggered.connect(self.public_profile_requested.emit)
-        self.profile_menu.addSeparator()
         act_profile_settings = self.profile_menu.addAction(get_icon("ph.gear-bold", color="#FFFFFF"), "Settings…")
         act_profile_settings.triggered.connect(
             lambda _checked=False: QTimer.singleShot(0, self.settings_requested.emit)

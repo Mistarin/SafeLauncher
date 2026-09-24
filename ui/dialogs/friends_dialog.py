@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QMessageBox, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -50,6 +50,7 @@ class FriendsDialog(PopupDialog):
         self._handle = ""
         self._social_action_buttons: list[QPushButton] = []
         self._pending_success_message = ""
+        self._technical_error = ""
 
         self.setMinimumSize(650, 500)
         self.resize(760, 620)
@@ -99,6 +100,12 @@ class FriendsDialog(PopupDialog):
         self.status_label.setObjectName("popupHint")
         self.status_label.setWordWrap(True)
         header_layout.addWidget(self.status_label)
+        self.btn_copy_technical = QPushButton("Copy technical details")
+        self.btn_copy_technical.setAccessibleName("Copy friends technical details")
+        self.btn_copy_technical.setToolTip("Copy the last friends-service error for troubleshooting")
+        self.btn_copy_technical.clicked.connect(self._copy_technical_details)
+        self.btn_copy_technical.setVisible(False)
+        header_layout.addWidget(self.btn_copy_technical)
         self.btn_refresh = QPushButton("Refresh")
         self.btn_refresh.setIcon(get_icon("ph.arrows-clockwise-bold", color=TEXT_SECONDARY))
         self.btn_refresh.clicked.connect(self.refresh)
@@ -381,11 +388,12 @@ class FriendsDialog(PopupDialog):
             self.status_label.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             message = self._friendly_social_error(result, "refresh")
             self.status_label.setText(f"{pending} {message}".strip())
-            self.status_label.setToolTip(str(result))
+            self._set_technical_error(result)
             return
         pending = self._pending_success_message
         self._pending_success_message = ""
         self.status_label.setStyleSheet("")
+        self._clear_technical_error()
         self._snapshot = normalize_social_snapshot(result)
         if self._snapshot is None:
             self.status_label.setStyleSheet(f"color:{SEMANTIC_ERROR};")
@@ -531,9 +539,10 @@ class FriendsDialog(PopupDialog):
         if isinstance(result, Exception):
             self.status_label.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.status_label.setText(self._friendly_social_error(result, "update"))
-            self.status_label.setToolTip(str(result))
+            self._set_technical_error(result)
             self._update_gate()
             return
+        self._clear_technical_error()
         self.status_label.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
         self.status_label.setText(success)
         if success == "Friend request sent.":
@@ -570,6 +579,19 @@ class FriendsDialog(PopupDialog):
             if operation == "refresh" else
             "That friend action could not be completed. Try again."
         )
+
+    def _set_technical_error(self, error: Exception) -> None:
+        self._technical_error = str(error)
+        self.btn_copy_technical.setVisible(bool(self._technical_error))
+
+    def _clear_technical_error(self) -> None:
+        self._technical_error = ""
+        self.btn_copy_technical.setVisible(False)
+
+    def _copy_technical_details(self) -> None:
+        if self._technical_error:
+            QApplication.clipboard().setText(self._technical_error)
+            self.btn_copy_technical.setToolTip("Technical details copied to the clipboard")
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

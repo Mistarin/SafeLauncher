@@ -298,6 +298,7 @@ class VirtualizedGameGridView(QListView):
     game_launch_clicked = pyqtSignal(int)
     favorite_clicked = pyqtSignal(int)
     game_right_clicked = pyqtSignal(int, QPoint)
+    cloud_action_requested = pyqtSignal(int, str)
 
     def __init__(self, parent=None, card_width: int = 200, spacing: int = 15):
         super().__init__(parent)
@@ -542,6 +543,13 @@ class VirtualizedGameGridView(QListView):
         # Check favorite heart hit (top right area)
         card_w = self.delegate.card_width
         card_h = self.delegate.card_height
+        cloud_status = idx.data(CLOUD_STATUS_ROLE)
+        if (card_w - 36) <= rel_x <= card_w and (card_h - 32) <= rel_y <= card_h:
+            if cloud_status == SyncStatus.LOCAL_NEWER:
+                self.cloud_action_requested.emit(int(game_id), "upload")
+            else:
+                self.game_right_clicked.emit(int(game_id), event.globalPosition().toPoint())
+            return
         if (card_w - 36) <= rel_x <= card_w and 0 <= rel_y <= 36:
             self.favorite_clicked.emit(int(game_id))
             return
@@ -565,6 +573,25 @@ class VirtualizedGameGridView(QListView):
                 self.game_double_clicked.emit(int(game_id))
                 return
         super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        """Expose cloud actions without requiring a pointer or hidden menu."""
+        index = self.currentIndex()
+        game_id = index.data(GAME_ID_ROLE) if index.isValid() else None
+        if game_id is not None:
+            modifiers = event.modifiers()
+            if event.key() == Qt.Key.Key_U and modifiers & Qt.KeyboardModifier.ControlModifier:
+                self.cloud_action_requested.emit(int(game_id), "upload")
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_Menu or (
+                event.key() == Qt.Key.Key_F10 and modifiers & Qt.KeyboardModifier.ShiftModifier
+            ):
+                anchor = self.viewport().mapToGlobal(self.visualRect(index).center())
+                self.game_right_clicked.emit(int(game_id), anchor)
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         super().mouseMoveEvent(event)

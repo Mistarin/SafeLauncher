@@ -1286,7 +1286,7 @@ class ProfilePageTests(unittest.TestCase):
             self.assertEqual(header.btn_profile.iconSize(), QSize(17, 17))
             self.assertEqual(header.btn_friends.text(), "Friends")
             actions = [action.text() for action in header.profile_menu.actions() if not action.isSeparator()]
-            self.assertIn("Find Friends…", actions)
+            self.assertEqual(actions, ["Cloud Center", "Settings…"])
             window.title_bar = header
             MainWindow._sync_window_controls(window)
             self.assertFalse(header.btn_min.isHidden())

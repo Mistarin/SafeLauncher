@@ -6,7 +6,7 @@ import html
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
     QProgressBar, QSizeGrip, QSizePolicy, QCheckBox, QComboBox, QMessageBox, QSpinBox
 )
@@ -103,6 +103,7 @@ class UserSettingsDialog(PopupDialog):
         self._profile_action_status_custom = False
         self._cloud_settings_committed = False
         self._cloud_settings_snapshot = self._capture_cloud_settings()
+        self._health_technical_error = ""
 
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
         self.setMinimumSize(820, 600)
@@ -1351,6 +1352,12 @@ class UserSettingsDialog(PopupDialog):
         self.btn_probe_health.setStyleSheet("padding: 4px 10px; font-size: 11px;")
         self.btn_probe_health.clicked.connect(self._refresh_backend_health)
         bh_header.addWidget(self.btn_probe_health)
+        self.btn_copy_health_details = QPushButton("Copy details")
+        self.btn_copy_health_details.setAccessibleName("Copy backend health technical details")
+        self.btn_copy_health_details.setToolTip("Copy the last backend health error for troubleshooting")
+        self.btn_copy_health_details.clicked.connect(self._copy_health_details)
+        self.btn_copy_health_details.setVisible(False)
+        bh_header.addWidget(self.btn_copy_health_details)
         bh_layout.addLayout(bh_header)
 
         bh_grid = QGridLayout()
@@ -2151,6 +2158,8 @@ class UserSettingsDialog(PopupDialog):
         """Probe backend health endpoint, measure latency, and check version parity."""
         self._health_probe_generation += 1
         generation = self._health_probe_generation
+        self._health_technical_error = ""
+        self.btn_copy_health_details.setVisible(False)
         self.btn_probe_health.setEnabled(False)
         self.btn_probe_health.setText("Checking…")
         if not self._dialog_network_allowed():
@@ -2186,6 +2195,8 @@ class UserSettingsDialog(PopupDialog):
         """Update live health card with latency, status, and version parity badges."""
         self.btn_probe_health.setEnabled(True)
         self.btn_probe_health.setText("Check Health")
+        self._health_technical_error = str(health.get("error") or "")
+        self.btn_copy_health_details.setVisible(bool(self._health_technical_error))
         status = health.get("status", "unreachable")
         lat = health.get("latency_ms", -1)
         ver = health.get("version", "unknown")
@@ -2253,6 +2264,11 @@ class UserSettingsDialog(PopupDialog):
             self.lbl_version_warning.setText("")
             self.btn_redeploy.setVisible(False)
             self.btn_open_dashboard.setVisible(False)
+
+    def _copy_health_details(self) -> None:
+        if self._health_technical_error:
+            QApplication.clipboard().setText(self._health_technical_error)
+            self.btn_copy_health_details.setToolTip("Technical details copied to the clipboard")
 
     def _apply_backend_deploy_result(self, success: bool, message: str):
         """Handle redeploy completion on the Qt GUI thread."""

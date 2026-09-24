@@ -2180,9 +2180,9 @@ class MainWindow(QMainWindow):
             if self.selected_game:
                 self._update_detail_panel()
 
-        # Runs for accept AND reject: the Cloud tab writes backend settings the
-        # moment they are edited (mode combo) or via the embedded account
-        # dialog, so a rejected session may still have changed the config.
+        # A successful Settings save, or an explicitly accepted cloud setup
+        # action, may change the backend context. Cancelled form edits are
+        # rolled back by UserSettingsDialog before this comparison runs.
         self._maybe_refresh_cloud_config(cloud_before)
         self._apply_network_policy_change(offline_before)
         self._update_header_identity()
@@ -3036,6 +3036,7 @@ class MainWindow(QMainWindow):
                 widget.favoriteClicked.connect(self._on_card_favorite_clicked)
                 widget.launchClicked.connect(self._launch_game_by_id)
                 widget.rightClicked.connect(self._show_game_cloud_menu)
+                widget.cloudActionRequested.connect(self._on_card_cloud_badge_clicked)
                 
                 widgets.append(widget)
                 self.banner_widgets[game_id] = widget
@@ -8562,6 +8563,13 @@ class MainWindow(QMainWindow):
         center.triggered.connect(lambda _checked=False: QTimer.singleShot(0, self._open_cloud_center))
         anchor = global_pos if global_pos and not global_pos.isNull() else self.cursor().pos()
         menu.exec(anchor)
+
+    def _on_card_cloud_badge_clicked(self, game_id: int) -> None:
+        """Make the rendered cloud badge an actionable library control."""
+        cached = self.cloud_save_status_cache.get(int(game_id))
+        status = cached[0] if cached else None
+        action = "upload" if status == SyncStatus.LOCAL_NEWER else "history"
+        self._on_game_cloud_action(int(game_id), action)
 
     def _on_game_cloud_action(self, game_id: int, action: str) -> None:
         """Route per-game commands after the originating menu has closed.

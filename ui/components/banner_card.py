@@ -1,6 +1,6 @@
 import os
 from typing import Optional, List, Tuple, Dict, Any
-from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QWidget
+from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QToolButton, QWidget
 from PyQt6.QtCore import (
     Qt, QSize, QPoint, QPointF, QTimer, pyqtSignal, QVariantAnimation, QEasingCurve,
     QPropertyAnimation, QSequentialAnimationGroup,
@@ -80,6 +80,7 @@ class GameBannerWidget(QFrame):
     rightClicked = pyqtSignal(int, QPoint)
     favoriteClicked = pyqtSignal(int)
     launchClicked = pyqtSignal(int)
+    cloudActionRequested = pyqtSignal(int)
 
     def __init__(self, game_id: int, name: str, banner_path: str = None, playtime_seconds: int = 0, version: str = "", icon_path: str = "", parent=None):
         super().__init__(parent)
@@ -199,14 +200,18 @@ class GameBannerWidget(QFrame):
         self.set_version(self.version)
 
         # Pure cloud save status badge positioned at bottom-right of the banner cover
-        self.cloud_badge = QLabel(self)
+        self.cloud_badge = QToolButton(self)
         self.cloud_badge.setFixedSize(24, 24)
-        self.cloud_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cloud_badge.setIconSize(QSize(15, 15))
+        self.cloud_badge.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cloud_badge.setAccessibleName(f"Cloud save actions for {self.name}")
+        self.cloud_badge.clicked.connect(lambda: self.cloudActionRequested.emit(self.game_id))
         self.cloud_badge.setStyleSheet("""
-            QLabel {
+            QToolButton {
                 background: rgba(20, 23, 29, 0.88);
                 border: 1px solid #252A33;
                 border-radius: 6px;
+                padding: 0;
             }
         """)
         self.cloud_badge.hide()
@@ -248,10 +253,10 @@ class GameBannerWidget(QFrame):
         if not meta.visible:
             self.cloud_badge.hide()
             return
-        self.cloud_badge.setPixmap(get_icon(meta.icon, color=meta.color).pixmap(QSize(15, 15)))
+        self.cloud_badge.setIcon(get_icon(meta.icon, color=meta.color))
         self.cloud_badge.setToolTip(meta.tooltip)
         self.cloud_badge.setStyleSheet(
-            f"QLabel {{ background: rgba(20, 23, 29, 0.90); border: 1px solid {meta.color}; border-radius: 6px; }}"
+            f"QToolButton {{ background: rgba(20, 23, 29, 0.90); border: 1px solid {meta.color}; border-radius: 6px; padding: 0; }}"
         )
         self.cloud_badge.show()
         self._position_cloud_badge()
