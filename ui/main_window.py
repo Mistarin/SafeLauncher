@@ -1621,7 +1621,15 @@ class MainWindow(QMainWindow):
             self._show_toast("Online mode enabled — refreshing optional metadata.")
             self._refresh_library()
             self._start_cloud_poll_timer()
-            QTimer.singleShot(0, self._start_background_cloud_sync)
+            # Offline verdicts are deliberately persisted so the library can
+            # render a useful state without networking.  Re-entering online
+            # mode must immediately re-check those verdicts instead of
+            # waiting for the next poll interval or treating them as fresh.
+            self.request_cloud_recheck(None, "online-mode")
+            # The normal startup path performs this check after the window is
+            # visible.  Do the same on an online transition so cached offline
+            # game-version badges and the selected-game detail are refreshed.
+            QTimer.singleShot(300, self._check_all_steam_updates)
             QTimer.singleShot(100, self._start_background_achievement_sync)
             QTimer.singleShot(200, self._sync_profile_metadata_async)
             self._startup_backend_health = None
@@ -5426,7 +5434,14 @@ class MainWindow(QMainWindow):
             if hasattr(self, "btn_detail_cloud_restore"):
                 self.btn_detail_cloud_restore.hide()
 
-        if network_allowed and not cloud_auth_required and (cached_save is None or is_stale):
+        cached_cloud_status = cached_save[0] if cached_save else None
+        cloud_status_needs_refresh = cached_cloud_status in {
+            SyncStatus.CLOUD_OFFLINE,
+            SyncStatus.CLOUD_UNAVAILABLE,
+        }
+        if network_allowed and not cloud_auth_required and (
+            cached_save is None or is_stale or cloud_status_needs_refresh
+        ):
             self._spawn_status_fetchers(
                 [(game_id, name, path or "", str(steam_id or ""))],
                 self._on_cloud_save_status_calculated,

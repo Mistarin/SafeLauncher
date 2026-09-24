@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PyQt6.QtWidgets import QApplication
 
@@ -110,6 +110,40 @@ class OfflineUpdateStatusTests(unittest.TestCase):
 
         label.setVisible.assert_called_once_with(True)
         self.assertTrue(fake._network_offline_detected)
+
+    def test_returning_online_forces_cloud_and_game_version_refreshes(self):
+        class Settings:
+            def value(self, key, default=None, type=None):
+                if key == "offline_mode":
+                    return False
+                return default
+
+        fake = SimpleNamespace(
+            settings=Settings(),
+            _automatic_network_allowed=Mock(return_value=True),
+            _set_network_status=Mock(),
+            _show_toast=Mock(),
+            _refresh_library=Mock(),
+            _start_cloud_poll_timer=Mock(),
+            request_cloud_recheck=Mock(),
+            _check_all_steam_updates=Mock(),
+            _start_background_achievement_sync=Mock(),
+            _sync_profile_metadata_async=Mock(),
+            _check_backend_update_on_startup=Mock(),
+            _update_check_timer=Mock(),
+            _startup_backend_health=None,
+            _startup_update_notice_shown=False,
+        )
+
+        with patch("ui.main_window.QTimer.singleShot") as single_shot:
+            MainWindow._apply_network_policy_change(fake, True)
+
+        fake.request_cloud_recheck.assert_called_once_with(None, "online-mode")
+        self.assertTrue(any(
+            len(call.args) == 2 and call.args[0] == 300
+            and call.args[1] is fake._check_all_steam_updates
+            for call in single_shot.call_args_list
+        ))
 
 
 if __name__ == "__main__":
