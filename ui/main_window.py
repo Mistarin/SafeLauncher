@@ -8428,16 +8428,34 @@ class MainWindow(QMainWindow):
             )
         menu.addSeparator()
         center = menu.addAction(get_icon("ph.cloud-bold", color="#3B9FE8"), "Open Cloud Center")
-        center.triggered.connect(lambda: self._open_cloud_center())
+        # Finish native menu teardown before opening the frameless Cloud Center.
+        center.triggered.connect(lambda _checked=False: QTimer.singleShot(0, self._open_cloud_center))
         anchor = global_pos if global_pos and not global_pos.isNull() else self.cursor().pos()
         menu.exec(anchor)
 
     def _on_game_cloud_action(self, game_id: int, action: str) -> None:
-        """Route per-game commands to Save Manager or Cloud Center."""
+        """Route per-game commands after the originating menu has closed.
+
+        Cloud actions are emitted by QMenu/QToolButton menus. Opening a
+        frameless modal dialog directly from that native menu callback can
+        re-enter Qt's menu/compositor teardown and crash the process on some
+        Wayland/X11 combinations. Defer the actual dialog work by one event
+        loop turn so the menu is fully gone first.
+        """
         game = self._game_by_id(game_id)
         if not game:
             return
-        action = str(action or "").lower()
+        normalized_action = str(action or "").lower()
+        QTimer.singleShot(
+            0,
+            lambda gid=int(game_id), name=normalized_action: self._perform_game_cloud_action(gid, name),
+        )
+
+    def _perform_game_cloud_action(self, game_id: int, action: str) -> None:
+        """Perform a cloud action once any source menu has finished closing."""
+        game = self._game_by_id(game_id)
+        if not game:
+            return
         if action == "center":
             self._open_cloud_center()
             return

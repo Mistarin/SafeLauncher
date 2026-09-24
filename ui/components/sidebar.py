@@ -573,6 +573,9 @@ class HeaderBar(QFrame):
         act_profile = self.view_menu.addAction(get_icon("ph.user-circle-bold", color="#30D158"), "Profile")
         act_profile.triggered.connect(self.profile_requested.emit)
 
+        act_friends = self.view_menu.addAction(get_icon("ph.users-three-bold", color="#C4C4C8"), "Friends")
+        act_friends.triggered.connect(self.friends_requested.emit)
+
         self.btn_view.setMenu(self.view_menu)
         layout.addWidget(self.btn_view)
 
@@ -675,7 +678,10 @@ class HeaderBar(QFrame):
         self.btn_friends.setAccessibleName("Friends")
         self.btn_friends.setStyleSheet(header_btn_style)
         self.btn_friends.clicked.connect(self.friends_requested.emit)
-        layout.addWidget(self.btn_friends)
+        # Friends is part of the header View menu. Keep the old widget as a
+        # compatibility attribute for integrations, but do not expose a
+        # second navigation entry in the title bar.
+        self.btn_friends.setVisible(False)
 
         # A compact, always-discoverable entry point for private-cloud status.
         # The account menu contains the same action for users who prefer a

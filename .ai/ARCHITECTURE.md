@@ -68,8 +68,10 @@ models plus managed overview, history, and connection-probe handles. The
 default surface is a compact overview, while setup, connection settings, and
 detailed save history remain expandable/secondary workflows. Per-game grid,
 list, and compact views expose one Cloud menu that routes to the existing
-managed Save Manager or this center. Only redacted overview/health metadata is
-cacheable; raw credentials and save contents never cross this boundary.
+managed Save Manager or this center. Menu-triggered modal work is deferred one
+Qt event-loop turn so native menu teardown completes before a frameless dialog
+opens. Only redacted overview/health metadata is cacheable; raw credentials and
+save contents never cross this boundary.
 
 ## Data boundaries
 

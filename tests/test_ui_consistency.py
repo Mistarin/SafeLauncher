@@ -2,13 +2,16 @@ import unittest
 
 from PyQt6.QtWidgets import (
     QApplication, QFormLayout, QLineEdit, QLabel, QToolButton, QFrame,
-    QPushButton,
+    QPushButton, QMainWindow,
 )
+from unittest.mock import Mock, patch
 
 from core.launch_diagnostics import LaunchDiagnostics
 from ui.components.popup_shell import PopupDialog
 from ui.dialogs.game_dialogs import SafeLaunchDialog
 from ui.dialogs.settings_dialog import UserSettingsDialog
+from ui.components.sidebar import CustomTitleBar
+from ui.main_window import MainWindow
 
 
 class PopupPropertyConsistencyTests(unittest.TestCase):
@@ -77,6 +80,33 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
             self.app.processEvents()
+
+    def test_header_view_menu_exposes_only_library_profile_and_friends(self):
+        class _HeaderWindow(QMainWindow):
+            def _toggle_maximize(self):
+                pass
+
+        window = _HeaderWindow()
+        title_bar = CustomTitleBar(window)
+        try:
+            labels = [action.text() for action in title_bar.view_menu.actions()]
+            self.assertEqual(labels, ["Library", "Profile", "Friends"])
+            self.assertFalse(title_bar.btn_friends.isVisible())
+        finally:
+            title_bar.deleteLater()
+            window.deleteLater()
+            self.app.processEvents()
+
+    def test_cloud_action_is_deferred_until_menu_event_finishes(self):
+        fake = Mock()
+        fake._game_by_id.return_value = (7, "Test", "/tmp/test", "", "", "", "")
+
+        with patch("ui.main_window.QTimer.singleShot") as single_shot:
+            MainWindow._on_game_cloud_action(fake, 7, "upload")
+
+        fake._perform_game_cloud_action.assert_not_called()
+        single_shot.assert_called_once()
+        self.assertEqual(single_shot.call_args.args[0], 0)
 
     def test_launch_failure_actions_reflow_without_gaps(self):
         dialog = SafeLaunchDialog("Test Game", process=None)

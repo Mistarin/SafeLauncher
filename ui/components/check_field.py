@@ -63,3 +63,4 @@ class CheckField(QCheckBox):
         painter.setFont(self.font())
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                          self.text())
+        painter.end()
