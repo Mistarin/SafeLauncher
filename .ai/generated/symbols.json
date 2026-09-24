@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T21:32:05+00:00",
+  "generated_at": "2026-09-24T21:48:59+00:00",
   "symbols": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -4186,49 +4186,49 @@
     {
       "file": "core/global_hotkeys.py",
       "kind": "function",
-      "line": 101,
+      "line": 102,
       "name": "register_hotkey"
     },
     {
       "file": "core/global_hotkeys.py",
       "kind": "function",
-      "line": 109,
+      "line": 110,
       "name": "clear_bindings"
     },
     {
       "file": "core/global_hotkeys.py",
       "kind": "function",
-      "line": 114,
+      "line": 115,
       "name": "update_bindings"
     },
     {
       "file": "core/global_hotkeys.py",
       "kind": "function",
-      "line": 120,
+      "line": 121,
       "name": "start"
     },
     {
       "file": "core/global_hotkeys.py",
       "kind": "function",
-      "line": 137,
+      "line": 139,
       "name": "stop"
     },
     {
       "file": "core/global_hotkeys.py",
       "kind": "function",
-      "line": 158,
+      "line": 155,
       "name": "_run_loop"
     },
     {
       "file": "core/global_hotkeys.py",
       "kind": "function",
-      "line": 193,
+      "line": 190,
       "name": "_rebind_keys"
     },
     {
       "file": "core/global_hotkeys.py",
       "kind": "function",
-      "line": 273,
+      "line": 270,
       "name": "__del__"
     },
     {
@@ -8032,67 +8032,67 @@
     {
       "file": "core/system_inspector.py",
       "kind": "class",
-      "line": 15,
+      "line": 16,
       "name": "DistroInfo"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "class",
-      "line": 25,
+      "line": 26,
       "name": "GPUInfo"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "class",
-      "line": 35,
+      "line": 36,
       "name": "ShellInfo"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "class",
-      "line": 42,
+      "line": 43,
       "name": "HostSystemAudit"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "function",
-      "line": 101,
+      "line": 102,
       "name": "detect_distribution"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "function",
-      "line": 146,
+      "line": 147,
       "name": "detect_shell"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "function",
-      "line": 167,
+      "line": 168,
       "name": "detect_gpus"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "function",
-      "line": 250,
+      "line": 251,
       "name": "detect_display_server"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "function",
-      "line": 262,
+      "line": 263,
       "name": "detect_desktop_environment"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "function",
-      "line": 272,
+      "line": 273,
       "name": "audit_host_system"
     },
     {
       "file": "core/system_inspector.py",
       "kind": "function",
-      "line": 339,
+      "line": 340,
       "name": "print_system_report"
     },
     {
@@ -10484,6 +10484,30 @@
       "name": "test_stop_is_idempotent_without_a_started_thread"
     },
     {
+      "file": "tests/test_global_hotkeys.py",
+      "kind": "function",
+      "line": 36,
+      "name": "test_stop_leaves_display_cleanup_to_listener_thread"
+    },
+    {
+      "file": "tests/test_global_hotkeys.py",
+      "kind": "class",
+      "line": 39,
+      "name": "_Display"
+    },
+    {
+      "file": "tests/test_global_hotkeys.py",
+      "kind": "function",
+      "line": 40,
+      "name": "__init__"
+    },
+    {
+      "file": "tests/test_global_hotkeys.py",
+      "kind": "function",
+      "line": 43,
+      "name": "close"
+    },
+    {
       "file": "tests/test_launch_policy.py",
       "kind": "function",
       "line": 10,
@@ -11656,85 +11680,85 @@
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1177,
+      "line": 1182,
       "name": "test_profile_owner_actions_are_unified_and_public_view_is_read_only"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1218,
+      "line": 1223,
       "name": "test_profile_editor_bio_and_sixth_game_navigation"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1264,
+      "line": 1269,
       "name": "test_header_uses_one_combined_identity_control"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "class",
-      "line": 1267,
+      "line": 1272,
       "name": "TestWindow"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1268,
+      "line": 1273,
       "name": "_toggle_maximize"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1305,
+      "line": 1310,
       "name": "test_profile_settings_keep_appearance_in_profile_editor_and_friends_popup_are_custom"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1337,
+      "line": 1342,
       "name": "test_edit_game_exposes_safe_lifecycle_action_without_form_save"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1364,
+      "line": 1369,
       "name": "test_profile_editor_shows_username_but_hides_service_details"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1395,
+      "line": 1400,
       "name": "test_publish_handle_conflict_is_actionable_and_marks_handle_unavailable"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1421,
+      "line": 1426,
       "name": "test_profile_editor_saves_steam_hero_background_from_appid"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1448,
+      "line": 1453,
       "name": "test_profile_editor_previews_backgrounds_without_mutating_saved_profile"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1479,
+      "line": 1484,
       "name": "test_profile_editor_previews_steam_hero_behind_panels"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1506,
+      "line": 1511,
       "name": "test_nested_profile_panels_apply_opaque_and_glass_surface_modes"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "function",
-      "line": 1538,
+      "line": 1543,
       "name": "test_steam_hero_is_painted_as_background_independent_of_panel_theme"
     },
     {
@@ -12658,85 +12682,91 @@
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "class",
-      "line": 22,
+      "line": 24,
       "name": "SecurityBoundaryTests"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 23,
+      "line": 25,
+      "name": "test_sandbox_probe_keeps_technical_failure_out_of_primary_message"
+    },
+    {
+      "file": "tests/test_security_and_threads.py",
+      "kind": "function",
+      "line": 47,
       "name": "test_dotenv_credentials_are_ignored_and_store_key_is_explicit"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 58,
+      "line": 82,
       "name": "test_deploy_diagnostics_redact_credentials_and_token_shaped_values"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 68,
+      "line": 92,
       "name": "test_host_and_game_process_environments_drop_credentials"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 96,
+      "line": 120,
       "name": "test_logger_redacts_headers_assignments_and_query_credentials"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 107,
+      "line": 131,
       "name": "test_cancelled_directory_size_does_not_publish_partial_cache"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 114,
+      "line": 138,
       "name": "cancel_after_first_poll"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "class",
-      "line": 122,
+      "line": 146,
       "name": "QtWorkerLifecycleTests"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 124,
+      "line": 148,
       "name": "setUpClass"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 129,
+      "line": 153,
       "name": "test_disk_size_worker_stops_after_interruption"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 142,
+      "line": 166,
       "name": "test_supervisors_retain_finished_workers_until_safe_reap"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 161,
+      "line": 185,
       "name": "test_worker_supervisor_reaps_cooperative_slow_worker"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "class",
-      "line": 162,
+      "line": 186,
       "name": "CooperativeWorker"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "function",
-      "line": 163,
+      "line": 187,
       "name": "safe_run"
     },
     {
@@ -13372,547 +13402,553 @@
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 133,
-      "name": "set_action_bar"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 137,
-      "name": "set_sub_nav"
+      "line": 134,
+      "name": "resizeEvent"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
       "line": 141,
+      "name": "set_action_bar"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 145,
+      "name": "set_sub_nav"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 149,
       "name": "set_hero_data"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 151,
+      "line": 159,
       "name": "paintEvent"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "class",
-      "line": 244,
+      "line": 252,
       "name": "CompactActionBar"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 257,
+      "line": 265,
       "name": "__init__"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 494,
+      "line": 502,
       "name": "set_play_state"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 574,
+      "line": 582,
       "name": "_create_divider"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 583,
+      "line": 591,
       "name": "update_cloud_status"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 624,
+      "line": 632,
       "name": "set_update_available"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 628,
+      "line": 636,
       "name": "set_update_status"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 637,
+      "line": 645,
       "name": "set_favorite_active"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 650,
+      "line": 658,
       "name": "_animate_favorite"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "class",
-      "line": 670,
+      "line": 678,
       "name": "CompactSubNavBar"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 683,
+      "line": 691,
       "name": "__init__"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "class",
-      "line": 767,
+      "line": 775,
       "name": "CompactActivityTimelineCard"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 769,
+      "line": 777,
       "name": "__init__"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 828,
+      "line": 836,
       "name": "set_recent_achievements"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "class",
-      "line": 904,
+      "line": 912,
       "name": "CompactAchievementsShowcaseWidget"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 915,
+      "line": 923,
       "name": "__init__"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1029,
+      "line": 1037,
       "name": "set_achievements_data"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "class",
-      "line": 1102,
+      "line": 1110,
       "name": "CompactMediaShowcaseWidget"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1115,
+      "line": 1123,
       "name": "__init__"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1151,
+      "line": 1159,
       "name": "_make_media_action"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1175,
+      "line": 1183,
       "name": "set_media_data"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "class",
-      "line": 1374,
+      "line": 1382,
       "name": "CompactNotesWidget"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1376,
+      "line": 1384,
       "name": "__init__"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1422,
+      "line": 1430,
       "name": "load_notes_for_game"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1438,
+      "line": 1446,
       "name": "_on_text_changed"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "class",
-      "line": 1446,
+      "line": 1454,
       "name": "CompactGamePageWidget"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1467,
+      "line": 1475,
       "name": "__init__"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1720,
+      "line": 1728,
       "name": "set_empty_state"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1726,
+      "line": 1734,
       "name": "set_content_state"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1731,
+      "line": 1739,
       "name": "refresh_media_state"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1735,
+      "line": 1743,
       "name": "set_game"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1855,
+      "line": 1863,
       "name": "set_play_state"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 1860,
-      "name": "_on_play"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 1864,
-      "name": "_on_edit"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
       "line": 1868,
-      "name": "_on_settings"
+      "name": "_on_play"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
       "line": 1872,
-      "name": "_on_folder"
+      "name": "_on_edit"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
       "line": 1876,
-      "name": "_on_save_manager"
+      "name": "_on_settings"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
       "line": 1880,
-      "name": "_on_cloud_action"
+      "name": "_on_folder"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
       "line": 1884,
-      "name": "_on_favorite"
+      "name": "_on_save_manager"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
       "line": 1888,
-      "name": "_on_prefix"
+      "name": "_on_cloud_action"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
       "line": 1892,
+      "name": "_on_favorite"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 1896,
+      "name": "_on_prefix"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 1900,
       "name": "_on_screenshots"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1897,
+      "line": 1905,
       "name": "_on_videos"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1902,
+      "line": 1910,
       "name": "_on_settings_open"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1905,
+      "line": 1913,
       "name": "_on_open_screenshot"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1913,
+      "line": 1921,
       "name": "_on_steam_page"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1917,
+      "line": 1925,
       "name": "_on_view_achievements"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "class",
-      "line": 1922,
+      "line": 1930,
       "name": "CompactSidebarListItemWidget"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1924,
+      "line": 1932,
       "name": "__init__"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 1955,
+      "line": 1963,
       "name": "_init_ui"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2009,
+      "line": 2017,
       "name": "_set_cloud_icon"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2015,
+      "line": 2023,
       "name": "set_favorite"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2028,
+      "line": 2036,
       "name": "set_update_status"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2041,
+      "line": 2049,
       "name": "_load_icon"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "class",
-      "line": 2101,
+      "line": 2109,
       "name": "CompactSidebarListWidget"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2112,
+      "line": 2120,
       "name": "__init__"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2350,
+      "line": 2358,
       "name": "eventFilter"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2360,
+      "line": 2368,
       "name": "_on_filter_btn_clicked"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2364,
+      "line": 2372,
       "name": "set_filter"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2378,
+      "line": 2386,
       "name": "set_games"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2395,
+      "line": 2403,
       "name": "_populate_list"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2461,
+      "line": 2469,
       "name": "select_game"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2468,
+      "line": 2476,
       "name": "set_selected_game_ids"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2477,
+      "line": 2485,
       "name": "update_game_icon"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2488,
+      "line": 2496,
       "name": "update_favorite"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2498,
-      "name": "update_update_available"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2502,
-      "name": "update_update_state"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
       "line": 2506,
-      "name": "update_update_state_for_widget"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2521,
-      "name": "update_missing"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2539,
-      "name": "_on_sort_combo_changed"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2542,
-      "name": "_on_search_changed"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2545,
-      "name": "_on_item_clicked"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2552,
-      "name": "_on_item_double_clicked"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "class",
-      "line": 2560,
-      "name": "CompactLayoutContainer"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2586,
-      "name": "__init__"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2643,
-      "name": "set_play_state"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2648,
-      "name": "eventFilter"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2656,
-      "name": "set_games"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2676,
-      "name": "set_snapshot"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2687,
-      "name": "select_game"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2690,
-      "name": "set_selected_game_ids"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2693,
-      "name": "set_filter"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2696,
-      "name": "update_game_icon"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2699,
-      "name": "update_favorite"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2704,
-      "name": "update_cloud_status"
-    },
-    {
-      "file": "ui/components/compact_game_page.py",
-      "kind": "function",
-      "line": 2709,
       "name": "update_update_available"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2715,
+      "line": 2510,
       "name": "update_update_state"
     },
     {
       "file": "ui/components/compact_game_page.py",
       "kind": "function",
-      "line": 2721,
+      "line": 2514,
+      "name": "update_update_state_for_widget"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2529,
+      "name": "update_missing"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2547,
+      "name": "_on_sort_combo_changed"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2550,
+      "name": "_on_search_changed"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2553,
+      "name": "_on_item_clicked"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2560,
+      "name": "_on_item_double_clicked"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "class",
+      "line": 2568,
+      "name": "CompactLayoutContainer"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2594,
+      "name": "__init__"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2651,
+      "name": "set_play_state"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2656,
+      "name": "eventFilter"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2664,
+      "name": "set_games"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2684,
+      "name": "set_snapshot"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2695,
+      "name": "select_game"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2698,
+      "name": "set_selected_game_ids"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2701,
+      "name": "set_filter"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2704,
+      "name": "update_game_icon"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2707,
+      "name": "update_favorite"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2712,
+      "name": "update_cloud_status"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2717,
+      "name": "update_update_available"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2723,
+      "name": "update_update_state"
+    },
+    {
+      "file": "ui/components/compact_game_page.py",
+      "kind": "function",
+      "line": 2729,
       "name": "update_missing"
     },
     {
@@ -15910,139 +15946,139 @@
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 520,
+      "line": 528,
       "name": "viewportEvent"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 539,
+      "line": 547,
       "name": "set_game_selected"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 546,
+      "line": 554,
       "name": "selected_game_ids"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 555,
+      "line": 563,
       "name": "set_selected_game_ids"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 560,
+      "line": 568,
       "name": "mousePressEvent"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 605,
+      "line": 613,
       "name": "mouseDoubleClickEvent"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 614,
+      "line": 622,
       "name": "keyPressEvent"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 633,
+      "line": 641,
       "name": "mouseMoveEvent"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 646,
+      "line": 654,
       "name": "leaveEvent"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "class",
-      "line": 654,
+      "line": 662,
       "name": "BannerProxy"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 660,
+      "line": 668,
       "name": "__init__"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 664,
+      "line": 672,
       "name": "set_banner"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 667,
+      "line": 675,
       "name": "set_icon"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 670,
+      "line": 678,
       "name": "set_missing"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 673,
+      "line": 681,
       "name": "set_selected"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 676,
+      "line": 684,
       "name": "set_favorite"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 679,
+      "line": 687,
       "name": "set_update_available"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 682,
+      "line": 690,
       "name": "set_update_status"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 685,
+      "line": 693,
       "name": "set_cloud_status"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 688,
+      "line": 696,
       "name": "set_playtime"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 691,
+      "line": 699,
       "name": "hide"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 694,
+      "line": 702,
       "name": "setParent"
     },
     {
       "file": "ui/components/virtual_grid.py",
       "kind": "function",
-      "line": 697,
+      "line": 705,
       "name": "deleteLater"
     },
     {
@@ -18184,229 +18220,229 @@
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 505,
+      "line": 513,
       "name": "_start_managed_task"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 515,
+      "line": 523,
       "name": "_complete"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 529,
+      "line": 537,
       "name": "_show_recovery"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 544,
+      "line": 552,
       "name": "_hide_recovery"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 549,
+      "line": 557,
       "name": "_rescan_and_revalidate"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 554,
+      "line": 562,
       "name": "_retry_last_operation"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 561,
+      "line": 569,
       "name": "_validate_selected_locations"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 589,
+      "line": 597,
       "name": "_save_operation_from_cloud_result"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 593,
+      "line": 601,
       "name": "_resource_operation_result"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 613,
+      "line": 621,
       "name": "_bind_cloud_operation"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 620,
+      "line": 628,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 640,
+      "line": 648,
       "name": "_close_resource_bindings"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 645,
+      "line": 653,
       "name": "_open_cloud_settings"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 651,
+      "line": 659,
       "name": "_copy_error_details"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 666,
+      "line": 674,
       "name": "_open_operation_logs"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 672,
+      "line": 680,
       "name": "closeEvent"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 683,
+      "line": 691,
       "name": "_scan_saves"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 783,
+      "line": 791,
       "name": "_toggle_file_details"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 791,
+      "line": 799,
       "name": "_update_export_state"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 797,
+      "line": 805,
       "name": "_upload_selected"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 858,
+      "line": 866,
       "name": "_on_upload_done"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 880,
+      "line": 888,
       "name": "_export_selected"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 928,
+      "line": 936,
       "name": "_import_snapshot"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 950,
+      "line": 958,
       "name": "_notify_parent_changed"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 963,
+      "line": 971,
       "name": "_cloud_unavailable_result"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 975,
+      "line": 983,
       "name": "_on_tab_changed"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 979,
+      "line": 987,
       "name": "_on_history_selection_changed"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 983,
+      "line": 991,
       "name": "_load_history"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1009,
+      "line": 1017,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1045,
+      "line": 1053,
       "name": "_on_history_loaded"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1093,
+      "line": 1101,
       "name": "_restore_selected_history_save"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1132,
+      "line": 1140,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1156,
+      "line": 1164,
       "name": "_restore_local_backup"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1212,
+      "line": 1220,
       "name": "_local_restore_done"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1230,
+      "line": 1238,
       "name": "_restore_from_cloud"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1266,
+      "line": 1274,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1289,
+      "line": 1297,
       "name": "_on_restore_done"
     },
     {
       "file": "ui/dialogs/save_manager_dialog.py",
       "kind": "function",
-      "line": 1357,
+      "line": 1365,
       "name": "_deliver"
     },
     {
@@ -18424,751 +18460,757 @@
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 376,
+      "line": 385,
       "name": "_apply_settings_surfaces"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 505,
+      "line": 514,
       "name": "showEvent"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 509,
+      "line": 518,
       "name": "_switch_tab"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 514,
+      "line": 523,
       "name": "_polish_settings_form"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 518,
+      "line": 527,
       "name": "_polish_settings_grid"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 523,
+      "line": 532,
       "name": "_settings_divider"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 532,
+      "line": 541,
       "name": "_add_section_divider"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 539,
+      "line": 548,
       "name": "_wrap_settings_sections"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 556,
+      "line": 565,
       "name": "finish_section"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 563,
+      "line": 572,
       "name": "append_item"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 610,
+      "line": 619,
       "name": "set_profile_action_state"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 664,
+      "line": 673,
       "name": "set_profile_action_status"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 675,
+      "line": 684,
       "name": "_create_general_page"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 865,
+      "line": 874,
       "name": "_create_security_page"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 971,
+      "line": 989,
       "name": "_execute_live_probe"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 977,
+      "line": 997,
       "name": "_apply"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 997,
+      "line": 1016,
+      "name": "_copy_probe_details"
+    },
+    {
+      "file": "ui/dialogs/settings_dialog.py",
+      "kind": "function",
+      "line": 1024,
       "name": "_create_storage_page"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1028,
+      "line": 1055,
       "name": "_calc_sandbox"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1105,
+      "line": 1132,
       "name": "_create_cloud_page"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1185,
+      "line": 1212,
       "name": "_toggle_key"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1213,
+      "line": 1240,
       "name": "_toggle_deploy_key"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1420,
+      "line": 1447,
       "name": "_open_conflict_review"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1424,
+      "line": 1451,
       "name": "_refresh_cloud_conflict_summary"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1443,
+      "line": 1470,
       "name": "_apply"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1466,
+      "line": 1493,
       "name": "_apply_account_status"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1476,
+      "line": 1503,
       "name": "_to_bytes"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1514,
+      "line": 1541,
       "name": "_create_plugins_page"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1723,
+      "line": 1750,
       "name": "_open_install_notice"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1727,
+      "line": 1754,
       "name": "_on_install_option_changed"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1732,
+      "line": 1759,
       "name": "_copy_install_command"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1736,
+      "line": 1763,
       "name": "_browse_recordings_dir"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1741,
+      "line": 1768,
       "name": "_open_folder"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1748,
+      "line": 1775,
       "name": "_clear_diagnostics"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1760,
+      "line": 1787,
       "name": "_export_runtime_diagnostics"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1792,
+      "line": 1819,
       "name": "_add_to_start_screen"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1806,
+      "line": 1833,
       "name": "_save"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1859,
+      "line": 1886,
       "name": "_browse_proton"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1864,
+      "line": 1891,
       "name": "_browse_cloud_dir"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1871,
+      "line": 1898,
       "name": "_dialog_network_allowed"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1881,
+      "line": 1908,
       "name": "_on_cloud_mode_changed"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1887,
+      "line": 1914,
       "name": "_open_cloud_wizard"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1906,
+      "line": 1933,
       "name": "_open_deploy_key_wizard"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1919,
+      "line": 1946,
       "name": "_forget_deploy_key"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1934,
+      "line": 1961,
       "name": "_open_cloud_center_from_settings"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1953,
+      "line": 1980,
       "name": "_open_account_manager"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1957,
+      "line": 1984,
       "name": "_cloud_connect"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1986,
+      "line": 2013,
       "name": "_cloud_disconnect"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 1997,
+      "line": 2024,
       "name": "_capture_cloud_settings"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2011,
+      "line": 2038,
       "name": "_restore_cloud_settings"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2030,
+      "line": 2057,
       "name": "_remember_cloud_settings_as_baseline"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2034,
+      "line": 2061,
       "name": "reject"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2038,
+      "line": 2065,
       "name": "_start_managed_task"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2065,
+      "line": 2092,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2095,
+      "line": 2122,
       "name": "_complete"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2111,
+      "line": 2138,
       "name": "_refresh_account_status"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2119,
+      "line": 2146,
       "name": "_probe"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2157,
+      "line": 2184,
       "name": "_apply_if_current"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2163,
+      "line": 2190,
       "name": "_refresh_backend_health"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2191,
+      "line": 2218,
       "name": "_worker"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2194,
+      "line": 2221,
       "name": "_apply_if_current"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2200,
+      "line": 2227,
       "name": "_apply_backend_health"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2274,
+      "line": 2301,
       "name": "_copy_health_details"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2279,
+      "line": 2306,
       "name": "_apply_backend_deploy_result"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2312,
+      "line": 2339,
       "name": "_redeploy_backend"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2346,
+      "line": 2373,
       "name": "_worker"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2372,
+      "line": 2399,
       "name": "_open_convex_dashboard"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2378,
+      "line": 2405,
       "name": "_manual_check_updates"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2388,
+      "line": 2415,
       "name": "_worker"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2395,
+      "line": 2422,
       "name": "_apply_manual_update_result"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2425,
+      "line": 2452,
       "name": "_start_appimage_download"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2434,
+      "line": 2461,
       "name": "_worker"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2444,
+      "line": 2471,
       "name": "_deliver"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2455,
+      "line": 2482,
       "name": "_on_app_download_progress"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2462,
+      "line": 2489,
       "name": "_on_app_download_finished"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2472,
+      "line": 2499,
       "name": "_on_app_download_failed"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2476,
+      "line": 2503,
       "name": "get_cloud_saves_dir"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2479,
+      "line": 2506,
       "name": "_open_runtime_manager"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2483,
+      "line": 2510,
       "name": "_open_runtime_inventory"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2486,
+      "line": 2513,
       "name": "_open_proton_manager"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2490,
+      "line": 2517,
       "name": "get_user_name"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2493,
+      "line": 2520,
       "name": "get_proton_path"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2496,
+      "line": 2523,
       "name": "get_show_welcome_wizard"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2499,
+      "line": 2526,
       "name": "get_date_format"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2503,
+      "line": 2530,
       "name": "_normalise_hotkey"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2509,
+      "line": 2536,
       "name": "get_screenshot_hotkey"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2512,
+      "line": 2539,
       "name": "get_gpu_recorder_config"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2539,
+      "line": 2566,
       "name": "_on_sandbox_size_ready"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2547,
+      "line": 2574,
       "name": "get_screenshot_target_screen"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "class",
-      "line": 2551,
+      "line": 2578,
       "name": "PluginInstallNoticeDialog"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2553,
+      "line": 2580,
       "name": "__init__"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2621,
+      "line": 2648,
       "name": "_copy_and_close"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2626,
+      "line": 2653,
       "name": "_launch_install"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "class",
-      "line": 2631,
+      "line": 2658,
       "name": "ScreenshotLightboxDialog"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2634,
+      "line": 2661,
       "name": "__init__"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2705,
+      "line": 2732,
       "name": "resizeEvent"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2709,
+      "line": 2736,
       "name": "keyPressEvent"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2719,
+      "line": 2746,
       "name": "_prev_image"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2724,
+      "line": 2751,
       "name": "_next_image"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2729,
+      "line": 2756,
       "name": "_update_display"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2754,
+      "line": 2781,
       "name": "_open_current_folder"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2763,
+      "line": 2790,
       "name": "_delete_current"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "class",
-      "line": 2783,
+      "line": 2810,
       "name": "ScreenshotGalleryDialog"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2785,
+      "line": 2812,
       "name": "__init__"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2848,
+      "line": 2875,
       "name": "load_screenshots"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2923,
+      "line": 2950,
       "name": "_open_lightbox"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2927,
+      "line": 2954,
       "name": "_delete_screenshot"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2944,
+      "line": 2971,
       "name": "_capture_screen"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2951,
+      "line": 2978,
       "name": "_open_folder"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "class",
-      "line": 2958,
+      "line": 2985,
       "name": "VideoGalleryDialog"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 2963,
+      "line": 2990,
       "name": "__init__"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3011,
+      "line": 3038,
       "name": "_files"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3023,
+      "line": 3050,
       "name": "load_videos"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3079,
+      "line": 3106,
       "name": "_play"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3082,
+      "line": 3109,
       "name": "_show_file"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3085,
+      "line": 3112,
       "name": "_delete"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3094,
+      "line": 3121,
       "name": "_open_folder"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "class",
-      "line": 3099,
+      "line": 3126,
       "name": "DiskManagerDialog"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3109,
+      "line": 3136,
       "name": "__init__"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3200,
+      "line": 3227,
       "name": "_compute_sizes"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3259,
+      "line": 3286,
       "name": "_summary_label"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3265,
+      "line": 3292,
       "name": "_summary_value"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3270,
+      "line": 3297,
       "name": "_on_sizes_ready"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3292,
+      "line": 3319,
       "name": "closeEvent"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3311,
+      "line": 3338,
       "name": "_build_size_row"
     },
     {
       "file": "ui/dialogs/settings_dialog.py",
       "kind": "function",
-      "line": 3335,
+      "line": 3362,
       "name": "_open_path"
     },
     {
@@ -19444,1771 +19486,1777 @@
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1587,
+      "line": 1591,
+      "name": "_resize_to_available_screen"
+    },
+    {
+      "file": "ui/main_window.py",
+      "kind": "function",
+      "line": 1617,
       "name": "_automatic_network_allowed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1597,
+      "line": 1627,
       "name": "_start_network_monitor"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1607,
+      "line": 1637,
       "name": "_probe_network_now"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1631,
+      "line": 1661,
       "name": "_on_network_probe_done"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1684,
+      "line": 1714,
       "name": "_show_network_loss_dialog"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1706,
+      "line": 1736,
       "name": "_clear_network_loss_dialog"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1710,
+      "line": 1740,
       "name": "_retry_network_connection"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1717,
+      "line": 1747,
       "name": "_switch_to_offline_from_network_loss"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1726,
+      "line": 1756,
       "name": "_maybe_show_pending_network_loss"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1730,
+      "line": 1760,
       "name": "_set_network_status"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1759,
+      "line": 1789,
       "name": "_apply_network_policy_change"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1842,
+      "line": 1872,
       "name": "_cancel_optional_network_tasks"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1864,
+      "line": 1894,
       "name": "_apply_accessibility_metadata"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1900,
+      "line": 1930,
       "name": "_check_app_updates"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1918,
+      "line": 1948,
       "name": "_check_backend_update_on_startup"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1938,
+      "line": 1968,
       "name": "_probe"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1956,
+      "line": 1986,
       "name": "_on_startup_backend_health_ready"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1960,
+      "line": 1990,
       "name": "_maybe_show_startup_update_notice"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 1997,
+      "line": 2027,
       "name": "_on_app_update_check_finished"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2025,
+      "line": 2055,
       "name": "_on_banner_download_clicked"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2043,
+      "line": 2073,
       "name": "_on_banner_download_progress"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2048,
+      "line": 2078,
       "name": "_on_banner_download_finished"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2066,
+      "line": 2096,
       "name": "_on_banner_download_failed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2076,
+      "line": 2106,
       "name": "_on_banner_restart_clicked"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2092,
+      "line": 2122,
       "name": "_show_welcome_wizard"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2104,
+      "line": 2134,
       "name": "_toggle_maximize"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2112,
+      "line": 2142,
       "name": "_sync_window_controls"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2120,
+      "line": 2150,
       "name": "_update_header_identity"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2130,
+      "line": 2160,
       "name": "_open_cloud_center"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2147,
+      "line": 2177,
       "name": "_on_cloud_center_overview_changed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2154,
+      "line": 2184,
       "name": "_refresh_cloud_center_indicator"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2183,
+      "line": 2213,
       "name": "_on_cloud_header_overview_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2196,
+      "line": 2226,
       "name": "_set_cloud_indicator_for_overview_failure"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2215,
+      "line": 2245,
       "name": "_on_cloud_connection_restored"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2221,
+      "line": 2251,
       "name": "_on_cloud_center_sync_finished"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2228,
+      "line": 2258,
       "name": "_open_cloud_setup_from_center"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2238,
+      "line": 2268,
       "name": "_open_cloud_settings_from_center"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2242,
+      "line": 2272,
       "name": "_open_cloud_history_from_center"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2257,
+      "line": 2287,
       "name": "_open_settings"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2267,
+      "line": 2297,
       "name": "_open_settings_dialog"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2360,
+      "line": 2390,
       "name": "_maybe_refresh_cloud_config"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2370,
+      "line": 2400,
       "name": "_refresh_cloud_after_config_change"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2400,
+      "line": 2430,
       "name": "refresh_cloud_status_for_game"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2404,
+      "line": 2434,
       "name": "_open_proton_manager"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2418,
+      "line": 2448,
       "name": "_set_global_proton_path"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2426,
+      "line": 2456,
       "name": "_apply_proton_to_selected_game"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2433,
+      "line": 2463,
       "name": "_open_runtime_manager"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2438,
+      "line": 2468,
       "name": "_set_proton_path"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2441,
+      "line": 2471,
       "name": "_setup_tray_icon"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2482,
+      "line": 2512,
       "name": "_update_tray_menu"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2522,
+      "line": 2552,
       "name": "_show_and_raise"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2527,
+      "line": 2557,
       "name": "_on_tray_icon_activated"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2534,
+      "line": 2564,
       "name": "_open_disk_manager"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2539,
+      "line": 2569,
       "name": "_open_sandbox_dir"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2572,
+      "line": 2602,
       "name": "_on_install_zip_archive"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2610,
+      "line": 2640,
       "name": "_on_topbar_extraction_complete"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2659,
+      "line": 2689,
       "name": "_toggle_collections_panel"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2667,
+      "line": 2697,
       "name": "_set_filter"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2678,
+      "line": 2708,
       "name": "_update_library_filter_buttons"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2689,
+      "line": 2719,
       "name": "_set_collection_filter"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2696,
+      "line": 2726,
       "name": "_on_add_collection"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2706,
+      "line": 2736,
       "name": "_manage_current_collection_games"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2724,
+      "line": 2754,
       "name": "_rename_current_collection"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2736,
+      "line": 2766,
       "name": "_delete_current_collection"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2751,
+      "line": 2781,
       "name": "_choose_collection_filter"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2759,
+      "line": 2789,
       "name": "_on_sort_changed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2774,
+      "line": 2804,
       "name": "_on_search_query_changed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2794,
+      "line": 2824,
       "name": "_setup_library_shortcuts"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2814,
+      "line": 2844,
       "name": "_shortcut_allowed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2820,
+      "line": 2850,
       "name": "_focus_library_search"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2828,
+      "line": 2858,
       "name": "_shortcut_launch_selected"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2832,
+      "line": 2862,
       "name": "_shortcut_toggle_favorite"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2836,
+      "line": 2866,
       "name": "_shortcut_rescan"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2841,
+      "line": 2871,
       "name": "_set_library_view_mode"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2853,
+      "line": 2883,
       "name": "_toggle_library_view"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2911,
+      "line": 2941,
       "name": "_visible_library_ids"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2914,
+      "line": 2944,
       "name": "_selected_library_ids"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2918,
+      "line": 2948,
       "name": "_replace_library_selection"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2924,
+      "line": 2954,
       "name": "_toggle_library_selection"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2930,
+      "line": 2960,
       "name": "_clear_library_selection_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2937,
+      "line": 2967,
       "name": "_select_all_visible"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2941,
+      "line": 2971,
       "name": "_clear_library_selection"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2945,
+      "line": 2975,
       "name": "_assign_selected_collection"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2957,
+      "line": 2987,
       "name": "_favorite_selected"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2970,
+      "line": 3000,
       "name": "_on_toggle_favorite"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2985,
+      "line": 3015,
       "name": "_on_card_favorite_clicked"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 2999,
+      "line": 3029,
       "name": "_set_local_favorite_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3019,
+      "line": 3049,
       "name": "_refresh_library"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3289,
+      "line": 3319,
       "name": "_update_sidebar_counts"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3304,
+      "line": 3334,
       "name": "_is_archived_game_id"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3321,
+      "line": 3351,
       "name": "_on_icon_downloaded"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3345,
+      "line": 3375,
       "name": "_check_games_on_drive"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3366,
+      "line": 3396,
       "name": "_start_auto_artwork_fetch"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3404,
+      "line": 3434,
       "name": "_request_managed_auto_artwork"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3453,
+      "line": 3483,
       "name": "_apply_managed_auto_artwork"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3463,
+      "line": 3493,
       "name": "_on_managed_auto_artwork_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3486,
+      "line": 3516,
       "name": "_on_auto_banner_downloaded"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3527,
+      "line": 3557,
       "name": "_cleanup_auto_fetcher"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3532,
+      "line": 3562,
       "name": "_start_next_pending_fetcher"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3548,
+      "line": 3578,
       "name": "_cancel_metadata_fetchers"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3553,
+      "line": 3583,
       "name": "_track_metadata_fetcher"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3559,
+      "line": 3589,
       "name": "_request_managed_hero_artwork"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3604,
+      "line": 3634,
       "name": "_on_managed_hero_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3613,
+      "line": 3643,
       "name": "_request_managed_icon_artwork"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3658,
+      "line": 3688,
       "name": "_on_managed_icon_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3667,
+      "line": 3697,
       "name": "_close_managed_artwork_bindings"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3672,
+      "line": 3702,
       "name": "_register_worker"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3676,
+      "line": 3706,
       "name": "_start_managed_task"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3716,
+      "line": 3746,
       "name": "_complete"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3728,
+      "line": 3758,
       "name": "_retire"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3737,
+      "line": 3767,
       "name": "_on_managed_task_done"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3761,
+      "line": 3791,
       "name": "_on_managed_task_error"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3765,
+      "line": 3795,
       "name": "_on_operation_failed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3772,
+      "line": 3802,
       "name": "_update_activity_button"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3786,
+      "line": 3816,
       "name": "_toggle_activity_drawer"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3798,
+      "line": 3828,
       "name": "_position_activity_drawer"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3809,
+      "line": 3839,
       "name": "_cleanup_metadata_fetcher"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3813,
+      "line": 3843,
       "name": "_schedule_size_fetches"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3825,
+      "line": 3855,
       "name": "_on_library_size_ready"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3831,
+      "line": 3861,
       "name": "_select_game_by_id"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3864,
+      "line": 3894,
       "name": "_library_presentations"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3869,
+      "line": 3899,
       "name": "_update_library_item"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3880,
+      "line": 3910,
       "name": "_update_compact_game_page"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3982,
+      "line": 4012,
       "name": "_open_game_dir_by_id"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3991,
+      "line": 4021,
       "name": "_open_steam_page_by_id"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 3996,
+      "line": 4026,
       "name": "_on_double_click_game"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4005,
+      "line": 4035,
       "name": "_on_splitter_moved"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4019,
+      "line": 4049,
       "name": "_get_resize_edges_at_point"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4042,
+      "line": 4072,
       "name": "_update_edge_cursor"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4054,
+      "line": 4084,
       "name": "eventFilter"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4085,
+      "line": 4115,
       "name": "resizeEvent"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4091,
+      "line": 4121,
       "name": "_position_extraction_spinner"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4096,
+      "line": 4126,
       "name": "_show_extraction_spinner"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4100,
+      "line": 4130,
       "name": "_hide_extraction_spinner"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4104,
+      "line": 4134,
       "name": "changeEvent"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4111,
+      "line": 4141,
       "name": "_reposition_reveal_button"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4115,
+      "line": 4145,
       "name": "_on_panel_anim_step"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4125,
+      "line": 4155,
       "name": "_on_panel_anim_finished"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4137,
+      "line": 4167,
       "name": "_panel_animation_progress"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4145,
+      "line": 4175,
       "name": "_animate_left_panel"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4186,
+      "line": 4216,
       "name": "_update_global_hotkeys"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4200,
+      "line": 4230,
       "name": "_on_global_hotkey"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4213,
+      "line": 4243,
       "name": "_take_screenshot"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4244,
+      "line": 4274,
       "name": "_open_screenshot_gallery"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4255,
+      "line": 4285,
       "name": "_open_video_gallery"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4266,
+      "line": 4296,
       "name": "_open_game_properties"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4278,
+      "line": 4308,
       "name": "_refresh_record_button_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4282,
+      "line": 4312,
       "name": "_set_detail_record_label"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4291,
+      "line": 4321,
       "name": "_toggle_game_recording"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4343,
+      "line": 4373,
       "name": "_trigger_replay_save"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4375,
+      "line": 4405,
       "name": "_format_last_played"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4400,
+      "line": 4430,
       "name": "_format_version_date"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4403,
+      "line": 4433,
       "name": "_render_update_date_detail"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4418,
+      "line": 4448,
       "name": "_check_all_steam_updates"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4439,
+      "line": 4469,
       "name": "finished_one"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4533,
+      "line": 4563,
       "name": "_capture_initial_steam_build"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4570,
+      "line": 4600,
       "name": "_record_initial_steam_build"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4597,
+      "line": 4627,
       "name": "_set_game_update_status"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4648,
+      "line": 4678,
       "name": "_request_managed_steam_build"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4696,
+      "line": 4726,
       "name": "_on_managed_steam_build_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4752,
+      "line": 4782,
       "name": "_on_managed_steam_update_batch_done"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4765,
+      "line": 4795,
       "name": "_request_managed_steam_tags"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4805,
+      "line": 4835,
       "name": "_on_managed_steam_tag_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4824,
+      "line": 4854,
       "name": "_close_managed_steam_metadata_bindings"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4836,
+      "line": 4866,
       "name": "_resolve_missing_steam_names"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4864,
+      "line": 4894,
       "name": "_on_managed_steam_name_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 4896,
+      "line": 4926,
       "name": "_on_steam_build_checked"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5016,
+      "line": 5046,
       "name": "_backfill_current_build_date"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5057,
+      "line": 5087,
       "name": "_on_steam_check_failed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5086,
+      "line": 5116,
       "name": "running_game_ids"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5090,
+      "line": 5120,
       "name": "_on_game_session_state_changed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5102,
+      "line": 5132,
       "name": "_on_update_check_offline"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5156,
+      "line": 5186,
       "name": "_retry_steam_check"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5169,
+      "line": 5199,
       "name": "_commit_current_steam_build"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5207,
+      "line": 5237,
       "name": "_mark_build_current_from_config"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5221,
+      "line": 5251,
       "name": "_apply_steam_update_to_game"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5240,
+      "line": 5270,
       "name": "_metadata_cache_path"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5250,
+      "line": 5280,
       "name": "_metadata_resource_key"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5253,
+      "line": 5283,
       "name": "_load_persistent_cache"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5283,
+      "line": 5313,
       "name": "_save_persistent_cache"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5292,
+      "line": 5322,
       "name": "_on_steam_tags_found"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5310,
+      "line": 5340,
       "name": "_update_tags_pills"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5331,
+      "line": 5361,
       "name": "_on_hero_downloaded"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5339,
+      "line": 5369,
       "name": "performance_metrics"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5347,
+      "line": 5377,
       "name": "_on_disk_size_calculated"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5351,
+      "line": 5381,
       "name": "_render_cloud_status"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5381,
+      "line": 5411,
       "name": "_set_detail_cloud_checking"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5392,
+      "line": 5422,
       "name": "_upload_selected_game_cloud_save"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5398,
+      "line": 5428,
       "name": "_restore_selected_game_cloud_save"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5439,
+      "line": 5469,
       "name": "_deliver"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5460,
+      "line": 5490,
       "name": "_on_save_restore_finished"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5547,
+      "line": 5577,
       "name": "_deliver_restore"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5597,
+      "line": 5627,
       "name": "_on_cloud_save_status_calculated"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5619,
+      "line": 5649,
       "name": "_accept_cloud_status_for_context"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5626,
+      "line": 5656,
       "name": "_update_detail_panel"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5896,
+      "line": 5926,
       "name": "_update_detail_launch_button"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 5996,
+      "line": 6026,
       "name": "_stop_game"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6021,
+      "line": 6051,
       "name": "_launch_mode"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6071,
+      "line": 6101,
       "name": "_schedule_prelaunch_sync"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6090,
+      "line": 6120,
       "name": "_deliver"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6141,
+      "line": 6171,
       "name": "_queue_prelaunch_cloud_operation"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6168,
+      "line": 6198,
       "name": "_deliver"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6191,
+      "line": 6221,
       "name": "_finish_prelaunch_sync"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6278,
+      "line": 6308,
       "name": "_on_prelaunch_restore_done"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6301,
+      "line": 6331,
       "name": "_continue_launch"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6446,
+      "line": 6476,
       "name": "_get_selected_game"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6450,
+      "line": 6480,
       "name": "_update_achievement_inspector"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6558,
+      "line": 6588,
       "name": "_open_achievements_dialog"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6570,
+      "line": 6600,
       "name": "_open_achievement_profile"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6573,
+      "line": 6603,
       "name": "_show_profile_page"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6593,
+      "line": 6623,
       "name": "_close_profile_page"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6620,
+      "line": 6650,
       "name": "_open_public_profile_prompt"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6624,
+      "line": 6654,
       "name": "_open_friends_popup"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6648,
+      "line": 6678,
       "name": "open_profile"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6652,
+      "line": 6682,
       "name": "open_owner"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6664,
+      "line": 6694,
       "name": "_open_public_profile_handle"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6688,
+      "line": 6718,
       "name": "_fetch_public_profile"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6740,
+      "line": 6770,
       "name": "_on_public_profile_loaded"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6744,
+      "line": 6774,
       "name": "_on_managed_public_profile_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6756,
+      "line": 6786,
       "name": "_on_public_profile_error"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6759,
+      "line": 6789,
       "name": "_on_profile_changed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6766,
+      "line": 6796,
       "name": "_on_private_profile_changed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6771,
+      "line": 6801,
       "name": "_sync_profile_metadata_async"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6789,
+      "line": 6819,
       "name": "_on_managed_profile_sync_done"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6808,
+      "line": 6838,
       "name": "_on_achievement_unlocked"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6883,
+      "line": 6913,
       "name": "_on_achievement_state_refreshed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6922,
+      "line": 6952,
       "name": "_on_achievement_schema_fetched"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6934,
+      "line": 6964,
       "name": "_on_achievement_resolution_ready"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6955,
+      "line": 6985,
       "name": "_open_prefix_maintenance"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6961,
+      "line": 6991,
       "name": "_set_game_runtime"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6974,
+      "line": 7004,
       "name": "_get_library_service"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 6993,
+      "line": 7023,
       "name": "_on_restore_game"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7010,
+      "line": 7040,
       "name": "_launch_game_by_id"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7015,
+      "line": 7045,
       "name": "_on_launch"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7055,
+      "line": 7085,
       "name": "keyPressEvent"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7110,
+      "line": 7140,
       "name": "_on_playtime_recorded"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7119,
+      "line": 7149,
       "name": "_on_playtime_checkpoint"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7123,
+      "line": 7153,
       "name": "_on_playtime_session_recorded"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7134,
+      "line": 7164,
       "name": "_sync_launcher_metadata_async"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7150,
+      "line": 7180,
       "name": "_cleanup_tracker"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7222,
+      "line": 7252,
       "name": "_deliver"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7232,
+      "line": 7262,
       "name": "_on_exit_save_sync_done_legacy"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7268,
+      "line": 7298,
       "name": "_on_exit_save_sync_done"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7310,
+      "line": 7340,
       "name": "request_cloud_recheck"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7396,
+      "line": 7426,
       "name": "_finish_diff"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7415,
+      "line": 7445,
       "name": "_mark_cloud_auth_required"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7449,
+      "line": 7479,
       "name": "_mark_cloud_offline"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7483,
+      "line": 7513,
       "name": "_spawn_status_fetchers"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7550,
+      "line": 7580,
       "name": "_on_managed_cloud_status_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7625,
+      "line": 7655,
       "name": "_deliver_managed_cloud_status"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7669,
+      "line": 7699,
       "name": "_cloud_status_failure_status"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7688,
+      "line": 7718,
       "name": "_on_managed_cloud_batch_done"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7716,
+      "line": 7746,
       "name": "_close_managed_cloud_status_bindings"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7723,
+      "line": 7753,
       "name": "_start_background_cloud_sync"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7729,
+      "line": 7759,
       "name": "_on_cloud_batch_finished"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7740,
+      "line": 7770,
       "name": "_start_cloud_poll_timer"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7750,
+      "line": 7780,
       "name": "_poll_cloud_for_changes"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7754,
+      "line": 7784,
       "name": "_cloud_status_targets_snapshot"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7766,
+      "line": 7796,
       "name": "_on_cloud_poll_changed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7772,
+      "line": 7802,
       "name": "_on_polled_cloud_status"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7786,
+      "line": 7816,
       "name": "_ensure_managed_achievement_binding"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7798,
+      "line": 7828,
       "name": "_on_managed_achievement_state"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7826,
+      "line": 7856,
       "name": "_on_managed_achievement_batch_done"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7839,
+      "line": 7869,
       "name": "_close_managed_achievement_bindings"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7844,
+      "line": 7874,
       "name": "request_achievement_recheck"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 7987,
+      "line": 8017,
       "name": "_start_background_achievement_sync"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8009,
+      "line": 8039,
       "name": "_poll_running_achievements"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8015,
+      "line": 8045,
       "name": "_on_achievement_status_calculated"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8026,
+      "line": 8056,
       "name": "_on_achievement_batch_finished"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8030,
+      "line": 8060,
       "name": "_show_shutdown_progress"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8048,
+      "line": 8078,
       "name": "_abort_shutdown"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8085,
+      "line": 8115,
       "name": "closeEvent"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8309,
+      "line": 8335,
       "name": "_on_add"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8346,
+      "line": 8372,
       "name": "_on_card_size_changed"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8353,
+      "line": 8379,
       "name": "set_virtualization_threshold"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8360,
+      "line": 8386,
       "name": "_show_toast"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8365,
+      "line": 8391,
       "name": "_on_edit"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8432,
+      "line": 8458,
       "name": "_on_sync_sandbox"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8469,
+      "line": 8495,
       "name": "_remove_game_files_from_disk"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8493,
+      "line": 8519,
       "name": "_handle_readonly"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8520,
+      "line": 8546,
       "name": "_stage_game_files_for_lifecycle"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8557,
+      "line": 8583,
       "name": "_restore_staged_game_files"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8578,
+      "line": 8604,
       "name": "_finish_game_lifecycle_change"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8597,
+      "line": 8623,
       "name": "_apply_game_lifecycle_action"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8615,
+      "line": 8641,
       "name": "_restore_after_failure"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8621,
+      "line": 8647,
       "name": "_finish_success"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8684,
+      "line": 8710,
       "name": "_on_remove"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8697,
+      "line": 8723,
       "name": "_on_export"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8706,
+      "line": 8732,
       "name": "_game_by_id"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8720,
+      "line": 8746,
       "name": "_show_game_cloud_menu"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8753,
+      "line": 8779,
       "name": "_on_card_cloud_badge_clicked"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8760,
+      "line": 8786,
       "name": "_on_game_cloud_action"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8778,
+      "line": 8804,
       "name": "_perform_game_cloud_action"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8794,
+      "line": 8820,
       "name": "_open_save_manager_for_game"
     },
     {
       "file": "ui/main_window.py",
       "kind": "function",
-      "line": 8810,
+      "line": 8836,
       "name": "_on_import"
     },
     {

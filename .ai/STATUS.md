@@ -31,13 +31,14 @@ compilation, `git diff --check`, the security-boundary audit, and the worker
 audit. The request manager now has transient connectivity gating and
 subscriber-aware cancellation; local sandbox verification is explicitly
 allowed through the transient/offline gate; and delegate-painted cloud badges
-publish tooltip/accessibility metadata with keyboard upload support.
+publish tooltip/accessibility metadata with keyboard upload support. The
+top-level `test.py` smoke harness now also passes in an isolated offscreen
+environment. Global hotkey display cleanup is thread-owned, and closing a
+MainWindow no longer calls `QApplication.quit()` from inside the window
+lifecycle.
 
-The historical top-level `test.py` harness still contains a stale assertion
-for the removed `UserSettingsDialog.combo_card_size` field. That harness issue
-must be corrected separately before claiming the canonical release gate is
-green. Physical display-server, scaling, and assistive-technology verification
-remain manual checks.
+Physical display-server, scaling, and assistive-technology verification remain
+manual checks.
 
 ## Known boundaries
 

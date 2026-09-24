@@ -2349,8 +2349,11 @@ try:
     assert any("Screenshots" in text for text in media_action_labels)
     assert any("Videos" in text for text in media_action_labels)
 
-    # Verify hero banner height expanded to 440px for unobstructed cinematic viewing and connected glassmorphic action & sub-nav bars
-    assert game_page.hero_banner.height() == 440
+    # Verify the responsive hero height and connected glassmorphic action &
+    # sub-nav bars.  The banner is capped on large screens but must shrink on
+    # short/narrow displays instead of forcing the dialog beyond the viewport.
+    expected_hero_height = max(300, min(440, int(game_page.hero_banner.width() * 0.35)))
+    assert game_page.hero_banner.height() == expected_hero_height
     assert game_page.action_bar.parent() == game_page.hero_banner
     assert game_page.sub_nav.parent() == game_page.hero_banner
 

@@ -121,14 +121,22 @@ class CompactHeroBanner(QWidget):
         self.hero_pixmap: Optional[QPixmap] = None
         self.game_title: str = "SafeLauncher"
         self.tags: str = ""
-        self.setFixedHeight(440)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(300)
+        self.setMaximumHeight(440)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._banner_layout = QVBoxLayout(self)
         self._banner_layout.setContentsMargins(0, 0, 0, 0)
         self._banner_layout.setSpacing(0)
         self._banner_layout.addStretch(1)
+
+    def resizeEvent(self, event):
+        """Keep the hero usable on short displays while preserving the artwork ratio."""
+        target_height = max(300, min(440, int(self.width() * 0.35)))
+        if self.height() != target_height:
+            self.setFixedHeight(target_height)
+        super().resizeEvent(event)
 
     def set_action_bar(self, action_bar: QWidget):
         """Embed action bar in hero banner so hero artwork extends behind it."""

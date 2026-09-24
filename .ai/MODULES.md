@@ -12,6 +12,8 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Qt resource bridge | [`ui/resource_binding.py`](../ui/resource_binding.py) | `ResourceBinding`, `ResourceBindingRegistry`, `bind_resource`, `bind_request` | active |
 | Remote error/state contract | [`core/request_contracts.py`](../core/request_contracts.py) | `RemoteErrorCategory`, `classify_remote_error`, `resource_status_for_error` | active |
 | Qt worker shutdown | [`core/safe_thread.py`](../core/safe_thread.py) | `WorkerSupervisor` | active; sole MainWindow QThread registry |
+| Global hotkeys | [`core/global_hotkeys.py`](../core/global_hotkeys.py) | `GlobalHotkeyListener` | active; listener-owned Xlib lifecycle and cooperative stop |
+| Security diagnostics | [`core/security_diagnostics.py`](../core/security_diagnostics.py) | `inspect_security_health`, `run_live_sandbox_verification` | active; friendly UI result with optional technical details |
 | Worker/executor audit | [`.ai/phase-7-worker-audit.md`](phase-7-worker-audit.md) | managed scheduler, compatibility workers, local/process workers | verified; compatibility allowlist |
 | Compatibility worker indexes | [`core/compatibility_worker_index.py`](../core/compatibility_worker_index.py) | `CompatibilityWorkerIndex` | active; references only, no scheduling/lifecycle ownership |
 | UI presentation cache | [`core/presentation_cache.py`](../core/presentation_cache.py) | `PresentationCache` | active; bounded decoded-value LRU only |

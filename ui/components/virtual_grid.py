@@ -514,8 +514,16 @@ class VirtualizedGameGridView(QListView):
         tooltip = "\n".join(dict.fromkeys(tooltips))
         item.setData(tooltip, CLOUD_TOOLTIP_ROLE)
         item.setData(tooltip, Qt.ItemDataRole.ToolTipRole)
+        item.setData(tooltip, Qt.ItemDataRole.StatusTipRole)
         name = str(item.data(NAME_ROLE) or "Game")
-        item.setData(f"{name}. {tooltip}" if tooltip else name, Qt.ItemDataRole.AccessibleTextRole)
+        accessible = f"{name}. Cloud save action available. {tooltip}" if tooltip else name
+        item.setData(accessible, Qt.ItemDataRole.AccessibleTextRole)
+        item.setData(
+            "Select this game and press Ctrl+U to upload a newer local save."
+            if cloud_status == SyncStatus.LOCAL_NEWER else
+            "Use the cloud save menu for available cloud actions.",
+            Qt.ItemDataRole.AccessibleDescriptionRole,
+        )
 
     def viewportEvent(self, event) -> bool:
         """Expose delegate-painted card status through Qt's native tooltip path."""

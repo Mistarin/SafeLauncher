@@ -99,8 +99,16 @@ class SaveManagerDialog(PopupDialog):
         self._history_loaded.connect(self._on_history_loaded)
 
 
-        self.setMinimumSize(600, 500)
-        self.resize(760, 620)
+        available = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        available_width = max(1, available.width() - 32) if available else None
+        available_height = max(1, available.height() - 48) if available else None
+        min_width = min(600, available_width) if available_width else 600
+        min_height = min(500, available_height) if available_height else 500
+        self.setMinimumSize(min_width, min_height)
+        self.resize(
+            min(760, max(min_width, available_width)) if available_width else 760,
+            min(620, max(min_height, available_height)) if available_height else 620,
+        )
         self.setSizeGripEnabled(True)
         body_layout = self.popup_layout(margins=(20, 16, 20, 16), spacing=12)
 

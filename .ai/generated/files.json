@@ -1,8 +1,8 @@
 {
   "files": [
     {
-      "bytes": 7258,
-      "lines": 118,
+      "bytes": 7812,
+      "lines": 126,
       "path": ".ai/ARCHITECTURE.md",
       "suffix": ".md"
     },
@@ -19,20 +19,20 @@
       "suffix": ".md"
     },
     {
-      "bytes": 13154,
-      "lines": 92,
+      "bytes": 13530,
+      "lines": 94,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
     },
     {
-      "bytes": 7891,
-      "lines": 109,
+      "bytes": 7890,
+      "lines": 110,
       "path": ".ai/STATUS.md",
       "suffix": ".md"
     },
     {
-      "bytes": 3281,
-      "lines": 59,
+      "bytes": 3546,
+      "lines": 63,
       "path": ".ai/TASK.md",
       "suffix": ".md"
     },
@@ -1033,8 +1033,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 10289,
-      "lines": 278,
+      "bytes": 10351,
+      "lines": 275,
       "path": "core/global_hotkeys.py",
       "suffix": ".py"
     },
@@ -1315,8 +1315,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 7043,
-      "lines": 201,
+      "bytes": 7172,
+      "lines": 202,
       "path": "core/security_diagnostics.py",
       "suffix": ".py"
     },
@@ -1351,8 +1351,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 17390,
-      "lines": 424,
+      "bytes": 17592,
+      "lines": 428,
       "path": "core/system_inspector.py",
       "suffix": ".py"
     },
@@ -1645,8 +1645,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 129285,
-      "lines": 2565,
+      "bytes": 129490,
+      "lines": 2568,
       "path": "test.py",
       "suffix": ".py"
     },
@@ -1765,8 +1765,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 975,
-      "lines": 39,
+      "bytes": 1446,
+      "lines": 55,
       "path": "tests/test_global_hotkeys.py",
       "suffix": ".py"
     },
@@ -1861,8 +1861,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 74272,
-      "lines": 1576,
+      "bytes": 74745,
+      "lines": 1581,
       "path": "tests/test_profile.py",
       "suffix": ".py"
     },
@@ -1921,8 +1921,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 7312,
-      "lines": 182,
+      "bytes": 8275,
+      "lines": 206,
       "path": "tests/test_security_and_threads.py",
       "suffix": ".py"
     },
@@ -1981,8 +1981,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 118730,
-      "lines": 2738,
+      "bytes": 119089,
+      "lines": 2746,
       "path": "ui/components/compact_game_page.py",
       "suffix": ".py"
     },
@@ -2053,8 +2053,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 29158,
-      "lines": 699,
+      "bytes": 29572,
+      "lines": 707,
       "path": "ui/components/virtual_grid.py",
       "suffix": ".py"
     },
@@ -2143,14 +2143,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 59610,
-      "lines": 1422,
+      "bytes": 60217,
+      "lines": 1430,
       "path": "ui/dialogs/save_manager_dialog.py",
       "suffix": ".py"
     },
     {
-      "bytes": 152922,
-      "lines": 3341,
+      "bytes": 154685,
+      "lines": 3368,
       "path": "ui/dialogs/settings_dialog.py",
       "suffix": ".py"
     },
@@ -2173,8 +2173,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 415995,
-      "lines": 8819,
+      "bytes": 417277,
+      "lines": 8845,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2209,5 +2209,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-24T21:32:05+00:00"
+  "generated_at": "2026-09-24T21:48:59+00:00"
 }

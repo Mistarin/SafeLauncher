@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -393,7 +394,10 @@ def print_system_report() -> None:
             run_inst = input(f"\n{CYAN}{BOLD}➜{RESET} Run this installation command now with sudo? [y/N]: ").strip().lower()
             if run_inst in ("y", "yes"):
                 print(f"  Running: {audit.install_command_for_missing}")
-                subprocess.run(audit.install_command_for_missing, shell=True)
+                try:
+                    subprocess.run(shlex.split(audit.install_command_for_missing), check=False)
+                except (OSError, ValueError) as error:
+                    print(f"  {RED}✖ Could not start the package installer: {error}{RESET}")
         except Exception:
             pass
 

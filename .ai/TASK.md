@@ -49,10 +49,14 @@ The request/resource hardening pass now includes subscriber-aware binding
 cancellation, transient connectivity gating with an allowed recovery probe,
 offline-safe local sandbox verification, independent recorder capture/replay
 hotkey loading, and delegate-grid cloud tooltip/accessibility metadata. The
-MainWindow shutdown path has a cooperative slow-worker regression test.
+MainWindow shutdown path has a cooperative slow-worker regression test. The
+X11 global-hotkey listener now owns its display cleanup on its own thread, and
+headless Qt platforms do not start the OS-wide listener; this avoids native
+teardown races in embedded/offscreen launches. MainWindow close no longer
+forces an application-wide quit, so embedded windows can close without
+invalidating the host event loop.
 
 The discovered unit suite, compile check, diff check, security audit, and
-worker audit pass. Physical Wayland/X11 input, high-DPI layout, and screen
-reader behavior still require desktop verification. The historical `test.py`
-harness has a stale compact-settings assertion for `combo_card_size`; that
-test mismatch is separate from the passing discovered suite.
+worker audit pass. The top-level `test.py` smoke harness also passes in an
+isolated offscreen environment. Physical Wayland/X11 input, high-DPI layout,
+and screen-reader behavior still require desktop verification.

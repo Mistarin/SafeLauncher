@@ -1144,31 +1144,36 @@ class ProfilePageTests(unittest.TestCase):
             auth.signed_in = True
             dialog = FriendsDialog(settings, auth)
             try:
-                dialog._handle = "owner"
-                dialog._snapshot = {
-                    "friends": [{"handle": "friend", "display_name": "Friend"}],
-                    "incoming_requests": [],
-                    "outgoing_requests": [],
-                    "blocked_handles": [],
-                }
-                dialog._render()
-                remove = next(
-                    button for button in dialog.findChildren(QPushButton, "friendsRowAction")
-                    if button.text() == "Remove"
-                )
-                self.assertTrue(remove.isEnabled())
-                self.assertIn("Remove this person", remove.toolTip())
+                # The release gate runs the suite in offline-test mode. This
+                # test is specifically about the online action affordance,
+                # so model that policy explicitly instead of depending on the
+                # process-wide test environment.
+                with patch("ui.dialogs.friends_dialog.automatic_network_allowed", return_value=True):
+                    dialog._handle = "owner"
+                    dialog._snapshot = {
+                        "friends": [{"handle": "friend", "display_name": "Friend"}],
+                        "incoming_requests": [],
+                        "outgoing_requests": [],
+                        "blocked_handles": [],
+                    }
+                    dialog._render()
+                    remove = next(
+                        button for button in dialog.findChildren(QPushButton, "friendsRowAction")
+                        if button.text() == "Remove"
+                    )
+                    self.assertTrue(remove.isEnabled())
+                    self.assertIn("Remove this person", remove.toolTip())
 
-                with patch("ui.dialogs.friends_dialog.QMessageBox.question", return_value=QMessageBox.StandardButton.No) as question, \
-                        patch.object(dialog, "_mutate") as mutate:
-                    dialog._confirm_remove_friend("friend")
-                    question.assert_called_once()
-                    mutate.assert_not_called()
+                    with patch("ui.dialogs.friends_dialog.QMessageBox.question", return_value=QMessageBox.StandardButton.No) as question, \
+                            patch.object(dialog, "_mutate") as mutate:
+                        dialog._confirm_remove_friend("friend")
+                        question.assert_called_once()
+                        mutate.assert_not_called()
 
-                with patch("ui.dialogs.friends_dialog.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes), \
-                        patch.object(dialog, "_mutate") as mutate:
-                    dialog._confirm_remove_friend("friend")
-                    mutate.assert_called_once_with("remove_friend", "Friend removed.", target_handle="friend")
+                    with patch("ui.dialogs.friends_dialog.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes), \
+                            patch.object(dialog, "_mutate") as mutate:
+                        dialog._confirm_remove_friend("friend")
+                        mutate.assert_called_once_with("remove_friend", "Friend removed.", target_handle="friend")
             finally:
                 dialog.close()
                 dialog.deleteLater()

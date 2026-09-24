@@ -1,12 +1,12 @@
 {
   "counts": {
-    "connections": 1604,
-    "imports": 2068,
+    "connections": 1605,
+    "imports": 2071,
     "request_keys": 103,
     "service_routes": 7,
-    "symbols": 3636,
+    "symbols": 3644,
     "tables": 34,
-    "tests": 384
+    "tests": 386
   },
   "excluded_runtime_data": [
     ".git",
@@ -17,7 +17,7 @@
     ".ai/generated",
     ".ai/manifest.json"
   ],
-  "generated_at": "2026-09-24T21:32:05+00:00",
+  "generated_at": "2026-09-24T21:48:59+00:00",
   "generated_files": [
     "connections.json",
     "database-schema.json",

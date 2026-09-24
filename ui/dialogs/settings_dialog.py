@@ -104,10 +104,19 @@ class UserSettingsDialog(PopupDialog):
         self._cloud_settings_committed = False
         self._cloud_settings_snapshot = self._capture_cloud_settings()
         self._health_technical_error = ""
+        self._probe_technical_error = ""
 
         self.setWindowIcon(QIcon(LOGO_PATH) if os.path.exists(LOGO_PATH) else QIcon())
-        self.setMinimumSize(820, 600)
-        self.resize(1040, 720)
+        available = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        available_width = max(1, available.width() - 32) if available else None
+        available_height = max(1, available.height() - 48) if available else None
+        min_width = min(820, available_width) if available_width else 820
+        min_height = min(600, available_height) if available_height else 600
+        self.setMinimumSize(min_width, min_height)
+        self.resize(
+            min(1040, max(min_width, available_width)) if available_width else 1040,
+            min(720, max(min_height, available_height)) if available_height else 720,
+        )
         self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMaximized)
         # PopupDialog is frameless and already has a controlled custom footer
         # grip. The native QDialog size grip conflicts with that surface on
@@ -953,10 +962,19 @@ class UserSettingsDialog(PopupDialog):
         layout.addWidget(sec_probe)
         self._add_section_divider(layout)
 
+        probe_actions = QHBoxLayout()
         btn_run_test = QPushButton("Run Sandbox Isolation Test")
-        btn_run_test.setFixedWidth(220)
+        btn_run_test.setMinimumWidth(220)
         btn_run_test.clicked.connect(lambda: self._execute_live_probe(btn_run_test))
-        layout.addWidget(btn_run_test)
+        probe_actions.addWidget(btn_run_test)
+        self.btn_copy_probe_details = QPushButton("Copy technical details")
+        self.btn_copy_probe_details.setAccessibleName("Copy sandbox verification technical details")
+        self.btn_copy_probe_details.setToolTip("Copy the last sandbox verification error for troubleshooting")
+        self.btn_copy_probe_details.clicked.connect(self._copy_probe_details)
+        self.btn_copy_probe_details.setVisible(False)
+        probe_actions.addWidget(self.btn_copy_probe_details)
+        probe_actions.addStretch(1)
+        layout.addLayout(probe_actions)
 
         self.probe_output_lbl = QLabel("")
         self.probe_output_lbl.setWordWrap(True)
@@ -971,12 +989,16 @@ class UserSettingsDialog(PopupDialog):
     def _execute_live_probe(self, button: QPushButton):
         button.setEnabled(False)
         button.setText("Testing isolation…")
+        self._probe_technical_error = ""
+        self.btn_copy_probe_details.setVisible(False)
         self.probe_output_lbl.setStyleSheet("color: #A1A1AA; font-weight: 500;")
         self.probe_output_lbl.setText("Running a short sandbox verification in the background…")
 
         def _apply(result):
             button.setEnabled(True)
             button.setText("Run Sandbox Isolation Test")
+            self._probe_technical_error = str(result.get("details") or "")
+            self.btn_copy_probe_details.setVisible(bool(self._probe_technical_error))
             if result.get("success"):
                 self.probe_output_lbl.setStyleSheet("color: #4ade80; font-weight: bold;")
                 self.probe_output_lbl.setText(f"Pass: {result.get('message', 'Sandbox verification passed.')}")
@@ -990,6 +1012,11 @@ class UserSettingsDialog(PopupDialog):
             _apply,
             allow_offline=True,
         )
+
+    def _copy_probe_details(self) -> None:
+        if self._probe_technical_error:
+            QApplication.clipboard().setText(self._probe_technical_error)
+            self.btn_copy_probe_details.setToolTip("Technical details copied to the clipboard")
 
     # -------------------------------------------------------------
     # TAB 3: Storage & Logs

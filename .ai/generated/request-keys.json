@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T21:32:05+00:00",
+  "generated_at": "2026-09-24T21:48:59+00:00",
   "request_keys": [
     {
       "file": "ci/performance_baseline.py",
@@ -493,22 +493,22 @@
     },
     {
       "file": "ui/main_window.py",
-      "line": 1617,
+      "line": 1647,
       "resource": "internet-connectivity"
     },
     {
       "file": "ui/main_window.py",
-      "line": 3685,
+      "line": 3715,
       "resource": "window-task"
     },
     {
       "file": "ui/main_window.py",
-      "line": 5251,
+      "line": 5281,
       "resource": "library-metadata-projection"
     },
     {
       "file": "ui/main_window.py",
-      "line": 6694,
+      "line": 6724,
       "resource": "public-profile"
     },
     {

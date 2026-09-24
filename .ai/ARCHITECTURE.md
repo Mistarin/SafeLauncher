@@ -108,7 +108,15 @@ overview resource.
 The MainWindow close path stops new scheduling, requests cooperative
 cancellation through `WorkerSupervisor`, re-enters through a short Qt timer
 while workers remain, and lets the user abort a stalled shutdown rather than
-force-terminating Python/Qt workers.
+force-terminating Python/Qt workers. The optional global X11 hotkey listener
+owns its Xlib display on its listener thread and is disabled on Qt's
+headless/minimal platforms; a window close therefore cannot race native input
+cleanup or force the host `QApplication` to quit when SafeLauncher is embedded.
+
+Initial window/dialog sizes are clamped to the available screen geometry, and
+the compact hero banner adapts between a readable minimum and its cinematic
+maximum. Security probes keep technical subprocess output in a copyable
+details field while presenting a stable user-facing result.
 
 ## Runtime lifecycle
 

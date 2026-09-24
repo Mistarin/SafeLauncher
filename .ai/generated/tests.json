@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T21:32:05+00:00",
+  "generated_at": "2026-09-24T21:48:59+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -783,6 +783,12 @@
     },
     {
       "file": "tests/test_global_hotkeys.py",
+      "kind": "test",
+      "line": 35,
+      "name": "test_stop_leaves_display_cleanup_to_listener_thread"
+    },
+    {
+      "file": "tests/test_global_hotkeys.py",
       "kind": "test_class",
       "line": 21,
       "name": "GlobalHotkeyLifecycleTests"
@@ -1474,73 +1480,73 @@
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1176,
+      "line": 1181,
       "name": "test_profile_owner_actions_are_unified_and_public_view_is_read_only"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1217,
+      "line": 1222,
       "name": "test_profile_editor_bio_and_sixth_game_navigation"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1263,
+      "line": 1268,
       "name": "test_header_uses_one_combined_identity_control"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1304,
+      "line": 1309,
       "name": "test_profile_settings_keep_appearance_in_profile_editor_and_friends_popup_are_custom"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1336,
+      "line": 1341,
       "name": "test_edit_game_exposes_safe_lifecycle_action_without_form_save"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1363,
+      "line": 1368,
       "name": "test_profile_editor_shows_username_but_hides_service_details"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1394,
+      "line": 1399,
       "name": "test_publish_handle_conflict_is_actionable_and_marks_handle_unavailable"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1420,
+      "line": 1425,
       "name": "test_profile_editor_saves_steam_hero_background_from_appid"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1447,
+      "line": 1452,
       "name": "test_profile_editor_previews_backgrounds_without_mutating_saved_profile"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1478,
+      "line": 1483,
       "name": "test_profile_editor_previews_steam_hero_behind_panels"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1505,
+      "line": 1510,
       "name": "test_nested_profile_panels_apply_opaque_and_glass_surface_modes"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1537,
+      "line": 1542,
       "name": "test_steam_hero_is_painted_as_background_independent_of_panel_theme"
     },
     {
@@ -1558,7 +1564,7 @@
     {
       "file": "tests/test_profile.py",
       "kind": "test_class",
-      "line": 1266,
+      "line": 1271,
       "name": "TestWindow"
     },
     {
@@ -2146,61 +2152,67 @@
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test",
-      "line": 23,
+      "line": 25,
+      "name": "test_sandbox_probe_keeps_technical_failure_out_of_primary_message"
+    },
+    {
+      "file": "tests/test_security_and_threads.py",
+      "kind": "test",
+      "line": 46,
       "name": "test_dotenv_credentials_are_ignored_and_store_key_is_explicit"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test",
-      "line": 57,
+      "line": 81,
       "name": "test_deploy_diagnostics_redact_credentials_and_token_shaped_values"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test",
-      "line": 67,
+      "line": 91,
       "name": "test_host_and_game_process_environments_drop_credentials"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test",
-      "line": 95,
+      "line": 119,
       "name": "test_logger_redacts_headers_assignments_and_query_credentials"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test",
-      "line": 106,
+      "line": 130,
       "name": "test_cancelled_directory_size_does_not_publish_partial_cache"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test",
-      "line": 128,
+      "line": 152,
       "name": "test_disk_size_worker_stops_after_interruption"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test",
-      "line": 141,
+      "line": 165,
       "name": "test_supervisors_retain_finished_workers_until_safe_reap"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test",
-      "line": 160,
+      "line": 184,
       "name": "test_worker_supervisor_reaps_cooperative_slow_worker"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test_class",
-      "line": 20,
+      "line": 22,
       "name": "SecurityBoundaryTests"
     },
     {
       "file": "tests/test_security_and_threads.py",
       "kind": "test_class",
-      "line": 120,
+      "line": 144,
       "name": "QtWorkerLifecycleTests"
     },
     {

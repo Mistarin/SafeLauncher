@@ -92,6 +92,7 @@ class GlobalHotkeyListener(QObject):
         super().__init__(parent)
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
         self._bindings_lock = threading.Lock()
         self._display_lock = threading.Lock()
         self._display = None
@@ -121,6 +122,7 @@ class GlobalHotkeyListener(QObject):
         """Start global hotkey listener thread."""
         if self._running or (self._thread is not None and self._thread.is_alive()):
             return
+        self._stop_event.clear()
         self._running = True
         # The listener is auxiliary UI infrastructure. It is always asked to
         # stop by its owner, but a display server can keep an Xlib call alive
@@ -137,16 +139,11 @@ class GlobalHotkeyListener(QObject):
     def stop(self, timeout: float = 1.5) -> bool:
         """Request listener shutdown and join its bounded polling loop."""
         self._running = False
-        # pending_events() normally returns immediately, but closing the Xlib
-        # connection also wakes a display call if the server disappears while
-        # the listener is being torn down.
-        with self._display_lock:
-            display = self._display
-        if display is not None:
-            try:
-                display.close()
-            except Exception:
-                pass
+        # The Xlib Display is owned by the listener thread.  Closing it from
+        # the Qt thread races with pending_events()/next_event() and can crash
+        # the interpreter during window teardown.  Wake the polling loop and
+        # let that same thread perform its own display cleanup in finally.
+        self._stop_event.set()
         thread = self._thread
         if thread is not None and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout)
@@ -232,7 +229,7 @@ class GlobalHotkeyListener(QObject):
                 self._dirty = False
             _rebind_keys()
 
-            while self._running:
+            while self._running and not self._stop_event.is_set():
                 # Check for dynamic binding updates from the UI thread
                 if self._dirty:
                     self._dirty = False
@@ -248,7 +245,7 @@ class GlobalHotkeyListener(QObject):
                             logger.info(f"Global hotkey triggered: keycode {event.detail}, mods {clean_mods:#x} -> '{action}'")
                             self.hotkey_triggered.emit(action)
                 else:
-                    time.sleep(0.03)
+                    self._stop_event.wait(0.03)
 
             # Cleanup grabs upon termination
             try:

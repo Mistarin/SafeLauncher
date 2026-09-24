@@ -20,7 +20,7 @@ from PyQt6.QtCore import (
     Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer,
     QUrl, QSettings, QAbstractAnimation, QEvent,
 )
-from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices, QKeySequence, QShortcut
+from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices, QKeySequence, QShortcut, QGuiApplication
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.artwork_client import ArtworkClient
 from core.playtime_tracker import PlaytimeTrackerThread
@@ -474,17 +474,21 @@ class MainWindow(QMainWindow):
         GpuRecorderService.instance().apply_config(self.gpu_recorder_config)
 
         # Headless smoke tests exercise widget wiring, not OS-wide input.
-        # Starting an X11 listener there can leave a non-daemon thread blocked
-        # on a runner display after Qt has finished, preventing CI from ever
-        # exiting. Normal application runs retain the owned listener.
+        # Starting an X11 listener there can leave native display work racing
+        # Qt teardown. Normal application runs retain the owned listener.
         self.global_hotkeys = GlobalHotkeyListener(self)
         self._update_global_hotkeys()
         self.global_hotkeys.hotkey_triggered.connect(self._on_global_hotkey)
-        if not self._offline_test_mode:
+        # OS-wide input hooks are not meaningful for Qt's headless/minimal
+        # platforms.  More importantly, starting Xlib from an offscreen test
+        # can race with Qt teardown and leave a native listener alive while
+        # the QApplication is processing deferred deletes.
+        qt_platform = QGuiApplication.platformName().lower()
+        if not self._offline_test_mode and qt_platform not in ("offscreen", "minimal"):
             self.global_hotkeys.start()
 
         self.setWindowTitle("SafeLauncher - Game Sandbox Manager")
-        self.resize(1180, 750)
+        self._resize_to_available_screen(1180, 750, minimum=(760, 520), margin=32)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         
         if os.path.exists(LOGO_PATH):
@@ -1583,6 +1587,32 @@ class MainWindow(QMainWindow):
         # open it through the normal action when needed.
         if show_wizard and not self._offline_test_mode and self._automatic_network_allowed():
             QTimer.singleShot(150, self._show_welcome_wizard)
+
+    def _resize_to_available_screen(
+        self,
+        preferred_width: int,
+        preferred_height: int,
+        *,
+        minimum: tuple[int, int],
+        margin: int = 32,
+    ) -> None:
+        """Choose a usable initial size without exceeding a small display."""
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self.resize(preferred_width, preferred_height)
+            return
+        available = screen.availableGeometry()
+        available_width = max(1, available.width() - margin)
+        available_height = max(1, available.height() - margin)
+        width = min(
+            available_width,
+            max(minimum[0], min(preferred_width, available_width)),
+        )
+        height = min(
+            available_height,
+            max(minimum[1], min(preferred_height, available_height)),
+        )
+        self.resize(width, height)
 
     def _automatic_network_allowed(self) -> bool:
         """Return the current background-network policy.
@@ -8075,7 +8105,7 @@ class MainWindow(QMainWindow):
                 timer.start()
         self.game_sessions.start_observing()
         listener = getattr(self, "global_hotkeys", None)
-        if listener is not None:
+        if listener is not None and QGuiApplication.platformName().lower() not in ("offscreen", "minimal"):
             try:
                 listener.start()
             except Exception:
@@ -8301,10 +8331,6 @@ class MainWindow(QMainWindow):
             pass
 
         super().closeEvent(event)
-
-        app = QApplication.instance()
-        if app:
-            app.quit()
 
     def _on_add(self, collection_name: str = ""):
         dialog = AddGameDialog(self, self.sgdb_client, request_manager=self.request_manager)

@@ -52,7 +52,7 @@ def inspect_security_health() -> SecurityHealthReport:
             if not firejail_version or firejail_version == "Not detected":
                 firejail_version = res.stdout.splitlines()[0] if res.stdout.splitlines() else "Detected"
         except Exception as e:
-            firejail_version = f"Detected ({e})"
+            firejail_version = "Detected (version check unavailable)"
 
     # 2. Kernel User Namespaces Inspection
     userns_supported = True
@@ -190,11 +190,12 @@ def run_live_sandbox_verification() -> Dict[str, Any]:
             err = res.stderr.strip() or res.stdout.strip() or f"exit code {res.returncode}"
             return {
                 "success": False,
-                "message": f"Sandbox probe returned: {err}",
-                "details": res.stderr,
+                "message": "Sandbox verification failed. Check Firejail and try again.",
+                "details": err,
             }
     except Exception as e:
         return {
             "success": False,
-            "message": f"Could not run live sandbox probe: {e}",
+            "message": "Sandbox verification could not be completed. Check Firejail and try again.",
+            "details": f"{type(e).__name__}: {e}",
         }

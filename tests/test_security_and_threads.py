@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication
@@ -15,11 +16,34 @@ from core.disk_utils import get_dir_size, peek_dir_size
 from core.host_process import host_process_env
 from core.logger import redact_sensitive_text
 from core.performance_env import build_launch_env
+from core.security_diagnostics import run_live_sandbox_verification
 from ui.threads import DiskSizeFetcherThread
 from core.safe_thread import FunctionWorker, SafeQThread, TaskSupervisor, WorkerSupervisor
 
 
 class SecurityBoundaryTests(unittest.TestCase):
+    def test_sandbox_probe_keeps_technical_failure_out_of_primary_message(self):
+        with patch(
+            "core.security_diagnostics.shutil.which",
+            return_value="/usr/bin/firejail",
+        ), patch(
+            "core.security_diagnostics.subprocess.run",
+            return_value=SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="firejail: namespace setup failed: kernel denied operation",
+            ),
+        ):
+            result = run_live_sandbox_verification()
+
+        self.assertFalse(result["success"])
+        self.assertEqual(
+            result["message"],
+            "Sandbox verification failed. Check Firejail and try again.",
+        )
+        self.assertIn("namespace setup failed", result["details"])
+        self.assertNotIn("namespace setup failed", result["message"])
+
     def test_dotenv_credentials_are_ignored_and_store_key_is_explicit(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             backend = Path(temp_dir)

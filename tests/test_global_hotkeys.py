@@ -33,6 +33,22 @@ class GlobalHotkeyLifecycleTests(unittest.TestCase):
         self.assertTrue(listener.stop())
         self.assertTrue(listener.stop())
 
+    def test_stop_leaves_display_cleanup_to_listener_thread(self):
+        listener = GlobalHotkeyListener()
+
+        class _Display:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        display = _Display()
+        listener._display = display
+        self.assertTrue(listener.stop())
+        self.assertFalse(display.closed)
+        self.assertTrue(listener._stop_event.is_set())
+
 
 if __name__ == "__main__":
     unittest.main()
