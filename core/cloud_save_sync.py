@@ -646,8 +646,8 @@ class CloudSaveSyncEngine:
             try:
                 # Name resolution may refresh the cloud listing, so it must
                 # be inside the same failure boundary as the remote stats
-                # request. A network failure here is still an offline status,
-                # not an uncaught preflight exception.
+                # request. In online mode this is an unavailable backend,
+                # distinct from the user's explicit offline policy.
                 key = resolve_name_key(game_name)
                 cloud_stats, _snap = cls._remote_stats(
                     key,
@@ -661,12 +661,12 @@ class CloudSaveSyncEngine:
                 }:
                     return SyncStatus.CLOUD_AUTH_REQUIRED, local_stats, SaveStats(exists=False)
                 logger.warning(f"Cloud stats unavailable for '{game_name}': {exc}")
-                return SyncStatus.CLOUD_OFFLINE, local_stats, SaveStats(exists=False)
+                return SyncStatus.CLOUD_UNAVAILABLE, local_stats, SaveStats(exists=False)
             if cloud_stats is not None:
                 return cls._decide(local_stats, cloud_stats)
             # Cloud unreachable: say so instead of guessing a sync state from
             # the local-folder engine's disk cache.
-            return SyncStatus.CLOUD_OFFLINE, local_stats, SaveStats(exists=False)
+            return SyncStatus.CLOUD_UNAVAILABLE, local_stats, SaveStats(exists=False)
 
         cloud_stats, _zip = cls.get_cloud_save_stats(game_name)
         return cls._decide(local_stats, cloud_stats)

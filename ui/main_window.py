@@ -5802,8 +5802,8 @@ class MainWindow(QMainWindow):
                     })
                 elif status == SyncStatus.CLOUD_AUTH_REQUIRED:
                     payload["toast"] = f"Cloud setup required — launching '{game_name}' with local saves."
-                elif status == SyncStatus.CLOUD_OFFLINE:
-                    payload["toast"] = f"Cloud not connected — launching '{game_name}' with local saves."
+                elif status in (SyncStatus.CLOUD_OFFLINE, SyncStatus.CLOUD_UNAVAILABLE):
+                    payload["toast"] = f"Cloud not reachable — launching '{game_name}' with local saves."
                 elif value.get("cloud_result") is not None:
                     result = value["cloud_result"]
                     payload["cloud_result"] = result

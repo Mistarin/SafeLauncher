@@ -395,6 +395,27 @@ class CloudStatusServiceTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_recheck_planning_prioritizes_unavailable_backend_statuses(self):
+        coordinator = _Coordinator(CloudStatusResult("Example", SyncStatus.NO_SAVES))
+        manager = RequestManager(max_workers=1)
+        try:
+            service = CloudStatusService(
+                manager,
+                coordinator=coordinator,
+                context_provider=self._context_provider(),
+            )
+            service.record_status(2, SyncStatus.CLOUD_UNAVAILABLE, checked_at=100.0)
+            service.record_status(3, SyncStatus.IN_SYNC, checked_at=100.0)
+            targets = [
+                CloudStatusTarget(3, "Fresh"),
+                CloudStatusTarget(1, "Uncached"),
+                CloudStatusTarget(2, "Unavailable"),
+            ]
+            plan = service.plan_recheck(targets, None, stale_after_seconds=1)
+            self.assertEqual([target.game_id for target in plan.targets], [1, 2, 3])
+        finally:
+            manager.shutdown()
+
     def test_changed_listing_is_manager_backed_and_deduplicated(self):
         coordinator = _Coordinator(CloudStatusResult("Example", SyncStatus.NO_SAVES))
         manager = RequestManager(max_workers=1)

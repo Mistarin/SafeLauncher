@@ -246,7 +246,7 @@ class CloudStatusService:
             return CloudStatusPlan(tuple(selected), generation, reason)
 
         now = time.time()
-        uncached, offline, stale, fresh = [], [], [], []
+        uncached, offline, unavailable, stale, fresh = [], [], [], [], []
         from core.cloud_models import SyncStatus
 
         for target in values:
@@ -255,12 +255,14 @@ class CloudStatusService:
                 uncached.append(target)
             elif cached[0] == SyncStatus.CLOUD_OFFLINE:
                 offline.append(target)
+            elif cached[0] == SyncStatus.CLOUD_UNAVAILABLE:
+                unavailable.append(target)
             elif now - self.checked_at(target.game_id) > stale_after_seconds:
                 stale.append(target)
             else:
                 fresh.append(target)
         return CloudStatusPlan(
-            tuple(uncached + offline + stale + fresh),
+            tuple(uncached + offline + unavailable + stale + fresh),
             generation,
             reason,
         )

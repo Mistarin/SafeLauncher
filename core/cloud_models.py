@@ -16,6 +16,7 @@ class SyncStatus(Enum):
     NO_SAVES = "no_saves"
     CLOUD_AUTH_REQUIRED = "cloud_auth_required"
     CLOUD_OFFLINE = "cloud_offline"
+    CLOUD_UNAVAILABLE = "cloud_unavailable"
 
 
 @dataclass
