@@ -6,6 +6,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+import requests
+
 from core.network_policy import (
     OFFLINE_MODE_ENV,
     OFFLINE_MODE_SETTING,
@@ -34,6 +36,18 @@ class _Settings:
 
 
 class NetworkPolicyTests(unittest.TestCase):
+    def test_connectivity_probe_returns_safe_failure_for_transport_error(self):
+        from core.network_probe import probe_internet
+
+        with patch(
+            "core.network_probe.requests.get",
+            side_effect=requests.ConnectionError("offline"),
+        ):
+            self.assertEqual(
+                probe_internet(timeout=0.5),
+                (False, "The internet connection could not be reached."),
+            )
+
     def test_persisted_setting_round_trip(self):
         settings = _Settings()
         self.assertFalse(is_offline_mode(settings))

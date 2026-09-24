@@ -130,7 +130,9 @@ from core.game_session import GameSessionManager
 from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
 from core.operation_registry import OperationRegistry
 from core.secret_store import get_secret
-from core.network_policy import automatic_network_allowed, is_offline_mode
+from core.network_policy import automatic_network_allowed, is_offline_mode, set_offline_mode
+from core.network_probe import probe_internet
+from ui.dialogs.network_dialog import NetworkUnavailableDialog
 from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
 from ui.components.cloud_ui import cloud_progress, confirm_restore
@@ -189,6 +191,7 @@ class MainWindow(QMainWindow):
     _managed_cloud_batch_done = pyqtSignal(object)
     _managed_achievement_batch_done = pyqtSignal(object)
     _managed_steam_update_batch_done = pyqtSignal(object)
+    _network_probe_done = pyqtSignal(object)
 
     # Compatibility views for older dialogs and rendering helpers.  The
     # dictionaries themselves belong to LibraryMetadataState; these accessors
@@ -383,6 +386,7 @@ class MainWindow(QMainWindow):
         self._prelaunch_restore_done.connect(self._on_prelaunch_restore_done)
         self._startup_backend_health_ready.connect(self._on_startup_backend_health_ready)
         self._managed_task_done.connect(self._on_managed_task_done)
+        self._network_probe_done.connect(self._on_network_probe_done)
         self._managed_cloud_batch_done.connect(self._on_managed_cloud_batch_done)
         self._managed_achievement_batch_done.connect(self._on_managed_achievement_batch_done)
         self._cloud_poll_changed.connect(self._on_cloud_poll_changed)
@@ -410,6 +414,14 @@ class MainWindow(QMainWindow):
         # setting, which is enforced by automatic and optional network paths.
         self._offline_test_mode = os.environ.get("SAFELAUNCHER_OFFLINE_TEST_MODE") == "1"
         self._offline_mode = is_offline_mode(self.settings)
+        self._network_reachability_known = False
+        self._network_reachable = False
+        self._network_probe_in_flight = False
+        self._network_loss_pending = False
+        self._network_loss_dialog = None
+        self._network_probe_timer = QTimer(self)
+        self._network_probe_timer.setInterval(5_000)
+        self._network_probe_timer.timeout.connect(self._probe_network_now)
         # Compact is the product default.  Older releases persisted Grid/List
         # even though Compact became the primary unified library experience,
         # so migrate that stale preference once rather than surprising every
@@ -1554,6 +1566,7 @@ class MainWindow(QMainWindow):
             # optional network probe can present a notification.
             QTimer.singleShot(3200, self._check_backend_update_on_startup)
         self._start_cloud_poll_timer()
+        self._start_network_monitor()
 
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
         # The deterministic/offline harness must never open a modal wizard as
@@ -1572,6 +1585,127 @@ class MainWindow(QMainWindow):
         allowed = automatic_network_allowed(getattr(self, "settings", None))
         self._offline_mode = is_offline_mode(getattr(self, "settings", None))
         return allowed
+
+    def _start_network_monitor(self) -> None:
+        """Probe connectivity periodically while automatic networking is allowed."""
+        if self._offline_test_mode or not self._automatic_network_allowed():
+            self._network_probe_timer.stop()
+            return
+        self._network_probe_timer.start()
+        # Give the first library render a chance to settle before spending a
+        # request slot on the connectivity check.
+        QTimer.singleShot(1500, self._probe_network_now)
+
+    def _probe_network_now(self) -> None:
+        """Run the connectivity check through the shared request workers."""
+        if (
+            self._offline_test_mode
+            or not self._automatic_network_allowed()
+            or self._network_probe_in_flight
+        ):
+            return
+        self._network_probe_in_flight = True
+        handle = self.request_manager.request(
+            RequestKey("internet-connectivity", "public", "v1"),
+            lambda token: (
+                token.raise_if_cancelled(),
+                probe_internet(timeout=3.0),
+                token.raise_if_cancelled(),
+            )[1],
+            priority=RequestPriority.BACKGROUND,
+            timeout_seconds=5,
+        )
+        handle.future.add_done_callback(
+            lambda future: self._network_probe_done.emit(future)
+        )
+
+    def _on_network_probe_done(self, future) -> None:
+        """Update the footer and surface only an online→offline transition."""
+        self._network_probe_in_flight = False
+        if not self._automatic_network_allowed():
+            self._network_probe_timer.stop()
+            return
+        reachable = False
+        reason = "The internet connection could not be reached."
+        try:
+            result = future.result()
+            if result.status == ResourceStatus.READY and isinstance(result.value, tuple):
+                reachable = bool(result.value[0])
+                reason = str(result.value[1] or reason)
+        except Exception as error:
+            logger.debug("Connectivity probe failed: %s", error)
+
+        previous = self._network_reachable
+        had_previous = self._network_reachability_known
+        self._network_reachability_known = True
+        self._network_reachable = reachable
+        if reachable:
+            self._network_loss_pending = False
+            self._set_network_status(False)
+            dialog = self._network_loss_dialog
+            if dialog is not None:
+                try:
+                    dialog.close()
+                except RuntimeError:
+                    pass
+                self._network_loss_dialog = None
+            if had_previous and not previous:
+                self._show_toast("Internet connection restored.")
+            return
+
+        self._set_network_status(True, reason)
+        dialog = self._network_loss_dialog
+        if dialog is not None:
+            dialog.set_retrying(False)
+        if had_previous and previous:
+            self._network_loss_pending = True
+            self._show_network_loss_dialog()
+
+    def _show_network_loss_dialog(self) -> None:
+        """Show one actionable prompt once the window is focused."""
+        if not self._network_loss_pending or not self.isActiveWindow():
+            return
+        dialog = self._network_loss_dialog
+        if dialog is not None:
+            try:
+                if dialog.isVisible():
+                    dialog.raise_()
+                    dialog.activateWindow()
+                    return
+            except RuntimeError:
+                self._network_loss_dialog = None
+        dialog = NetworkUnavailableDialog(self)
+        self._network_loss_dialog = dialog
+        dialog.retry_requested.connect(self._retry_network_connection)
+        dialog.offline_requested.connect(self._switch_to_offline_from_network_loss)
+        dialog.finished.connect(lambda _result: self._clear_network_loss_dialog(dialog))
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _clear_network_loss_dialog(self, dialog) -> None:
+        if self._network_loss_dialog is dialog:
+            self._network_loss_dialog = None
+
+    def _retry_network_connection(self) -> None:
+        dialog = self._network_loss_dialog
+        if dialog is not None:
+            dialog.set_retrying(True)
+        self._network_loss_pending = True
+        QTimer.singleShot(0, self._probe_network_now)
+
+    def _switch_to_offline_from_network_loss(self) -> None:
+        was_offline = is_offline_mode(self.settings)
+        set_offline_mode(True, self.settings)
+        self._network_loss_pending = False
+        dialog = self._network_loss_dialog
+        if dialog is not None:
+            dialog.close()
+        self._apply_network_policy_change(was_offline)
+
+    def _maybe_show_pending_network_loss(self) -> None:
+        if self.isActiveWindow():
+            self._show_network_loss_dialog()
 
     def _set_network_status(self, offline: bool, reason: str = "") -> None:
         """Keep the compact footer's network state explicit and non-blocking."""
@@ -1600,6 +1734,10 @@ class MainWindow(QMainWindow):
         now_offline = is_offline_mode(self.settings)
         self._offline_mode = now_offline
         if now_offline or not self._automatic_network_allowed():
+            network_timer = getattr(self, "_network_probe_timer", None)
+            if network_timer is not None:
+                network_timer.stop()
+            self._network_probe_in_flight = False
             self._set_network_status(
                 True,
                 "Offline mode is enabled; remote metadata checks are paused. Cached and local data remain available.",
@@ -1636,6 +1774,9 @@ class MainWindow(QMainWindow):
             return
 
         if was_offline:
+            start_monitor = getattr(self, "_start_network_monitor", None)
+            if callable(start_monitor):
+                start_monitor()
             self._set_network_status(False)
             self._show_toast("Online mode enabled — refreshing optional metadata.")
             self._refresh_library()
@@ -3929,6 +4070,8 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
         if event.type() == QEvent.Type.WindowStateChange:
             self._sync_window_controls()
+        elif event.type() == QEvent.Type.ActivationChange:
+            QTimer.singleShot(0, self._maybe_show_pending_network_loss)
 
     def _reposition_reveal_button(self):
         """No-op as reveal button is docked in the bottom action bar."""
@@ -7917,6 +8060,14 @@ class MainWindow(QMainWindow):
         if first_attempt:
             self._shutdown_deadline = _time.monotonic() + 12.0
             self._show_shutdown_progress()
+            self._network_probe_timer.stop()
+            pending_network_dialog = self._network_loss_dialog
+            if pending_network_dialog is not None:
+                try:
+                    pending_network_dialog.close()
+                except RuntimeError:
+                    pass
+                self._network_loss_dialog = None
             self.game_sessions.stop_observing()
 
             # Halt every source that schedules new background work while we

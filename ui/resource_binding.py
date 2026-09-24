@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from PyQt6 import sip
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 
 from core.request_contracts import RequestKey, ResourceResult
@@ -89,7 +90,12 @@ class ResourceBinding(QObject):
         self._unsubscribe = request_manager.subscribe(key, self._receive_state)
 
     def _receive_state(self, result: ResourceResult) -> None:
-        if self._closed:
+        # A request may finish after a parent dialog has already scheduled
+        # this QObject for deletion.  The manager is intentionally Qt-free and
+        # can still hold the plain Python listener for a short time, so check
+        # both our logical lifecycle and the native QObject wrapper before
+        # touching a signal owned by C++.
+        if self._closed or sip.isdeleted(self):
             return
         if self.request_id is not None and result.request_id != self.request_id:
             return
@@ -98,11 +104,21 @@ class ResourceBinding(QObject):
         # The manager may call this method on a worker thread. Emitting a
         # signal queued to this QObject's thread keeps all consumer callbacks
         # on the GUI thread without making the core manager depend on Qt.
-        self._state_received.emit(result)
+        try:
+            self._state_received.emit(result)
+        except RuntimeError:
+            # QObject destruction can race a worker callback at the native
+            # boundary.  Treat it as an ordinary late result; never let a UI
+            # lifecycle race become a request-manager error.
+            self._closed = True
 
     def _deliver_state(self, result: ResourceResult) -> None:
-        if not self._closed:
+        if self._closed or sip.isdeleted(self):
+            return
+        try:
             self.state_changed.emit(result)
+        except RuntimeError:
+            self._closed = True
 
     def close(self) -> None:
         """Detach from the manager and optionally cancel active work."""

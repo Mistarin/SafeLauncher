@@ -519,29 +519,63 @@ class GameDatabase:
         """Materialize a cloud-only game as a not-installed local record."""
         identity = str(value.get("identity_key", "")).strip()
         app_id = str(value.get("app_id", "") or "").strip()
-        existing = self.find_game_by_profile_identity(identity)
-        if existing:
-            # A previously materialized placeholder must be upgraded in place;
-            # the Steam AppID remains the identity and no duplicate is made.
-            self.project_profile_library(existing.id, value)
-            if is_identity_placeholder_name(existing.name):
-                self.update_game_name_from_metadata(
-                    existing.id,
-                    fallback_game_name(app_id, identity),
-                )
-            return existing.id
-        name = preferred_game_name(
+        incoming_name = preferred_game_name(
             app_id,
             value.get("name"),
             value.get("display_name"),
         ) or fallback_game_name(app_id, identity)
-        game_id = self.add_game(
-            name[:MAX_GAME_NAME_LENGTH], "", "", str(value.get("mode", "linux") or "linux"),
-            str(value.get("banner_url", "") or "")[:1024], app_id or None,
-        )
-        if game_id:
-            self.archive_game(game_id, True)
-        return game_id
+
+        # Profile reconciliation can be invoked by several independent UI
+        # resources.  Keep the identity lookup and possible INSERT in one
+        # process-wide critical section; otherwise two worker connections can
+        # both observe the missing row and materialize it.
+        with _ACHIEVEMENT_DB_LOCK:
+            existing = self.find_game_by_profile_identity(identity)
+            if existing is None and not app_id:
+                # Older profile documents may retain a local alias alongside a
+                # later Steam identity.  The alias repair can remove the
+                # local row before this method runs, so match only a unique,
+                # archived, pathless Steam row by its meaningful title.  An
+                # installed game is deliberately excluded to avoid merging
+                # unrelated non-Steam titles.
+                incoming_key = display_name_key(incoming_name, "")
+                candidates = [
+                    game for game in self.get_all_games()
+                    if str(game.steam_id or "").strip()
+                    and bool(game.is_archived)
+                    and not str(game.path or "").strip()
+                    and not str(game.executable or "").strip()
+                    and display_name_key(game.name, game.steam_id) == incoming_key
+                ]
+                if len(candidates) == 1:
+                    existing = candidates[0]
+                    # Preserve the canonical Steam identity when the legacy
+                    # alias is only a projection of the same cloud game.
+                    value = dict(value)
+                    value["identity_key"] = self.profile_identity(
+                        existing.name, existing.steam_id
+                    )
+
+            if existing:
+                # A previously materialized placeholder must be upgraded in
+                # place; the Steam AppID remains the identity and no duplicate
+                # is made.
+                self.project_profile_library(existing.id, value)
+                if is_identity_placeholder_name(existing.name):
+                    self.update_game_name_from_metadata(
+                        existing.id,
+                        fallback_game_name(app_id or existing.steam_id, identity),
+                    )
+                return existing.id
+
+            game_id = self.add_game(
+                incoming_name[:MAX_GAME_NAME_LENGTH], "", "",
+                str(value.get("mode", "linux") or "linux"),
+                str(value.get("banner_url", "") or "")[:1024], app_id or None,
+            )
+            if game_id:
+                self.archive_game(game_id, True)
+            return game_id
 
     def toggle_favorite(self, game_id: int) -> bool:
         try:
