@@ -515,8 +515,15 @@ class RequestManager:
             lambda record=record: self._cancel_projection(record),
         )
 
-    def _cancel_projection(self, record: _ProjectionRecord) -> bool:
+    def _cancel_projection(
+        self,
+        record: _ProjectionRecord,
+        *,
+        require_unsubscribed: bool = False,
+    ) -> bool:
         with self._condition:
+            if require_unsubscribed and self._listeners.get(record.key):
+                return False
             if not record.active or self._projections.get(record.key) is not record:
                 return False
             record.active = False
@@ -893,6 +900,58 @@ class RequestManager:
             ):
                 return False
         return self._cancel_projection(projection)
+
+    def cancel_if_unsubscribed(
+        self,
+        key: RequestKey,
+        *,
+        request_id: str | None = None,
+        generation: int | None = None,
+    ) -> bool:
+        """Cancel work only when no listeners still need the request.
+
+        A request may be deduplicated across several UI consumers.  A binding
+        closing must therefore not cancel work owned by another binding.
+        """
+        projection = None
+        with self._condition:
+            if self._listeners.get(key):
+                return False
+            record = self._active.get(key)
+            if record is not None:
+                if request_id is not None and record.request_id != request_id:
+                    return False
+                if generation is not None and record.spec.generation != generation:
+                    return False
+                record.token.cancel()
+                return True
+            projection = self._projections.get(key)
+            if projection is None:
+                return False
+            if request_id is not None and projection.request_id != request_id:
+                return False
+            if generation is not None and projection.generation != generation:
+                return False
+        return self._cancel_projection(projection, require_unsubscribed=True)
+
+    def cancel_matching(self, predicate: Callable[[RequestSpec], bool]) -> int:
+        """Cooperatively cancel active requests whose specs match ``predicate``."""
+        if not callable(predicate):
+            raise TypeError("predicate must be callable")
+        cancelled = 0
+        with self._condition:
+            for record in tuple(self._active.values()):
+                try:
+                    matches = bool(predicate(record.spec))
+                except Exception:
+                    logger.exception("Request cancellation predicate failed")
+                    continue
+                if matches and not record.token.cancelled:
+                    record.token.cancel()
+                    cancelled += 1
+            if cancelled:
+                self._condition.notify_all()
+        return cancelled
 
     def shutdown(self, wait: bool = True) -> None:
         """Stop accepting work and cooperatively stop all queued/running work."""

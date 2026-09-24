@@ -114,6 +114,26 @@ class OfflineUpdateStatusTests(unittest.TestCase):
         label.setVisible.assert_called_once_with(True)
         self.assertTrue(fake._network_offline_detected)
 
+    def test_footer_stays_hidden_for_transient_loss_in_online_mode(self):
+        class Settings:
+            def value(self, key, default=None, type=None):
+                if key == "offline_mode":
+                    return False
+                return default
+
+        label = Mock()
+        fake = SimpleNamespace(
+            settings=Settings(),
+            lbl_network_status=label,
+            _offline_test_mode=False,
+        )
+
+        MainWindow._set_network_status(fake, True, "DNS lookup failed")
+
+        label.setVisible.assert_called_once_with(False)
+        label.setText.assert_called_once_with("")
+        self.assertTrue(fake._network_offline_detected)
+
     def test_returning_online_forces_cloud_and_game_version_refreshes(self):
         class Settings:
             def value(self, key, default=None, type=None):

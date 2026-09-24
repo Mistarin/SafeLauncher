@@ -988,6 +988,7 @@ class UserSettingsDialog(PopupDialog):
             "SafeLauncher-SandboxVerification",
             run_live_sandbox_verification,
             _apply,
+            allow_offline=True,
         )
 
     # -------------------------------------------------------------
@@ -2034,7 +2035,7 @@ class UserSettingsDialog(PopupDialog):
         self._restore_cloud_settings()
         super().reject()
 
-    def _start_managed_task(self, name: str, work, on_complete):
+    def _start_managed_task(self, name: str, work, on_complete, *, allow_offline: bool = False):
         """Run a settings operation and expose it in the global Activity drawer."""
         parent = self.parent()
         registry = getattr(parent, "operation_registry", None)
@@ -2051,11 +2052,14 @@ class UserSettingsDialog(PopupDialog):
                 key,
                 lambda token: (token.raise_if_cancelled(), work(), token.raise_if_cancelled())[1],
                 priority=RequestPriority.NORMAL,
+                metadata={"allow_offline": bool(allow_offline)},
                 timeout_seconds=120,
             )
             if operation is not None:
                 operation.cancel = handle.cancel
-                operation.retry = lambda: self._start_managed_task(name, work, on_complete)
+                operation.retry = lambda: self._start_managed_task(
+                    name, work, on_complete, allow_offline=allow_offline
+                )
             request_id = handle.request_id
 
             def _deliver(result):
@@ -2096,7 +2100,9 @@ class UserSettingsDialog(PopupDialog):
         worker = self._task_supervisor.start(name, work, _complete)
         if operation is not None:
             operation.cancel = getattr(worker, "request_cancel", worker.requestInterruption)
-            operation.retry = lambda: self._start_managed_task(name, work, on_complete)
+            operation.retry = lambda: self._start_managed_task(
+                name, work, on_complete, allow_offline=allow_offline
+            )
             worker.error_occurred.connect(
                 lambda error, op_id=operation.operation_id: registry.fail(op_id, error)
             )
@@ -2505,9 +2511,16 @@ class UserSettingsDialog(PopupDialog):
 
     def get_gpu_recorder_config(self) -> GpuRecorderConfig:
         cap_hk = self._normalise_hotkey(self.edit_hotkey.keySequence())
+        mode = self.combo_mode.currentData() or "manual"
+        capture_hotkey = cap_hk or getattr(self.gpu_config, "capture_hotkey", "F9") or "F9"
+        replay_hotkey = (
+            capture_hotkey
+            if mode == "replay_buffer"
+            else getattr(self.gpu_config, "replay_hotkey", "F10") or "F10"
+        )
         return GpuRecorderConfig(
             enabled=self.chk_plugin_enabled.isChecked(),
-            mode=self.combo_mode.currentData() or "manual",
+            mode=mode,
             codec=self.combo_codec.currentData() or "auto",
             bitrate=self.combo_bitrate.currentData() or "12M",
             target_screen=self.combo_recording_monitor.currentData() or "screen",
@@ -2516,8 +2529,8 @@ class UserSettingsDialog(PopupDialog):
             microphone_device=self.combo_audio_input.currentData() or "",
             history_seconds=int(self.combo_replay.currentData() or 60),
             output_dir=self.output_dir_input.text().strip() or DEFAULT_RECORDINGS_DIR,
-            capture_hotkey=cap_hk or "F9",
-            replay_hotkey=cap_hk or "F9",
+            capture_hotkey=capture_hotkey,
+            replay_hotkey=replay_hotkey,
             in_game_overlay=self.chk_overlay.isChecked(),
         )
 

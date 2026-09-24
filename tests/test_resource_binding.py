@@ -92,6 +92,32 @@ class ResourceBindingTests(unittest.TestCase):
             binding.close()
             manager.shutdown()
 
+    def test_closing_one_shared_binding_does_not_cancel_other_subscriber(self):
+        manager = RequestManager(max_workers=1)
+        key = RequestKey("data", "shared-binding")
+        first = ResourceBinding(manager, key, cancel_on_close=True)
+        second = ResourceBinding(manager, key, cancel_on_close=True)
+        started = threading.Event()
+        try:
+            handle = manager.request(
+                key,
+                lambda token: (
+                    started.set(),
+                    token.wait(0.1),
+                    token.raise_if_cancelled(),
+                    "shared",
+                )[-1],
+            )
+            self.assertTrue(started.wait(2))
+            first.close()
+            result = handle.future.result(timeout=2)
+            self.assertEqual(result.status, ResourceStatus.READY)
+            self.assertEqual(result.value, "shared")
+        finally:
+            first.close()
+            second.close()
+            manager.shutdown()
+
     def test_request_binding_rejects_later_generation_for_same_key(self):
         manager = RequestManager(max_workers=1)
         key = RequestKey("data", "generation-bound")

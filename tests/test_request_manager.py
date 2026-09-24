@@ -96,6 +96,30 @@ class RequestManagerTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_cancel_matching_only_cancels_requests_not_allowed_offline(self):
+        manager = RequestManager(max_workers=1)
+        try:
+            first = manager.request(
+                RequestKey("remote", "optional"),
+                lambda token: (token.wait(2), token.raise_if_cancelled(), "never")[2],
+                metadata={"allow_offline": False},
+            )
+            second = manager.request(
+                RequestKey("local", "safe"),
+                lambda _token: "local",
+                metadata={"allow_offline": True},
+            )
+            self.assertEqual(
+                manager.cancel_matching(
+                    lambda spec: not bool(spec.metadata.get("allow_offline", False))
+                ),
+                1,
+            )
+            self.assertEqual(first.future.result(timeout=2).status, ResourceStatus.CANCELLED)
+            self.assertEqual(second.future.result(timeout=2).value, "local")
+        finally:
+            manager.shutdown()
+
     def test_permanent_loader_errors_are_not_retried_by_default(self):
         manager = RequestManager(max_workers=1)
         try:

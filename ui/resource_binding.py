@@ -130,7 +130,19 @@ class ResourceBinding(QObject):
         finally:
             self._unsubscribe = lambda: None
             if self.cancel_on_close:
-                self.request_manager.cancel(self.key)
+                cancel_if_unsubscribed = getattr(
+                    self.request_manager,
+                    "cancel_if_unsubscribed",
+                    None,
+                )
+                if cancel_if_unsubscribed is not None:
+                    cancel_if_unsubscribed(
+                        self.key,
+                        request_id=self.request_id,
+                        generation=self.generation,
+                    )
+                else:
+                    self.request_manager.cancel(self.key, self.generation)
 
     def __del__(self) -> None:
         # QObject destruction is not guaranteed to happen on the GUI thread;

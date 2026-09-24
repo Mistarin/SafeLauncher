@@ -182,6 +182,25 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             grid.deleteLater()
             self.app.processEvents()
 
+    def test_virtual_grid_exposes_cloud_tooltip_and_accessible_text(self):
+        grid = VirtualizedGameGridView()
+        game = (1, "Test Game", "", "game", "umu", "", "", 0, 0, "", "", "", "", "", "", "", "", 0, "")
+        try:
+            grid.set_games(
+                [game],
+                cloud_status_map={1: (SyncStatus.LOCAL_NEWER, None, None)},
+            )
+            item = grid.model.item(0, 0)
+            tooltip = str(item.data(Qt.ItemDataRole.ToolTipRole))
+            accessible = str(item.data(Qt.ItemDataRole.AccessibleTextRole))
+            self.assertIn("ready to upload", tooltip.lower())
+            self.assertIn("ctrl+u", tooltip.lower())
+            self.assertIn("Test Game", accessible)
+            self.assertIn("ctrl+u", accessible.lower())
+        finally:
+            grid.deleteLater()
+            self.app.processEvents()
+
     def test_cloud_action_is_deferred_until_menu_event_finishes(self):
         fake = Mock()
         fake._game_by_id.return_value = (7, "Test", "/tmp/test", "", "", "", "")

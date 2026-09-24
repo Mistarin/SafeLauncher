@@ -276,10 +276,17 @@ class MainWindow(QMainWindow):
         self.library_controller = LibraryController()
         self.library_state = LibraryStateStore(self.library_controller)
         self.library_service = LibraryService(self.db, self.library_state)
+        # A transient connectivity loss acts as a request gate until the
+        # connectivity probe succeeds again. Keep this separate from the
+        # user's explicit Offline Mode preference.
+        self._transient_network_unavailable = False
         self.request_manager = RequestManager(
             max_workers=3,
             cache=self.resource_cache,
-            offline_check=lambda: not automatic_network_allowed(getattr(self, "settings", None)),
+            offline_check=lambda: (
+                not automatic_network_allowed(getattr(self, "settings", None))
+                or bool(getattr(self, "_transient_network_unavailable", False))
+            ),
         )
         self.achievement_resource_service = AchievementResourceService(self.request_manager)
         self.achievement_coordinator = LibraryAchievementCoordinator(
@@ -400,6 +407,7 @@ class MainWindow(QMainWindow):
                 "SafeLauncher-TempPrune",
                 cleanup_global_temp_files,
                 lambda result: logger.debug("Temporary-file cleanup finished: %s", result),
+                allow_offline=True,
             )
         except Exception:
             pass
@@ -459,7 +467,7 @@ class MainWindow(QMainWindow):
             history_seconds=self.settings.value("gpu_recorder_history", self.settings.value("wl_screenrec_history", 60, type=int), type=int),
             output_dir=self.settings.value("gpu_recorder_output_dir", self.settings.value("wl_screenrec_output_dir", DEFAULT_RECORDINGS_DIR, type=str), type=str),
             capture_hotkey=self.settings.value("gpu_recorder_capture_hotkey", self.settings.value("wl_screenrec_capture_hotkey", "F9", type=str), type=str),
-            replay_hotkey=self.settings.value("gpu_recorder_capture_hotkey", self.settings.value("wl_screenrec_capture_hotkey", "F9", type=str), type=str),
+            replay_hotkey=self.settings.value("gpu_recorder_replay_hotkey", self.settings.value("wl_screenrec_replay_hotkey", "F10", type=str), type=str),
             in_game_overlay=self.settings.value("gpu_recorder_in_game_overlay", self.settings.value("wl_screenrec_in_game_overlay", True, type=bool), type=bool),
         )
         self.wl_recorder_config = self.gpu_recorder_config
@@ -1613,6 +1621,7 @@ class MainWindow(QMainWindow):
                 token.raise_if_cancelled(),
             )[1],
             priority=RequestPriority.BACKGROUND,
+            metadata={"allow_offline": True, "connectivity_probe": True},
             timeout_seconds=5,
         )
         handle.future.add_done_callback(
@@ -1640,6 +1649,8 @@ class MainWindow(QMainWindow):
         self._network_reachability_known = True
         self._network_reachable = reachable
         if reachable:
+            was_transiently_unavailable = self._transient_network_unavailable
+            self._transient_network_unavailable = False
             self._network_loss_pending = False
             self._set_network_status(False)
             dialog = self._network_loss_dialog
@@ -1651,8 +1662,17 @@ class MainWindow(QMainWindow):
                 self._network_loss_dialog = None
             if had_previous and not previous:
                 self._show_toast("Internet connection restored.")
+                if was_transiently_unavailable:
+                    self._refresh_library()
+                    self._start_cloud_poll_timer()
+                    self.request_cloud_recheck(None, "network-restored")
+                    QTimer.singleShot(300, self._check_all_steam_updates)
             return
 
+        self._transient_network_unavailable = True
+        self.request_manager.cancel_matching(
+            lambda spec: not bool(spec.metadata.get("allow_offline", False))
+        )
         self._set_network_status(True, reason)
         dialog = self._network_loss_dialog
         if dialog is not None:
@@ -1708,24 +1728,31 @@ class MainWindow(QMainWindow):
             self._show_network_loss_dialog()
 
     def _set_network_status(self, offline: bool, reason: str = "") -> None:
-        """Keep the compact footer's network state explicit and non-blocking."""
-        # A late successful callback must not hide the footer while the
-        # persisted policy still blocks all automatic network access.
-        policy_offline = not automatic_network_allowed(getattr(self, "settings", None))
-        effective_offline = bool(offline) or policy_offline
+        """Keep explicit Offline Mode separate from transient connectivity loss.
+
+        The footer is a policy indicator, not a live internet monitor.  A
+        failed probe is handled by the actionable connection-loss dialog; it
+        must not make the persistent ``Offline`` footer appear while the user
+        is still in Online Mode.
+        """
         self._offline_mode = is_offline_mode(getattr(self, "settings", None))
-        self._network_offline_detected = effective_offline
+        explicit_offline = self._offline_mode or bool(
+            getattr(self, "_offline_test_mode", False)
+        )
+        self._network_offline_detected = bool(offline) or explicit_offline
         label = getattr(self, "lbl_network_status", None)
         if label is None:
             return
-        label.setVisible(effective_offline)
-        if effective_offline:
+        label.setVisible(explicit_offline)
+        if explicit_offline:
+            label.setText("Offline")
             label.setToolTip(
-                reason
-                or "Remote metadata checks are paused or unavailable. Cached and local data remain available."
+                "Offline mode is enabled; remote metadata checks are paused. "
+                "Cached and local data remain available."
             )
-            label.setAccessibleName("Network status: offline")
+            label.setAccessibleName("Network status: offline mode")
         else:
+            label.setText("")
             label.setToolTip("Online: remote metadata checks are allowed.")
             label.setAccessibleName("Network status: online")
 
@@ -1733,6 +1760,7 @@ class MainWindow(QMainWindow):
         """Stop optional network work immediately after Settings changes."""
         now_offline = is_offline_mode(self.settings)
         self._offline_mode = now_offline
+        self._transient_network_unavailable = False
         if now_offline or not self._automatic_network_allowed():
             network_timer = getattr(self, "_network_probe_timer", None)
             if network_timer is not None:
@@ -3645,7 +3673,9 @@ class MainWindow(QMainWindow):
         """Register an application-owned worker with the shutdown supervisor."""
         self.worker_supervisor.register(worker)
 
-    def _start_managed_task(self, name: str, work, on_complete=None):
+    def _start_managed_task(
+        self, name: str, work, on_complete=None, *, allow_offline: bool = False
+    ):
         """Start a one-shot task owned by this window and shut it down safely."""
         if self.request_manager is not None:
             operation = self.operation_registry.start(
@@ -3657,10 +3687,13 @@ class MainWindow(QMainWindow):
                 key,
                 lambda token: (token.raise_if_cancelled(), work(), token.raise_if_cancelled())[1],
                 priority=RequestPriority.NORMAL,
+                metadata={"allow_offline": bool(allow_offline)},
                 timeout_seconds=120,
             )
             operation.cancel = handle.cancel
-            operation.retry = lambda: self._start_managed_task(name, work, on_complete)
+            operation.retry = lambda: self._start_managed_task(
+                name, work, on_complete, allow_offline=allow_offline
+            )
             self._managed_task_callbacks[handle.request_id] = (name, operation, on_complete)
             handle.future.add_done_callback(
                 lambda future, request_id=handle.request_id: self._managed_task_done.emit(
@@ -3676,7 +3709,9 @@ class MainWindow(QMainWindow):
             category="Background",
             cancel=getattr(worker, "request_cancel", worker.requestInterruption),
         )
-        operation.retry = lambda: self._start_managed_task(name, work, on_complete)
+        operation.retry = lambda: self._start_managed_task(
+            name, work, on_complete, allow_offline=allow_offline
+        )
         if on_complete is not None:
             def _complete(result, callback=on_complete, op_id=operation.operation_id):
                 self.operation_registry.finish_result(op_id, result)

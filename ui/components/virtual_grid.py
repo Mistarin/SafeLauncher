@@ -9,10 +9,11 @@ from __future__ import annotations
 import os
 from typing import Optional, Set, Dict, Any, Tuple
 from PyQt6.QtCore import (
-    Qt, pyqtSignal, QPoint, QRect, QRectF, QSize, QModelIndex, QItemSelectionModel
+    Qt, pyqtSignal, QPoint, QRect, QRectF, QSize, QModelIndex, QItemSelectionModel,
+    QEvent,
 )
 from PyQt6.QtWidgets import (
-    QListView, QStyledItemDelegate, QStyleOptionViewItem, QStyle
+    QListView, QStyledItemDelegate, QStyleOptionViewItem, QStyle, QToolTip
 )
 from PyQt6.QtGui import (
     QPainter, QColor, QFont, QFontMetrics, QPixmap, QPixmapCache,
@@ -39,6 +40,7 @@ CLOUD_STATUS_ROLE = Qt.ItemDataRole.UserRole + 11
 STEAM_ID_ROLE = Qt.ItemDataRole.UserRole + 12
 UPDATE_SOURCE_ROLE = Qt.ItemDataRole.UserRole + 13
 UPDATE_CHECKED_AT_ROLE = Qt.ItemDataRole.UserRole + 14
+CLOUD_TOOLTIP_ROLE = Qt.ItemDataRole.UserRole + 15
 
 
 def _format_playtime_str(seconds: int) -> str:
@@ -432,6 +434,7 @@ class VirtualizedGameGridView(QListView):
             status_val = cached_cloud[0] if cached_cloud else None
             item.setData(status_val, CLOUD_STATUS_ROLE)
             item.setData(str(steam_id or ""), STEAM_ID_ROLE)
+            self._set_item_tooltip(item, status_val)
 
             self.model.appendRow(item)
             self._items_by_game_id[game_id] = item
@@ -475,6 +478,7 @@ class VirtualizedGameGridView(QListView):
         item = self._items_by_game_id.get(game_id)
         if item:
             item.setData(is_available, IS_UPDATE_ROLE)
+            self._set_item_tooltip(item, item.data(CLOUD_STATUS_ROLE))
             self.viewport().update(self.visualRect(item.index()))
 
     def update_update_state(self, game_id: int, state: Any) -> None:
@@ -486,18 +490,51 @@ class VirtualizedGameGridView(QListView):
             item.setData(is_available, IS_UPDATE_ROLE)
             item.setData(source, UPDATE_SOURCE_ROLE)
             item.setData(checked_at, UPDATE_CHECKED_AT_ROLE)
-            item.setData(
-                update_indicator(is_available, source=source, checked_at=checked_at).tooltip,
-                Qt.ItemDataRole.ToolTipRole,
-            )
+            self._set_item_tooltip(item, item.data(CLOUD_STATUS_ROLE))
             self.viewport().update(self.visualRect(item.index()))
 
     def update_cloud_status(self, game_id: int, status: Any) -> None:
         item = self._items_by_game_id.get(game_id)
         if item:
             item.setData(status, CLOUD_STATUS_ROLE)
-            item.setData(cloud_indicator(status).tooltip, Qt.ItemDataRole.ToolTipRole)
+            self._set_item_tooltip(item, status)
             self.viewport().update(self.visualRect(item.index()))
+
+    @staticmethod
+    def _set_item_tooltip(item: QStandardItem, cloud_status: Any) -> None:
+        update_meta = update_indicator(
+            bool(item.data(IS_UPDATE_ROLE)),
+            source=item.data(UPDATE_SOURCE_ROLE) or "unknown",
+            checked_at=float(item.data(UPDATE_CHECKED_AT_ROLE) or 0.0),
+        )
+        cloud_meta = cloud_indicator(cloud_status)
+        tooltips = [text for text in (update_meta.tooltip, cloud_meta.tooltip) if text]
+        if cloud_status == SyncStatus.LOCAL_NEWER:
+            tooltips.append("Press Ctrl+U to upload the local save.")
+        tooltip = "\n".join(dict.fromkeys(tooltips))
+        item.setData(tooltip, CLOUD_TOOLTIP_ROLE)
+        item.setData(tooltip, Qt.ItemDataRole.ToolTipRole)
+        name = str(item.data(NAME_ROLE) or "Game")
+        item.setData(f"{name}. {tooltip}" if tooltip else name, Qt.ItemDataRole.AccessibleTextRole)
+
+    def viewportEvent(self, event) -> bool:
+        """Expose delegate-painted card status through Qt's native tooltip path."""
+        if event.type() == QEvent.Type.ToolTip:
+            index = self.indexAt(event.position().toPoint())
+            if index.isValid():
+                tooltip = str(
+                    index.data(CLOUD_TOOLTIP_ROLE)
+                    or index.data(Qt.ItemDataRole.ToolTipRole)
+                    or ""
+                )
+                if tooltip:
+                    QToolTip.showText(
+                        event.globalPosition().toPoint(), tooltip, self.viewport()
+                    )
+                    return True
+            QToolTip.hideText()
+            return True
+        return super().viewportEvent(event)
 
     def set_game_selected(self, game_id: int, selected: bool) -> None:
         item = self._items_by_game_id.get(game_id)
