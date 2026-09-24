@@ -580,7 +580,13 @@ class CompactActionBar(QFrame):
         div.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); border: none;")
         return div
 
-    def update_cloud_status(self, status: Any, has_update: Optional[bool] = None):
+    def update_cloud_status(
+        self,
+        status: Any,
+        has_update: Optional[bool] = None,
+        update_source: str = "live",
+        update_checked_at: float = 0.0,
+    ):
         """Render independent cloud-save and game-release status columns."""
         self._cloud_status = status
         if self._resolve_conflict_action is not None:
@@ -592,11 +598,17 @@ class CompactActionBar(QFrame):
             )
         if has_update is not None:
             self._update_available = bool(has_update)
+            self._update_source = str(update_source or "live")
+            self._update_checked_at = float(update_checked_at or 0.0)
         show_update = bool(getattr(self, "_update_available", False))
         self.game_update_widget.setVisible(show_update)
         self.cloud_update_divider.setVisible(show_update)
         if show_update:
-            update_meta = update_indicator(True)
+            update_meta = update_indicator(
+                True,
+                source=getattr(self, "_update_source", "live"),
+                checked_at=getattr(self, "_update_checked_at", 0.0),
+            )
             self.update_dot.setPixmap(get_icon(update_meta.icon, color=update_meta.color).pixmap(12, 12))
             self.update_dot.setToolTip(update_meta.tooltip)
             self.update_text_lbl.setText(update_meta.label)
@@ -612,6 +624,15 @@ class CompactActionBar(QFrame):
     def set_update_available(self, is_available: bool) -> None:
         """Update only the game-release column, preserving cloud state."""
         self.update_cloud_status(getattr(self, "_cloud_status", None), has_update=is_available)
+
+    def set_update_status(self, state: Any) -> None:
+        """Update only the game-release column with source metadata."""
+        self.update_cloud_status(
+            getattr(self, "_cloud_status", None),
+            has_update=bool(getattr(state, "update_available", False)),
+            update_source=getattr(state, "update_source", "live"),
+            update_checked_at=getattr(state, "update_checked_at", 0.0),
+        )
 
     def set_favorite_active(self, is_fav: bool):
         was_fav = self._favorite_state
@@ -1722,6 +1743,8 @@ class CompactGamePageWidget(QWidget):
         is_running: bool = False,
         is_missing: bool = False,
         is_update_available: bool = False,
+        update_source: str = "unknown",
+        update_checked_at: float = 0.0,
         current_build_id: str = "",
         current_build_date: int = 0,
         latest_build_id: str = "",
@@ -1777,7 +1800,12 @@ class CompactGamePageWidget(QWidget):
             "Installation or executable is missing" if is_missing else "Launch game"
         )
 
-        self.action_bar.update_cloud_status(cloud_status, has_update=is_update_available)
+        self.action_bar.update_cloud_status(
+            cloud_status,
+            has_update=is_update_available,
+            update_source=update_source,
+            update_checked_at=update_checked_at,
+        )
         self.action_bar.last_played_val.setText(_format_last_played_date(last_played))
         self.action_bar.playtime_val.setText(_format_playtime_hours(playtime))
 
@@ -1901,6 +1929,8 @@ class CompactSidebarListItemWidget(QWidget):
         is_favorite: bool = False,
         is_missing: bool = False,
         is_update_available: bool = False,
+        update_source: str = "unknown",
+        update_checked_at: float = 0.0,
         parent=None
     ):
         super().__init__(parent)
@@ -1916,6 +1946,8 @@ class CompactSidebarListItemWidget(QWidget):
         self.is_favorite = is_favorite
         self.is_missing = is_missing
         self.is_update_available = is_update_available
+        self.update_source = str(update_source or "unknown")
+        self.update_checked_at = float(update_checked_at or 0.0)
 
         self.setFixedHeight(36)
         self._init_ui()
@@ -1953,10 +1985,12 @@ class CompactSidebarListItemWidget(QWidget):
         # presentation. The update marker is a compact, independent icon;
         # its tooltip identifies it as game-version state, not cloud state.
         self.update_lbl = QLabel()
-        self.update_lbl.setPixmap(get_icon("ph.arrow-circle-up-fill", color="#3B9FE8").pixmap(13, 13))
-        self.update_lbl.setToolTip("Game version: a newer version is available")
         self.update_lbl.setStyleSheet("background: transparent;")
-        self.update_lbl.setVisible(bool(self.is_update_available))
+        self.set_update_status(
+            self.is_update_available,
+            source=self.update_source,
+            checked_at=self.update_checked_at,
+        )
         layout.addWidget(self.update_lbl)
 
         self.missing_lbl = QLabel()
@@ -1990,6 +2024,19 @@ class CompactSidebarListItemWidget(QWidget):
             )
         else:
             self.favorite_lbl.clear()
+
+    def set_update_status(self, is_available: bool, *, source: str = "live", checked_at: float = 0.0) -> None:
+        self.is_update_available = bool(is_available)
+        self.update_source = str(source or "live")
+        self.update_checked_at = float(checked_at or 0.0)
+        meta = update_indicator(
+            self.is_update_available,
+            source=self.update_source,
+            checked_at=self.update_checked_at,
+        )
+        self.update_lbl.setVisible(self.is_update_available)
+        self.update_lbl.setToolTip(meta.tooltip)
+        self.update_lbl.setPixmap(get_icon(meta.icon, color=meta.color).pixmap(13, 13))
 
     def _load_icon(self):
         if self.is_archived:
@@ -2072,6 +2119,7 @@ class CompactSidebarListWidget(QFrame):
         self.cache_dir: Optional[str] = None
         self.cloud_status_cache: Dict[int, Any] = {}
         self.update_status_by_game_id: Dict[int, bool] = {}
+        self.update_state_by_game_id: Dict[int, Any] = {}
         self.active_filter = "all"
 
         self.setStyleSheet("""
@@ -2333,12 +2381,14 @@ class CompactSidebarListWidget(QFrame):
         selected_ids: set,
         update_status_by_game_id: dict = None,
         cache_dir: Optional[str] = None,
-        cloud_status_cache: dict = None
+        cloud_status_cache: dict = None,
+        update_state_map: dict = None,
     ):
         self.games_data = games
         self.cache_dir = cache_dir
         self.cloud_status_cache = cloud_status_cache or {}
         self.update_status_by_game_id = update_status_by_game_id or {}
+        self.update_state_by_game_id = update_state_map or {}
         self.lbl_count.setText(str(len(games)))
         self._populate_list(self.search_edit.text().strip().lower(), selected_ids)
 
@@ -2380,6 +2430,8 @@ class CompactSidebarListWidget(QFrame):
                 is_favorite=is_fav,
                 is_missing=is_missing,
                 is_update_available=bool(self.update_status_by_game_id.get(g_id, False)),
+                update_source=getattr(self.update_state_by_game_id.get(g_id), "update_source", "unknown"),
+                update_checked_at=getattr(self.update_state_by_game_id.get(g_id), "update_checked_at", 0.0),
                 parent=self.list_widget
             )
             self.list_widget.setItemWidget(item, row_widget)
@@ -2445,13 +2497,25 @@ class CompactSidebarListWidget(QFrame):
 
     def update_update_available(self, game_id: int, is_available: bool):
         """Update a sidebar release icon without rebuilding the compact view."""
+        self.update_update_state_for_widget(game_id, None, is_available=is_available)
+
+    def update_update_state(self, game_id: int, state: Any):
+        """Update a sidebar release icon with cached/live provenance."""
+        self.update_update_state_for_widget(game_id, state)
+
+    def update_update_state_for_widget(self, game_id: int, state: Any, *, is_available: Optional[bool] = None):
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
             if item and item.data(Qt.ItemDataRole.UserRole) == game_id:
                 widget = self.list_widget.itemWidget(item)
                 if isinstance(widget, CompactSidebarListItemWidget):
-                    widget.is_update_available = bool(is_available)
-                    widget.update_lbl.setVisible(widget.is_update_available)
+                    if is_available is None:
+                        is_available = bool(getattr(state, "update_available", False))
+                    widget.set_update_status(
+                        bool(is_available),
+                        source=getattr(state, "update_source", "live") if state is not None else "live",
+                        checked_at=getattr(state, "update_checked_at", 0.0) if state is not None else 0.0,
+                    )
                 break
 
     def update_missing(self, game_id: int, is_missing: bool):
@@ -2595,14 +2659,16 @@ class CompactLayoutContainer(QWidget):
         selected_ids: set,
         update_status_by_game_id: dict = None,
         cache_dir: Optional[str] = None,
-        cloud_status_cache: dict = None
+        cloud_status_cache: dict = None,
+        update_state_map: dict = None,
     ):
         self.sidebar_list.set_games(
             games,
             selected_ids,
             update_status_by_game_id,
             cache_dir,
-            cloud_status_cache
+            cloud_status_cache,
+            update_state_map,
         )
         if not games:
             self.game_page.set_empty_state("No games in this view")
@@ -2615,6 +2681,7 @@ class CompactLayoutContainer(QWidget):
             snapshot.update_status_map,
             cache_dir,
             snapshot.cloud_status_map,
+            snapshot.update_state_map,
         )
 
     def select_game(self, game_id: int):
@@ -2644,6 +2711,12 @@ class CompactLayoutContainer(QWidget):
         self.sidebar_list.update_update_available(game_id, is_available)
         if getattr(self.game_page, "current_game_id", None) == game_id:
             self.game_page.action_bar.set_update_available(is_available)
+
+    def update_update_state(self, game_id: int, state: Any):
+        """Update every compact release presentation with source metadata."""
+        self.sidebar_list.update_update_state(game_id, state)
+        if getattr(self.game_page, "current_game_id", None) == game_id:
+            self.game_page.action_bar.set_update_status(state)
 
     def update_missing(self, game_id: int, is_missing: bool):
         self.sidebar_list.update_missing(game_id, is_missing)

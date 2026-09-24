@@ -68,6 +68,11 @@ class LibrarySnapshot:
         return {item.game_id: item.update_available for item in self.items}
 
     @property
+    def update_state_map(self) -> dict[int, GameStatusState]:
+        """Return the source-aware update state for every visible game."""
+        return {item.game_id: item.status for item in self.items}
+
+    @property
     def cloud_status_map(self) -> dict[int, tuple]:
         return {
             item.game_id: (item.cloud_status, None, None)

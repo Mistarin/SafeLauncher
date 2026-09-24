@@ -174,6 +174,12 @@ class LibraryViewHost(QStackedWidget):
         self.virtual_grid.update_update_available(game_id, available)
         self.compact_container.update_update_available(game_id, available)
 
+    def update_update_state(self, game_id: int, state) -> None:
+        """Fan out availability and live/cached provenance together."""
+        self.list_view.update_update_state(game_id, state)
+        self.virtual_grid.update_update_state(game_id, state)
+        self.compact_container.update_update_state(game_id, state)
+
     def update_game_icon(self, game_id: int, icon_path: str) -> None:
         self.list_view.update_game_icon(game_id, icon_path)
         self.virtual_grid.update_icon(game_id, icon_path)

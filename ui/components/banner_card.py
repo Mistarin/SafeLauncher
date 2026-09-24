@@ -11,16 +11,18 @@ from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QPixmapCache, QCursor
 QPixmapCache.setCacheLimit(64 * 1024)
 
 from ui.icons import get_app_icon, get_icon
+from core.game_status import update_indicator
 
 
 class UpdatePulsingDotWidget(QWidget):
-    """Pulsating emerald-green indicator circle for available updates."""
+    """Pulsating indicator circle for a known game update."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(28, 28)
         self.setToolTip("Game Update: a newer game version is available")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._pulse_phase = 0.0
+        self._color = QColor("#34D399")
 
         self._anim = QVariantAnimation(self)
         self._anim.setStartValue(0.0)
@@ -32,6 +34,13 @@ class UpdatePulsingDotWidget(QWidget):
     def _on_pulse(self, val: float):
         self._pulse_phase = val
         self.update()
+
+    def set_color(self, color: str) -> None:
+        """Use a muted color for cached results and a bright one for live results."""
+        candidate = QColor(str(color or "#34D399"))
+        if candidate.isValid():
+            self._color = candidate
+            self.update()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -51,13 +60,15 @@ class UpdatePulsingDotWidget(QWidget):
         halo_radius = 4.5 + (7.0 * self._pulse_phase)
         halo_alpha = int(180 * (1.0 - self._pulse_phase))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(16, 185, 129, halo_alpha))
+        halo_color = QColor(self._color)
+        halo_color.setAlpha(halo_alpha)
+        painter.setBrush(halo_color)
         painter.drawEllipse(center, halo_radius, halo_radius)
 
         # Inner solid emerald green core exactly centered
         core_radius = 4.0
-        painter.setBrush(QColor(52, 211, 153))
-        painter.setPen(QColor(16, 185, 129))
+        painter.setBrush(self._color)
+        painter.setPen(self._color)
         painter.drawEllipse(center, core_radius, core_radius)
         painter.end()
 
@@ -82,6 +93,8 @@ class GameBannerWidget(QFrame):
         self.is_missing = False
         self.is_favorite = False
         self.is_update_available = False
+        self.update_source = "unknown"
+        self.update_checked_at = 0.0
         self._hover_progress = 0.0  # LERP progress: 0.0 (normal) -> 1.0 (hovered)
         self._hover_active = False
         self._hover_reconcile_pending = False
@@ -459,11 +472,24 @@ class GameBannerWidget(QFrame):
             pass
 
     def set_update_available(self, is_available: bool):
-        self.is_update_available = is_available
+        """Compatibility wrapper for boolean-only update callers."""
+        self.set_update_status(is_available)
+
+    def set_update_status(self, is_available: bool, *, source: str = "live", checked_at: float = 0.0):
+        self.is_update_available = bool(is_available)
+        self.update_source = str(source or "live")
+        self.update_checked_at = float(checked_at or 0.0)
+        meta = update_indicator(
+            self.is_update_available,
+            source=self.update_source,
+            checked_at=self.update_checked_at,
+        )
         try:
             if hasattr(self, 'update_indicator') and self.update_indicator:
-                self.update_indicator.setVisible(is_available)
-                if is_available:
+                self.update_indicator.setVisible(self.is_update_available)
+                self.update_indicator.setToolTip(meta.tooltip)
+                self.update_indicator.set_color(meta.color)
+                if self.is_update_available:
                     self.update_indicator.raise_()
         except (RuntimeError, AttributeError):
             pass

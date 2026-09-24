@@ -30,7 +30,7 @@ from core.steam_build_tracker import (
     has_resolved_build_reference,
     read_local_steam_build,
 )
-from core.date_formatting import format_timestamp, get_date_format_key
+from core.date_formatting import format_datetime_timestamp, format_timestamp, get_date_format_key
 from core.disk_utils import format_size, get_disk_usage, peek_dir_size, has_fresh_dir_size
 from core.discord_rpc import DiscordRPC
 from core.host_process import host_process_env
@@ -1442,6 +1442,19 @@ class MainWindow(QMainWindow):
         """)
         footer_layout.addWidget(self.btn_activity)
 
+        self.lbl_network_status = QLabel("Offline")
+        self.lbl_network_status.setObjectName("networkStatusLabel")
+        self.lbl_network_status.setStyleSheet(
+            "QLabel#networkStatusLabel { color: #777C86; background: transparent; "
+            "font-size: 10px; font-weight: 500; padding: 0 2px; }"
+        )
+        self.lbl_network_status.setToolTip(
+            "Remote metadata checks are paused or unavailable. Cached and local data remain available."
+        )
+        self.lbl_network_status.setAccessibleName("Network status: offline")
+        self.lbl_network_status.setVisible(bool(getattr(self, "_offline_mode", False)))
+        footer_layout.addWidget(self.lbl_network_status)
+
         footer_layout.addStretch()
 
         # Kept for test and event compatibility; hidden from footer
@@ -1541,11 +1554,32 @@ class MainWindow(QMainWindow):
         self._offline_mode = is_offline_mode(getattr(self, "settings", None))
         return allowed
 
+    def _set_network_status(self, offline: bool, reason: str = "") -> None:
+        """Keep the compact footer's network state explicit and non-blocking."""
+        self._network_offline_detected = bool(offline)
+        label = getattr(self, "lbl_network_status", None)
+        if label is None:
+            return
+        label.setVisible(bool(offline))
+        if offline:
+            label.setToolTip(
+                reason
+                or "Remote metadata checks are paused or unavailable. Cached and local data remain available."
+            )
+            label.setAccessibleName("Network status: offline")
+        else:
+            label.setToolTip("Online: remote metadata checks are allowed.")
+            label.setAccessibleName("Network status: online")
+
     def _apply_network_policy_change(self, was_offline: bool) -> None:
         """Stop optional network work immediately after Settings changes."""
         now_offline = is_offline_mode(self.settings)
         self._offline_mode = now_offline
         if now_offline or not self._automatic_network_allowed():
+            self._set_network_status(
+                True,
+                "Offline mode is enabled; remote metadata checks are paused. Cached and local data remain available.",
+            )
             self.cloud_status_polling.stop()
             for timer_name in (
                 "_achievement_poll_timer", "_update_check_timer"
@@ -1577,6 +1611,7 @@ class MainWindow(QMainWindow):
             return
 
         if was_offline:
+            self._set_network_status(False)
             self._show_toast("Online mode enabled — refreshing optional metadata.")
             self._refresh_library()
             self._start_cloud_poll_timer()
@@ -2875,7 +2910,12 @@ class MainWindow(QMainWindow):
                     version=version_override, icon_path=icon_url, parent=self.grid_container
                 )
                 widget.set_missing(is_missing)
-                widget.set_update_available(self.update_status_by_game_id.get(game_id, False))
+                update_state = self.game_status_by_id.get(game_id, GameStatusState())
+                widget.set_update_status(
+                    bool(self.update_status_by_game_id.get(game_id, False)),
+                    source=getattr(update_state, "update_source", "unknown"),
+                    checked_at=getattr(update_state, "update_checked_at", 0.0),
+                )
                 widget.set_favorite(is_fav)
                 widget.set_selected(game_id in self._selected_library_ids())
                 cached_cloud = self.cloud_save_status_cache.get(game_id)
@@ -3628,6 +3668,7 @@ class MainWindow(QMainWindow):
         is_missing = not bool(g_path and os.path.exists(g_path) and (
             not g_exe or os.path.exists(full_game_exe)
         ))
+        update_state = self.game_status_by_id.get(g_id, GameStatusState())
 
         self.compact_container.game_page.set_game(
             game,
@@ -3639,6 +3680,8 @@ class MainWindow(QMainWindow):
             is_running=is_running,
             is_missing=is_missing,
             is_update_available=bool(self.update_status_by_game_id.get(g_id, False)),
+            update_source=getattr(update_state, "update_source", "unknown"),
+            update_checked_at=getattr(update_state, "update_checked_at", 0.0),
             current_build_id=current_build_id,
             current_build_date=current_build_date,
             current_build_found=has_resolved_build_reference(current_build_id, current_build_date),
@@ -4087,6 +4130,10 @@ class MainWindow(QMainWindow):
         """Check every Steam-linked game once, used on startup and from the tools menu."""
         if not self._automatic_network_allowed():
             self._updates_offline = True
+            self._set_network_status(
+                True,
+                "Offline mode is enabled. Cached game-version results remain available where saved.",
+            )
             if hasattr(self, "nav_updates") and self.nav_updates is not None:
                 self.nav_updates.setEnabled(True)
                 self.nav_updates.setText(" Check for Updates (offline)")
@@ -4258,7 +4305,17 @@ class MainWindow(QMainWindow):
         if steam_id:
             self._capture_initial_steam_build(game_id, steam_id, build_id, build_date)
 
-    def _set_game_update_status(self, game_id: int, is_available: bool) -> None:
+    def _set_game_update_status(
+        self,
+        game_id: int,
+        is_available: bool,
+        *,
+        source: str = "live",
+        checked_at: float = 0.0,
+        latest_build_id: str = "",
+        latest_build_date: int = 0,
+        error: str = "",
+    ) -> None:
         """Commit one game-version fact and fan it out to every library view.
 
         Grid, List, Virtual Grid, and Compact are presentations of the same
@@ -4266,21 +4323,38 @@ class MainWindow(QMainWindow):
         happened to create a banner widget first.
         """
         is_available = bool(is_available)
+        source = str(source or "live").strip().lower()
+        if source not in {"live", "cached", "offline", "unknown"}:
+            source = "unknown"
+        checked_at = float(checked_at or 0.0)
         self.update_status_by_game_id[game_id] = is_available
         current = self.game_status_by_id.get(game_id, GameStatusState())
         self.game_status_by_id[game_id] = replace(
-            current, update_available=is_available, update_error=""
+            current,
+            update_available=is_available,
+            update_error=str(error or ""),
+            update_build_id=str(latest_build_id or current.update_build_id),
+            update_build_date=int(latest_build_date or current.update_build_date or 0),
+            update_checked_at=checked_at or current.update_checked_at,
+            update_source=source,
         )
+        state = self.game_status_by_id[game_id]
+        if source == "live":
+            self._set_network_status(False)
 
         # Every presentation receives the same derived state immediately.
         # The coalesced refresh below still rebuilds the shared snapshot so
         # view switches and persisted state remain correct.
         try:
             if game_id in self.banner_widgets:
-                self.banner_widgets[game_id].set_update_available(is_available)
+                self.banner_widgets[game_id].set_update_status(
+                    is_available,
+                    source=state.update_source,
+                    checked_at=state.update_checked_at,
+                )
         except (RuntimeError, AttributeError):
             pass
-        self._update_library_item("update_update_available", game_id, is_available)
+        self._update_library_item("update_update_state", game_id, state)
 
     def _request_managed_steam_build(
         self,
@@ -4332,6 +4406,12 @@ class MainWindow(QMainWindow):
 
     def _on_managed_steam_build_state(self, key: RequestKey, result) -> None:
         if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
+            # ``READY`` can still be a cache hit.  Preserve that provenance so
+            # an offline launch never presents an old comparison as a live
+            # Steam answer.  ``updated_at`` is the cache's stored timestamp for
+            # cached results and the completion timestamp for live results.
+            source = "cached" if bool(getattr(result, "from_cache", False)) else "live"
+            checked_at = float(getattr(result, "updated_at", 0.0) or 0.0)
             value = result.value
             if isinstance(value, (tuple, list)) and len(value) >= 2:
                 latest_build_id = str(value[0] or "")
@@ -4364,9 +4444,15 @@ class MainWindow(QMainWindow):
                         latest_build_id,
                         latest_build_date,
                         is_update,
+                        source=source,
+                        checked_at=checked_at,
                     )
             return
         if result.status == ResourceStatus.OFFLINE:
+            self._set_network_status(
+                True,
+                "No internet connection. Showing the last known game-version result when available.",
+            )
             for game_id in tuple(self.steam_metadata_coordinator.build_games(key)):
                 self._on_update_check_offline(game_id)
         elif result.status not in {ResourceStatus.READY, ResourceStatus.STALE, ResourceStatus.CANCELLED}:
@@ -4383,7 +4469,7 @@ class MainWindow(QMainWindow):
             else:
                 self.nav_updates.setText(" Check for Updates")
         if getattr(self, "_updates_offline", False):
-            self._show_toast("Update check finished — offline, results unavailable.")
+            self._show_toast("Update check finished — offline; showing last known results where available.")
         else:
             self._show_toast("Steam update check complete.")
 
@@ -4518,14 +4604,41 @@ class MainWindow(QMainWindow):
                 except RuntimeError:
                     pass
 
-    def _on_steam_build_checked(self, game_id: int, latest_build_id: str, latest_build_date: int, is_update_available: bool):
+    def _on_steam_build_checked(
+        self,
+        game_id: int,
+        latest_build_id: str,
+        latest_build_date: int,
+        is_update_available: bool,
+        *,
+        source: str = "live",
+        checked_at: float | None = None,
+    ):
         """Callback when background SteamBuildFetcher returns build info."""
-        import time
+        source = str(source or "live").strip().lower()
+        if source not in {"live", "cached", "offline", "unknown"}:
+            source = "unknown"
+        if checked_at is None:
+            checked_at = time.time() if source == "live" else float(
+                self.library_metadata_state.steam_build_checked_at.get(game_id, 0.0)
+            )
+        checked_at = float(checked_at or 0.0)
         self._backfill_current_build_date(game_id, latest_build_id, latest_build_date)
         self.steam_check_results[game_id] = (latest_build_id, latest_build_date, is_update_available, "")
-        self._set_game_update_status(game_id, bool(is_update_available and latest_build_id))
+        self._set_game_update_status(
+            game_id,
+            bool(is_update_available and latest_build_id),
+            source=source,
+            checked_at=checked_at,
+            latest_build_id=latest_build_id,
+            latest_build_date=latest_build_date,
+        )
+        if source == "live":
+            self._updates_offline = False
+            if hasattr(self, "nav_updates") and self.nav_updates is not None:
+                self.nav_updates.setText(" Check for Updates")
         is_update_available = self.update_status_by_game_id[game_id]
-        self.library_metadata_state.steam_build_checked_at[game_id] = time.time()
+        self.library_metadata_state.steam_build_checked_at[game_id] = checked_at
         self._save_persistent_cache()
         if not self.selected_game or self.selected_game[0] != game_id:
             return
@@ -4570,11 +4683,25 @@ class MainWindow(QMainWindow):
             steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
             patch_link = f"<br><a href='{escape(patch_notes_url, quote=True)}'>Open patch notes</a>" if patch_notes_url else ""
             local_build_found_suffix = " <font color='#35C98A'>(found)</font>" if local_build_found else ""
-            status = "Needs update" if is_update_available else "Up to date"
+            cached_suffix = " · cached" if source == "cached" else ""
+            status = ("Needs update" if is_update_available else "Up to date") + cached_suffix
             status_color = ("rgba(229, 169, 61, 0.12)", "#E5A93D", "rgba(229, 169, 61, 0.3)") if is_update_available else ("rgba(53, 201, 138, 0.12)", "#35C98A", "rgba(53, 201, 138, 0.3)")
             self.lbl_detail_update.setText(status)
+            if source == "cached":
+                checked_text = format_datetime_timestamp(
+                    int(checked_at or 0), fallback="an unknown time"
+                )
+                self.lbl_detail_update.setToolTip(
+                    "This is the last known Steam comparison, not a live result. "
+                    f"Last checked online: {checked_text}. Reconnect to verify."
+                )
+            else:
+                self.lbl_detail_update.setToolTip(
+                    "A newer game version is available." if is_update_available
+                    else "No newer game version was found."
+                )
             self.lbl_detail_update.setStyleSheet(
-                f"background: {status_color[0]}; color: {status_color[1]}; border: 1px solid {status_color[2]}; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 600;"
+                f"background: {status_color[0]}; color: {('#8493A7' if source == 'cached' else status_color[1])}; border: 1px solid {status_color[2]}; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 600;"
             )
             self._render_update_date_detail(latest_build_date, local_date, is_update_available)
             self.lbl_detail_versions.setText(
@@ -4640,14 +4767,19 @@ class MainWindow(QMainWindow):
 
     def _on_steam_check_failed(self, game_id: int, reason: str):
         self.steam_check_results[game_id] = ("", 0, False, reason)
-        current = self.game_status_by_id.get(game_id, GameStatusState())
-        self.game_status_by_id[game_id] = replace(
-            current,
-            update_available=False,
-            update_error=str(reason or "Update check failed"),
+        reason_text = str(reason or "Update check failed")
+        source = "offline" if "offline" in reason_text.casefold() else "unknown"
+        if source == "offline":
+            self._set_network_status(
+                True,
+                "No internet connection. Showing the last known game-version result when available.",
+            )
+        self._set_game_update_status(
+            game_id,
+            False,
+            source=source,
+            error=reason_text,
         )
-        self.update_status_by_game_id[game_id] = False
-        self._update_library_item("update_update_available", game_id, False)
         if self.selected_game and self.selected_game[0] == game_id:
             self.lbl_detail_update.setText("Steam check failed")
             self._render_update_date_detail(0, 0, False)
@@ -4687,7 +4819,35 @@ class MainWindow(QMainWindow):
             if hasattr(self, "nav_updates") and self.nav_updates is not None:
                 self.nav_updates.setText(" Check for Updates (offline)")
         reason = "Offline — update check not performed"
+        self._set_network_status(
+            True,
+            "No internet connection. Showing the last known game-version result when available.",
+        )
+        cached_result = self.steam_check_results.get(game_id)
+        cached_build = str(cached_result[0] or "") if cached_result else ""
+        if cached_result and cached_build:
+            # Keep the last known comparison usable, but explicitly mark it as
+            # cached.  Replacing it with an empty offline tuple would make the
+            # next offline selection lose the useful result and could make a
+            # real update look like "up to date".
+            self._on_steam_build_checked(
+                game_id,
+                cached_build,
+                int(cached_result[1] or 0),
+                bool(cached_result[2]),
+                source="cached",
+                checked_at=self.library_metadata_state.steam_build_checked_at.get(game_id, 0.0),
+            )
+            self.metadata_attempted_builds.discard(game_id)
+            return
+
         self.steam_check_results[game_id] = ("", 0, False, "offline")
+        self._set_game_update_status(
+            game_id,
+            False,
+            source="offline",
+            error="offline",
+        )
         if self.selected_game and self.selected_game[0] == game_id:
             self.lbl_detail_update.setText("<font color='#6F7682'>Offline — update check not performed</font>")
             self._render_update_date_detail(0, 0, False)
@@ -4731,7 +4891,9 @@ class MainWindow(QMainWindow):
         self.steam_check_results[game_id] = (build_id, build_date, False, "")
         self.library_metadata_state.steam_build_checked_at[game_id] = time.time()
         if hasattr(self, "_set_game_update_status"):
-            self._set_game_update_status(game_id, False)
+            # Marking a locally entered build is not an online Steam check.
+            # Do not clear the global Offline indicator as a side effect.
+            self._set_game_update_status(game_id, False, source="unknown")
         elif hasattr(self, "update_status_by_game_id"):
             # Keep lightweight hosts/test doubles in sync with the canonical
             # status cache when they do not provide the renderer helper.
@@ -5322,7 +5484,14 @@ class MainWindow(QMainWindow):
             if cached_result:
                 cached_build, cached_date, cached_update, cached_error = cached_result
                 if cached_build:
-                    self._on_steam_build_checked(game_id, cached_build, cached_date, cached_update)
+                    self._on_steam_build_checked(
+                        game_id,
+                        cached_build,
+                        cached_date,
+                        cached_update,
+                        source="cached",
+                        checked_at=self.library_metadata_state.steam_build_checked_at.get(game_id, 0.0),
+                    )
                 else:
                     self._on_steam_check_failed(game_id, cached_error or "Steam check unavailable")
             else:

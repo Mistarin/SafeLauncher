@@ -5,12 +5,14 @@ from typing import Optional, Set, Any
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QPoint
 
 from PyQt6.QtWidgets import (
-    QListWidget, QListWidgetItem, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton
+    QListWidget, QListWidgetItem, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton,
+    QSizePolicy,
 )
 from PyQt6.QtGui import QFont, QPixmap, QPainter, QColor, QIcon
 
 from core.disk_utils import dir_size_display
 from core.library_controller import LibrarySnapshot
+from core.game_status import update_indicator
 from ui.icons import get_app_icon, get_icon
 
 
@@ -39,6 +41,8 @@ class LibraryListItemWidget(QWidget):
         is_update_available: bool = False,
         cache_dir: Optional[str] = None,
         cloud_status: Any = None,
+        update_source: str = "unknown",
+        update_checked_at: float = 0.0,
         parent=None
     ):
         super().__init__(parent)
@@ -57,6 +61,8 @@ class LibraryListItemWidget(QWidget):
         self.playtime_seconds = playtime_seconds
         self.is_favorite = is_favorite
         self.is_update_available = is_update_available
+        self.update_source = str(update_source or "unknown")
+        self.update_checked_at = float(update_checked_at or 0.0)
         self.cache_dir = cache_dir
         self.cloud_status = cloud_status
 
@@ -120,8 +126,9 @@ class LibraryListItemWidget(QWidget):
         top_line.addWidget(self.favorite_lbl)
         self.set_favorite(self.is_favorite)
 
-        self.update_badge = QLabel("Game Update: Available")
+        self.update_badge = QLabel()
         self.update_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
+        self.update_badge.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.update_badge.setStyleSheet("""
                 QLabel {
                     background: rgba(20, 23, 29, 0.72);
@@ -132,7 +139,11 @@ class LibraryListItemWidget(QWidget):
                 }
             """)
         top_line.addWidget(self.update_badge)
-        self.update_badge.setVisible(bool(self.is_update_available))
+        self.set_update_status(
+            self.is_update_available,
+            source=self.update_source,
+            checked_at=self.update_checked_at,
+        )
 
         self.cloud_badge = QLabel(self)
         self.cloud_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
@@ -249,13 +260,28 @@ class LibraryListItemWidget(QWidget):
         event.accept()
 
     def set_update_available(self, is_available: bool) -> None:
-        """Update the release badge without rebuilding this row."""
+        """Compatibility wrapper for callers that only have a boolean."""
+        self.set_update_status(is_available)
+
+    def set_update_status(
+        self,
+        is_available: bool,
+        *,
+        source: str = "live",
+        checked_at: float = 0.0,
+    ) -> None:
+        """Update the release badge with live/cached provenance."""
         self.is_update_available = bool(is_available)
+        self.update_source = str(source or "live")
+        self.update_checked_at = float(checked_at or 0.0)
         if hasattr(self, "update_badge"):
             self.update_badge.setVisible(self.is_update_available)
             if self.is_update_available:
-                from core.game_status import update_indicator
-                meta = update_indicator(True)
+                meta = update_indicator(
+                    True,
+                    source=self.update_source,
+                    checked_at=self.update_checked_at,
+                )
                 self.update_badge.setText(meta.label)
                 self.update_badge.setToolTip(meta.tooltip)
                 self.update_badge.setStyleSheet(
@@ -416,11 +442,13 @@ class LibraryListView(QListWidget):
         selected_ids: Optional[Set[int]] = None,
         update_status_map: Optional[dict] = None,
         cache_dir: Optional[str] = None,
-        cloud_status_cache: Optional[dict] = None
+        cloud_status_cache: Optional[dict] = None,
+        update_state_map: Optional[dict] = None,
     ):
         """Populate the list view with custom rich game item widgets."""
         selected_ids = selected_ids or set()
         update_status_map = update_status_map or {}
+        update_state_map = update_state_map or {}
         self.clear()
         self._row_widgets_by_id.clear()
 
@@ -441,6 +469,9 @@ class LibraryListView(QListWidget):
                 raw_id = raw_id[0]
             game_id = int(raw_id)
             is_update = update_status_map.get(game_id, False)
+            update_state = update_state_map.get(game_id)
+            update_source = getattr(update_state, "update_source", "unknown")
+            update_checked_at = getattr(update_state, "update_checked_at", 0.0)
             c_entry = cloud_status_cache.get(game_id) if cloud_status_cache else None
             c_status = c_entry[0] if (c_entry and len(c_entry) > 0) else None
 
@@ -458,6 +489,8 @@ class LibraryListView(QListWidget):
                 is_update_available=is_update,
                 cache_dir=cache_dir,
                 cloud_status=c_status,
+                update_source=update_source,
+                update_checked_at=update_checked_at,
                 parent=self
             )
             row_widget.launch_requested.connect(self.game_launch_clicked.emit)
@@ -474,6 +507,7 @@ class LibraryListView(QListWidget):
             snapshot.update_status_map,
             cache_dir,
             snapshot.cloud_status_map,
+            snapshot.update_state_map,
         )
 
     def update_cloud_status(self, game_id: int, status: Any) -> None:
@@ -493,6 +527,16 @@ class LibraryListView(QListWidget):
         widget = self._row_widgets_by_id.get(game_id)
         if widget is not None:
             widget.set_update_available(is_available)
+
+    def update_update_state(self, game_id: int, state: Any) -> None:
+        """Dynamically update release availability and its provenance."""
+        widget = self._row_widgets_by_id.get(game_id)
+        if widget is not None:
+            widget.set_update_status(
+                bool(getattr(state, "update_available", False)),
+                source=getattr(state, "update_source", "unknown"),
+                checked_at=getattr(state, "update_checked_at", 0.0),
+            )
 
     def update_missing(self, game_id: int, is_missing: bool) -> None:
         """Dynamically update a single game's installation state."""

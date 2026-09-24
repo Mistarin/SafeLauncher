@@ -15,6 +15,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from core.game_status import GameStatusState
+
 
 class LibraryMetadataState:
     """Own library metadata projections and compatibility migration state."""
@@ -78,8 +80,20 @@ class LibraryMetadataState:
                     entry.get("is_update", False),
                     entry.get("error", ""),
                 )
-                self.steam_build_checked_at[game_id] = float(
-                    entry.get("checked_at", now)
+                # Missing timestamps are unknown, not "now".  Treating an
+                # old cache entry as freshly checked makes offline status look
+                # more authoritative than it is.
+                checked_at = float(entry.get("checked_at", 0) or 0)
+                self.steam_build_checked_at[game_id] = checked_at
+                is_update = bool(entry.get("is_update", False))
+                self.update_status_by_game_id[game_id] = is_update
+                self.game_status_by_id[game_id] = GameStatusState(
+                    update_available=is_update,
+                    update_error=str(entry.get("error", "") or ""),
+                    update_build_id=str(entry.get("latest_build_id", "") or ""),
+                    update_build_date=int(entry.get("latest_build_date", 0) or 0),
+                    update_checked_at=checked_at,
+                    update_source="cached",
                 )
                 self.attempted_builds.add(game_id)
             except (TypeError, ValueError, OverflowError):

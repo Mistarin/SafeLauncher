@@ -22,7 +22,7 @@ from PyQt6.QtGui import (
 from ui.icons import get_icon
 from core.cloud_models import SyncStatus
 from core.library_controller import LibrarySnapshot
-from core.game_status import cloud_indicator
+from core.game_status import cloud_indicator, update_indicator
 
 
 GAME_ID_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -37,6 +37,8 @@ IS_FAVORITE_ROLE = Qt.ItemDataRole.UserRole + 9
 IS_UPDATE_ROLE = Qt.ItemDataRole.UserRole + 10
 CLOUD_STATUS_ROLE = Qt.ItemDataRole.UserRole + 11
 STEAM_ID_ROLE = Qt.ItemDataRole.UserRole + 12
+UPDATE_SOURCE_ROLE = Qt.ItemDataRole.UserRole + 13
+UPDATE_CHECKED_AT_ROLE = Qt.ItemDataRole.UserRole + 14
 
 
 def _format_playtime_str(seconds: int) -> str:
@@ -103,6 +105,8 @@ class GameCardItemDelegate(QStyledItemDelegate):
         is_missing = bool(index.data(IS_MISSING_ROLE))
         is_favorite = bool(index.data(IS_FAVORITE_ROLE))
         is_update = bool(index.data(IS_UPDATE_ROLE))
+        update_source = index.data(UPDATE_SOURCE_ROLE) or "unknown"
+        update_checked_at = index.data(UPDATE_CHECKED_AT_ROLE) or 0.0
         cloud_status = index.data(CLOUD_STATUS_ROLE)
 
         is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
@@ -158,8 +162,11 @@ class GameCardItemDelegate(QStyledItemDelegate):
         # Update indicator (top-left)
         if is_update:
             painter.setPen(Qt.PenStyle.NoPen)
-            from core.game_status import update_indicator
-            painter.setBrush(QColor(update_indicator(True).color))
+            painter.setBrush(QColor(update_indicator(
+                True,
+                source=update_source,
+                checked_at=float(update_checked_at or 0.0),
+            ).color))
             painter.drawEllipse(cover_rect.x() + 8, cover_rect.y() + 8, 9, 9)
 
         # Favorite heart (top-right)
@@ -345,6 +352,7 @@ class VirtualizedGameGridView(QListView):
             selected_ids or set(),
             snapshot.update_status_map,
             snapshot.cloud_status_map,
+            snapshot.update_state_map,
         )
         self.scheduleDelayedItemsLayout()
         self.viewport().update()
@@ -354,12 +362,14 @@ class VirtualizedGameGridView(QListView):
         processed_items: list,
         selected_ids: Optional[Set[int]] = None,
         update_status_map: Optional[dict] = None,
-        cloud_status_map: Optional[dict] = None
+        cloud_status_map: Optional[dict] = None,
+        update_state_map: Optional[dict] = None,
     ) -> None:
         """Populate the virtual model with games."""
         selected_ids = selected_ids or set()
         update_status_map = update_status_map or {}
         cloud_status_map = cloud_status_map or {}
+        update_state_map = update_state_map or {}
 
         self.model.clear()
         self._items_by_game_id.clear()
@@ -403,6 +413,19 @@ class VirtualizedGameGridView(QListView):
             item.setData(is_missing, IS_MISSING_ROLE)
             item.setData(is_fav, IS_FAVORITE_ROLE)
             item.setData(update_status_map.get(game_id, False), IS_UPDATE_ROLE)
+            update_state = update_state_map.get(game_id)
+            update_source = getattr(update_state, "update_source", "unknown")
+            update_checked_at = getattr(update_state, "update_checked_at", 0.0)
+            item.setData(update_source, UPDATE_SOURCE_ROLE)
+            item.setData(float(update_checked_at or 0.0), UPDATE_CHECKED_AT_ROLE)
+            item.setData(
+                update_indicator(
+                    bool(update_status_map.get(game_id, False)),
+                    source=update_source,
+                    checked_at=float(update_checked_at or 0.0),
+                ).tooltip,
+                Qt.ItemDataRole.ToolTipRole,
+            )
 
             cached_cloud = cloud_status_map.get(game_id)
             status_val = cached_cloud[0] if cached_cloud else None
@@ -451,6 +474,21 @@ class VirtualizedGameGridView(QListView):
         item = self._items_by_game_id.get(game_id)
         if item:
             item.setData(is_available, IS_UPDATE_ROLE)
+            self.viewport().update(self.visualRect(item.index()))
+
+    def update_update_state(self, game_id: int, state: Any) -> None:
+        item = self._items_by_game_id.get(game_id)
+        if item:
+            is_available = bool(getattr(state, "update_available", False))
+            source = getattr(state, "update_source", "unknown")
+            checked_at = float(getattr(state, "update_checked_at", 0.0) or 0.0)
+            item.setData(is_available, IS_UPDATE_ROLE)
+            item.setData(source, UPDATE_SOURCE_ROLE)
+            item.setData(checked_at, UPDATE_CHECKED_AT_ROLE)
+            item.setData(
+                update_indicator(is_available, source=source, checked_at=checked_at).tooltip,
+                Qt.ItemDataRole.ToolTipRole,
+            )
             self.viewport().update(self.visualRect(item.index()))
 
     def update_cloud_status(self, game_id: int, status: Any) -> None:
@@ -575,6 +613,9 @@ class BannerProxy:
 
     def set_update_available(self, is_available: bool) -> None:
         self.grid_view.update_update_available(self.game_id, is_available)
+
+    def set_update_status(self, state: Any) -> None:
+        self.grid_view.update_update_state(self.game_id, state)
 
     def set_cloud_status(self, status: Any) -> None:
         self.grid_view.update_cloud_status(self.game_id, status)
