@@ -16,7 +16,7 @@ from core.host_process import host_process_env
 from core.logger import redact_sensitive_text
 from core.performance_env import build_launch_env
 from ui.threads import DiskSizeFetcherThread
-from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
+from core.safe_thread import FunctionWorker, SafeQThread, TaskSupervisor, WorkerSupervisor
 
 
 class SecurityBoundaryTests(unittest.TestCase):
@@ -157,6 +157,24 @@ class QtWorkerLifecycleTests(unittest.TestCase):
         self.assertIn(task, tasks._workers)
         tasks.shutdown()
         self.assertEqual(tasks._workers, [])
+
+    def test_worker_supervisor_reaps_cooperative_slow_worker(self):
+        class CooperativeWorker(SafeQThread):
+            def safe_run(self):
+                while not self.isInterruptionRequested():
+                    self.msleep(5)
+
+        registry = WorkerSupervisor()
+        worker = CooperativeWorker()
+        try:
+            self.assertTrue(registry.register(worker, "cooperative-shutdown"))
+            worker.start()
+            self.assertFalse(worker.wait(50))
+            registry.shutdown()
+            self.assertFalse(worker.isRunning())
+            self.assertEqual(registry.workers(), [])
+        finally:
+            registry.shutdown()
 
 
 if __name__ == "__main__":

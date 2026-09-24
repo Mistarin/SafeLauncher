@@ -42,3 +42,17 @@ deleting all local data. The destructive action requires confirmation, removes
 registered files with the existing symlink/protected-path guard, purges local
 history and ledgers, and intentionally leaves remote cloud-save generations
 for separate explicit management.
+
+## Reliability follow-up verified
+
+The request/resource hardening pass now includes subscriber-aware binding
+cancellation, transient connectivity gating with an allowed recovery probe,
+offline-safe local sandbox verification, independent recorder capture/replay
+hotkey loading, and delegate-grid cloud tooltip/accessibility metadata. The
+MainWindow shutdown path has a cooperative slow-worker regression test.
+
+The discovered unit suite, compile check, diff check, security audit, and
+worker audit pass. Physical Wayland/X11 input, high-DPI layout, and screen
+reader behavior still require desktop verification. The historical `test.py`
+harness has a stale compact-settings assertion for `combo_card_size`; that
+test mismatch is separate from the passing discovered suite.

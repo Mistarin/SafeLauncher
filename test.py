@@ -2385,14 +2385,14 @@ try:
     assert hasattr(mw_compact.title_bar, "btn_view")
     assert hasattr(mw_compact.title_bar, "lib_menu")
 
-    # Test Settings dialog frameless window hint and card size controls
-    QSettings("SafeLauncher", "SafeLauncher").setValue("card_size", 200)
+    # Test Settings dialog framing. Card-size controls now belong to the
+    # library sidebar rather than the settings dialog.
     test_settings = UserSettingsDialog("TestUser", parent=mw_compact)
     assert bool(test_settings.windowFlags() & Qt.WindowType.FramelessWindowHint)
-    assert hasattr(test_settings, "combo_card_size")
-    assert hasattr(test_settings, "spin_card_size")
-    assert test_settings.get_card_size() == 200
     test_settings.close()
+    assert hasattr(mw_compact.sidebar, "size_slider")
+    mw_compact.sidebar.size_slider.setValue(200)
+    assert mw_compact.sidebar.size_slider.value() == 200
 
     # Test blurred hero background integration and transparency
     assert mw_compact.compact_container.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) is True

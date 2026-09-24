@@ -32,3 +32,8 @@ Shutdown ownership is centralized in `WorkerSupervisor`. Compatibility lists
 such as `metadata_fetchers` and `auto_fetchers` describe fallback work but do
 not own QThread lifetimes; do not reintroduce `_background_workers`-style
 parallel registries.
+
+Connectivity monitoring is also a MainWindow policy boundary: a failed probe
+opens the retry/offline prompt and activates a transient request gate without
+making the footer claim that persistent Offline Mode is enabled. A successful
+probe clears the gate and forces the affected library/cloud/update refreshes.

@@ -15,4 +15,11 @@ Cancellation is cooperative: queued tasks can be removed or marked cancelled, an
 
 The strong ownership of thread wrappers until supervisor shutdown is intentional. Removing that retention can reintroduce late `deleteLater`/signal races during Qt teardown.
 
+MainWindow's `closeEvent()` uses the same cooperative boundary in the live UI:
+it stops recurring work, requests cancellation, waits in short bounded slices,
+and re-enters through the event loop while a worker remains. A visible progress
+dialog lets the user keep the launcher open if the safe deadline is exceeded;
+unsafe `QThread.terminate()` is deliberately avoided. Regression coverage
+includes active/queued request cancellation and a cooperative slow-worker reap.
+
 Sources: [`core/request_manager.py`](../../core/request_manager.py), [`core/safe_thread.py`](../../core/safe_thread.py), [`ui/resource_binding.py`](../../ui/resource_binding.py), [`ui/main_window.py`](../../ui/main_window.py).

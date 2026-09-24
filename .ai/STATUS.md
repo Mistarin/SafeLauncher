@@ -24,6 +24,21 @@ python .ai/tools/validate_cache.py
 
 The generated index includes source hashes and generation metadata. Curated pages should be reviewed when their listed source files or architectural boundaries change.
 
+## Latest reliability verification
+
+The current discovered test suite passes in offscreen mode, along with
+compilation, `git diff --check`, the security-boundary audit, and the worker
+audit. The request manager now has transient connectivity gating and
+subscriber-aware cancellation; local sandbox verification is explicitly
+allowed through the transient/offline gate; and delegate-painted cloud badges
+publish tooltip/accessibility metadata with keyboard upload support.
+
+The historical top-level `test.py` harness still contains a stale assertion
+for the removed `UserSettingsDialog.combo_card_size` field. That harness issue
+must be corrected separately before claiming the canonical release gate is
+green. Physical display-server, scaling, and assistive-technology verification
+remain manual checks.
+
 ## Known boundaries
 
 - Local SQLite remains authoritative for the local library projection.

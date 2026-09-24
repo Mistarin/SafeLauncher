@@ -9,6 +9,14 @@ flight, the application cancels the account read/projection without evicting
 the reusable cloud cache. Late transport failures are presented as Offline,
 and the footer remains visible while the policy blocks automatic networking.
 
+An online-to-offline connectivity probe transition is handled separately from
+the user's persistent Offline Mode preference. MainWindow shows the actionable
+retry/offline dialog, marks optional remote requests as transiently blocked,
+and cancels queued/running requests that cannot run offline. The connectivity
+probe itself remains allowed so Retry can recover the gate. On recovery, the
+library, cloud statuses, account indicator, and Steam update checks are
+refreshed.
+
 When a connection probe succeeds, Cloud Center refreshes its overview and
 signals the shell to recheck library save statuses. The selected-game detail
 shows an explicit Checking state during that targeted request.

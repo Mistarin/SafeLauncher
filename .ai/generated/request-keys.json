@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-15T08:51:37+00:00",
+  "generated_at": "2026-09-24T21:32:05+00:00",
   "request_keys": [
     {
       "file": "ci/performance_baseline.py",
@@ -13,28 +13,33 @@
     },
     {
       "file": "core/achievement_schema.py",
-      "line": 298,
+      "line": 324,
       "resource": "achievement-icons"
     },
     {
       "file": "core/achievement_schema.py",
-      "line": 529,
+      "line": 342,
+      "resource": "achievement-icons"
+    },
+    {
+      "file": "core/achievement_schema.py",
+      "line": 593,
       "resource": "achievement-schema"
     },
     {
       "file": "core/artwork_resource_service.py",
-      "line": 48,
+      "line": 50,
       "resource": "artwork-search"
     },
     {
       "file": "core/artwork_resource_service.py",
-      "line": 55,
+      "line": 70,
       "resource": "artwork-banner"
     },
     {
-      "file": "core/steam_build_tracker.py",
-      "line": 113,
-      "resource": "steam-build"
+      "file": "core/cloud_status_service.py",
+      "line": 739,
+      "resource": "cloud-status-snapshot"
     },
     {
       "file": "core/steam_resource_service.py",
@@ -52,11 +57,6 @@
       "resource": "steam-app-details"
     },
     {
-      "file": "core/steam_tags.py",
-      "line": 34,
-      "resource": "steam-tags"
-    },
-    {
       "file": "docs/request_manager.md",
       "line": 33,
       "resource": "steam-build"
@@ -70,6 +70,11 @@
       "file": "docs/request_manager.md",
       "line": 35,
       "resource": "cloud-save-status"
+    },
+    {
+      "file": "tests/test_achievement_schema_cache.py",
+      "line": 21,
+      "resource": "achievement-schema"
     },
     {
       "file": "tests/test_library_achievement_coordinator.py",
@@ -90,6 +95,16 @@
       "file": "tests/test_library_steam_metadata_coordinator.py",
       "line": 18,
       "resource": "steam-tags"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "line": 192,
+      "resource": "cloud-save-status"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "line": 217,
+      "resource": "cloud-save-status"
     },
     {
       "file": "tests/test_phase8_reliability.py",
@@ -113,32 +128,32 @@
     },
     {
       "file": "tests/test_request_contracts.py",
-      "line": 27,
+      "line": 28,
       "resource": "artwork"
     },
     {
       "file": "tests/test_request_contracts.py",
-      "line": 32,
+      "line": 33,
       "resource": "artwork"
     },
     {
       "file": "tests/test_request_contracts.py",
-      "line": 35,
+      "line": 36,
       "resource": "library"
     },
     {
       "file": "tests/test_request_contracts.py",
-      "line": 50,
+      "line": 59,
       "resource": "library"
     },
     {
       "file": "tests/test_request_contracts.py",
-      "line": 84,
+      "line": 93,
       "resource": "data"
     },
     {
       "file": "tests/test_request_contracts.py",
-      "line": 114,
+      "line": 123,
       "resource": "profile"
     },
     {
@@ -173,107 +188,212 @@
     },
     {
       "file": "tests/test_request_manager.py",
+      "line": 103,
+      "resource": "remote"
+    },
+    {
+      "file": "tests/test_request_manager.py",
       "line": 108,
+      "resource": "local"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 132,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 122,
+      "line": 146,
       "resource": "profile"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 137,
+      "line": 161,
       "resource": "profile"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 156,
+      "line": 180,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 172,
+      "line": 196,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 173,
+      "line": 197,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 206,
+      "line": 230,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 206,
+      "line": 230,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 229,
+      "line": 254,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 229,
+      "line": 274,
+      "resource": "typed"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 297,
+      "resource": "typed"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 312,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 238,
+      "line": 312,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 246,
+      "line": 321,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 258,
+      "line": 328,
+      "resource": "source"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 331,
+      "resource": "projection"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 336,
+      "resource": "projection"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 350,
+      "resource": "source"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 353,
+      "resource": "projection"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 365,
+      "resource": "source"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 368,
+      "resource": "projection"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 380,
+      "resource": "source"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 383,
+      "resource": "projection"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 395,
+      "resource": "source"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 398,
+      "resource": "projection"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 403,
+      "resource": "projection"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 416,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 286,
+      "line": 428,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 287,
+      "line": 456,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 311,
+      "line": 457,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 337,
+      "line": 481,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 358,
+      "line": 507,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 366,
+      "line": 526,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 385,
+      "line": 536,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 409,
+      "line": 561,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 571,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 593,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 601,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 620,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 644,
       "resource": "data"
     },
     {
@@ -297,94 +417,104 @@
       "resource": "data"
     },
     {
+      "file": "tests/test_resource_binding.py",
+      "line": 123,
+      "resource": "data"
+    },
+    {
       "file": "tests/test_resource_cache.py",
-      "line": 18,
+      "line": 20,
       "resource": "asset"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 28,
+      "line": 32,
+      "resource": "asset"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 46,
+      "resource": "profile"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 59,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 29,
+      "line": 60,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 30,
+      "line": 61,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 31,
+      "line": 62,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 36,
+      "line": 67,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 45,
+      "line": 76,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 56,
+      "line": 87,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 73,
+      "line": 103,
+      "resource": "profile-avatar"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "line": 132,
       "resource": "data"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 92,
+      "line": 151,
       "resource": "library"
     },
     {
       "file": "tests/test_resource_cache.py",
-      "line": 112,
+      "line": 171,
       "resource": "library"
     },
     {
       "file": "ui/main_window.py",
-      "line": 3361,
+      "line": 1617,
+      "resource": "internet-connectivity"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 3685,
       "resource": "window-task"
     },
     {
       "file": "ui/main_window.py",
-      "line": 6030,
+      "line": 5251,
+      "resource": "library-metadata-projection"
+    },
+    {
+      "file": "ui/main_window.py",
+      "line": 6694,
       "resource": "public-profile"
     },
     {
       "file": "ui/threads.py",
-      "line": 53,
+      "line": 54,
       "resource": "artwork-search"
-    },
-    {
-      "file": "ui/threads.py",
-      "line": 116,
-      "resource": "artwork-banner"
-    },
-    {
-      "file": "ui/threads.py",
-      "line": 155,
-      "resource": "artwork-auto"
-    },
-    {
-      "file": "ui/threads.py",
-      "line": 404,
-      "resource": "artwork-hero"
-    },
-    {
-      "file": "ui/threads.py",
-      "line": 443,
-      "resource": "artwork-icon"
     }
   ]
 }

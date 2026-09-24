@@ -47,7 +47,7 @@ backend deployment checkout, not the client's local SQLite database. See
 - Archived library records use a neutral archive icon and do not schedule,
   load, or accept late game-artwork results. Artwork fetching remains an
   active-game concern.
-- `RequestManager` owns scheduling, deduplication, cancellation, retry, generation ordering, and request state notification.
+- `RequestManager` owns scheduling, deduplication, cancellation, retry, generation ordering, request state notification, and subscriber-aware cancellation for shared bindings. MainWindow adds a transient connectivity circuit breaker above the manager; connectivity probes are explicitly allowed through that gate so recovery can reopen remote work.
 - `ResourceCache` owns reusable resource retention and freshness.
 - Transport clients own HTTP sessions, authentication headers, encryption transport, response validation, and parsing.
 - UI owns presentation and subscriptions, not remote request lifecycles.
@@ -92,7 +92,7 @@ UI or feature coordinator
   → Qt UI
 ```
 
-Cached stale values remain usable while refreshes run. Offline mode short-circuits network loaders and permits stale-cache presentation where available. See [request-resource-manager.md](architecture/request-resource-manager.md) and [workflows/offline-mode.md](workflows/offline-mode.md).
+Cached stale values remain usable while refreshes run. Explicit Offline Mode short-circuits network loaders and permits stale-cache presentation where available. A transient probe failure separately cancels optional remote work and gates new remote requests until the probe succeeds; local managed tasks can opt into the offline-safe path. See [request-resource-manager.md](architecture/request-resource-manager.md) and [workflows/offline-mode.md](workflows/offline-mode.md).
 
 Explicit cloud recovery, manual refresh, and selected-game detail checks use
 the request manager's forced-network path. That path invalidates the current
@@ -104,6 +104,11 @@ MainWindow also owns a lightweight managed overview binding for the compact
 header indicator. Returning online forces this binding to refresh even when
 Cloud Center is closed; opening Cloud Center continues to use the same account
 overview resource.
+
+The MainWindow close path stops new scheduling, requests cooperative
+cancellation through `WorkerSupervisor`, re-enters through a short Qt timer
+while workers remain, and lets the user abort a stalled shutdown rather than
+force-terminating Python/Qt workers.
 
 ## Runtime lifecycle
 

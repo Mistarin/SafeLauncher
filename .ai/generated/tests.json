@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-15T08:51:37+00:00",
+  "generated_at": "2026-09-24T21:32:05+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -20,6 +20,18 @@
       "name": "AchievementPersistenceServiceTests"
     },
     {
+      "file": "tests/test_achievement_schema_cache.py",
+      "kind": "test",
+      "line": 18,
+      "name": "test_stale_shared_schema_remains_usable_offline"
+    },
+    {
+      "file": "tests/test_achievement_schema_cache.py",
+      "kind": "test_class",
+      "line": 15,
+      "name": "AchievementSchemaCacheTests"
+    },
+    {
       "file": "tests/test_achievement_state_store.py",
       "kind": "test",
       "line": 11,
@@ -36,6 +48,42 @@
       "kind": "test_class",
       "line": 8,
       "name": "AchievementStateStoreTests"
+    },
+    {
+      "file": "tests/test_achievement_ui.py",
+      "kind": "test",
+      "line": 20,
+      "name": "test_full_achievement_card_wraps_long_text_and_keeps_tooltips"
+    },
+    {
+      "file": "tests/test_achievement_ui.py",
+      "kind": "test",
+      "line": 46,
+      "name": "test_compact_achievement_surfaces_wrap_and_expose_full_text"
+    },
+    {
+      "file": "tests/test_achievement_ui.py",
+      "kind": "test",
+      "line": 75,
+      "name": "test_unlock_toast_wraps_long_title_and_description"
+    },
+    {
+      "file": "tests/test_achievement_ui.py",
+      "kind": "test",
+      "line": 99,
+      "name": "test_secondary_buttons_use_dark_surface_without_overriding_roles"
+    },
+    {
+      "file": "tests/test_achievement_ui.py",
+      "kind": "test_class",
+      "line": 14,
+      "name": "AchievementTextLayoutTests"
+    },
+    {
+      "file": "tests/test_achievement_ui.py",
+      "kind": "test_class",
+      "line": 93,
+      "name": "SettingsButtonSurfaceTests"
     },
     {
       "file": "tests/test_asset_cache.py",
@@ -64,19 +112,19 @@
     {
       "file": "tests/test_cache_policy.py",
       "kind": "test",
-      "line": 12,
+      "line": 13,
       "name": "test_image_policies_carry_safe_content_types"
     },
     {
       "file": "tests/test_cache_policy.py",
       "kind": "test",
-      "line": 17,
+      "line": 19,
       "name": "test_unknown_policy_is_not_silently_defaulted"
     },
     {
       "file": "tests/test_cache_policy.py",
       "kind": "test",
-      "line": 21,
+      "line": 23,
       "name": "test_policy_snapshot_is_typed_and_nonempty"
     },
     {
@@ -88,73 +136,91 @@
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 42,
+      "line": 44,
       "name": "test_convex_client_url_normalizes_to_http_function_site_url"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 52,
+      "line": 54,
       "name": "test_explicit_cloud_client_uses_normalized_http_function_url"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 67,
+      "line": 69,
       "name": "test_deploy_output_selects_the_deployed_convex_site_origin"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 80,
+      "line": 82,
       "name": "test_deploy_output_does_not_extract_arbitrary_urls"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 91,
+      "line": 93,
       "name": "test_snapshot_and_admin_operations_close_transport_clients"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 101,
+      "line": 103,
+      "name": "test_managed_snapshot_is_shared_and_persistent"
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "kind": "test",
+      "line": 168,
+      "name": "test_forced_snapshot_refresh_survives_invalidation_generation"
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "kind": "test",
+      "line": 200,
+      "name": "test_successful_admin_mutation_notifies_read_invalidator"
+    },
+    {
+      "file": "tests/test_cloud_account_service.py",
+      "kind": "test",
+      "line": 215,
       "name": "test_verify_connection_keeps_explicit_credentials_in_memory_only"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 122,
+      "line": 236,
       "name": "test_explicit_probe_keys_isolate_endpoint_and_never_expose_secret"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 134,
+      "line": 248,
       "name": "test_device_revoke_uses_shared_manager_and_opaque_key"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 161,
+      "line": 275,
       "name": "test_generation_delete_is_deduplicated_by_context_and_version"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 192,
+      "line": 306,
       "name": "test_context_invalidation_advances_generation_for_admin_requests"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test",
-      "line": 224,
+      "line": 338,
       "name": "test_verify_connection_preserves_legacy_and_outdated_states"
     },
     {
       "file": "tests/test_cloud_account_service.py",
       "kind": "test_class",
-      "line": 39,
+      "line": 41,
       "name": "CloudAccountServiceTests"
     },
     {
@@ -184,7 +250,7 @@
     {
       "file": "tests/test_cloud_center_service.py",
       "kind": "test",
-      "line": 190,
+      "line": 193,
       "name": "test_detailed_history_and_operations_delegate_through_facade"
     },
     {
@@ -192,6 +258,48 @@
       "kind": "test_class",
       "line": 82,
       "name": "CloudCenterServiceTests"
+    },
+    {
+      "file": "tests/test_cloud_dialog_workflows.py",
+      "kind": "test",
+      "line": 48,
+      "name": "test_cloud_center_uses_shared_status_and_safe_focus"
+    },
+    {
+      "file": "tests/test_cloud_dialog_workflows.py",
+      "kind": "test",
+      "line": 67,
+      "name": "test_late_cloud_transport_error_is_presented_as_offline"
+    },
+    {
+      "file": "tests/test_cloud_dialog_workflows.py",
+      "kind": "test",
+      "line": 85,
+      "name": "test_successful_probe_refreshes_overview_and_notifies_shell"
+    },
+    {
+      "file": "tests/test_cloud_dialog_workflows.py",
+      "kind": "test",
+      "line": 107,
+      "name": "test_account_dialog_uses_shared_status_and_safe_focus"
+    },
+    {
+      "file": "tests/test_cloud_dialog_workflows.py",
+      "kind": "test",
+      "line": 119,
+      "name": "test_save_manager_standardizes_actions_and_hides_paths"
+    },
+    {
+      "file": "tests/test_cloud_dialog_workflows.py",
+      "kind": "test",
+      "line": 136,
+      "name": "test_game_properties_hides_paths_and_uses_shared_status"
+    },
+    {
+      "file": "tests/test_cloud_dialog_workflows.py",
+      "kind": "test_class",
+      "line": 39,
+      "name": "CloudDialogWorkflowTests"
     },
     {
       "file": "tests/test_cloud_metadata_service.py",
@@ -232,73 +340,91 @@
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 105,
+      "line": 117,
       "name": "test_upload_is_manager_backed_and_typed"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 128,
+      "line": 140,
       "name": "test_exit_sync_service_normalizes_operation_payload"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 150,
+      "line": 162,
       "name": "test_failed_operation_records_shared_error_category"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 167,
+      "line": 179,
       "name": "test_identical_mutation_requests_are_deduplicated"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 186,
+      "line": 198,
+      "name": "test_deduplicated_mutation_notifies_read_invalidator_once"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 220,
       "name": "test_preflight_resolution_keeps_conflict_decision_typed"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 204,
-      "name": "test_auto_prefer_newer_runs_restore_inside_managed_request"
-    },
-    {
-      "file": "tests/test_cloud_operation_service.py",
-      "kind": "test",
-      "line": 223,
-      "name": "test_exit_sync_checks_then_uploads_local_newer_save"
-    },
-    {
-      "file": "tests/test_cloud_operation_service.py",
-      "kind": "test",
-      "line": 239,
-      "name": "test_operation_progress_is_bounded_and_stops_after_completion"
+      "line": 238,
+      "name": "test_restore_preflight_exposes_metadata_without_mutating_local_saves"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
       "line": 257,
+      "name": "test_legacy_restore_with_preflight_is_read_only"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 273,
+      "name": "test_auto_prefer_newer_runs_restore_inside_managed_request"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 292,
+      "name": "test_exit_sync_checks_then_uploads_local_newer_save"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 308,
+      "name": "test_operation_progress_is_bounded_and_stops_after_completion"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 326,
       "name": "test_engine_progress_is_recorded_without_save_payloads"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 275,
+      "line": 344,
       "name": "test_cancelled_cooperative_operation_has_cancelled_terminal_record"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 295,
+      "line": 364,
       "name": "test_domain_failure_is_not_reported_as_completed_request"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test_class",
-      "line": 91,
+      "line": 103,
       "name": "CloudOperationServiceTests"
     },
     {
@@ -328,61 +454,109 @@
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 52,
+      "line": 54,
       "name": "test_context_key_contains_only_opaque_identity"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 64,
+      "line": 66,
       "name": "test_status_request_is_manager_backed_and_typed"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 90,
+      "line": 92,
       "name": "test_context_change_retires_old_generation_and_changes_key"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 117,
+      "line": 119,
       "name": "test_failed_domain_status_is_reported_as_request_error"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 142,
+      "line": 144,
       "name": "test_status_projection_is_persisted_and_reloaded_by_service"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 172,
+      "line": 174,
+      "name": "test_shared_resource_cache_round_trips_status_projection"
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "kind": "test",
+      "line": 201,
+      "name": "test_status_request_round_trips_typed_value_through_shared_disk_cache"
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "kind": "test",
+      "line": 247,
+      "name": "test_request_many_uses_shared_cloud_cache"
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "kind": "test",
+      "line": 288,
+      "name": "test_forced_status_recheck_bypasses_fresh_shared_cache"
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "kind": "test",
+      "line": 313,
+      "name": "test_forced_status_recheck_without_cache_keeps_generation_current"
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "kind": "test",
+      "line": 331,
+      "name": "test_active_batch_completion_is_delivered_to_all_consumers"
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "kind": "test",
+      "line": 366,
+      "name": "test_changed_listing_uses_shared_cache_with_typed_target_codec"
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "kind": "test",
+      "line": 416,
       "name": "test_record_status_accepts_explicit_context_generation"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 195,
+      "line": 439,
       "name": "test_forget_status_keeps_cache_ownership_in_service"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 211,
+      "line": 455,
       "name": "test_recheck_planning_prioritizes_uncached_then_offline_then_stale"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 232,
+      "line": 476,
+      "name": "test_recheck_planning_prioritizes_unavailable_backend_statuses"
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "kind": "test",
+      "line": 497,
       "name": "test_changed_listing_is_manager_backed_and_deduplicated"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test_class",
-      "line": 36,
+      "line": 38,
       "name": "CloudStatusServiceTests"
     },
     {
@@ -408,6 +582,60 @@
       "kind": "test_class",
       "line": 10,
       "name": "PendingCloudSyncQueueTests"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 87,
+      "name": "test_history_uses_plain_cloud_version_vocabulary"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 101,
+      "name": "test_restore_confirmation_defaults_to_cancel_and_hides_path_in_primary_copy"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 125,
+      "name": "test_restore_message_places_target_path_in_details"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 146,
+      "name": "test_delete_confirmation_defaults_to_no"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 156,
+      "name": "test_history_entries_have_accessible_selection_metadata"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 171,
+      "name": "test_shared_cloud_status_panel_covers_all_states_with_text"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 191,
+      "name": "test_cloud_focus_order_is_explicit_and_recorded"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 201,
+      "name": "test_cloud_initial_focus_uses_a_safe_primary_control"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test_class",
+      "line": 81,
+      "name": "CloudUiPresentationTests"
     },
     {
       "file": "tests/test_compatibility_worker_index.py",
@@ -522,6 +750,18 @@
       "kind": "test",
       "line": 8,
       "name": "test_only_conflict_status_enables_resolution"
+    },
+    {
+      "file": "tests/test_game_status.py",
+      "kind": "test",
+      "line": 14,
+      "name": "test_online_backend_failure_is_not_labelled_as_explicit_offline_mode"
+    },
+    {
+      "file": "tests/test_game_status.py",
+      "kind": "test",
+      "line": 20,
+      "name": "test_explicit_offline_status_explains_when_it_will_be_checked_again"
     },
     {
       "file": "tests/test_game_status.py",
@@ -742,38 +982,110 @@
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
-      "line": 37,
-      "name": "test_persisted_setting_round_trip"
-    },
-    {
-      "file": "tests/test_network_policy.py",
-      "kind": "test",
-      "line": 44,
-      "name": "test_environment_override_blocks_automatic_work"
+      "line": 39,
+      "name": "test_connectivity_probe_returns_safe_failure_for_transport_error"
     },
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
       "line": 50,
+      "name": "test_persisted_setting_round_trip"
+    },
+    {
+      "file": "tests/test_network_policy.py",
+      "kind": "test",
+      "line": 58,
+      "name": "test_environment_override_blocks_automatic_work"
+    },
+    {
+      "file": "tests/test_network_policy.py",
+      "kind": "test",
+      "line": 64,
       "name": "test_test_mode_blocks_network_without_changing_user_setting"
     },
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
-      "line": 56,
+      "line": 70,
       "name": "test_telemetry_does_not_open_http_in_offline_mode"
     },
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
-      "line": 65,
+      "line": 79,
       "name": "test_ludusavi_does_not_download_in_offline_mode"
     },
     {
       "file": "tests/test_network_policy.py",
       "kind": "test_class",
-      "line": 34,
+      "line": 36,
       "name": "NetworkPolicyTests"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 25,
+      "name": "test_cached_update_is_explicitly_distinguished_from_live_update"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 35,
+      "name": "test_persisted_build_projection_is_loaded_as_cached_state"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 55,
+      "name": "test_offline_path_preserves_a_valid_cached_comparison"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 81,
+      "name": "test_library_row_explains_that_an_update_is_cached"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 99,
+      "name": "test_footer_stays_visible_when_a_late_callback_reports_online"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 116,
+      "name": "test_footer_stays_hidden_for_transient_loss_in_online_mode"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 136,
+      "name": "test_returning_online_forces_cloud_and_game_version_refreshes"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 174,
+      "name": "test_detail_cloud_panel_has_explicit_checking_state"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 190,
+      "name": "test_managed_cloud_error_resolves_detail_to_unavailable"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test",
+      "line": 215,
+      "name": "test_managed_cloud_status_fans_out_to_detail_and_library"
+    },
+    {
+      "file": "tests/test_offline_update_status.py",
+      "kind": "test_class",
+      "line": 19,
+      "name": "OfflineUpdateStatusTests"
     },
     {
       "file": "tests/test_performance_baseline.py",
@@ -880,373 +1192,433 @@
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 56,
+      "line": 61,
       "name": "test_cloud_library_materializes_history_and_reuses_it_on_install"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 93,
+      "line": 98,
       "name": "test_offline_private_profile_sync_records_a_digest_only_retry"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 110,
+      "line": 115,
       "name": "test_profile_panel_themes_are_bounded"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 124,
+      "line": 129,
       "name": "test_numeric_appearance_references_round_trip"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 145,
+      "line": 150,
       "name": "test_official_central_auth_defaults_are_configured"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 157,
+      "line": 162,
       "name": "test_avatar_references_are_ids_and_catalog_data_is_bounded"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 174,
+      "line": 179,
       "name": "test_avatar_cache_is_hash_bound_and_rejects_path_traversal"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 184,
+      "line": 189,
+      "name": "test_avatar_cache_validation_rejects_wrong_hash_and_oversized_data"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "test",
+      "line": 196,
       "name": "test_settings_round_trip_is_bounded_and_json_safe"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 198,
+      "line": 210,
       "name": "test_legacy_embedded_avatar_is_removed_from_settings"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 207,
+      "line": 219,
       "name": "test_projection_excludes_installation_details"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 232,
+      "line": 244,
       "name": "test_archived_games_remain_in_library_archive_and_public_projection"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 283,
+      "line": 295,
       "name": "test_remove_game_keeps_append_only_profile_history"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 301,
+      "line": 313,
       "name": "test_delete_all_game_data_purges_local_projection_and_history"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 328,
+      "line": 340,
       "name": "test_disk_removal_guard_rejects_root_symlink_and_deletes_only_target"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 349,
-      "name": "test_archive_action_removes_files_but_keeps_record_and_stats"
+      "line": 361,
+      "name": "test_uninstall_action_removes_files_but_keeps_record_and_stats"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 391,
+      "line": 403,
       "name": "test_delete_all_data_action_removes_files_and_local_record"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 429,
+      "line": 441,
+      "name": "test_lifecycle_database_failure_restores_staged_installation"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "test",
+      "line": 481,
+      "name": "test_lifecycle_cleanup_failure_keeps_ui_consistent_and_restores_files"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "test",
+      "line": 524,
+      "name": "test_marking_current_build_clears_cached_update_state"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "test",
+      "line": 570,
       "name": "test_projection_groups_account_achievements_by_steam_app"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 450,
+      "line": 591,
       "name": "test_remote_document_rejects_bad_handle_and_keeps_only_public_shape"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 482,
+      "line": 623,
+      "name": "test_public_fetch_accepts_a_historical_alias_and_uses_canonical_username"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "test",
+      "line": 648,
       "name": "test_public_bio_and_artwork_are_bounded_and_legacy_artwork_is_replaced"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 503,
+      "line": 669,
       "name": "test_steam_hero_background_is_derived_from_app_id"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 514,
+      "line": 680,
       "name": "test_owner_token_rotation_sends_new_token_without_returning_it"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 527,
+      "line": 693,
       "name": "test_social_snapshot_accepts_only_bounded_public_summaries"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 549,
+      "line": 715,
       "name": "test_username_handles_are_ascii_and_suggested_from_oidc_claims"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 554,
+      "line": 722,
       "name": "test_social_client_uses_owner_authentication_and_routes"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 581,
+      "line": 749,
       "name": "test_handle_availability_is_public_and_validates_response_shape"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 598,
+      "line": 766,
       "name": "test_avatar_catalog_client_validates_catalog_and_uses_gateway_path"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 621,
+      "line": 789,
       "name": "test_avatar_catalog_maps_legacy_slug_to_numeric_asset"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 636,
+      "line": 804,
       "name": "test_avatar_download_rejects_non_images_and_oversized_responses"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 646,
+      "line": 814,
       "name": "test_avatar_batch_reuses_one_client_and_skips_missing_entries"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 662,
+      "line": 830,
       "name": "test_v2_client_uses_central_bearer_and_never_sends_legacy_token"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 692,
+      "line": 860,
       "name": "test_client_rejects_mixing_legacy_routes_with_central_auth"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 698,
+      "line": 866,
       "name": "test_v2_client_refreshes_once_after_expired_access_token"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 715,
+      "line": 883,
       "name": "test_device_login_persists_refresh_token_and_requests_expected_audience"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 746,
+      "line": 914,
       "name": "test_forced_refresh_after_device_login_does_not_reuse_initial_token"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 772,
+      "line": 940,
       "name": "test_userinfo_uses_access_token_and_returns_oidc_claims"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 792,
+      "line": 960,
       "name": "test_resource_server_denial_has_actionable_auth0_guidance"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 821,
+      "line": 989,
       "name": "test_archived_library_icons_are_neutral_and_do_not_read_artwork_cache"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 838,
+      "line": 1006,
       "name": "test_avatar_catalog_dialog_is_selectable_and_searchable"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 879,
+      "line": 1047,
       "name": "test_avatar_decode_removes_only_bad_iccp_chunk"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 891,
+      "line": 1059,
       "name": "test_owner_and_public_views_share_one_persistent_page"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 915,
+      "line": 1083,
+      "name": "test_profile_friend_list_has_confirmed_remove_action"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "test",
+      "line": 1134,
+      "name": "test_friends_popup_uses_the_same_safe_remove_confirmation"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "test",
+      "line": 1176,
       "name": "test_profile_owner_actions_are_unified_and_public_view_is_read_only"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 956,
+      "line": 1217,
       "name": "test_profile_editor_bio_and_sixth_game_navigation"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1002,
+      "line": 1263,
       "name": "test_header_uses_one_combined_identity_control"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1035,
-      "name": "test_profile_settings_theme_preview_and_friends_popup_are_custom"
+      "line": 1304,
+      "name": "test_profile_settings_keep_appearance_in_profile_editor_and_friends_popup_are_custom"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1067,
+      "line": 1336,
       "name": "test_edit_game_exposes_safe_lifecycle_action_without_form_save"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1091,
+      "line": 1363,
       "name": "test_profile_editor_shows_username_but_hides_service_details"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1122,
+      "line": 1394,
+      "name": "test_publish_handle_conflict_is_actionable_and_marks_handle_unavailable"
+    },
+    {
+      "file": "tests/test_profile.py",
+      "kind": "test",
+      "line": 1420,
       "name": "test_profile_editor_saves_steam_hero_background_from_appid"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1149,
+      "line": 1447,
       "name": "test_profile_editor_previews_backgrounds_without_mutating_saved_profile"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1180,
+      "line": 1478,
       "name": "test_profile_editor_previews_steam_hero_behind_panels"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1207,
+      "line": 1505,
       "name": "test_nested_profile_panels_apply_opaque_and_glass_surface_modes"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test",
-      "line": 1239,
+      "line": 1537,
       "name": "test_steam_hero_is_painted_as_background_independent_of_panel_theme"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test_class",
-      "line": 53,
+      "line": 58,
       "name": "ProfileModelTests"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test_class",
-      "line": 815,
+      "line": 983,
       "name": "ProfilePageTests"
     },
     {
       "file": "tests/test_profile.py",
       "kind": "test_class",
-      "line": 1005,
+      "line": 1266,
       "name": "TestWindow"
     },
     {
       "file": "tests/test_profile_resource_service.py",
       "kind": "test",
-      "line": 64,
+      "line": 81,
       "name": "test_endpoint_keys_are_stable_without_exposing_endpoint_text"
     },
     {
       "file": "tests/test_profile_resource_service.py",
       "kind": "test",
-      "line": 69,
+      "line": 86,
       "name": "test_context_invalidation_advances_generation"
     },
     {
       "file": "tests/test_profile_resource_service.py",
       "kind": "test",
-      "line": 75,
+      "line": 92,
       "name": "test_resource_keys_are_context_isolated_without_endpoint_text"
     },
     {
       "file": "tests/test_profile_resource_service.py",
       "kind": "test",
-      "line": 83,
+      "line": 100,
       "name": "test_request_specs_carry_profile_generation_and_metadata"
     },
     {
       "file": "tests/test_profile_resource_service.py",
       "kind": "test",
-      "line": 101,
+      "line": 118,
       "name": "test_profile_spec_uses_shared_cache_without_duplicate_load"
     },
     {
       "file": "tests/test_profile_resource_service.py",
       "kind": "test",
-      "line": 133,
+      "line": 150,
       "name": "test_transport_calls_are_owned_by_the_service"
     },
     {
       "file": "tests/test_profile_resource_service.py",
       "kind": "test",
-      "line": 157,
+      "line": 174,
       "name": "test_named_social_operations_cover_dialog_actions"
     },
     {
       "file": "tests/test_profile_resource_service.py",
+      "kind": "test",
+      "line": 187,
+      "name": "test_publish_normalizes_handle_conflict_when_identity_has_no_profile"
+    },
+    {
+      "file": "tests/test_profile_resource_service.py",
+      "kind": "test",
+      "line": 200,
+      "name": "test_publish_keeps_an_intentional_username_change"
+    },
+    {
+      "file": "tests/test_profile_resource_service.py",
       "kind": "test_class",
-      "line": 61,
+      "line": 78,
       "name": "ProfileResourceServiceTests"
     },
     {
@@ -1270,73 +1642,79 @@
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 26,
+      "line": 27,
       "name": "test_request_key_is_stable_and_validated"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 33,
+      "line": 34,
       "name": "test_request_spec_has_safe_defaults"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 39,
+      "line": 40,
       "name": "test_cancellation_token_is_cooperative"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 48,
-      "name": "test_resource_result_reports_usable_cached_states"
+      "line": 49,
+      "name": "test_deferred_cancellation_token_starts_timeout_on_demand"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
       "line": 57,
+      "name": "test_resource_result_reports_usable_cached_states"
+    },
+    {
+      "file": "tests/test_request_contracts.py",
+      "kind": "test",
+      "line": 66,
       "name": "test_retry_policy_rejects_invalid_values"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 65,
+      "line": 74,
       "name": "test_retry_policy_classifies_transient_failures"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 81,
+      "line": 90,
       "name": "test_request_timeout_must_be_positive"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 85,
+      "line": 94,
       "name": "test_resource_state_is_the_public_alias"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 88,
+      "line": 97,
       "name": "test_remote_errors_have_stable_categories_and_states"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 112,
+      "line": 121,
       "name": "test_resource_result_exposes_error_category"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test",
-      "line": 125,
+      "line": 134,
       "name": "test_string_error_categories_are_normalized"
     },
     {
       "file": "tests/test_request_contracts.py",
       "kind": "test_class",
-      "line": 23,
+      "line": 24,
       "name": "RequestContractTests"
     },
     {
@@ -1373,102 +1751,162 @@
       "file": "tests/test_request_manager.py",
       "kind": "test",
       "line": 98,
+      "name": "test_cancel_matching_only_cancels_requests_not_allowed_offline"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 122,
       "name": "test_permanent_loader_errors_are_not_retried_by_default"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 114,
+      "line": 138,
       "name": "test_http_authentication_failure_has_explicit_resource_state"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 129,
+      "line": 153,
       "name": "test_stale_cache_survives_unavailable_refresh_with_category"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 152,
+      "line": 176,
       "name": "test_state_reports_loading_then_ready"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 164,
+      "line": 188,
       "name": "test_batch_progress_reports_each_result"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 188,
+      "line": 212,
       "name": "test_empty_batch_completes_without_submitting_work"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 201,
+      "line": 225,
       "name": "test_cached_batch_uses_cache_and_reports_progress"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 225,
+      "line": 249,
+      "name": "test_forced_cached_request_bypasses_fresh_entry"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 269,
+      "name": "test_cached_request_codec_round_trips_disk_values_and_rejects_invalid_results"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 308,
       "name": "test_key_batch_api_and_invalidate"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 241,
-      "name": "test_manager_invalidate_evicts_shared_cache"
+      "line": 324,
+      "name": "test_projection_maps_shared_source_and_deduplicates_consumers"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 253,
-      "name": "test_invalidate_allows_default_generation_refresh"
-    },
-    {
-      "file": "tests/test_request_manager.py",
-      "kind": "test",
-      "line": 281,
-      "name": "test_cache_metrics_distinguish_fresh_hit_and_miss"
-    },
-    {
-      "file": "tests/test_request_manager.py",
-      "kind": "test",
-      "line": 307,
-      "name": "test_metrics_capture_deduplication_and_completion"
-    },
-    {
-      "file": "tests/test_request_manager.py",
-      "kind": "test",
-      "line": 325,
-      "name": "test_cooperative_request_timeout_is_reported"
-    },
-    {
-      "file": "tests/test_request_manager.py",
-      "kind": "test",
-      "line": 348,
-      "name": "test_shutdown_cancels_active_cooperative_request"
+      "line": 346,
+      "name": "test_projection_mapper_failure_is_a_managed_error"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
       "line": 361,
+      "name": "test_cancelling_projection_does_not_cancel_source"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 376,
+      "name": "test_manager_cancel_detaches_projection_for_resource_bindings"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 391,
+      "name": "test_invalidating_source_retires_all_projections"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 411,
+      "name": "test_manager_invalidate_evicts_shared_cache"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 423,
+      "name": "test_invalidate_allows_default_generation_refresh"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 451,
+      "name": "test_cache_metrics_distinguish_fresh_hit_and_miss"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 477,
+      "name": "test_metrics_capture_deduplication_and_completion"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 495,
+      "name": "test_cooperative_request_timeout_is_reported"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 518,
+      "name": "test_timeout_budget_starts_when_queued_request_begins"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 553,
+      "name": "test_queued_cancellation_still_prevents_loader_execution"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 583,
+      "name": "test_shutdown_cancels_active_cooperative_request"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "kind": "test",
+      "line": 596,
       "name": "test_cancel_interrupts_retry_backoff"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 380,
+      "line": 615,
       "name": "test_cancellation_and_newer_generation_suppress_stale_listener"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 404,
+      "line": 639,
       "name": "test_late_superseded_result_cannot_overwrite_newer_state"
     },
     {
@@ -1499,6 +1937,12 @@
       "file": "tests/test_resource_binding.py",
       "kind": "test",
       "line": 94,
+      "name": "test_closing_one_shared_binding_does_not_cancel_other_subscriber"
+    },
+    {
+      "file": "tests/test_resource_binding.py",
+      "kind": "test",
+      "line": 120,
       "name": "test_request_binding_rejects_later_generation_for_same_key"
     },
     {
@@ -1510,85 +1954,121 @@
     {
       "file": "tests/test_resource_cache.py",
       "kind": "test",
-      "line": 16,
+      "line": 18,
       "name": "test_json_and_bytes_survive_disk_round_trip"
     },
     {
       "file": "tests/test_resource_cache.py",
       "kind": "test",
-      "line": 25,
+      "line": 27,
+      "name": "test_legacy_resource_directory_is_migrated_once"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "kind": "test",
+      "line": 41,
+      "name": "test_legacy_migration_keeps_cache_files_private"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "kind": "test",
+      "line": 56,
       "name": "test_memory_cache_is_bounded"
     },
     {
       "file": "tests/test_resource_cache.py",
       "kind": "test",
-      "line": 32,
+      "line": 63,
       "name": "test_disk_write_failure_degrades_to_memory_cache"
     },
     {
       "file": "tests/test_resource_cache.py",
       "kind": "test",
-      "line": 42,
+      "line": 73,
       "name": "test_invalidate_removes_memory_and_disk_entries"
     },
     {
       "file": "tests/test_resource_cache.py",
       "kind": "test",
-      "line": 51,
+      "line": 82,
       "name": "test_fresh_cache_avoids_loader"
     },
     {
       "file": "tests/test_resource_cache.py",
       "kind": "test",
-      "line": 68,
+      "line": 99,
+      "name": "test_cache_validator_discards_invalid_persistent_value"
+    },
+    {
+      "file": "tests/test_resource_cache.py",
+      "kind": "test",
+      "line": 127,
       "name": "test_stale_cache_is_emitted_before_refresh"
     },
     {
       "file": "tests/test_resource_cache.py",
       "kind": "test",
-      "line": 88,
+      "line": 147,
       "name": "test_stale_value_is_preserved_when_refresh_is_offline"
     },
     {
       "file": "tests/test_resource_cache.py",
       "kind": "test",
-      "line": 108,
+      "line": 167,
       "name": "test_stale_value_is_preserved_when_refresh_fails"
     },
     {
       "file": "tests/test_resource_cache.py",
       "kind": "test_class",
-      "line": 13,
+      "line": 15,
       "name": "ResourceCacheTests"
     },
     {
       "file": "tests/test_resource_services.py",
       "kind": "test",
-      "line": 60,
+      "line": 90,
       "name": "test_achievement_service_owns_worker_db_and_typed_batch"
     },
     {
       "file": "tests/test_resource_services.py",
       "kind": "test",
-      "line": 83,
+      "line": 113,
       "name": "test_steam_service_deduplicates_builds_and_caches_tags"
     },
     {
       "file": "tests/test_resource_services.py",
       "kind": "test",
-      "line": 102,
+      "line": 132,
+      "name": "test_steam_compatibility_workers_use_service_keys_and_cache_policy"
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "kind": "test",
+      "line": 163,
       "name": "test_artwork_service_shares_stable_resource_keys"
     },
     {
       "file": "tests/test_resource_services.py",
       "kind": "test",
-      "line": 117,
+      "line": 178,
+      "name": "test_automatic_artwork_reuses_shared_search_cache"
+    },
+    {
+      "file": "tests/test_resource_services.py",
+      "kind": "test",
+      "line": 191,
       "name": "test_artwork_search_and_banner_keys_do_not_embed_user_or_cdn_text"
     },
     {
       "file": "tests/test_resource_services.py",
+      "kind": "test",
+      "line": 208,
+      "name": "test_empty_artwork_results_are_retryable_and_not_cached_as_success"
+    },
+    {
+      "file": "tests/test_resource_services.py",
       "kind": "test_class",
-      "line": 57,
+      "line": 87,
       "name": "ResourceServiceTests"
     },
     {
@@ -1707,6 +2187,12 @@
     },
     {
       "file": "tests/test_security_and_threads.py",
+      "kind": "test",
+      "line": 160,
+      "name": "test_worker_supervisor_reaps_cooperative_slow_worker"
+    },
+    {
+      "file": "tests/test_security_and_threads.py",
       "kind": "test_class",
       "line": 20,
       "name": "SecurityBoundaryTests"
@@ -1738,19 +2224,85 @@
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 12,
+      "line": 26,
       "name": "test_property_form_aligns_labels_and_expands_fields"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 27,
+      "line": 41,
       "name": "test_info_hint_is_muted_and_accessible"
     },
     {
       "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 55,
+      "name": "test_settings_uses_shared_section_surfaces_and_contrasting_fields"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 73,
+      "name": "test_cloud_settings_routes_account_work_to_cloud_center"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 88,
+      "name": "test_cloud_backend_selector_does_not_persist_until_save"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 103,
+      "name": "test_add_game_keeps_invalid_form_open"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 116,
+      "name": "test_header_view_menu_exposes_only_library_profile_and_friends"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 132,
+      "name": "test_social_navigation_is_not_duplicated_in_identity_menu"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 147,
+      "name": "test_cloud_badge_is_an_actionable_control"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 160,
+      "name": "test_virtual_grid_exposes_upload_shortcut_for_selected_game"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 184,
+      "name": "test_virtual_grid_exposes_cloud_tooltip_and_accessible_text"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 203,
+      "name": "test_cloud_action_is_deferred_until_menu_event_finishes"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 214,
+      "name": "test_launch_failure_actions_reflow_without_gaps"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
       "kind": "test_class",
-      "line": 6,
+      "line": 20,
       "name": "PopupPropertyConsistencyTests"
     }
   ]

@@ -34,6 +34,12 @@ resource values, game paths, request keys, headers, tokens, or log contents.
 lifetime registry. It does not retain resource values, deduplicate requests,
 or replace `RequestManager`/`ResourceCache`.
 
+Bindings that opt into cancellation call `RequestManager.cancel_if_unsubscribed`
+so closing one shared consumer leaves another consumer's deduplicated request
+alive. The virtualized library grid is a delegate-painted view; it exposes
+cloud/update descriptions through model tooltip and accessibility roles and
+keeps upload available from the selected item with `Ctrl+U`.
+
 ## Change guide
 
 Change contracts first when adding request semantics. Add focused Qt-free tests for manager/cache behavior. Add a binding test only when the UI-thread bridge changes. Update [request-resource-manager.md](../../architecture/request-resource-manager.md) if ownership or lifecycle semantics change.

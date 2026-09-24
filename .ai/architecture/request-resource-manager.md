@@ -15,9 +15,18 @@ RequestManager.request_many(specs, ...)
 RequestManager.request_cached(key, loader, ttl_seconds=..., ...)
 RequestManager.subscribe(key, listener)
 RequestManager.cancel(key)
+RequestManager.cancel_if_unsubscribed(key, request_id=..., generation=...)
+RequestManager.cancel_matching(predicate)
 RequestManager.invalidate(key)
 RequestManager.shutdown()
 ```
+
+`cancel_if_unsubscribed()` is the lifecycle-safe path used by
+`ResourceBinding.close()`: closing one consumer cannot cancel a deduplicated
+request while another listener remains subscribed. `cancel_matching()` is
+used by the transient connectivity circuit breaker to cooperatively cancel
+queued/running requests that are not marked `allow_offline`; connectivity
+probes and explicitly local managed tasks may opt out of that cancellation.
 
 Loaders should accept a cancellation token when they support cooperative cancellation. They should raise `RetryableRequestError` or use the shared retry policy for transient failures. Authentication, validation, and permanent domain failures should not be retried blindly.
 
