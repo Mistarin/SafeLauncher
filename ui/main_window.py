@@ -58,7 +58,7 @@ from core.cloud_operations import CloudStatusResult, CloudSyncCoordinator
 from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
 from core.cloud_metadata_service import CloudMetadataService, CloudMetadataTarget
 from core.cloud_account_service import CloudAccountService
-from core.cloud_center_service import CloudCenterService
+from core.cloud_center_service import CloudCenterService, CloudOverview
 from core.cloud_status_service import CloudStatusService, CloudStatusTarget
 from core.cloud_status_polling_service import CloudStatusPollingService
 from core.achievement_resource_service import AchievementResourceService, AchievementTarget
@@ -329,6 +329,7 @@ class MainWindow(QMainWindow):
             operation_service=self.cloud_operation_service,
             settings=self.settings,
         )
+        self._cloud_center_overview_binding: ResourceBinding | None = None
         self.cloud_save_status_cache = self.cloud_status_service.status_cache
         self._public_profile_generation = 0
         self._public_profile_binding: ResourceBinding | None = None
@@ -1630,6 +1631,7 @@ class MainWindow(QMainWindow):
             cloud_center_service = getattr(self, "cloud_center_service", None)
             if cloud_center_service is not None:
                 cloud_center_service.invalidate_account_reads()
+            self._refresh_cloud_center_indicator()
             # Offline verdicts are deliberately persisted so the library can
             # render a useful state without networking.  Re-entering online
             # mode must immediately re-check those verdicts instead of
@@ -1964,6 +1966,67 @@ class MainWindow(QMainWindow):
             self.title_bar.set_cloud_status_indicator(
                 getattr(overview, "connection", "unavailable")
             )
+
+    def _refresh_cloud_center_indicator(self) -> None:
+        """Refresh the compact cloud indicator without opening Cloud Center."""
+        service = getattr(self, "cloud_center_service", None)
+        manager = getattr(service, "request_manager", None)
+        request_overview = getattr(service, "request_overview", None)
+        if service is None or manager is None or not callable(request_overview):
+            return
+        binding = getattr(self, "_cloud_center_overview_binding", None)
+        if binding is not None:
+            binding.close()
+            binding.deleteLater()
+            self._cloud_center_overview_binding = None
+        try:
+            handle = request_overview(
+                force=True,
+                priority=RequestPriority.BACKGROUND,
+            )
+        except Exception as error:
+            logger.debug("Cloud header overview refresh could not start: %s", error)
+            self._set_cloud_indicator_for_overview_failure(None)
+            return
+        self._cloud_center_overview_binding = bind_resource(
+            manager,
+            handle.key,
+            self._on_cloud_header_overview_state,
+            self,
+            cancel_on_close=True,
+        )
+
+    def _on_cloud_header_overview_state(self, result) -> None:
+        """Apply the latest managed overview to the closed-shell indicator."""
+        if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+            return
+        if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
+            self._on_cloud_center_overview_changed(
+                CloudOverview.from_payload(result.value)
+            )
+            return
+        if result.status == ResourceStatus.CANCELLED:
+            return
+        self._set_cloud_indicator_for_overview_failure(result)
+
+    def _set_cloud_indicator_for_overview_failure(self, result) -> None:
+        """Keep the compact indicator honest when the overview fails."""
+        if not hasattr(self, "title_bar"):
+            return
+        service = getattr(self, "cloud_center_service", None)
+        try:
+            context = service.current_context() if service is not None else None
+        except Exception:
+            context = None
+        if context is not None and not context.network_allowed:
+            connection = "offline"
+        elif result is not None and result.status == ResourceStatus.AUTHENTICATION_REQUIRED:
+            connection = "setup_required"
+        elif context is not None and context.backend_active and not context.authentication_configured:
+            connection = "setup_required"
+        else:
+            connection = "unavailable"
+        self.title_bar.set_cloud_status_indicator(connection)
 
     def _on_cloud_connection_restored(self) -> None:
         """Refresh every library save projection after a healthy probe."""
@@ -7974,6 +8037,13 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
             self._public_profile_binding = None
+        if getattr(self, "_cloud_center_overview_binding", None) is not None:
+            try:
+                self._cloud_center_overview_binding.close()
+                self._cloud_center_overview_binding.deleteLater()
+            except RuntimeError:
+                pass
+            self._cloud_center_overview_binding = None
         self._close_managed_cloud_status_bindings()
         self._close_managed_achievement_bindings()
         self._close_managed_artwork_bindings()

@@ -129,6 +129,7 @@ class OfflineUpdateStatusTests(unittest.TestCase):
             _refresh_library=Mock(),
             _start_cloud_poll_timer=Mock(),
             cloud_center_service=SimpleNamespace(invalidate_account_reads=Mock()),
+            _refresh_cloud_center_indicator=Mock(),
             request_cloud_recheck=Mock(),
             _check_all_steam_updates=Mock(),
             _start_background_achievement_sync=Mock(),
@@ -144,6 +145,7 @@ class OfflineUpdateStatusTests(unittest.TestCase):
 
         fake.request_cloud_recheck.assert_called_once_with(None, "online-mode")
         fake.cloud_center_service.invalidate_account_reads.assert_called_once_with()
+        fake._refresh_cloud_center_indicator.assert_called_once_with()
         self.assertTrue(any(
             len(call.args) == 2 and call.args[0] == 300
             and call.args[1] is fake._check_all_steam_updates

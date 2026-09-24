@@ -98,6 +98,11 @@ resource and active batch before submitting work, so a fresh pre-transition
 cache entry cannot satisfy a reconnect check. Cloud status batches retain all
 completion consumers when requests are deduplicated.
 
+MainWindow also owns a lightweight managed overview binding for the compact
+header indicator. Returning online forces this binding to refresh even when
+Cloud Center is closed; opening Cloud Center continues to use the same account
+overview resource.
+
 ## Runtime lifecycle
 
 Startup creates the Qt application, initializes environment and database state, constructs the shared managers and clients, then loads the local library before optional remote resources. Shutdown closes page bindings, active feature work, clients, and the request manager in a controlled sequence.
