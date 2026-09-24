@@ -145,6 +145,22 @@ class OfflineUpdateStatusTests(unittest.TestCase):
             for call in single_shot.call_args_list
         ))
 
+    def test_detail_cloud_panel_has_explicit_checking_state(self):
+        from PyQt6.QtWidgets import QLabel, QPushButton
+
+        detail = QLabel()
+        restore = QPushButton()
+        restore.show()
+        fake = SimpleNamespace(
+            detail_cloud_status=detail,
+            btn_detail_cloud_restore=restore,
+        )
+
+        MainWindow._set_detail_cloud_checking(fake)
+
+        self.assertIn("Checking", detail.text())
+        self.assertFalse(restore.isVisible())
+
 
 if __name__ == "__main__":
     unittest.main()

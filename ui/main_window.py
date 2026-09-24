@@ -1942,6 +1942,7 @@ class MainWindow(QMainWindow):
         )
         dialog.sync_finished.connect(self._on_cloud_center_sync_finished)
         dialog.overview_changed.connect(self._on_cloud_center_overview_changed)
+        dialog.connection_restored.connect(self._on_cloud_connection_restored)
         dialog.setup_requested.connect(self._open_cloud_setup_from_center)
         dialog.settings_requested.connect(self._open_cloud_settings_from_center)
         dialog.history_requested.connect(self._open_cloud_history_from_center)
@@ -1954,6 +1955,12 @@ class MainWindow(QMainWindow):
             self.title_bar.set_cloud_status_indicator(
                 getattr(overview, "connection", "unavailable")
             )
+
+    def _on_cloud_connection_restored(self) -> None:
+        """Refresh every library save projection after a healthy probe."""
+        if not self._automatic_network_allowed():
+            return
+        self.request_cloud_recheck(None, "cloud-probe-success")
 
     def _on_cloud_center_sync_finished(self, result) -> None:
         """Refresh library/cloud badges after the central sync action."""
@@ -5099,6 +5106,15 @@ class MainWindow(QMainWindow):
                 else:
                     self.btn_detail_cloud_restore.hide()
 
+    def _set_detail_cloud_checking(self) -> None:
+        """Show a clear in-flight state while the selected save is probed."""
+        self.detail_cloud_status.setText(
+            "<font color='#6F7682'><b>Cloud Save: Checking…</b></font>"
+        )
+        self.detail_cloud_status.setToolTip("Checking the configured cloud backend and save status…")
+        if hasattr(self, "btn_detail_cloud_restore"):
+            self.btn_detail_cloud_restore.hide()
+
     def _restore_selected_game_cloud_save(self):
         """Restore cloud save for the currently selected library game.
 
@@ -5442,6 +5458,7 @@ class MainWindow(QMainWindow):
         if network_allowed and not cloud_auth_required and (
             cached_save is None or is_stale or cloud_status_needs_refresh
         ):
+            self._set_detail_cloud_checking()
             self._spawn_status_fetchers(
                 [(game_id, name, path or "", str(steam_id or ""))],
                 self._on_cloud_save_status_calculated,

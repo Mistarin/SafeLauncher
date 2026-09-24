@@ -59,6 +59,7 @@ class CloudCenterDialog(PopupDialog):
     settings_requested = pyqtSignal()
     history_requested = pyqtSignal()
     conflicts_requested = pyqtSignal()
+    connection_restored = pyqtSignal()
     sync_finished = pyqtSignal(object)
     overview_changed = pyqtSignal(object)
 
@@ -291,6 +292,11 @@ class CloudCenterDialog(PopupDialog):
             latency = payload.get("latency_ms")
             suffix = f" · {latency} ms" if latency else ""
             self.lbl_probe.setText(f"Backend reachable · v{version}{suffix}")
+            # A successful probe repairs two independent stale surfaces: the
+            # center overview and the per-game save-status projections owned
+            # by MainWindow.
+            self.connection_restored.emit()
+            self._request_overview(force=True)
         else:
             self.lbl_probe.setText(str(payload.get("message") or "Backend is not available."))
 

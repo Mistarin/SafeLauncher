@@ -83,6 +83,27 @@ class CloudDialogWorkflowTests(unittest.TestCase):
             dialog.deleteLater()
             self.app.processEvents()
 
+    def test_successful_probe_refreshes_overview_and_notifies_shell(self):
+        with patch.object(CloudCenterDialog, "_request_overview") as request_overview:
+            dialog = CloudCenterDialog(
+                cloud_center_service=_CloudCenterService(),
+            )
+            restored = []
+            dialog.connection_restored.connect(lambda: restored.append(True))
+            try:
+                request_overview.reset_mock()
+                dialog._apply_probe_result(SimpleNamespace(
+                    status=ResourceStatus.READY,
+                    value={"healthy": True, "version": "1.0.0", "latency_ms": 8},
+                ))
+                self.assertEqual(restored, [True])
+                request_overview.assert_called_once_with(force=True)
+                self.assertIn("Backend reachable", dialog.lbl_probe.text())
+            finally:
+                dialog.close()
+                dialog.deleteLater()
+                self.app.processEvents()
+
     def test_account_dialog_uses_shared_status_and_safe_focus(self):
         with patch.object(AccountDialog, "reload"):
             dialog = AccountDialog(cloud_account_service=_AccountService())
