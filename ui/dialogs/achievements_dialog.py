@@ -161,6 +161,8 @@ class AppleAchievementCard(QFrame):
             }}
         """)
 
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 12, 14, 12)
         layout.setSpacing(14)
@@ -197,17 +199,23 @@ class AppleAchievementCard(QFrame):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(3)
 
-        # Header Row: Title + Status Pill Badge
+        # Header and status are deliberately separate rows.  Keeping the pill
+        # out of the title row means long achievement names can wrap instead
+        # of being squeezed into a single line or clipped by the badge.
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
-        header_row.setSpacing(8)
+        header_row.setSpacing(6)
 
         title_text = "Secret Achievement" if hidden and not self.revealed else display_name
         self.title_lbl = QLabel(title_text)
         title_color = "#FFFFFF" if unlocked else "#C7C7CC"
         self.title_lbl.setStyleSheet(f"color: {title_color}; font-size: 13px; font-weight: 700; background: transparent;")
+        self.title_lbl.setWordWrap(True)
+        self.title_lbl.setMinimumWidth(0)
+        self.title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.title_lbl.setToolTip(str(display_name))
         header_row.addWidget(self.title_lbl)
-        header_row.addStretch()
+        text_layout.addLayout(header_row)
 
         # Status Pill
         if unlocked and not verified:
@@ -229,9 +237,12 @@ class AppleAchievementCard(QFrame):
 
         self.pill_lbl = QLabel(f" {status_text} ")
         self.pill_lbl.setStyleSheet(f"{pill_style} font-size: 9px; font-weight: 700; border-radius: 4px; padding: 2px 6px; letter-spacing: 0.5px;")
-        header_row.addWidget(self.pill_lbl)
-
-        text_layout.addLayout(header_row)
+        self.pill_lbl.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.addWidget(self.pill_lbl)
+        status_row.addStretch()
+        text_layout.addLayout(status_row)
 
         # Description
         if hidden and not self.revealed:
@@ -242,6 +253,9 @@ class AppleAchievementCard(QFrame):
         self.desc_lbl = QLabel(desc_text)
         self.desc_lbl.setStyleSheet("color: #8E8E93; font-size: 11px; background: transparent;")
         self.desc_lbl.setWordWrap(True)
+        self.desc_lbl.setMinimumWidth(0)
+        self.desc_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.desc_lbl.setToolTip(str(description))
         text_layout.addWidget(self.desc_lbl)
 
         layout.addLayout(text_layout, 1)
@@ -311,6 +325,8 @@ class AppleAchievementCard(QFrame):
         if self.revealed:
             self.title_lbl.setText(display_name)
             self.desc_lbl.setText(desc_text)
+            self.title_lbl.setToolTip(str(display_name))
+            self.desc_lbl.setToolTip(str(desc_text))
             if hasattr(self, "btn_reveal"):
                 self.btn_reveal.setText("Hide")
                 self.btn_reveal.setStyleSheet("""
@@ -331,6 +347,8 @@ class AppleAchievementCard(QFrame):
         else:
             self.title_lbl.setText("Secret Achievement")
             self.desc_lbl.setText("Details for this achievement are hidden until unlocked in gameplay.")
+            self.title_lbl.setToolTip(str(display_name))
+            self.desc_lbl.setToolTip(str(desc_text))
             if hasattr(self, "btn_reveal"):
                 self.btn_reveal.setText("Reveal")
                 self.btn_reveal.setStyleSheet("""
@@ -583,6 +601,10 @@ class AchievementsDialog(PopupDialog):
 
         self.title_lbl = QLabel(self.game_name)
         self.title_lbl.setStyleSheet("font-size: 19px; font-weight: 800; color: #FFFFFF; background: transparent;")
+        self.title_lbl.setWordWrap(True)
+        self.title_lbl.setMinimumWidth(0)
+        self.title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.title_lbl.setToolTip(str(self.game_name))
         title_vbox.addWidget(self.title_lbl)
 
         sub_row = QHBoxLayout()

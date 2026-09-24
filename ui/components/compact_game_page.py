@@ -830,6 +830,7 @@ class CompactActivityTimelineCard(QFrame):
             r_layout = QHBoxLayout(row)
             r_layout.setContentsMargins(10, 8, 10, 8)
             r_layout.setSpacing(10)
+            row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
             icon_lbl = QLabel()
             icon_lbl.setFixedSize(36, 36)
@@ -850,13 +851,22 @@ class CompactActivityTimelineCard(QFrame):
 
             info_vbox = QVBoxLayout()
             info_vbox.setSpacing(2)
-            title = QLabel(ach.get("display_name") or ach.get("api_name") or "Achievement")
+            title_text = ach.get("display_name") or ach.get("api_name") or "Achievement"
+            title = QLabel(title_text)
             title.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700; background: transparent;")
+            title.setWordWrap(True)
+            title.setMinimumWidth(0)
+            title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            title.setToolTip(str(title_text))
             info_vbox.addWidget(title)
 
-            desc = QLabel(ach.get("description") or "Hidden achievement unlocked.")
+            desc_text = ach.get("description") or "Hidden achievement unlocked."
+            desc = QLabel(desc_text)
             desc.setStyleSheet("color: #A1A1AA; font-size: 11px; background: transparent;")
             desc.setWordWrap(True)
+            desc.setMinimumWidth(0)
+            desc.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            desc.setToolTip(str(desc_text))
             info_vbox.addWidget(desc)
 
             unlock_ts = ach.get("unlock_time", 0)
@@ -927,6 +937,7 @@ class CompactAchievementsShowcaseWidget(QFrame):
 
         # Most recent unlock container
         self.recent_card = QFrame()
+        self.recent_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.recent_card.setStyleSheet("""
             QFrame {
                 background-color: #202024;
@@ -948,10 +959,18 @@ class CompactAchievementsShowcaseWidget(QFrame):
         rc_text.setSpacing(2)
         self.recent_title = QLabel("Achievements are missing")
         self.recent_title.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700; background: transparent;")
+        self.recent_title.setWordWrap(True)
+        self.recent_title.setMinimumWidth(0)
+        self.recent_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.recent_title.setToolTip(self.recent_title.text())
         rc_text.addWidget(self.recent_title)
 
         self.recent_desc = QLabel("No achievements configured for this game")
         self.recent_desc.setStyleSheet("color: #A1A1AA; font-size: 11px; background: transparent;")
+        self.recent_desc.setWordWrap(True)
+        self.recent_desc.setMinimumWidth(0)
+        self.recent_desc.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.recent_desc.setToolTip(self.recent_desc.text())
         rc_text.addWidget(self.recent_desc)
         rc_layout.addLayout(rc_text, 1)
 
@@ -991,14 +1010,18 @@ class CompactAchievementsShowcaseWidget(QFrame):
         self.progress.setValue(int(percentage))
 
         if total == 0:
-            self.recent_title.setText("Achievements are missing")
-            self.recent_desc.setText("No achievements configured for this game")
+            title_text = "Achievements are missing"
+            desc_text = "No achievements configured for this game"
+            self.recent_title.setText(title_text)
+            self.recent_desc.setText(desc_text)
             self.recent_icon.setPixmap(get_icon("ph.trophy-bold", color="#71717A").pixmap(20, 20))
             self.btn_view_all.setEnabled(False)
         elif recent_unlocked:
             first = recent_unlocked[0]
-            self.recent_title.setText(first.get("display_name") or first.get("api_name") or "Achievement")
-            self.recent_desc.setText(first.get("description") or "Unlocked achievement")
+            title_text = first.get("display_name") or first.get("api_name") or "Achievement"
+            desc_text = first.get("description") or "Unlocked achievement"
+            self.recent_title.setText(title_text)
+            self.recent_desc.setText(desc_text)
             icon_path = first.get("icon_path", "")
             if icon_path and os.path.isfile(icon_path):
                 pix = QPixmap(icon_path)
@@ -1011,10 +1034,15 @@ class CompactAchievementsShowcaseWidget(QFrame):
             self.recent_card.setVisible(True)
             self.btn_view_all.setEnabled(True)
         else:
-            self.recent_title.setText("No achievements unlocked yet")
-            self.recent_desc.setText("Keep playing to unlock your first achievements!")
+            title_text = "No achievements unlocked yet"
+            desc_text = "Keep playing to unlock your first achievements!"
+            self.recent_title.setText(title_text)
+            self.recent_desc.setText(desc_text)
             self.recent_icon.setPixmap(get_icon("ph.trophy-bold", color="#71717A").pixmap(20, 20))
             self.btn_view_all.setEnabled(True)
+
+        self.recent_title.setToolTip(str(title_text))
+        self.recent_desc.setToolTip(str(desc_text))
 
         # Re-populate locked thumbnails
         while self.thumbs_row.count():

@@ -196,20 +196,25 @@ class UserSettingsDialog(PopupDialog):
                 border-top-color: #FFFFFF;
             }
             QPushButton {
-                background: #222228;
+                background: #171A20;
                 color: #FFFFFF;
-                border: 1px solid #34343C;
+                border: 1px solid #30353F;
                 border-radius: 7px;
                 padding: 8px 14px;
                 font-size: 12px;
                 font-weight: 500;
             }
             QPushButton:hover {
-                background: #2B2B32;
-                border-color: #4B4B56;
+                background: #202633;
+                border-color: #4B5563;
             }
             QPushButton:pressed {
-                background: #17171A;
+                background: #10141B;
+            }
+            QPushButton:disabled {
+                background: #12151A;
+                color: #777C86;
+                border-color: #252A32;
             }
             QCheckBox {
                 spacing: 9px;
@@ -342,11 +347,13 @@ class UserSettingsDialog(PopupDialog):
 
         btn_cancel = QPushButton("Cancel")
         btn_cancel.setObjectName("settingsActionButton")
+        self.btn_cancel = btn_cancel
         btn_cancel.clicked.connect(self.reject)
         bottom_bar.addWidget(btn_cancel)
 
         btn_save = QPushButton("Save")
         btn_save.setObjectName("settingsPrimaryButton")
+        self.btn_save = btn_save
         btn_save.setStyleSheet("""
             QPushButton {
                 background: #2563eb; color: #ffffff; border: none;
@@ -392,18 +399,34 @@ class UserSettingsDialog(PopupDialog):
             "border-radius: 7px; padding: 7px 10px; }"
         )
         button_style = (
-            "QPushButton { background: #20242C; color: #F4F4F5; "
+            "QPushButton { background: #171A20; color: #F4F4F5; "
             "border: 1px solid #30353F; border-top-color: #414752; "
             "border-bottom-color: #252A32; border-radius: 7px; "
             "padding: 8px 14px; font-size: 12px; font-weight: 600; } "
-            "QPushButton:hover { background: #2A303A; border-color: #4B5563; } "
-            "QPushButton:pressed { background: #171A20; }"
+            "QPushButton:hover { background: #202633; border-color: #4B5563; } "
+            "QPushButton:pressed { background: #10141B; } "
+            "QPushButton:disabled { background: #12151A; color: #777C86; border-color: #252A32; }"
         )
         primary_button_style = (
             "QPushButton { background: #3B9FE8; color: #FFFFFF; border: none; "
             "border-radius: 7px; padding: 8px 18px; font-weight: 700; } "
             "QPushButton:hover { background: #55ACED; } "
             "QPushButton:pressed { background: #2789D0; }"
+        )
+        destructive_button_style = (
+            "QPushButton { background: #3A171B; color: #FFB4AE; "
+            "border: 1px solid #7F2D35; border-radius: 7px; "
+            "padding: 8px 14px; font-size: 12px; font-weight: 600; } "
+            "QPushButton:hover { background: #542027; border-color: #A63A45; color: #FFFFFF; } "
+            "QPushButton:pressed { background: #2A1014; } "
+            "QPushButton:disabled { background: #21171A; color: #80696C; border-color: #4A292E; }"
+        )
+        navigation_button_style = (
+            "QPushButton { background: transparent; color: #A1A1AA; "
+            "border: 1px solid transparent; border-radius: 7px; "
+            "padding: 8px 12px; font-size: 12px; font-weight: 600; } "
+            "QPushButton:hover { background: transparent; color: #FFFFFF; } "
+            "QPushButton:checked { background: #2A2A31; color: #FFFFFF; border-color: #42424D; }"
         )
         divider_style = (
             "QFrame#settingsDivider { background: #3A404B; border: none; "
@@ -449,12 +472,30 @@ class UserSettingsDialog(PopupDialog):
                         "color: #858A95; font-size: 12px; }"
                     )
             for button in page.findChildren(QPushButton):
-                if button.objectName() != "settingsTab":
+                role = button.property("settingsButtonRole")
+                if button.objectName() == "settingsTab" or role == "navigation":
+                    continue
+                if role == "accent":
+                    continue
+                if role == "primary":
+                    button.setStyleSheet(primary_button_style)
+                elif role == "destructive":
+                    button.setStyleSheet(destructive_button_style)
+                else:
                     button.setStyleSheet(button_style)
 
+        for button in self.tab_buttons:
+            button.setProperty("settingsButtonRole", "navigation")
+            button.setStyleSheet(navigation_button_style)
+
         for button in self.findChildren(QPushButton):
-            if button.objectName() in {"settingsActionButton", "settingsPrimaryButton"}:
-                button.setStyleSheet(button_style)
+            role = button.property("settingsButtonRole")
+            if button.objectName() == "settingsPrimaryButton" or role == "primary":
+                button.setStyleSheet(primary_button_style)
+            elif button.objectName() == "settingsActionButton" or role == "destructive":
+                button.setStyleSheet(
+                    destructive_button_style if role == "destructive" else button_style
+                )
             if button.objectName() == "settingsPrimaryButton":
                 button.setStyleSheet(primary_button_style)
 
@@ -736,6 +777,10 @@ class UserSettingsDialog(PopupDialog):
         btn_start_screen = QPushButton(
             "Installed in Start Screen & App Menu" if is_installed else "Add to Start Screen & App Menu"
         )
+        # This button has a stateful green/blue treatment that communicates
+        # installation status, so it is intentionally outside the neutral
+        # secondary-action surface.
+        btn_start_screen.setProperty("settingsButtonRole", "accent")
         btn_start_screen.setEnabled(not is_installed)
         if is_installed:
             btn_start_screen.setStyleSheet("""
@@ -1026,6 +1071,7 @@ class UserSettingsDialog(PopupDialog):
         log_btns.addWidget(btn_export_runtime)
 
         btn_clear_diag = QPushButton("Clear Saved Reports")
+        btn_clear_diag.setProperty("settingsButtonRole", "destructive")
         btn_clear_diag.clicked.connect(self._clear_diagnostics)
         log_btns.addWidget(btn_clear_diag)
 
@@ -1166,6 +1212,7 @@ class UserSettingsDialog(PopupDialog):
         btn_setup_deploy_key.clicked.connect(self._open_deploy_key_wizard)
         deploy_key_row.addWidget(btn_setup_deploy_key)
         btn_forget_deploy_key = QPushButton("Forget")
+        btn_forget_deploy_key.setProperty("settingsButtonRole", "destructive")
         btn_forget_deploy_key.setToolTip("Remove the deploy key from this device; it does not revoke the key in Convex")
         btn_forget_deploy_key.clicked.connect(self._forget_deploy_key)
         deploy_key_row.addWidget(btn_forget_deploy_key)
@@ -1249,6 +1296,7 @@ class UserSettingsDialog(PopupDialog):
         self.btn_refresh_quota.clicked.connect(self._refresh_cloud_conflict_summary)
         # Quota is presented in Cloud Center alongside devices and storage.
         self.btn_logout = QPushButton("Disconnect")
+        self.btn_logout.setProperty("settingsButtonRole", "destructive")
         self.btn_logout.clicked.connect(self._cloud_disconnect)
         acct_btns.addWidget(self.btn_logout)
         acct_btns.addStretch()
@@ -1313,6 +1361,7 @@ class UserSettingsDialog(PopupDialog):
 
         self.health_action_row = QHBoxLayout()
         self.btn_redeploy = QPushButton("One-Click Redeploy Backend")
+        self.btn_redeploy.setProperty("settingsButtonRole", "primary")
         self.btn_redeploy.setStyleSheet("background: #0284C7; font-weight: bold; padding: 6px 14px;")
         self.btn_redeploy.clicked.connect(self._redeploy_backend)
         self.btn_redeploy.setVisible(False)
@@ -1508,6 +1557,7 @@ class UserSettingsDialog(PopupDialog):
             install_row.addWidget(btn_copy_cmd)
 
             btn_install_now = QPushButton("Install via Helper")
+            btn_install_now.setProperty("settingsButtonRole", "primary")
             btn_install_now.setStyleSheet("QPushButton { background: #2563eb; color: #ffffff; border: none; } QPushButton:hover { background: #1d4ed8; }")
             btn_install_now.clicked.connect(self._open_install_notice)
             install_row.addWidget(btn_install_now)

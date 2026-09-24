@@ -14,7 +14,8 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PyQt6.QtWidgets import (
-    QWidget, QLabel, QHBoxLayout, QVBoxLayout, QFrame, QGraphicsOpacityEffect, QApplication
+    QWidget, QLabel, QHBoxLayout, QVBoxLayout, QFrame, QGraphicsOpacityEffect,
+    QApplication, QSizePolicy
 )
 from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QFont
 
@@ -65,6 +66,7 @@ class AchievementToast(QWidget):
 
         # Card container
         self.card = QFrame(self)
+        self.card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.card.setStyleSheet("""
             QFrame {
                 background-color: #121214;
@@ -113,13 +115,21 @@ class AchievementToast(QWidget):
 
         title_lbl = QLabel(self.display_name)
         title_lbl.setStyleSheet("color: #F4F4F5; font-size: 13px; font-weight: bold; background: transparent; border: none;")
+        title_lbl.setWordWrap(True)
+        title_lbl.setMinimumWidth(0)
+        title_lbl.setMaximumWidth(300)
+        title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        title_lbl.setToolTip(self.display_name)
         text_layout.addWidget(title_lbl)
 
         if self.description:
             desc_lbl = QLabel(self.description)
             desc_lbl.setStyleSheet("color: #A1A1AA; font-size: 11px; background: transparent; border: none;")
             desc_lbl.setWordWrap(True)
-            desc_lbl.setMaximumWidth(260)
+            desc_lbl.setMinimumWidth(0)
+            desc_lbl.setMaximumWidth(300)
+            desc_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            desc_lbl.setToolTip(self.description)
             text_layout.addWidget(desc_lbl)
 
         card_layout.addLayout(text_layout)

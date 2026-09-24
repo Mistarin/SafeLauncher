@@ -927,6 +927,8 @@ class MainWindow(QMainWindow):
         detail_layout.addLayout(actions_grid)
 
         self.btn_detail_achievements = QPushButton("Achievements")
+        self.btn_detail_achievements.setAccessibleName("Open achievements")
+        self.btn_detail_achievements.setToolTip("Open the full achievement list for this game")
         self.btn_detail_achievements.setIcon(get_icon("ph.trophy-bold", color="#30D158"))
         self.btn_detail_achievements.setIconSize(QSize(14, 14))
         self.btn_detail_achievements.setFixedHeight(32)
@@ -938,6 +940,7 @@ class MainWindow(QMainWindow):
         # Apple-styled Achievement Preview Card in Inspector Detail Panel
         self.detail_ach_card = QFrame()
         self.detail_ach_card.setObjectName("detailAchCard")
+        self.detail_ach_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.detail_ach_card.setStyleSheet("""
             QFrame#detailAchCard {
                 background-color: #11141A;
@@ -6004,6 +6007,8 @@ class MainWindow(QMainWindow):
 
                         d_name = html.escape(ach.get("display_name", ""))
                         d_desc = html.escape(ach.get("description", ""))
+                        b_lbl.setAccessibleName(ach.get("display_name") or ach.get("api_name") or "Achievement badge")
+                        b_lbl.setAccessibleDescription(ach.get("description") or "Unlocked achievement")
                         source = "Steam verified" if ach.get("verified") else "Local source · unverified"
                         source_color = "#30D158" if ach.get("verified") else "#FF9F0A"
                         b_lbl.setToolTip(f"<div style='background: #1C1C1E; color: #FFF; padding: 3px;'><b>{d_name}</b><br/><span style='color: #A1A1A6; font-size: 11px;'>{d_desc}</span><br/><span style='color: {source_color}; font-size: 10px;'>{source}</span></div>")
@@ -6029,6 +6034,9 @@ class MainWindow(QMainWindow):
                             item.widget().deleteLater()
                     unavailable = QLabel("Achievement schema is not available yet. Local unlock state will be kept and reconciled when a schema is found.")
                     unavailable.setWordWrap(True)
+                    unavailable.setMinimumWidth(0)
+                    unavailable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+                    unavailable.setToolTip(unavailable.text())
                     unavailable.setStyleSheet("color: #FF9F0A; font-size: 10px; background: transparent;")
                     self.detail_ach_badges_layout.addWidget(unavailable)
                     self.detail_ach_badges_layout.addStretch()
@@ -6044,6 +6052,9 @@ class MainWindow(QMainWindow):
                             item.widget().deleteLater()
                     no_state = QLabel("Achievement definitions are available, but no local or verified unlock state has been found yet.")
                     no_state.setWordWrap(True)
+                    no_state.setMinimumWidth(0)
+                    no_state.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+                    no_state.setToolTip(no_state.text())
                     no_state.setStyleSheet("color: #AEAEB2; font-size: 10px; background: transparent;")
                     self.detail_ach_badges_layout.addWidget(no_state)
                     self.detail_ach_badges_layout.addStretch()
