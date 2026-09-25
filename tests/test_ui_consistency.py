@@ -17,7 +17,9 @@ from ui.components.sidebar import CustomTitleBar
 from ui.main_window import MainWindow
 from ui.components.banner_card import GameBannerWidget
 from ui.components.virtual_grid import VirtualizedGameGridView
+from ui.components.game_detail_page import GameDetailPageWidget
 from core.cloud_models import SyncStatus
+from core.cloud_models import SaveStats
 
 
 class PopupPropertyConsistencyTests(unittest.TestCase):
@@ -211,6 +213,21 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             self.assertEqual(actions, [(1, "upload")])
         finally:
             grid.deleteLater()
+            self.app.processEvents()
+
+    def test_game_detail_shows_cloud_save_time_and_device(self):
+        detail = GameDetailPageWidget()
+        try:
+            detail.set_cloud_status(
+                SyncStatus.CLOUD_NEWER,
+                SaveStats(exists=True, last_modified=1_700_000_000, device_name="Steam Deck"),
+                SaveStats(exists=True, last_modified=1_700_000_100, device_name="Desktop"),
+            )
+            self.assertFalse(detail.lbl_cloud_metadata.isHidden())
+            self.assertIn("Saved:", detail.lbl_cloud_metadata.text())
+            self.assertIn("Device: Desktop", detail.lbl_cloud_metadata.text())
+        finally:
+            detail.deleteLater()
             self.app.processEvents()
 
     def test_virtual_grid_exposes_cloud_tooltip_and_accessible_text(self):

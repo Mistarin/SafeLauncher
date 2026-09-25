@@ -404,6 +404,8 @@ class CloudStatusService:
             "size_bytes": int(getattr(value, "size_bytes", 0) or 0),
             "file_count": int(getattr(value, "file_count", 0) or 0),
             "display_path": str(getattr(value, "display_path", "") or ""),
+            "cloud_version": getattr(value, "cloud_version", None),
+            "device_name": str(getattr(value, "device_name", "") or ""),
         }
 
     @staticmethod
@@ -418,6 +420,11 @@ class CloudStatusService:
             size_bytes=int(value.get("size_bytes", 0) or 0),
             file_count=int(value.get("file_count", 0) or 0),
             display_path=str(value.get("display_path", "") or ""),
+            cloud_version=(
+                int(value["cloud_version"])
+                if value.get("cloud_version") is not None else None
+            ),
+            device_name=str(value.get("device_name", "") or ""),
         )
 
     @staticmethod
@@ -778,11 +785,17 @@ class CloudStatusService:
                 size_bytes=entry.get("local_size", 0),
                 file_count=entry.get("local_count", 0),
                 display_path=entry.get("display_path", ""),
+                device_name=str(entry.get("local_device_name", "") or ""),
             )
             cloud_stats = SaveStats(
                 exists=entry.get("cloud_exists", False),
                 last_modified=entry.get("cloud_mtime", 0.0),
                 size_bytes=entry.get("cloud_size", 0),
+                cloud_version=(
+                    int(entry["cloud_version"])
+                    if entry.get("cloud_version") is not None else None
+                ),
+                device_name=str(entry.get("cloud_device_name", "") or ""),
             )
             self.status_store.set_cloud_status(
                 game_id,

@@ -91,12 +91,19 @@ def _stats_for_locations(locations: List[SaveLocation]) -> SaveStats:
     if target_mtimes:
         max_mtime = max(target_mtimes)
 
+    try:
+        from core.cloud_backend import get_device_identity
+        device_name = str(get_device_identity()[1] or "").strip()
+    except Exception:
+        device_name = ""
+
     return SaveStats(
         exists=bool(locations) and total_files > 0,
         last_modified=max_mtime,
         size_bytes=total_bytes,
         file_count=total_files,
         display_path=locations[0].path if locations else "",
+        device_name=device_name,
     )
 
 
@@ -492,6 +499,7 @@ class CloudSaveSyncEngine:
         # sequence, not a reliable indication of which device has the newest
         # save contents.
         target = newest_cloud_version(versions) or versions[0]
+        device_metadata = history_device_metadata(target)
         stats = SaveStats(
             exists=True,
             # Content clock: manifest source_max_mtime recorded at upload,
@@ -505,6 +513,7 @@ class CloudSaveSyncEngine:
             ),
             display_path=f"{snapshot.get('displayName', name_key)} (v{target.get('version', 0)})",
             cloud_version=(int(target["version"]) if target.get("version") is not None else None),
+            device_name=device_metadata.get("uploaded") or device_metadata.get("created") or "",
         )
         return stats, snapshot
 

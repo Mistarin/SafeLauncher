@@ -4,11 +4,24 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPen
-from PyQt6.QtWidgets import QComboBox
+from PyQt6.QtWidgets import QComboBox, QProxyStyle, QStyle
+
+
+class _SortComboStyle(QProxyStyle):
+    """Suppress the platform arrow; SortComboBox draws its own chevron."""
+
+    def drawPrimitive(self, element, option, painter, widget=None) -> None:  # noqa: N802
+        if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown:
+            return
+        super().drawPrimitive(element, option, painter, widget)
 
 
 class SortComboBox(QComboBox):
     """Keep native popup behavior while rendering a consistent arrow."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyle(_SortComboStyle())
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt virtual method
         super().paintEvent(event)

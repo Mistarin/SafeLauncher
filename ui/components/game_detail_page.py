@@ -463,6 +463,14 @@ class GameDetailPageWidget(QWidget):
         cloud_row.addStretch()
         spec_layout.addLayout(cloud_row, 3, 1)
 
+        self.lbl_cloud_metadata = QLabel("")
+        self.lbl_cloud_metadata.setStyleSheet(
+            "color: #6F7682; font-size: 10px; font-weight: 500; background: transparent;"
+        )
+        self.lbl_cloud_metadata.setAccessibleName("Cloud save time and device")
+        self.lbl_cloud_metadata.setVisible(False)
+        spec_layout.addWidget(self.lbl_cloud_metadata, 4, 1)
+
         # Column 2: Launch Mode & Executable
         lbl_mode_h = QLabel("LAUNCH MODE")
         lbl_mode_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
@@ -692,6 +700,24 @@ class GameDetailPageWidget(QWidget):
         self.lbl_cloud_status.setText(text)
         if hasattr(ind, "color"):
             self.lbl_cloud_status.setStyleSheet(f"color: {ind.color}; font-size: 12px; font-weight: 600; background: transparent;")
+
+        metadata_stats = local_stats if status == SyncStatus.LOCAL_NEWER else cloud_stats
+        if metadata_stats is not None and getattr(metadata_stats, "exists", False):
+            saved_at = format_datetime_timestamp(
+                getattr(metadata_stats, "last_modified", 0.0),
+                "%H:%M",
+                fallback="Unknown time",
+            )
+            device_name = escape(
+                str(getattr(metadata_stats, "device_name", "") or "Unknown device")
+            )
+            self.lbl_cloud_metadata.setText(
+                f"Saved: {escape(saved_at)} · Device: {device_name}"
+            )
+            self.lbl_cloud_metadata.setVisible(True)
+        else:
+            self.lbl_cloud_metadata.clear()
+            self.lbl_cloud_metadata.setVisible(False)
 
         if status == SyncStatus.CLOUD_ONLY:
             self.btn_cloud_action.setText(" Restore Cloud Save")

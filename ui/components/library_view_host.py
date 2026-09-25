@@ -177,11 +177,11 @@ class LibraryViewHost(QStackedWidget):
             return set(self.snapshot.visible_ids)
         return set()
 
-    def update_cloud_status(self, game_id: int, status) -> None:
+    def update_cloud_status(self, game_id: int, status, local_stats=None, cloud_stats=None) -> None:
         self.virtual_grid.update_cloud_status(game_id, status)
         self.compact_container.update_cloud_status(game_id, status)
         if self.detail_page.current_game_id == game_id:
-            self.detail_page.set_cloud_status(status)
+            self.detail_page.set_cloud_status(status, local_stats, cloud_stats)
 
     def update_update_available(self, game_id: int, available: bool) -> None:
         self.virtual_grid.update_update_available(game_id, available)

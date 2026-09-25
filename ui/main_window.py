@@ -802,13 +802,17 @@ class MainWindow(QMainWindow):
 
         cloud_box = QWidget()
         cloud_box.setStyleSheet("background: transparent;")
-        cloud_box_layout = QHBoxLayout(cloud_box)
+        cloud_box_layout = QVBoxLayout(cloud_box)
         cloud_box_layout.setContentsMargins(0, 0, 0, 0)
-        cloud_box_layout.setSpacing(6)
+        cloud_box_layout.setSpacing(2)
+
+        cloud_status_row = QHBoxLayout()
+        cloud_status_row.setContentsMargins(0, 0, 0, 0)
+        cloud_status_row.setSpacing(6)
 
         self.detail_cloud_status = QLabel("--")
         self.detail_cloud_status.setStyleSheet("color: #A1A1A6; font-size: 11px; font-weight: 500; background: transparent;")
-        cloud_box_layout.addWidget(self.detail_cloud_status)
+        cloud_status_row.addWidget(self.detail_cloud_status)
 
         self.btn_detail_cloud_restore = QPushButton("Restore latest cloud save")
         self.btn_detail_cloud_restore.setAccessibleName("Restore latest cloud save")
@@ -821,7 +825,7 @@ class MainWindow(QMainWindow):
         )
         self.btn_detail_cloud_restore.hide()
         self.btn_detail_cloud_restore.clicked.connect(self._restore_selected_game_cloud_save)
-        cloud_box_layout.addWidget(self.btn_detail_cloud_restore)
+        cloud_status_row.addWidget(self.btn_detail_cloud_restore)
 
         self.btn_detail_cloud_upload = QPushButton("Upload local save")
         self.btn_detail_cloud_upload.setAccessibleName("Upload local save")
@@ -834,8 +838,17 @@ class MainWindow(QMainWindow):
         )
         self.btn_detail_cloud_upload.hide()
         self.btn_detail_cloud_upload.clicked.connect(self._upload_selected_game_cloud_save)
-        cloud_box_layout.addWidget(self.btn_detail_cloud_upload)
-        cloud_box_layout.addStretch()
+        cloud_status_row.addWidget(self.btn_detail_cloud_upload)
+        cloud_status_row.addStretch()
+        cloud_box_layout.addLayout(cloud_status_row)
+
+        self.detail_cloud_metadata = QLabel("")
+        self.detail_cloud_metadata.setStyleSheet(
+            "color: #6F7682; font-size: 9px; font-weight: 500; background: transparent;"
+        )
+        self.detail_cloud_metadata.setAccessibleName("Cloud save time and device")
+        self.detail_cloud_metadata.setVisible(False)
+        cloud_box_layout.addWidget(self.detail_cloud_metadata)
 
         spec_layout.addWidget(cloud_box, 3, 1)
 
@@ -2418,6 +2431,9 @@ class MainWindow(QMainWindow):
         if self.selected_game:
             self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: checking…</font>")
             self.detail_cloud_status.setToolTip("Cloud settings changed — re-checking.")
+            if hasattr(self, "detail_cloud_metadata"):
+                self.detail_cloud_metadata.clear()
+                self.detail_cloud_metadata.setVisible(False)
         self._save_persistent_cache()
         self.request_cloud_recheck(None, "config-change")
 
@@ -5480,7 +5496,17 @@ class MainWindow(QMainWindow):
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_cloud_status(status)
 
-        self._update_library_item("update_cloud_status", game_id, status)
+        display_local = local_stats
+        display_cloud = cloud_stats
+        if display_local is None or display_cloud is None:
+            cached_entry = self.cloud_save_status_cache.get(game_id)
+            if cached_entry:
+                display_local = display_local or cached_entry[1]
+                display_cloud = display_cloud or cached_entry[2]
+
+        self._update_library_item(
+            "update_cloud_status", game_id, status, display_local, display_cloud
+        )
 
 
         if self.selected_game and self.selected_game[0] == game_id:
@@ -5491,6 +5517,27 @@ class MainWindow(QMainWindow):
             self.detail_cloud_status.setToolTip(
                 indicator.tooltip + (" Last known result; refresh pending." if stale else "")
             )
+
+            if hasattr(self, "detail_cloud_metadata"):
+                metadata_stats = (
+                    display_local if status == SyncStatus.LOCAL_NEWER else display_cloud
+                )
+                if metadata_stats is not None and getattr(metadata_stats, "exists", False):
+                    saved_at = format_datetime_timestamp(
+                        getattr(metadata_stats, "last_modified", 0.0),
+                        "%H:%M",
+                        fallback="Unknown time",
+                    )
+                    device_name = escape(
+                        str(getattr(metadata_stats, "device_name", "") or "Unknown device")
+                    )
+                    self.detail_cloud_metadata.setText(
+                        f"Saved: {escape(saved_at)} · Device: {device_name}"
+                    )
+                    self.detail_cloud_metadata.setVisible(True)
+                else:
+                    self.detail_cloud_metadata.clear()
+                    self.detail_cloud_metadata.setVisible(False)
 
             if hasattr(self, "btn_detail_cloud_restore"):
                 c_stats = cloud_stats
@@ -5518,6 +5565,9 @@ class MainWindow(QMainWindow):
             "<font color='#6F7682'><b>Cloud Save: Checking…</b></font>"
         )
         self.detail_cloud_status.setToolTip("Checking the configured cloud backend and save status…")
+        if hasattr(self, "detail_cloud_metadata"):
+            self.detail_cloud_metadata.clear()
+            self.detail_cloud_metadata.setVisible(False)
         if hasattr(self, "btn_detail_cloud_restore"):
             self.btn_detail_cloud_restore.hide()
         if hasattr(self, "btn_detail_cloud_upload"):
@@ -5876,6 +5926,9 @@ class MainWindow(QMainWindow):
             else:
                 self.detail_cloud_status.setText("Cloud Save: Checking...")
                 self.detail_cloud_status.setToolTip("Checking save sync status...")
+            if hasattr(self, "detail_cloud_metadata"):
+                self.detail_cloud_metadata.clear()
+                self.detail_cloud_metadata.setVisible(False)
             if hasattr(self, "btn_detail_cloud_restore"):
                 self.btn_detail_cloud_restore.hide()
 

@@ -30,6 +30,7 @@ class SaveStats:
     display_path: str = ""
     snapshot: Optional[object] = None
     cloud_version: Optional[int] = None
+    device_name: str = ""
 
 
 __all__ = ["SaveStats", "SyncStatus"]

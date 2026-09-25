@@ -113,6 +113,7 @@ class CloudSaveFlowTests(unittest.TestCase):
 
         self.assertEqual(stats.last_modified, 200.0)
         self.assertEqual(stats.cloud_version, 7)
+        self.assertEqual(stats.device_name, "Steam Deck")
 
 
 if __name__ == "__main__":
