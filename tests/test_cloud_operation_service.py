@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import unittest
 from threading import Event
+from unittest.mock import patch
 
 from core.cloud_context import CloudContext
-from core.cloud_operations import CloudPreflightResult, CloudStatusResult
+from core.cloud_operations import CloudOperationCoordinator, CloudPreflightResult, CloudStatusResult
 from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
 from core.cloud_exit_sync_service import CloudExitSyncService
 from core.cloud_operation_records import CloudOperationState
@@ -137,6 +138,31 @@ class CloudOperationServiceTests(unittest.TestCase):
             self.assertNotIn("private.example", record.context_fingerprint)
         finally:
             manager.shutdown()
+
+    def test_coordinator_upload_accepts_and_forwards_progress_callback(self):
+        progress = []
+        expected = SaveOperationResult(True, "Cloud upload", "Example")
+
+        with patch(
+            "core.cloud_operations.CloudSaveSyncEngine.sync_local_to_cloud",
+            return_value=expected,
+        ) as sync:
+            result = CloudOperationCoordinator.upload_local_save(
+                "Example",
+                "/games/example",
+                progress_callback=progress.append,
+            )
+
+        self.assertIs(result, expected)
+        sync.assert_called_once_with(
+            "Example",
+            "/games/example",
+            steam_id="",
+            locations=None,
+            snapshot=None,
+            cancel_check=None,
+            progress_callback=progress.append,
+        )
 
     def test_exit_sync_service_normalizes_operation_payload(self):
         coordinator = _Coordinator()

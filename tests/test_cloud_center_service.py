@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from core.cloud_center_service import CloudCenterService, CloudOverview
 from core.cloud_context import CloudContext
+from core.cloud_operation_service import CloudOperationTarget
 from core.request_contracts import RequestPriority, ResourceStatus
 from core.request_manager import RequestManager
 from core.resource_cache import ResourceCache
@@ -49,12 +50,16 @@ class _FakeAccountService:
 class _FakeStatusService:
     def __init__(self, context):
         self.context = context
+        self.invalidated_games = []
 
     def current_context(self):
         return self.context
 
     def status_snapshot(self):
         return {}
+
+    def invalidate_game(self, game_id):
+        self.invalidated_games.append(int(game_id))
 
 
 class _FakeMetadataService:
@@ -218,6 +223,23 @@ class CloudCenterServiceTests(unittest.TestCase):
         self.assertEqual(operation.calls[0][1].game_id, 42)
         self.assertEqual(operation.calls[1][0], "upload")
         self.assertEqual(operation.calls[1][1].game_name, "Example Game")
+
+    def test_successful_upload_invalidates_per_game_status(self):
+        context = self._context()
+        status = _FakeStatusService(context)
+        service = CloudCenterService(
+            self.manager,
+            account_service=_FakeAccountService(context),
+            status_service=status,
+        )
+
+        service.handle_operation_success(
+            CloudOperationTarget(42, "Example Game"),
+            "upload",
+            SimpleNamespace(success=True),
+        )
+
+        self.assertEqual(status.invalidated_games, [42])
 
 
 if __name__ == "__main__":

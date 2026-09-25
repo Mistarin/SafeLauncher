@@ -151,7 +151,7 @@ class LudusaviDetector:
         on_path = shutil.which("ludusavi")
         if on_path:
             candidates.append(on_path)
-        return [c for c in candidates if c and os.path.isfile(c)]
+        return [c for c in candidates if c and os.path.isfile(c) and os.access(c, os.X_OK)]
 
     @classmethod
     def is_cli_available(cls) -> bool:

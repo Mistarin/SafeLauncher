@@ -256,12 +256,14 @@ class CloudOperationCoordinator:
         locations=None,
         snapshot=None,
         cancel_check=None,
+        progress_callback=None,
     ) -> CloudOperationResult:
         try:
             result = CloudSaveSyncEngine.sync_local_to_cloud(
                 game_name, game_path, steam_id=steam_id, locations=locations,
                 snapshot=snapshot,
                 cancel_check=cancel_check,
+                progress_callback=progress_callback,
             )
         except Exception as exc:
             return _failure("Cloud upload", game_name, describe_cloud_error(exc))

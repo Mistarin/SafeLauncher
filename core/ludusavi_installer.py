@@ -45,6 +45,29 @@ def get_managed_ludusavi_path() -> str:
     return os.path.join(get_app_bin_dir(), "ludusavi")
 
 
+def _ensure_managed_executable(path: str) -> bool:
+    """Make a managed Unix binary executable when its mode was lost.
+
+    Some archive/package extraction paths preserve the file contents but drop
+    execute bits.  The managed file is already application-owned, so restoring
+    the owner execute bit is safe and avoids a confusing ``Permission denied``
+    during save detection.  Failure is reported to the caller so it can fall
+    back to another binary or the heuristic detector.
+    """
+    if not os.path.isfile(path):
+        return False
+    if os.name == "nt":
+        return True
+    try:
+        mode = os.stat(path).st_mode
+        if not mode & stat.S_IXUSR:
+            os.chmod(path, mode | stat.S_IXUSR)
+        return os.access(path, os.X_OK)
+    except OSError as exc:
+        logger.warning("Could not make managed Ludusavi executable: %s", exc)
+        return False
+
+
 def _asset_name_for_platform() -> str:
     if sys.platform == "win32":
         return f"ludusavi-v{LUDUSAVI_VERSION}-win64.zip"
@@ -100,7 +123,9 @@ def ensure_ludusavi() -> Optional[str]:
 
     managed = get_managed_ludusavi_path()
     if os.path.isfile(managed):
-        return managed
+        if _ensure_managed_executable(managed):
+            return managed
+        logger.warning("Managed Ludusavi binary is not executable: %s", managed)
 
     # Looking for an already-installed binary is local work.  A first-run
     # download, however, is optional and must never turn offline startup into

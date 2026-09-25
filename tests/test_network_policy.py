@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import stat
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -91,3 +93,20 @@ class NetworkPolicyTests(unittest.TestCase):
         ) as download:
             self.assertIsNone(ludusavi_installer.ensure_ludusavi())
         download.assert_not_called()
+
+    @unittest.skipIf(os.name == "nt", "Unix execute bits do not apply on Windows")
+    def test_managed_ludusavi_repairs_missing_execute_bit(self):
+        from core import ludusavi_installer
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            managed = os.path.join(temp_dir, "ludusavi")
+            with open(managed, "wb") as handle:
+                handle.write(b"not a real binary")
+            os.chmod(managed, stat.S_IRUSR | stat.S_IWUSR)
+
+            with patch.dict(os.environ, {"SAFELAUNCHER_LUDUSAVI": ""}, clear=False), patch.object(
+                ludusavi_installer, "get_managed_ludusavi_path", return_value=managed
+            ):
+                self.assertEqual(ludusavi_installer.ensure_ludusavi(), managed)
+
+            self.assertTrue(os.stat(managed).st_mode & stat.S_IXUSR)
