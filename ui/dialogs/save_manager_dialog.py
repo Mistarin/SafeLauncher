@@ -35,6 +35,7 @@ from core.request_contracts import RequestPriority, ResourceStatus
 from core.zip_backup import ZipBackupManager
 from core.save_restore_service import restore_archive_with_safety_backup, safety_backup_path
 from core.cloud_storage import get_cloud_root
+from core.cloud_backend import get_device_identity
 from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
@@ -266,7 +267,7 @@ class SaveManagerDialog(PopupDialog):
             }
         """)
         btn_rescan.clicked.connect(self._scan_saves)
-        list_header.addWidget(btn_rescan)
+        list_header.addWidget(btn_rescan, 0, Qt.AlignmentFlag.AlignVCenter)
         tab_files_layout.addLayout(list_header)
 
         # Scroll Area for Save Locations
@@ -314,27 +315,31 @@ class SaveManagerDialog(PopupDialog):
         btn_import.clicked.connect(self._import_snapshot)
         footer_layout.addWidget(btn_import)
 
-        self.btn_cloud = QPushButton("Restore latest cloud save")
-        self.btn_cloud.setIcon(get_icon("ph.cloud-arrow-down-bold", "#3B9FE8"))
-        self.btn_cloud.setFixedHeight(36)
-        self.btn_cloud.setStyleSheet("""
+        self.btn_export = QPushButton("Export local save archive")
+        self.btn_export.setIcon(get_app_icon("export"))
+        self.btn_export.setFixedHeight(36)
+        self.btn_export.setStyleSheet("""
             QPushButton {
-                background: #1A1E26;
-                color: #3B9FE8;
-                border: 1px solid #2563EB;
+                background: #238636;
+                color: #FFFFFF;
+                border: 1px solid #2ea043;
                 border-radius: 6px;
-                padding: 0 16px;
-                font-weight: 500;
+                padding: 0 18px;
+                font-weight: bold;
                 font-size: 12px;
             }
             QPushButton:hover {
-                background: #1E293B;
-                border-color: #60A5FA;
+                background: #2ea043;
+            }
+            QPushButton:disabled {
+                background: #21262d;
+                color: #6F7682;
+                border-color: #30363d;
             }
         """)
-        self.btn_cloud.clicked.connect(self._restore_from_cloud)
-        self.btn_cloud.setAccessibleName("Restore latest cloud save")
-        footer_layout.addWidget(self.btn_cloud)
+        self.btn_export.clicked.connect(self._export_selected)
+        footer_layout.addWidget(self.btn_export)
+        self.btn_export.setAccessibleName("Export local save archive")
 
         self.btn_upload = QPushButton("Upload local save")
         self.btn_upload.setIcon(get_icon("ph.cloud-arrow-up-bold", "#35C98A"))
@@ -365,32 +370,6 @@ class SaveManagerDialog(PopupDialog):
         footer_layout.addWidget(self.btn_upload)
 
         footer_layout.addStretch()
-
-        self.btn_export = QPushButton("Export local save archive")
-        self.btn_export.setIcon(get_app_icon("export"))
-        self.btn_export.setFixedHeight(36)
-        self.btn_export.setStyleSheet("""
-            QPushButton {
-                background: #238636;
-                color: #FFFFFF;
-                border: 1px solid #2ea043;
-                border-radius: 6px;
-                padding: 0 18px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: #2ea043;
-            }
-            QPushButton:disabled {
-                background: #21262d;
-                color: #6F7682;
-                border-color: #30363d;
-            }
-        """)
-        self.btn_export.clicked.connect(self._export_selected)
-        footer_layout.addWidget(self.btn_export)
-        self.btn_export.setAccessibleName("Export local save archive")
         tab_files_layout.addLayout(footer_layout)
 
         self.tabs.addTab(self.tab_files, "Live Save Files")
@@ -509,9 +488,8 @@ class SaveManagerDialog(PopupDialog):
         set_cloud_focus_order(
             self,
             btn_import,
-            self.btn_cloud,
-            self.btn_upload,
             self.btn_export,
+            self.btn_upload,
             self.tabs,
             btn_refresh_hist,
             self.btn_restore_history,
@@ -779,6 +757,9 @@ class SaveManagerDialog(PopupDialog):
         self.btn_export.setText("Choose saves to export")
         self.btn_upload.setEnabled(False)
 
+        _device_id, device_name, _platform = get_device_identity()
+        device_name = device_name or "This device"
+
         for result in validation_results:
             loc = result.location if result.valid else result.location
             card = QFrame()
@@ -831,6 +812,18 @@ class SaveManagerDialog(PopupDialog):
             name_row.addStretch()
             info_vbox.addLayout(name_row)
 
+            saved_at = format_datetime_timestamp(
+                loc.last_modified,
+                "%H:%M",
+                fallback="Unknown time",
+            )
+            lbl_provenance = QLabel(f"Saved: {saved_at} · Device: {device_name}")
+            lbl_provenance.setStyleSheet("color: #8A8F99; font-size: 10px;")
+            lbl_provenance.setToolTip(
+                "This is the newest modification time detected in this local save location."
+            )
+            info_vbox.addWidget(lbl_provenance)
+
             # Path & Date
             date_str = format_datetime_timestamp(loc.last_modified, "%H:%M", fallback="Unknown")
             lbl_path = QLabel(f"<font color='#6F7682'>{loc.path}</font> <font color='#555'>· Modified: {date_str}</font>")
@@ -868,7 +861,6 @@ class SaveManagerDialog(PopupDialog):
             return
         self.btn_upload.setEnabled(False)
         self.btn_export.setEnabled(False)
-        self.btn_cloud.setEnabled(False)
 
         def validate():
             # Do not trust detector metadata; this can walk a large save tree
@@ -891,7 +883,6 @@ class SaveManagerDialog(PopupDialog):
                 return
             snapshot, validation_error = payload
             if validation_error is not None:
-                self.btn_cloud.setEnabled(True)
                 self.btn_export.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
                 self.btn_upload.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
                 self._show_recovery(validation_error, retry=self._upload_selected)
@@ -905,7 +896,6 @@ class SaveManagerDialog(PopupDialog):
                 QMessageBox.StandardButton.Yes,
             )
             if confirm != QMessageBox.StandardButton.Yes:
-                self.btn_cloud.setEnabled(True)
                 self.btn_export.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
                 self.btn_upload.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
                 return
@@ -914,7 +904,10 @@ class SaveManagerDialog(PopupDialog):
         self._start_managed_task("SafeLauncher-SaveUploadValidation", validate, validated)
 
     def _submit_upload_snapshot(self, snapshot):
-        if self.cloud_center_service is None and self.cloud_operation_service is None:
+        operation_service = self.cloud_operation_service or getattr(
+            self.cloud_center_service, "operation_service", None
+        )
+        if operation_service is None:
             self._upload_done.emit(self._cloud_unavailable_result("Cloud upload"))
             return
         progress = cloud_progress(
@@ -922,27 +915,21 @@ class SaveManagerDialog(PopupDialog):
         )
         self._upload_progress = progress
         self._last_operation_retry = self._upload_selected
-        if self.cloud_operation_service is not None:
-            target = CloudOperationTarget(
-                self.game_id, self.game_name, self.game_path, self.steam_id
-            )
-            handle = self.cloud_operation_service.request_upload(
-                target,
-                priority=RequestPriority.NORMAL,
-                tag="save_manager_upload",
-                snapshot=snapshot,
-            )
-            self._bind_cloud_operation(
-                handle,
-                lambda resource: self._upload_done.emit(
-                    self._resource_operation_result(resource, "Cloud upload")
-                ),
-            )
-            return
-        # The guard above makes this unreachable for a correctly constructed
-        # dialog. Keep the service boundary explicit if an embedder mutates
-        # dependencies while the dialog is open.
-        self._upload_done.emit(self._cloud_unavailable_result("Cloud upload"))
+        target = CloudOperationTarget(
+            self.game_id, self.game_name, self.game_path, self.steam_id
+        )
+        handle = operation_service.request_upload(
+            target,
+            priority=RequestPriority.NORMAL,
+            tag="save_manager_upload",
+            snapshot=snapshot,
+        )
+        self._bind_cloud_operation(
+            handle,
+            lambda resource: self._upload_done.emit(
+                self._resource_operation_result(resource, "Cloud upload")
+            ),
+        )
 
     def _on_upload_done(self, result: SaveOperationResult):
         if hasattr(self, "_upload_progress") and self._upload_progress:
@@ -953,7 +940,6 @@ class SaveManagerDialog(PopupDialog):
                 pass
             self._upload_progress = None
 
-        self.btn_cloud.setEnabled(True)
         self.btn_export.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
         self.btn_upload.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
         if result.success:
@@ -986,7 +972,6 @@ class SaveManagerDialog(PopupDialog):
         if export_path:
             self.btn_export.setEnabled(False)
             self.btn_upload.setEnabled(False)
-            self.btn_cloud.setEnabled(False)
 
             def export_work():
                 try:
@@ -1036,7 +1021,6 @@ class SaveManagerDialog(PopupDialog):
                     )
 
             def export_done(result):
-                self.btn_cloud.setEnabled(True)
                 self.btn_export.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
                 self.btn_upload.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
                 if result.success:
@@ -1283,8 +1267,6 @@ class SaveManagerDialog(PopupDialog):
 
         self.btn_restore_history.setEnabled(False)
         self.btn_export.setEnabled(False)
-        if hasattr(self, "btn_cloud"):
-            self.btn_cloud.setEnabled(False)
 
         if (self.cloud_center_service is not None or self.cloud_operation_service is not None) and is_cloud_version:
             v_num = entry.get("version")
@@ -1369,13 +1351,16 @@ class SaveManagerDialog(PopupDialog):
         )
 
     def _restore_from_cloud(self):
-        """Restore the latest cloud save, or switch to the history tab if multiple versions exist.
+        """Compatibility entry point for older launcher cloud actions.
 
-        The preflight check (get_available_versions + check_sync_status) involves
-        network I/O and must not block the main thread.  We dispatch it to a worker
-        thread immediately and resume in ``_on_cloud_restore_preflight_done``.
+        The local-save footer no longer exposes this action. Existing callers
+        may still invoke it, so keep the managed preflight/restore path here
+        without reintroducing a second visible cloud control.
         """
-        if self.cloud_center_service is None and self.cloud_operation_service is None:
+        operation_service = self.cloud_operation_service or getattr(
+            self.cloud_center_service, "operation_service", None
+        )
+        if operation_service is None:
             self._show_recovery(
                 self._cloud_unavailable_result("Cloud preflight"),
                 retry=self._restore_from_cloud,
@@ -1383,173 +1368,95 @@ class SaveManagerDialog(PopupDialog):
             )
             return
 
-        # Disable buttons immediately so the user can't trigger a second restore.
         self.btn_restore_history.setEnabled(False)
         self.btn_export.setEnabled(False)
-        if hasattr(self, "btn_cloud"):
-            self.btn_cloud.setEnabled(False)
-
-        prog = cloud_progress(
-            self, f"Checking cloud saves for '{self.game_name}'…"
+        progress = cloud_progress(self, f"Checking cloud saves for '{self.game_name}'…")
+        self._cloud_preflight_progress = progress
+        target = CloudOperationTarget(
+            self.game_id, self.game_name, self.game_path, self.steam_id
         )
-        self._cloud_preflight_progress = prog
+        handle = operation_service.request_restore_preflight(
+            target,
+            priority=RequestPriority.CRITICAL,
+            tag="save_manager_restore_preflight_compat",
+        )
 
-        if self.cloud_operation_service is not None:
-            target = CloudOperationTarget(
-                self.game_id, self.game_name, self.game_path, self.steam_id
-            )
-            handle = self.cloud_operation_service.request_restore_preflight(
-                target,
-                priority=RequestPriority.CRITICAL,
-                tag="save_manager_restore_preflight",
-            )
-
-            def _deliver(resource):
-                try:
-                    value = resource.value if resource.status == ResourceStatus.READY else None
-                except Exception:
-                    value = None
-                if value is None or value.get("kind") == "error":
-                    self._pending_cloud_restore_plan = None
-                    self._restore_done.emit(False, "__preflight_error__")
-                elif value.get("kind") == "history":
-                    self._pending_cloud_restore_plan = None
-                    self._restore_done.emit(False, "__switch_to_history__")
-                else:
-                    self._pending_cloud_restore_plan = value.get("restore_plan")
-                    self._restore_done.emit(
-                        False,
-                        f"__preflight_ok__{value.get('display_path', 'Unavailable')}__exists__{bool(value.get('cloud_exists'))}",
-                    )
-
-            self._bind_cloud_operation(handle, _deliver)
-            return
-
-        # The managed operation service owns both history and preflight. This
-        # branch is kept as a defensive fallback for an embedder that swaps
-        # dependencies after opening the dialog.
-        self._restore_done.emit(False, "__preflight_error__")
-
-    def _on_restore_done(self, success: bool, title: str):
-        # Close any open preflight progress dialog first
-        if hasattr(self, "_cloud_preflight_progress") and self._cloud_preflight_progress:
+        def _deliver(resource):
             try:
-                self._cloud_preflight_progress.close()
-                self._cloud_preflight_progress.deleteLater()
-            except Exception:
-                pass
-            self._cloud_preflight_progress = None
-
-        # Handle preflight protocol messages
-        if title == "__switch_to_history__":
-            self.btn_restore_history.setEnabled(True)
-            self.btn_export.setEnabled(True)
-            if hasattr(self, "btn_cloud"):
-                self.btn_cloud.setEnabled(True)
-            self.tabs.setCurrentIndex(1)
-            return
-
-        if title.startswith("__preflight_ok__"):
-            # Parse display_path and exists flag from the sentinel
-            rest = title[len("__preflight_ok__"):]
-            exists_marker = "__exists__"
-            if exists_marker in rest:
-                display_path, exists_str = rest.split(exists_marker, 1)
-                cloud_exists = (exists_str.strip().lower() == "true")
-            else:
-                display_path = rest
-                cloud_exists = True
-
-            self.btn_restore_history.setEnabled(True)
-            self.btn_export.setEnabled(True)
-            if hasattr(self, "btn_cloud"):
-                self.btn_cloud.setEnabled(True)
-
-            if not cloud_exists:
-                QMessageBox.information(
-                    self, "No Cloud Saves",
-                    f"No cloud save archive found for '{self.game_name}'."
-                )
-                return
-
-            confirm = confirm_restore(
-                self,
-                game_name=self.game_name,
-                target_path=self.game_path,
-                technical_details=f"Cloud archive: {display_path}",
-                title="Restore latest cloud save",
-            )
-            if not confirm:
-                return
-
-            # Now actually run the restore
-            self.btn_restore_history.setEnabled(False)
-            self.btn_export.setEnabled(False)
-            if hasattr(self, "btn_cloud"):
-                self.btn_cloud.setEnabled(False)
-
-            if self.cloud_operation_service is not None:
-                target = CloudOperationTarget(
-                    self.game_id, self.game_name, self.game_path, self.steam_id
-                )
-                handle = self.cloud_operation_service.request_restore(
+                if self._cloud_preflight_progress is not None:
+                    self._cloud_preflight_progress.close()
+                    self._cloud_preflight_progress.deleteLater()
+                    self._cloud_preflight_progress = None
+                value = resource.value if resource.status == ResourceStatus.READY else None
+                if not isinstance(value, dict) or value.get("kind") == "error":
+                    error = (
+                        value.get("error") if isinstance(value, dict) else None
+                    ) or str(resource.error or "Could not reach the cloud to check save status.")
+                    self._restore_done.emit(False, f"__restore_error__{error}")
+                    return
+                entry = value.get("history_entry")
+                cloud_exists = bool(value.get("cloud_exists", entry is not None))
+                if not cloud_exists and entry is None:
+                    self.btn_restore_history.setEnabled(True)
+                    self.btn_export.setEnabled(any(cb.isChecked() for cb, _ in self.checkboxes))
+                    QMessageBox.information(
+                        self,
+                        "No Cloud Saves",
+                        f"No cloud save archive found for '{self.game_name}'.",
+                    )
+                    return
+                details = value.get("display_path", "Latest cloud save version")
+                if not confirm_restore(
+                    self,
+                    game_name=self.game_name,
+                    target_path=self.game_path,
+                    technical_details=f"Cloud archive: {details}",
+                    title="Restore latest cloud save",
+                ):
+                    self.btn_restore_history.setEnabled(True)
+                    self.btn_export.setEnabled(any(cb.isChecked() for cb, _ in self.checkboxes))
+                    return
+                restore_handle = operation_service.request_restore(
                     target,
                     priority=RequestPriority.CRITICAL,
-                    tag="save_manager_restore",
-                    restore_plan=getattr(self, "_pending_cloud_restore_plan", None),
+                    tag="save_manager_restore_compat",
+                    target_version=(
+                        int(entry.get("version"))
+                        if isinstance(entry, dict) and entry.get("version") is not None
+                        else None
+                    ),
+                    restore_plan=value.get("restore_plan"),
                 )
-                self._pending_cloud_restore_plan = None
-
-                def _deliver(resource):
-                    result = self._resource_operation_result(resource, "Cloud restore")
+                def _deliver_restore(result_resource):
+                    result = self._resource_operation_result(result_resource, "Cloud restore")
                     self._restore_done.emit(
                         bool(result.success),
-                        display_path if result.success else f"__restore_error__{result.error or result.guidance}",
+                        details if result.success else f"__restore_error__{result.error or result.guidance}",
                     )
 
-                self._bind_cloud_operation(handle, _deliver)
-                return
+                self._bind_cloud_operation(restore_handle, _deliver_restore)
+            except Exception as exc:
+                self._restore_done.emit(False, f"__restore_error__{exc}")
 
-            self._restore_done.emit(
-                False,
-                f"__restore_error__{self._cloud_unavailable_result('Cloud restore').error}",
-            )
-            return
+        self._bind_cloud_operation(handle, _deliver)
 
-        if title == "__preflight_error__":
-            self.btn_restore_history.setEnabled(True)
-            self.btn_export.setEnabled(True)
-            if hasattr(self, "btn_cloud"):
-                self.btn_cloud.setEnabled(True)
-            category, guidance = classify_cloud_error("Could not reach the cloud to check save status")
-            self._show_recovery(
-                SaveOperationResult(False, "Cloud preflight", self.game_name,
-                                    "Could not reach the cloud to check save status.", category, guidance),
-                retry=self._restore_from_cloud,
-                show_rescan=False,
-            )
-            return
-
+    def _on_restore_done(self, success: bool, title: str):
         if title.startswith("__restore_error__"):
             error = title[len("__restore_error__"):].strip()
             category, guidance = classify_cloud_error(error)
             self._show_recovery(
                 SaveOperationResult(False, "Cloud restore", self.game_name,
                                     error or "Cloud restore failed.", category, guidance),
-                retry=self._restore_from_cloud,
+                retry=self._restore_selected_history_save,
                 show_rescan=True,
             )
             self.btn_restore_history.setEnabled(True)
             self.btn_export.setEnabled(True)
-            if hasattr(self, "btn_cloud"):
-                self.btn_cloud.setEnabled(True)
             return
 
         # --- Normal restore completion path (success/failure from _worker above) ---
         self.btn_restore_history.setEnabled(True)
         self.btn_export.setEnabled(True)
-        if hasattr(self, "btn_cloud"):
-            self.btn_cloud.setEnabled(True)
         if success:
             QMessageBox.information(
                 self, "Restore Successful",

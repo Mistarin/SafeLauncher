@@ -86,6 +86,34 @@ class CloudSaveFlowTests(unittest.TestCase):
         self.assertIsInstance(stats, SaveStats)
         self.assertEqual(stats.file_count, 23)
 
+    def test_remote_stats_selects_newest_content_timestamp_across_devices(self):
+        snapshot = {
+            "displayName": "Example Game",
+            "versions": [
+                {
+                    "version": 8,
+                    "sourceMaxMtime": 100.0,
+                    "sizeBytes": 512,
+                    "fileCount": 3,
+                    "uploadedDeviceName": "Desktop",
+                },
+                {
+                    "version": 7,
+                    "sourceMaxMtime": 200.0,
+                    "sizeBytes": 1024,
+                    "fileCount": 4,
+                    "uploadedDeviceName": "Steam Deck",
+                },
+            ],
+        }
+        with patch.object(CloudSaveSyncEngine, "_remote_game_snapshot", return_value=snapshot), \
+             patch("core.cloud_save_sync.get_active_save_version", return_value=8), \
+             patch("core.cloud_save_sync.get_active_cloud_top_version", return_value=8):
+            stats, _ = CloudSaveSyncEngine._remote_stats("example-game", game_name="Example Game")
+
+        self.assertEqual(stats.last_modified, 200.0)
+        self.assertEqual(stats.cloud_version, 7)
+
 
 if __name__ == "__main__":
     unittest.main()

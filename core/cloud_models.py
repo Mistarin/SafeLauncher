@@ -29,6 +29,7 @@ class SaveStats:
     file_count: int = 0
     display_path: str = ""
     snapshot: Optional[object] = None
+    cloud_version: Optional[int] = None
 
 
 __all__ = ["SaveStats", "SyncStatus"]

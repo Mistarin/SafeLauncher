@@ -29,6 +29,7 @@ from core.request_contracts import RequestPriority, ResourceStatus
 from core.zip_backup import ZipBackupManager
 from core.ludusavi_detector import LudusaviDetector
 from core.save_restore_service import restore_archive_with_safety_backup, safety_backup_path
+from core.save_history import newest_cloud_version
 from ui.resource_binding import ResourceBinding, bind_request
 from ui.components.save_history_timeline import SaveHistoryTimeline
 from ui.components.cloud_ui import (
@@ -1457,7 +1458,11 @@ class GamePropertiesDialog(PopupDialog):
             entry for entry in self.history_timeline.entries()
             if entry.source == "cloud"
         ]
-        latest_entry = cloud_entries[0] if cloud_entries else None
+        latest_raw = newest_cloud_version([entry.raw for entry in cloud_entries])
+        latest_entry = next(
+            (entry for entry in cloud_entries if entry.raw is latest_raw),
+            None,
+        )
         restore_plan = self._restore_plan_for_history_entry(
             self.game_name, self.game_path, latest_entry
         )
@@ -1485,10 +1490,14 @@ class GamePropertiesDialog(PopupDialog):
                 self.game_id, self.game_name, self.game_path, str(self.steam_id or "")
             )
             operation_service = self.cloud_center_service or self.cloud_operation_service
+            target_version = None
+            if latest_entry is not None and latest_entry.raw.get("version") is not None:
+                target_version = int(latest_entry.raw["version"])
             handle = operation_service.request_restore(
                 target,
                 priority=RequestPriority.CRITICAL,
                 tag="properties_restore",
+                target_version=target_version,
                 restore_plan=restore_plan,
             )
             self._bind_cloud_operation(

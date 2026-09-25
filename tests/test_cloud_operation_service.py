@@ -59,6 +59,17 @@ class _Coordinator:
         return [{"version": 2}], None
 
 
+class _CloudNewerExitCoordinator(_Coordinator):
+    def check_status(self, game_id, game_name, game_path, steam_id=""):
+        self.calls.append(("status", game_id))
+        return CloudStatusResult(
+            game_name,
+            SyncStatus.CLOUD_NEWER,
+            SaveStats(exists=True, last_modified=100),
+            SaveStats(exists=True, last_modified=200, cloud_version=7),
+        )
+
+
 class _BlockingCoordinator(_Coordinator):
     def __init__(self):
         super().__init__()
@@ -244,7 +255,7 @@ class CloudOperationServiceTests(unittest.TestCase):
         finally:
             manager.shutdown()
 
-    def test_preflight_resolution_keeps_conflict_decision_typed(self):
+    def test_preflight_resolution_automatically_restores_newest_cloud_save(self):
         coordinator = _Coordinator()
         manager = RequestManager(max_workers=1)
         try:
@@ -256,9 +267,26 @@ class CloudOperationServiceTests(unittest.TestCase):
             target = CloudOperationTarget(9, "Example")
             result = service.request_prelaunch_resolution(target).future.result(timeout=2)
             self.assertEqual(result.status, ResourceStatus.READY)
-            self.assertTrue(result.value["needs_conflict"])
+            self.assertTrue(result.value["cloud_result"].success)
             self.assertEqual(result.value["status"], SyncStatus.CLOUD_NEWER)
-            self.assertEqual([call[0] for call in coordinator.calls], ["preflight"])
+            self.assertEqual([call[0] for call in coordinator.calls], ["preflight", "restore"])
+        finally:
+            manager.shutdown()
+
+    def test_restore_forwards_explicit_selected_cloud_version(self):
+        coordinator = _Coordinator()
+        manager = RequestManager(max_workers=1)
+        try:
+            service = CloudOperationService(
+                manager,
+                coordinator=coordinator,
+                context_provider=self._context_provider,
+            )
+            target = CloudOperationTarget(13, "Example", "/games/example")
+            result = service.request_restore(target, target_version=7).future.result(timeout=2)
+            self.assertTrue(result.value.success)
+            self.assertEqual(coordinator.calls[-1][0], "restore")
+            self.assertEqual(coordinator.calls[-1][2]["target_version"], 7)
         finally:
             manager.shutdown()
 
@@ -329,6 +357,24 @@ class CloudOperationServiceTests(unittest.TestCase):
             result = service.request_exit_sync(target, settle_seconds=0).future.result(timeout=2)
             self.assertEqual(result.value["outcome"], "uploaded")
             self.assertEqual([call[0] for call in coordinator.calls], ["status", "upload"])
+        finally:
+            manager.shutdown()
+
+    def test_exit_sync_restores_newest_cloud_save_when_cloud_wins(self):
+        coordinator = _CloudNewerExitCoordinator()
+        manager = RequestManager(max_workers=1)
+        try:
+            service = CloudOperationService(
+                manager,
+                coordinator=coordinator,
+                context_provider=self._context_provider,
+            )
+            target = CloudOperationTarget(16, "Example")
+            result = service.request_exit_sync(target, settle_seconds=0).future.result(timeout=2)
+            self.assertEqual(result.value["outcome"], "restored")
+            self.assertEqual(result.value["reason"], "cloud_newer")
+            self.assertEqual([call[0] for call in coordinator.calls], ["status", "restore"])
+            self.assertEqual(coordinator.calls[-1][2]["target_version"], 7)
         finally:
             manager.shutdown()
 

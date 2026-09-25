@@ -5656,11 +5656,18 @@ class MainWindow(QMainWindow):
                 payload.get("game_path", ""),
                 payload.get("steam_id", ""),
             )
+            history_entry = preflight.get("history_entry") or {}
+            target_version = history_entry.get("version")
+            try:
+                target_version = int(target_version) if target_version is not None else None
+            except (TypeError, ValueError):
+                target_version = None
             try:
                 handle = self.cloud_operation_service.request_restore(
                     target,
                     priority=RequestPriority.CRITICAL,
                     tag="manual_restore",
+                    target_version=target_version,
                     restore_plan=payload.get("restore_plan"),
                 )
             except Exception as exc:
@@ -6286,6 +6293,7 @@ class MainWindow(QMainWindow):
         operation: str,
         success_toast: str,
         failure_toast: str,
+        target_version=None,
     ) -> None:
         """Submit a conflict choice without letting the UI own the worker."""
         target = CloudOperationTarget(
@@ -6299,6 +6307,7 @@ class MainWindow(QMainWindow):
                 target,
                 priority=RequestPriority.CRITICAL,
                 tag="prelaunch_conflict",
+                target_version=target_version,
             )
         else:
             handle = self.cloud_operation_service.request_upload(
@@ -6364,6 +6373,7 @@ class MainWindow(QMainWindow):
                         "restore",
                         f"Restored cloud save for '{ctx['game_name']}' — your previous save was kept as a local backup.",
                         f"Could not restore the cloud save for '{ctx['game_name']}' — launched with local saves.",
+                        target_version=getattr(payload.get("cloud_stats"), "cloud_version", None),
                     )
                     return  # resume in _on_prelaunch_restore_done
                 else:
@@ -6398,6 +6408,7 @@ class MainWindow(QMainWindow):
                     "restore",
                     f"Restored cloud save for '{ctx.get('game_name', '')}'.",
                     f"Failed to restore cloud save for '{ctx.get('game_name', '')}'.",
+                    target_version=getattr(c_stats, "cloud_version", None),
                 )
                 return  # resume in _on_prelaunch_restore_done
             else:
@@ -7384,6 +7395,13 @@ class MainWindow(QMainWindow):
                 # The upload just changed the cloud verdict — refresh the
                 # badge instead of leaving the pre-upload state cached.
                 self.refresh_cloud_status_for_game(gid)
+        elif outcome == "restored":
+            self._show_toast(f"Newest cloud save restored for '{name}'.")
+            if self.selected_game and self.selected_game[1] == name:
+                self._update_detail_panel()
+            gid = payload.get("game_id")
+            if gid is not None:
+                self.refresh_cloud_status_for_game(gid)
         elif outcome == "failed":
             logger.warning(f"Exit cloud-save upload failed for '{name}'.")
             guidance = payload.get("guidance", "")
@@ -7429,10 +7447,9 @@ class MainWindow(QMainWindow):
         presentation = result.presentation()
         if result.outcome == "failed":
             logger.warning("Exit cloud-save upload failed for '%s'.", result.game_name)
-        elif result.reason == "cloud_newer":
+        elif result.outcome == "restored":
             logger.info(
-                "Skipping exit upload for '%s': cloud save is newer; "
-                "SafeLauncher will ask which to keep next launch.",
+                "Restored the newest cloud save for '%s' after game exit.",
                 result.game_name,
             )
 

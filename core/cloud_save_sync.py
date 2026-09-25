@@ -34,7 +34,7 @@ from core.save_validation import (
 )
 from core.cloud_models import SaveStats, SyncStatus
 from core.zip_backup import ZipBackupManager, _MANIFEST_NAME
-from core.save_history import history_device_metadata
+from core.save_history import cloud_version_timestamp, history_device_metadata, newest_cloud_version
 from core.cloud_storage import DEFAULT_CLOUD_SAVES_DIR, get_cloud_root
 from core.logger import get_logger
 
@@ -467,9 +467,6 @@ class CloudSaveSyncEngine:
 
         ``game_name`` should be the raw library title (e.g. "The Witcher 3").
         ``name_key`` is the normalised cloud key (e.g. "the-witcher-3").
-        Version-persistence QSettings entries are written under the raw title
-        via ``set_active_save_version``, so we must query them with the same
-        raw title — not with the already-normalised key.
         """
         try:
             snapshot = cls._remote_game_snapshot(name_key)
@@ -490,31 +487,16 @@ class CloudSaveSyncEngine:
         if not versions:
             return SaveStats(exists=False), snapshot
 
-        # Prefer game_name for version-persistence lookups; fall back to
-        # name_key only when the caller did not supply the raw library title.
-        lookup_name = game_name or name_key
-
-        # Check if local mtime or explicitly activated version matches an existing generation
-        top_version = versions[0].get("version", 0)
-        active_ver = get_active_save_version(lookup_name)
-        known_top = get_active_cloud_top_version(lookup_name)
-
-        matched = None
-        # If another device uploaded a newer generation (top_version > known_top),
-        # respect the newly uploaded generation (versions[0]) instead of matching the older rolled-back version.
-        if known_top is None or top_version <= known_top:
-            if active_ver is not None:
-                matched = next((v for v in versions if v.get("version") == active_ver), None)
-
-            if matched is None and local_mtime > 0.0:
-                matched = next((v for v in versions if abs(local_mtime - float(v.get("sourceMaxMtime", 0.0))) <= 2.0), None)
-
-        target = matched if matched is not None else versions[0]
+        # Always compare against the newest save-content timestamp across all
+        # devices.  A retained generation's numeric version is a storage
+        # sequence, not a reliable indication of which device has the newest
+        # save contents.
+        target = newest_cloud_version(versions) or versions[0]
         stats = SaveStats(
             exists=True,
             # Content clock: manifest source_max_mtime recorded at upload,
             # directly comparable with local file mtimes across machines.
-            last_modified=float(target.get("sourceMaxMtime") or 0.0),
+            last_modified=cloud_version_timestamp(target),
             size_bytes=int(target.get("sizeBytes") or 0),
             file_count=int(
                 target.get("fileCount")
@@ -522,6 +504,7 @@ class CloudSaveSyncEngine:
                 else len(target.get("files") or ())
             ),
             display_path=f"{snapshot.get('displayName', name_key)} (v{target.get('version', 0)})",
+            cloud_version=(int(target["version"]) if target.get("version") is not None else None),
         )
         return stats, snapshot
 
@@ -1147,9 +1130,17 @@ class CloudSaveSyncEngine:
         if backend_active():
             snapshot = cls._remote_game_snapshot(key)
             if snapshot and snapshot.get("versions"):
-                for idx, v in enumerate(snapshot["versions"]):
+                cloud_versions = list(snapshot["versions"])
+                cloud_versions.sort(
+                    key=lambda item: (
+                        cloud_version_timestamp(item),
+                        int(item.get("version") or 0),
+                    ),
+                    reverse=True,
+                )
+                for idx, v in enumerate(cloud_versions):
                     v_num = v.get("version", 0)
-                    v_mtime = float(v.get("sourceMaxMtime", 0.0))
+                    v_mtime = cloud_version_timestamp(v)
                     is_active = False
                     if local_stats.exists:
                         if active_ver is not None and v_num == active_ver:
@@ -1162,6 +1153,7 @@ class CloudSaveSyncEngine:
                         "source": "cloud",
                         "display_name": f"Cloud save version {v_num}",
                         "mtime": v_mtime,
+                        "source_max_mtime": v_mtime,
                         "created_at": v.get("createdAt", v.get("created_at", 0)),
                         "uploaded_at": v.get("uploadedAt", v.get("uploaded_at", 0)),
                         "size_bytes": int(v.get("sizeBytes", 0)),

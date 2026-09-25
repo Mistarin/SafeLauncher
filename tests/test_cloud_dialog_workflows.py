@@ -9,6 +9,8 @@ from unittest.mock import patch
 from PyQt6.QtWidgets import QApplication, QToolButton
 
 from core.request_contracts import ResourceStatus
+from core.ludusavi_detector import SaveLocation
+from core.save_validation import SaveLocationValidation
 
 try:
     from ui.dialogs.account_dialog import AccountDialog
@@ -123,6 +125,11 @@ class CloudDialogWorkflowTests(unittest.TestCase):
         try:
             self.assertEqual(dialog.btn_upload.text(), "Upload local save")
             self.assertEqual(dialog.btn_export.text(), "Export local save archive")
+            self.assertFalse(hasattr(dialog, "btn_cloud"))
+            self.assertFalse(any(
+                "Restore latest cloud save" in button.text()
+                for button in dialog.findChildren(type(dialog.btn_upload))
+            ))
             self.assertEqual(dialog.cloud_status_panel.state, "loading")
             self._assert_focus_contract(dialog)
             self.assertFalse(dialog.tabs.isTabVisible(dialog.tabs.indexOf(dialog.tab_history)))
@@ -130,6 +137,29 @@ class CloudDialogWorkflowTests(unittest.TestCase):
                 button.text() == "Import local save archive (.zip)"
                 for button in dialog.findChildren(type(dialog.btn_upload))
             ))
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+            self.app.processEvents()
+
+    def test_save_manager_shows_local_save_time_and_device(self):
+        with patch.object(SaveManagerDialog, "_scan_saves"), \
+             patch("ui.dialogs.save_manager_dialog.get_device_identity", return_value=("id", "Desktop", "Linux")):
+            dialog = SaveManagerDialog(1, "Example", "/tmp/example")
+            location = SaveLocation(
+                "Profile saves", "/tmp/example/saves", True,
+                file_count=2, total_size_bytes=42, last_modified=1_700_000_000,
+            )
+            dialog._render_scan_results((
+                [location],
+                [SaveLocationValidation(
+                    location, True, file_count=2, total_size_bytes=42,
+                    last_modified=1_700_000_000,
+                )],
+            ))
+        try:
+            labels = [label.text() for label in dialog.findChildren(type(dialog.lbl_status))]
+            self.assertTrue(any(text.startswith("Saved: ") and "Device: Desktop" in text for text in labels))
         finally:
             dialog.close()
             dialog.deleteLater()
@@ -147,6 +177,57 @@ class CloudDialogWorkflowTests(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
             self.app.processEvents()
+
+    def test_game_properties_latest_restore_uses_newest_content_version(self):
+        game = (2, "Example", "/tmp/example", "example.exe", "", "", "") + ("",) * 14
+
+        class _RestoreService:
+            def __init__(self):
+                self.calls = []
+
+            def request_restore(self, target, **kwargs):
+                self.calls.append((target, kwargs))
+                return object()
+
+        service = _RestoreService()
+        with patch.object(GamePropertiesDialog, "_load_save_stats_async"), \
+             patch("ui.dialogs.game_properties_dialog.confirm_restore", return_value=True), \
+             patch("ui.dialogs.game_properties_dialog.cloud_progress", return_value=SimpleNamespace(
+                 close=lambda: None,
+                 deleteLater=lambda: None,
+             )), \
+             patch.object(GamePropertiesDialog, "_bind_cloud_operation"):
+            dialog = GamePropertiesDialog(game)
+            try:
+                dialog.cloud_center_service = service
+                dialog.history_timeline.set_entries([
+                    {
+                        "source": "cloud",
+                        "version": 8,
+                        "sourceMaxMtime": 100,
+                        "uploadedAt": 300,
+                        "sizeBytes": 80,
+                        "deviceName": "Desktop",
+                    },
+                    {
+                        "source": "cloud",
+                        "version": 7,
+                        "sourceMaxMtime": 200,
+                        "uploadedAt": 200,
+                        "sizeBytes": 70,
+                        "deviceName": "Steam Deck",
+                    },
+                ])
+                dialog._sync_down_now()
+
+                self.assertEqual(len(service.calls), 1)
+                kwargs = service.calls[0][1]
+                self.assertEqual(kwargs["target_version"], 7)
+                self.assertEqual(kwargs["restore_plan"].source_version, 7)
+            finally:
+                dialog.close()
+                dialog.deleteLater()
+                self.app.processEvents()
 
 
 if __name__ == "__main__":

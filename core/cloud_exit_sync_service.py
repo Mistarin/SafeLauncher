@@ -1,8 +1,8 @@
 """Application boundary for automatic cloud-save synchronization after exit.
 
-The service owns exit-sync request construction and result normalization.  It
+The service owns exit-sync request construction and result normalization. It
 does not decide what widgets should display; MainWindow remains responsible
-for toasts, detail refreshes, and the user's next-launch conflict flow.
+for toasts and detail refreshes after the automatic newest-save decision.
 """
 
 from __future__ import annotations
@@ -57,10 +57,14 @@ class CloudExitSyncResult:
         The service owns wording and outcome classification; the Qt layer only
         decides which widgets to refresh and how to display the instruction.
         """
-        if self.outcome == "uploaded":
+        if self.outcome in {"uploaded", "restored"}:
             return CloudExitPresentation(
                 kind="success",
-                message=f"Cloud save synced for '{self.game_name}'.",
+                message=(
+                    f"Cloud save synced for '{self.game_name}'."
+                    if self.outcome == "uploaded"
+                    else f"Newest cloud save restored for '{self.game_name}'."
+                ),
                 refresh_status=True,
                 refresh_detail=True,
             )
@@ -69,14 +73,6 @@ class CloudExitSyncResult:
             if self.guidance:
                 message = f"{message} Local save preserved. {self.guidance}".strip()
             return CloudExitPresentation(kind="error", message=message)
-        if self.reason == "cloud_newer":
-            return CloudExitPresentation(
-                kind="info",
-                message=(
-                    f"Cloud save for '{self.game_name}' changed on another device — "
-                    "your session wasn't uploaded. SafeLauncher will ask which to keep next launch."
-                ),
-            )
         return CloudExitPresentation(kind="silent")
 
 

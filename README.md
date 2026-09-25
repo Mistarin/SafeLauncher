@@ -148,7 +148,7 @@ SafeLauncher requires `firejail` and a compatibility runner (`wine`, `proton`, o
 * **Favorite** marks a game for filtering; it does not affect launching or files.
 * **Not installed** removes a game from the active library on the current device while preserving its account-wide launcher history. The Not installed view can restore it; another device may still show the same game as playable.
 * **Permanently deleted** removes the selected game files and launcher records and cannot be undone by SafeLauncher.
-* **Cloud Save** status is separate from game-update status. A cloud conflict always requires choosing whether to keep the local or cloud version; the displaced version is retained as a backup generation.
+* **Cloud Save** status is separate from game-update status. During the normal launch/exit workflow, SafeLauncher compares the newest save timestamp across devices and automatically keeps the newer side while retaining the displaced local state as a safety backup. Manual history rollback remains available.
 
 The UI exposes unavailable, offline, empty, and failed states for optional services such as achievements, screenshots, recording, runtimes, and cloud sync instead of treating them as successful operations.
 

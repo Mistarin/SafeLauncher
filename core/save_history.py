@@ -37,6 +37,44 @@ def _first_timestamp(entry: dict[str, Any], *keys: str) -> float:
     return 0.0
 
 
+def cloud_version_timestamp(entry: Any) -> float:
+    """Return the best comparable save-content timestamp for a cloud version.
+
+    ``sourceMaxMtime`` is the clock shared with local save files.  Older
+    backend responses may not contain it, so upload/creation time remains a
+    compatibility fallback rather than making those versions undated.
+    """
+    if not isinstance(entry, dict):
+        return 0.0
+    return _first_timestamp(
+        entry,
+        "sourceMaxMtime", "source_max_mtime", "mtime",
+        "uploaded_at", "uploadedAt", "created_at", "createdAt",
+    )
+
+
+def newest_cloud_version(entries: Iterable[Any] | None) -> dict[str, Any] | None:
+    """Select the newest cloud version independently of backend list order."""
+    candidates = [
+        entry for entry in (entries or ())
+        if isinstance(entry, dict)
+        and str(entry.get("source", "cloud")).casefold() == "cloud"
+    ]
+    if not candidates:
+        return None
+
+    def sort_key(entry: dict[str, Any]) -> tuple[float, float, int]:
+        content_time = cloud_version_timestamp(entry)
+        upload_time = _first_timestamp(entry, "uploaded_at", "uploadedAt", "created_at", "createdAt")
+        try:
+            version = int(entry.get("version") or 0)
+        except (TypeError, ValueError):
+            version = 0
+        return content_time, upload_time, version
+
+    return max(candidates, key=sort_key)
+
+
 def _safe_device_name(value: Any) -> str:
     if isinstance(value, dict):
         value = value.get("name") or value.get("deviceName") or value.get("label")
@@ -232,9 +270,11 @@ def normalize_history_entries(entries: Iterable[Any] | None) -> list[HistoryEntr
 
 __all__ = [
     "HistoryEntry",
+    "cloud_version_timestamp",
     "history_device_label",
     "history_device_metadata",
     "history_registered_device_label",
     "history_device_text",
+    "newest_cloud_version",
     "normalize_history_entries",
 ]

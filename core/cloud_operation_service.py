@@ -649,6 +649,29 @@ class CloudOperationService:
                     "guidance": result.guidance if not result.success else "",
                     "cloud_result": result,
                 }
+            if status_result.status in {SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY}:
+                result = self.coordinator.restore_cloud_save(
+                    target.game_id,
+                    target.game_name,
+                    target.game_path,
+                    steam_id=target.steam_id,
+                    target_version=(
+                        status_result.cloud_stats.cloud_version
+                        if status_result.cloud_stats is not None else None
+                    ),
+                    cancel_check=lambda: token.cancelled,
+                    progress_callback=_scaled_progress(progress, 0.4, 0.95),
+                )
+                progress(1.0)
+                return {
+                    "game": target.game_name,
+                    "game_id": target.game_id,
+                    "outcome": "restored" if result.success else "failed",
+                    "reason": status_result.status.value,
+                    "error": result.error if not result.success else "",
+                    "guidance": result.guidance if not result.success else "",
+                    "cloud_result": result,
+                }
             reason = status_result.status.value if status_result.status is not None else "unknown"
             progress(1.0)
             return {
@@ -673,13 +696,17 @@ class CloudOperationService:
         self,
         target: CloudOperationTarget,
         *,
-        auto_prefer_newer: bool = False,
-        auto_prefer_local: bool = False,
+        auto_prefer_newer: bool = True,
+        auto_prefer_local: bool = True,
         priority: RequestPriority = RequestPriority.CRITICAL,
         generation=None,
         tag="prelaunch",
     ):
-        """Preflight a launch and perform only explicitly allowed auto-actions."""
+        """Preflight a launch and automatically synchronize the newest save.
+
+        The preference parameters remain for compatibility with older callers;
+        the normal workflow is now always bidirectional and timestamp-based.
+        """
         progress = _ProgressReporter(self)
 
         def load(token: CancellationToken) -> dict:
@@ -702,8 +729,23 @@ class CloudOperationService:
                 return payload
 
             status = preflight.status
-            if status in (SyncStatus.CLOUD_ONLY, SyncStatus.CLOUD_NEWER) and auto_prefer_newer:
+            if status in (SyncStatus.CLOUD_ONLY, SyncStatus.CLOUD_NEWER):
                 result = self.coordinator.restore_cloud_save(
+                    target.game_id,
+                    target.game_name,
+                    target.game_path,
+                    steam_id=target.steam_id,
+                    cancel_check=lambda: token.cancelled,
+                    progress_callback=_scaled_progress(progress, 0.25, 0.95),
+                    target_version=(
+                        preflight.cloud_stats.cloud_version
+                        if preflight.cloud_stats is not None else None
+                    ),
+                )
+                token.raise_if_cancelled()
+                payload["cloud_result"] = result
+            elif status == SyncStatus.LOCAL_NEWER:
+                result = self.coordinator.upload_local_save(
                     target.game_id,
                     target.game_name,
                     target.game_path,
@@ -713,17 +755,6 @@ class CloudOperationService:
                 )
                 token.raise_if_cancelled()
                 payload["cloud_result"] = result
-            elif status == SyncStatus.CLOUD_ONLY:
-                payload["needs_cloud_only_prompt"] = True
-            elif status == SyncStatus.CLOUD_NEWER:
-                payload["needs_conflict"] = True
-            elif status == SyncStatus.LOCAL_NEWER:
-                if not preflight.cloud_stats or not preflight.cloud_stats.exists:
-                    payload["local_ready"] = True
-                elif auto_prefer_local:
-                    payload["local_preferred"] = True
-                else:
-                    payload["needs_conflict"] = True
             progress(1.0)
             return payload
 

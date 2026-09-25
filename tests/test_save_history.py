@@ -1,11 +1,13 @@
 import unittest
 
 from core.save_history import (
+    cloud_version_timestamp,
     history_device_label,
     history_device_metadata,
     history_registered_device_label,
     history_device_text,
     normalize_history_entries,
+    newest_cloud_version,
 )
 
 
@@ -91,6 +93,34 @@ class SaveHistoryDeviceTests(unittest.TestCase):
         ])
         self.assertEqual([entry.version for entry in entries], ["2", "1"])
         self.assertEqual(entries[-1].date_label, "Date unavailable")
+
+    def test_newest_cloud_version_uses_content_time_across_devices(self):
+        versions = [
+            {
+                "source": "cloud",
+                "version": 8,
+                "sourceMaxMtime": 100,
+                "createdAt": 9_000,
+                "uploadedDeviceName": "Desktop",
+            },
+            {
+                "source": "cloud",
+                "version": 7,
+                "sourceMaxMtime": 200,
+                "createdAt": 1_000,
+                "uploadedDeviceName": "Steam Deck",
+            },
+        ]
+        selected = newest_cloud_version(versions)
+        self.assertEqual(selected["version"], 7)
+        self.assertEqual(cloud_version_timestamp(selected), 200)
+
+    def test_newest_cloud_version_falls_back_to_upload_time_for_legacy_data(self):
+        selected = newest_cloud_version([
+            {"source": "cloud", "version": 1, "createdAt": 100},
+            {"source": "cloud", "version": 2, "uploadedAt": 200},
+        ])
+        self.assertEqual(selected["version"], 2)
 
 
 if __name__ == "__main__":
