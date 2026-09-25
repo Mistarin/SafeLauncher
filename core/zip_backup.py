@@ -13,6 +13,8 @@ from core.save_models import GameSaveSnapshot, SaveOperationCancelled
 logger = get_logger("ZipBackup")
 
 _MANIFEST_NAME = "safelauncher_manifest.json"
+MAX_ARCHIVE_MEMBERS = 100_000
+MAX_ARCHIVE_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def _is_within(parent: str, candidate: str) -> bool:
@@ -161,11 +163,16 @@ class ZipBackupManager(IBackupManager):
 
         def walk_files(src_path: str):
             if os.path.isfile(src_path):
+                if os.path.islink(src_path):
+                    return
                 yield archive_member(src_path), os.path.basename(src_path)
             else:
-                for root, _, files in os.walk(src_path):
+                for root, dirs, files in os.walk(src_path, followlinks=False):
+                    dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(root, name))]
                     for file in files:
                         full_path = os.path.join(root, file)
+                        if os.path.islink(full_path):
+                            continue
                         yield archive_member(full_path), os.path.relpath(full_path, start=src_path)
 
         try:
@@ -320,6 +327,20 @@ class ZipBackupManager(IBackupManager):
         try:
             with zipfile.ZipFile(import_zip_path, 'r') as zipf:
                 namelist = zipf.namelist()
+                members = [member for member in zipf.infolist() if not member.is_dir()]
+                if len(members) > MAX_ARCHIVE_MEMBERS:
+                    logger.warning("Refusing save archive with too many members: %s", import_zip_path)
+                    return False
+                expanded_bytes = 0
+                for member in members:
+                    mode = (int(member.external_attr) >> 16) & 0o170000
+                    if mode == 0o120000:
+                        logger.warning("Refusing symlink archive member: %s", member.filename)
+                        return False
+                    expanded_bytes += max(0, int(member.file_size or 0))
+                    if expanded_bytes > MAX_ARCHIVE_EXPANDED_BYTES:
+                        logger.warning("Refusing oversized expanded save archive: %s", import_zip_path)
+                        return False
 
                 # Planned transfers: list of (ZipInfo, final destination path, mtime).
                 planned = None
@@ -328,15 +349,23 @@ class ZipBackupManager(IBackupManager):
 
                 if planned is None:
                     # Standard / Legacy safe extraction of the whole archive.
-                    for member in zipf.infolist():
+                    for member in members:
                         target_path = os.path.join(dest_abs, member.filename)
                         if not _is_within(dest_abs, target_path):
                             logger.warning(f"Refusing to extract unsafe file: {member.filename}")
                             return False
                     planned = [
                         (member, os.path.normpath(os.path.join(dest_abs, member.filename)), None)
-                        for member in zipf.infolist() if not member.is_dir()
+                        for member in members
                     ]
+
+                destinations = [
+                    os.path.normcase(os.path.abspath(final_path))
+                    for _member, final_path, _mtime in planned
+                ]
+                if len(destinations) != len(set(destinations)):
+                    logger.warning("Refusing save archive with duplicate destination paths")
+                    return False
 
                 staging_root = _make_staging_dir(dest_abs)
                 staged = []
@@ -436,9 +465,15 @@ class ZipBackupManager(IBackupManager):
                     if not os.path.isfile(final_path):
                         logger.warning(f"Restore verification: missing {final_path}")
                         return False
+                    final_digest = hashlib.sha256()
                     with open(final_path, 'rb') as f_final:
-                        final_hash = hashlib.sha256(f_final.read()).digest()
-                    if hashlib.sha256(zipf.read(member)).digest() != final_hash:
+                        for chunk in iter(lambda: f_final.read(1024 * 1024), b""):
+                            final_digest.update(chunk)
+                    archive_digest = hashlib.sha256()
+                    with zipf.open(member, "r") as archive_file:
+                        for chunk in iter(lambda: archive_file.read(1024 * 1024), b""):
+                            archive_digest.update(chunk)
+                    if archive_digest.digest() != final_digest.digest():
                         logger.warning(f"Restore verification: content mismatch at {final_path}")
                         return False
                     checked += 1

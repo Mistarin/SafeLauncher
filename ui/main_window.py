@@ -5378,7 +5378,15 @@ class MainWindow(QMainWindow):
         if self.selected_game and self.selected_game[0] == game_id:
             self.detail_disk_size.setText(f"Size: {format_size(size_bytes)}")
 
-    def _render_cloud_status(self, game_id: int, status, local_stats=None, cloud_stats=None):
+    def _render_cloud_status(
+        self,
+        game_id: int,
+        status,
+        local_stats=None,
+        cloud_stats=None,
+        *,
+        stale: bool = False,
+    ):
         """Update both library card badge and left detail inspector panel."""
         indicator = cloud_indicator(status)
         if game_id in self.banner_widgets:
@@ -5388,10 +5396,13 @@ class MainWindow(QMainWindow):
 
 
         if self.selected_game and self.selected_game[0] == game_id:
+            label = indicator.label + (" · Cached" if stale else "")
             self.detail_cloud_status.setText(
-                f"<font color='{indicator.color}'><b>{indicator.label}</b></font>"
+                f"<font color='{indicator.color}'><b>{label}</b></font>"
             )
-            self.detail_cloud_status.setToolTip(indicator.tooltip)
+            self.detail_cloud_status.setToolTip(
+                indicator.tooltip + (" Last known result; refresh pending." if stale else "")
+            )
 
             if hasattr(self, "btn_detail_cloud_restore"):
                 c_stats = cloud_stats
@@ -5399,11 +5410,16 @@ class MainWindow(QMainWindow):
                     cached_entry = self.cloud_save_status_cache.get(game_id)
                     if cached_entry:
                         c_stats = cached_entry[2]
-                if c_stats and getattr(c_stats, "exists", False):
+                actions_available = status not in {
+                    SyncStatus.CLOUD_OFFLINE,
+                    SyncStatus.CLOUD_AUTH_REQUIRED,
+                    SyncStatus.CLOUD_UNAVAILABLE,
+                }
+                if actions_available and c_stats and getattr(c_stats, "exists", False):
                     self.btn_detail_cloud_restore.show()
                 else:
                     self.btn_detail_cloud_restore.hide()
-                if status == SyncStatus.LOCAL_NEWER:
+                if actions_available and status == SyncStatus.LOCAL_NEWER:
                     self.btn_detail_cloud_upload.show()
                 else:
                     self.btn_detail_cloud_upload.hide()
@@ -5749,7 +5765,16 @@ class MainWindow(QMainWindow):
 
         if cached_save is not None:
             c_status, c_local, c_cloud = cached_save
-            self._render_cloud_status(game_id, c_status, c_local, c_cloud)
+            self._render_cloud_status(
+                game_id,
+                c_status,
+                c_local,
+                c_cloud,
+                stale=is_stale or c_status in {
+                    SyncStatus.CLOUD_OFFLINE,
+                    SyncStatus.CLOUD_UNAVAILABLE,
+                },
+            )
         else:
             if not network_allowed:
                 self.detail_cloud_status.setText("Cloud Save: Offline mode")
@@ -7440,6 +7465,7 @@ class MainWindow(QMainWindow):
             targets_snapshot,
             generation=generation,
             on_complete=_finish_diff,
+            force=True,
         )
 
     def _mark_cloud_auth_required(self, game_ids=None):
@@ -7468,8 +7494,11 @@ class MainWindow(QMainWindow):
             self.game_status_by_id[game_id] = replace(
                 current,
                 cloud_status=status,
-                local_stats=None,
-                cloud_stats=None,
+                # Keep the last-known statistics attached to the offline
+                # verdict; connectivity and freshness are separate from the
+                # most recent successful comparison.
+                local_stats=current.local_stats,
+                cloud_stats=current.cloud_stats,
                 cloud_checked_at=self.save_state_store.checked_at(game_id),
             )
             self._render_cloud_status(game_id, status)
@@ -7502,8 +7531,8 @@ class MainWindow(QMainWindow):
             self.game_status_by_id[game_id] = replace(
                 current,
                 cloud_status=status,
-                local_stats=None,
-                cloud_stats=None,
+                local_stats=current.local_stats,
+                cloud_stats=current.cloud_stats,
                 cloud_checked_at=self.save_state_store.checked_at(game_id),
             )
             self._render_cloud_status(game_id, status)

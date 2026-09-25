@@ -33,6 +33,8 @@ from core.cloud_operations import classify_cloud_error
 from core.cloud_operation_service import CloudOperationTarget
 from core.request_contracts import RequestPriority, ResourceStatus
 from core.zip_backup import ZipBackupManager
+from core.save_restore_service import restore_archive_with_safety_backup, safety_backup_path
+from core.cloud_storage import get_cloud_root
 from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
@@ -94,6 +96,7 @@ class SaveManagerDialog(PopupDialog):
         self._task_supervisor = TaskSupervisor(self, logger)
         self._resource_bindings: dict[str, ResourceBinding] = {}
         self._closing = False
+        self._scan_generation = 0
         self._restore_done.connect(self._on_restore_done)
         self._upload_done.connect(self._on_upload_done)
         self._history_loaded.connect(self._on_history_loaded)
@@ -290,6 +293,7 @@ class SaveManagerDialog(PopupDialog):
         footer_layout.setSpacing(10)
 
         btn_import = QPushButton("Import local save archive (.zip)")
+        self.btn_import = btn_import
         btn_import.setIcon(get_app_icon("import"))
         btn_import.setFixedHeight(36)
         btn_import.setStyleSheet("""
@@ -422,7 +426,7 @@ class SaveManagerDialog(PopupDialog):
                 border-color: #3B9FE8;
             }
         """)
-        btn_refresh_hist.clicked.connect(self._load_history)
+        btn_refresh_hist.clicked.connect(lambda: self._load_history(force=True))
         btn_refresh_hist.setAccessibleName("Refresh cloud save versions")
         history_header.addWidget(btn_refresh_hist)
         tab_history_layout.addLayout(history_header)
@@ -628,6 +632,11 @@ class SaveManagerDialog(PopupDialog):
         def _deliver(resource):
             if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
                 return
+            if resource.status == ResourceStatus.STALE:
+                # Render the cached timeline, but keep the binding alive for
+                # the in-flight revalidation result.
+                callback(resource)
+                return
             binding = self._resource_bindings.pop(request_id, None)
             try:
                 callback(resource)
@@ -689,9 +698,54 @@ class SaveManagerDialog(PopupDialog):
         super().closeEvent(event)
 
     def _scan_saves(self):
-        """Scan for save locations and populate scroll view."""
+        """Scan for save locations without blocking the Qt thread."""
+        self._scan_generation += 1
+        generation = self._scan_generation
         if hasattr(self, "recovery_frame"):
             self._hide_recovery()
+        while self.scroll_layout.count() > 1:
+            item = self.scroll_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.checkboxes.clear()
+        self._file_path_labels.clear()
+        self.scroll_layout.insertWidget(0, QLabel("Scanning save locations…"))
+        self.btn_export.setEnabled(False)
+        self.btn_upload.setEnabled(False)
+
+        def scan():
+            try:
+                locations = LudusaviDetector.detect_saves(
+                    self.game_name, self.game_path, self.steam_id
+                )
+                validation = validate_save_locations(locations)
+                return locations, validation
+            except Exception as exc:
+                result = SaveOperationResult(
+                    False,
+                    "Save scan",
+                    self.game_name,
+                    error=f"Save locations could not be scanned: {exc}",
+                    category="local_save_unreadable",
+                    guidance="Retry the scan after closing the game and checking the save directory permissions.",
+                )
+                return {"_save_scan_error": result}
+
+        def complete(payload):
+            if self._closing or generation != self._scan_generation:
+                return
+            if isinstance(payload, dict) and isinstance(payload.get("_save_scan_error"), SaveOperationResult):
+                self.btn_export.setEnabled(False)
+                self.btn_upload.setEnabled(False)
+                self._show_recovery(payload["_save_scan_error"], retry=self._scan_saves)
+                return
+            self._render_scan_results(payload)
+
+        self._start_managed_task("SafeLauncher-SaveScan", scan, complete)
+
+    def _render_scan_results(self, payload):
+        """Render detector output on the GUI thread."""
+        locations, validation_results = payload
         # Clear existing items
         while self.scroll_layout.count() > 1:
             item = self.scroll_layout.takeAt(0)
@@ -700,9 +754,8 @@ class SaveManagerDialog(PopupDialog):
 
         self.checkboxes.clear()
         self._file_path_labels.clear()
-        self.save_locations = LudusaviDetector.detect_saves(self.game_name, self.game_path, self.steam_id)
+        self.save_locations = locations
         self.save_state_store.set_locations(self.game_id, self.save_locations)
-        validation_results = validate_save_locations(self.save_locations)
         self._location_validation = {
             os.path.abspath(result.location.path): result for result in validation_results
         }
@@ -808,34 +861,57 @@ class SaveManagerDialog(PopupDialog):
         if not selected_locations:
             QMessageBox.warning(self, "No Saves Selected", "Select at least one detected save location to upload.")
             return
-
-        # Do not trust the detector's cached file counts. This catches the
-        # common case where a game cleaned up its save directory after scan.
-        snapshot, validation_error = self._validate_selected_locations(
-            selected_locations, "Cloud upload"
-        )
-        if validation_error is not None:
-            self._show_recovery(validation_error, retry=self._upload_selected)
-            return
-
-        confirm = QMessageBox.question(
-            self,
-            "Upload local save",
-            f"Upload {len(snapshot.locations)} selected local save location(s) for '{self.game_name}'?\n\n"
-            "This creates or updates a cloud save version. Your local files will not be changed.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return
-
-        if self.cloud_center_service is None and self.cloud_operation_service is None:
-            self._upload_done.emit(self._cloud_unavailable_result("Cloud upload"))
-            return
-
         self.btn_upload.setEnabled(False)
         self.btn_export.setEnabled(False)
         self.btn_cloud.setEnabled(False)
+
+        def validate():
+            # Do not trust detector metadata; this can walk a large save tree
+            # and therefore belongs off the GUI thread.
+            try:
+                return self._validate_selected_locations(selected_locations, "Cloud upload")
+            except Exception as exc:
+                return None, SaveOperationResult(
+                    False,
+                    "Cloud upload",
+                    self.game_name,
+                    error=f"The selected save paths could not be validated: {exc}",
+                    category="local_save_unreadable",
+                    guidance="Rescan Save Locations, close the game, and try again.",
+                    retry_safe=False,
+                )
+
+        def validated(payload):
+            if self._closing:
+                return
+            snapshot, validation_error = payload
+            if validation_error is not None:
+                self.btn_cloud.setEnabled(True)
+                self.btn_export.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
+                self.btn_upload.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
+                self._show_recovery(validation_error, retry=self._upload_selected)
+                return
+            confirm = QMessageBox.question(
+                self,
+                "Upload local save",
+                f"Upload {len(snapshot.locations)} selected local save location(s) for '{self.game_name}'?\n\n"
+                "This creates or updates a cloud save version. Your local files will not be changed.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                self.btn_cloud.setEnabled(True)
+                self.btn_export.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
+                self.btn_upload.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
+                return
+            self._submit_upload_snapshot(snapshot)
+
+        self._start_managed_task("SafeLauncher-SaveUploadValidation", validate, validated)
+
+    def _submit_upload_snapshot(self, snapshot):
+        if self.cloud_center_service is None and self.cloud_operation_service is None:
+            self._upload_done.emit(self._cloud_unavailable_result("Cloud upload"))
+            return
         progress = cloud_progress(
             self, f"Uploading saves for '{self.game_name}'…"
         )
@@ -903,35 +979,71 @@ class SaveManagerDialog(PopupDialog):
         )
 
         if export_path:
-            snapshot, validation_error = self._validate_selected_locations(
-                selected_locations, "Save export"
-            )
-            if validation_error is not None:
-                self._show_recovery(validation_error, retry=self._export_selected)
-                return
-            success = self.backup_mgr.export_save_locations(
-                snapshot.locations,
-                export_path,
-                game_name=self.game_name,
-                game_path=self.game_path,
-                snapshot=snapshot,
-            )
-            if success:
-                QMessageBox.information(self, "Export Successful", f"Local save archive saved to:\n{export_path}")
-            else:
-                result = SaveOperationResult(
-                    False,
-                    "Save export",
-                    self.game_name,
-                    error=(
-                        "The save files changed or became unavailable while the snapshot was being packaged."
-                    ),
-                    category="local_save_unreadable",
-                    guidance="Rescan Save Locations, confirm the files are readable, and export again.",
-                    retry_safe=False,
-                    log_path=self._last_operation_log_path,
-                )
-                self._show_recovery(result, retry=self._export_selected)
+            self.btn_export.setEnabled(False)
+            self.btn_upload.setEnabled(False)
+            self.btn_cloud.setEnabled(False)
+
+            def export_work():
+                try:
+                    snapshot, validation_error = self._validate_selected_locations(
+                        selected_locations, "Save export"
+                    )
+                    if validation_error is not None:
+                        return validation_error
+                    manager = ZipBackupManager()
+                    success = manager.export_save_locations(
+                        snapshot.locations,
+                        export_path,
+                        game_name=self.game_name,
+                        game_path=self.game_path,
+                        snapshot=snapshot,
+                    )
+                    if success:
+                        return SaveOperationResult(
+                            True,
+                            "Save export",
+                            self.game_name,
+                            payload={"path": export_path},
+                        )
+                    return SaveOperationResult(
+                        False,
+                        "Save export",
+                        self.game_name,
+                        error=(
+                            manager.last_error
+                            or "The save files changed or became unavailable while the snapshot was being packaged."
+                        ),
+                        category="local_save_unreadable",
+                        guidance="Rescan Save Locations, confirm the files are readable, and export again.",
+                        retry_safe=False,
+                        log_path=self._last_operation_log_path,
+                    )
+                except Exception as exc:
+                    return SaveOperationResult(
+                        False,
+                        "Save export",
+                        self.game_name,
+                        error=f"The save archive could not be exported: {exc}",
+                        category="local_save_unreadable",
+                        guidance="Rescan Save Locations and try the export again.",
+                        retry_safe=False,
+                        log_path=self._last_operation_log_path,
+                    )
+
+            def export_done(result):
+                self.btn_cloud.setEnabled(True)
+                self.btn_export.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
+                self.btn_upload.setEnabled(any(cb.isChecked() for cb, _loc in self.checkboxes))
+                if result.success:
+                    QMessageBox.information(
+                        self,
+                        "Export Successful",
+                        f"Local save archive saved to:\n{result.payload.get('path', export_path)}",
+                    )
+                else:
+                    self._show_recovery(result, retry=self._export_selected)
+
+            self._start_managed_task("SafeLauncher-SaveExport", export_work, export_done)
 
     def _import_snapshot(self):
         import_path, _ = QFileDialog.getOpenFileName(
@@ -946,14 +1058,57 @@ class SaveManagerDialog(PopupDialog):
             target_dest = os.path.join(self.game_path, "prefix")
             if not os.path.isdir(target_dest):
                 target_dest = self.game_path
+            if not confirm_restore(
+                self,
+                game_name=self.game_name,
+                target_path=self.game_path,
+                title="Restore local save archive",
+            ):
+                return
 
-            success = self.backup_mgr.import_save(import_path, target_dest, game_path=self.game_path)
-            if success:
-                QMessageBox.information(self, "Import Successful", "Local save archive restored successfully.")
-                self._scan_saves()
-                self._notify_parent_changed()
-            else:
-                QMessageBox.critical(self, "Import Error", "Failed to import the local save archive.")
+            self.btn_import.setEnabled(False)
+
+            def restore_import():
+                try:
+                    current = LudusaviDetector.detect_saves(
+                        self.game_name, self.game_path, self.steam_id
+                    )
+                    backup_dir = os.path.join(
+                        os.path.dirname(get_cloud_root()), "save_restore_backups"
+                    )
+                    return restore_archive_with_safety_backup(
+                        import_path,
+                        target_dest,
+                        game_name=self.game_name,
+                        game_path=self.game_path,
+                        current_locations=current,
+                        backup_zip_path=safety_backup_path(backup_dir, self.game_name),
+                        operation="Restore local save archive",
+                    )
+                except Exception as exc:
+                    return SaveOperationResult(
+                        False,
+                        "Restore local save archive",
+                        self.game_name,
+                        error=f"The local save archive could not be restored: {exc}",
+                        category="local_save_unreadable",
+                        guidance="Your local save was left unchanged. Check the archive and save permissions, then retry.",
+                        retry_safe=False,
+                    )
+
+            def restore_done(result):
+                self.btn_import.setEnabled(True)
+                if result.success:
+                    QMessageBox.information(
+                        self, "Restore Successful", "The local save archive was restored successfully."
+                    )
+                    self._scan_saves()
+                    self._notify_parent_changed()
+                else:
+                    detail = result.error or "The local save archive could not be restored."
+                    QMessageBox.critical(self, "Restore Failed", f"{detail}\n\n{result.guidance}".strip())
+
+            self._start_managed_task("SafeLauncher-LocalArchiveRestore", restore_import, restore_done)
 
     def _notify_parent_changed(self):
         """Notify parent window or dialog that saves changed so stats refresh immediately."""
@@ -988,7 +1143,7 @@ class SaveManagerDialog(PopupDialog):
         entry = self.history_timeline.selected_entry()
         self.btn_restore_history.setEnabled(entry is not None)
 
-    def _load_history(self):
+    def _load_history(self, force: bool = False):
         """Asynchronously fetch cloud save versions and local safety backups."""
         self.cloud_status_panel.set_loading("Loading cloud save versions and local safety backups…")
         self.history_timeline.set_message("Loading cloud save versions and local backups…")
@@ -1006,12 +1161,14 @@ class SaveManagerDialog(PopupDialog):
                     game_path=self.game_path,
                     steam_id=self.steam_id,
                     priority=RequestPriority.NORMAL,
+                    force=force,
                 )
             else:
                 handle = self.cloud_operation_service.request_history(
                     target,
                     priority=RequestPriority.NORMAL,
                     tag="save_manager_history",
+                    force=force,
                 )
 
             def _deliver(resource):
@@ -1156,66 +1313,37 @@ class SaveManagerDialog(PopupDialog):
                 )
                 return
 
-            current_locations = list(self.save_locations)
             target_dest = os.path.join(self.game_path, "prefix")
             if not os.path.isdir(target_dest):
                 target_dest = self.game_path
 
             def _restore_local_backup():
-                """Back up the current local files, then import the selected fork."""
-                manager = ZipBackupManager()
-                if current_locations:
-                    validation = validate_save_locations(current_locations)
-                    failures = describe_validation_failures(validation)
-                    if failures:
-                        return SaveOperationResult(
-                            False,
-                            "Restore previous version",
-                            self.game_name,
-                            error=failures,
-                            category="local_save_unreadable",
-                            guidance="Rescan Save Locations before restoring the local backup.",
-                        )
-                    snapshot = snapshot_from_validation(
-                        self.game_name,
-                        self.game_path,
-                        validation,
-                        source="save-manager-restore",
+                try:
+                    current_locations = LudusaviDetector.detect_saves(
+                        self.game_name, self.game_path, self.steam_id
                     )
-                    prefix = os.path.basename(fork_path).split("_fork_", 1)[0] or "game"
-                    safety_path = os.path.join(
-                        os.path.dirname(fork_path),
-                        f"{prefix}_fork_{int(time.time())}_before_restore.zip",
+                    safety_path = safety_backup_path(
+                        os.path.dirname(fork_path), self.game_name
                     )
-                    if not manager.export_save_locations(
-                        current_locations,
-                        safety_path,
+                    return restore_archive_with_safety_backup(
+                        fork_path,
+                        target_dest,
                         game_name=self.game_name,
                         game_path=self.game_path,
-                        snapshot=snapshot,
-                    ):
-                        return SaveOperationResult(
-                            False,
-                            "Restore previous version",
-                            self.game_name,
-                            error=manager.last_error or "Could not create a safety backup of the current local save.",
-                            category="local_save_unreadable",
-                            guidance="The selected backup was not restored; your current save was left unchanged.",
-                        )
-
-                success = manager.import_save(
-                    fork_path,
-                    target_dest,
-                    game_path=self.game_path,
-                )
-                return SaveOperationResult(
-                    bool(success),
-                    "Restore previous version",
-                    self.game_name,
-                    error="The selected local safety backup could not be restored." if not success else "",
-                    category="local_save_unreadable" if not success else "unknown",
-                    guidance="Check the backup file and save locations, then try again." if not success else "",
-                )
+                        current_locations=current_locations,
+                        backup_zip_path=safety_path,
+                        operation="Restore previous version",
+                    )
+                except Exception as exc:
+                    return SaveOperationResult(
+                        False,
+                        "Restore previous version",
+                        self.game_name,
+                        error=f"The selected local safety backup could not be restored: {exc}",
+                        category="local_save_unreadable",
+                        guidance="Your local save was left unchanged. Rescan Save Locations and retry.",
+                        retry_safe=False,
+                    )
 
             def _local_restore_done(result):
                 self._restore_done.emit(

@@ -424,6 +424,11 @@ class AccountDialog(PopupDialog):
         def _deliver(result):
             if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
                 return
+            if result.status == ResourceStatus.STALE:
+                # Show the usable cached account view while the manager keeps
+                # the binding alive for its fresh response.
+                on_complete(transform(result.value))
+                return
             binding = self._resource_bindings.pop(request_id, None)
             if binding is not None:
                 binding.close()

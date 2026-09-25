@@ -57,6 +57,8 @@ def validate_save_location(
     path = os.path.abspath(os.path.expanduser(location.path))
     if not os.path.lexists(path):
         return SaveLocationValidation(location, False, "path no longer exists")
+    if os.path.islink(path):
+        return SaveLocationValidation(location, False, "symbolic links are not accepted as save roots")
 
     if os.path.isfile(path):
         ok, size, mtime, reason = _readable_file(path, check_readable)
@@ -65,7 +67,10 @@ def validate_save_location(
         refreshed = replace(location, path=path, is_directory=False,
                             file_count=1, total_size_bytes=size,
                             last_modified=mtime)
-        state = SaveFileState.from_path(path)
+        try:
+            state = SaveFileState.from_path(path)
+        except OSError as exc:
+            return SaveLocationValidation(location, False, f"file is not readable ({exc})")
         return SaveLocationValidation(refreshed, True, file_count=1,
                                       total_size_bytes=size, last_modified=mtime,
                                       file_states=(state,))
@@ -89,14 +94,18 @@ def validate_save_location(
         for root, dirs, files in walker:
             if cancel_check and cancel_check():
                 return SaveLocationValidation(location, False, "save validation was cancelled")
-            # Do not descend through symlinked directories.  A symlinked file
-            # is still checked as a file by the normal stat/open path below.
+            # Do not descend through symlinked directories or package
+            # symlinked files: a save archive must never follow a path outside
+            # the user-selected save root.
             dirs[:] = [name for name in dirs
                        if not os.path.islink(os.path.join(root, name))]
             for name in files:
                 if cancel_check and cancel_check():
                     return SaveLocationValidation(location, False, "save validation was cancelled")
                 file_path = os.path.join(root, name)
+                if os.path.islink(file_path):
+                    unreadable.append(f"{file_path}: symbolic links are not accepted")
+                    continue
                 ok, size, mtime, reason = _readable_file(file_path, check_readable)
                 if not ok:
                     unreadable.append(f"{file_path}: {reason}")
@@ -104,7 +113,10 @@ def validate_save_location(
                 count += 1
                 total += size
                 latest = max(latest, mtime)
-                file_states.append(SaveFileState.from_path(file_path))
+                try:
+                    file_states.append(SaveFileState.from_path(file_path))
+                except OSError as exc:
+                    unreadable.append(f"{file_path}: {exc}")
     except OSError as exc:
         walk_errors.append(str(exc))
 

@@ -42,14 +42,27 @@ def _load_persisted_cache() -> Dict[tuple, List['SaveLocation']]:
 
 def _save_persisted_cache(cache: Dict[tuple, List['SaveLocation']]):
     try:
-        os.makedirs(os.path.dirname(_CACHE_FILE), exist_ok=True)
+        cache_dir = os.path.dirname(_CACHE_FILE)
+        os.makedirs(cache_dir, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(cache_dir, 0o700)
+        except OSError:
+            pass
         raw = {}
         for k_tuple, locs in cache.items():
             k_str = f"{k_tuple[0]}|||{k_tuple[1]}|||{k_tuple[2]}"
             raw[k_str] = [asdict(l) for l in locs]
-        with open(_CACHE_FILE + ".tmp", "w", encoding="utf-8") as f:
+        temporary = _CACHE_FILE + ".tmp"
+        with open(temporary, "w", encoding="utf-8") as f:
             json.dump(raw, f, indent=2)
-        os.replace(_CACHE_FILE + ".tmp", _CACHE_FILE)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, _CACHE_FILE)
+        try:
+            os.chmod(_CACHE_FILE, 0o600)
+        except OSError:
+            pass
     except Exception as e:
         logger.debug(f"Could not save save location cache: {e}")
 

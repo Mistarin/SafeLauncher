@@ -49,7 +49,9 @@ def iter_save_files(locations: Iterable[SaveLocation], cancel_check: Optional[Ca
         if cancel_check and cancel_check():
             raise SaveOperationCancelled()
         path = os.path.abspath(os.path.expanduser(location.path))
-        if os.path.isfile(path):
+        if os.path.islink(path):
+            continue
+        if os.path.isfile(path) and not os.path.islink(path):
             yield location, path
             continue
         if not os.path.isdir(path):
@@ -62,7 +64,7 @@ def iter_save_files(locations: Iterable[SaveLocation], cancel_check: Optional[Ca
                 if cancel_check and cancel_check():
                     raise SaveOperationCancelled()
                 file_path = os.path.join(root, name)
-                if os.path.isfile(file_path):
+                if os.path.isfile(file_path) and not os.path.islink(file_path):
                     yield location, file_path
 
 

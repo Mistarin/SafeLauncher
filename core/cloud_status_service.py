@@ -187,22 +187,25 @@ class CloudStatusService:
             context = self.current_context()
             target_generation = context.generation if generation is None else int(generation)
             changed = []
+            touched = False
             checked_at = time.time()
             for game_id in game_ids:
                 game_id = int(game_id)
                 existing = self.status_store.get(game_id)
-                if existing is not None and existing[0] == status:
-                    continue
+                local_stats = existing[1] if existing is not None else None
+                cloud_stats = existing[2] if existing is not None else None
                 self.status_store.set_cloud_status(
                     game_id,
                     status,
-                    None,
-                    None,
+                    local_stats,
+                    cloud_stats,
                     checked_at=checked_at,
                     context_generation=target_generation,
                 )
-                changed.append(game_id)
-            if changed:
+                touched = True
+                if existing is None or existing[0] != status:
+                    changed.append(game_id)
+            if touched:
                 self.save_cache()
             return changed
 
@@ -285,6 +288,7 @@ class CloudStatusService:
         *,
         generation: int | None = None,
         on_complete: Callable[[list[CloudStatusTarget]], None] | None = None,
+        force: bool = False,
     ):
         """Refresh the remote listing and return games whose cloud copy moved."""
         context = self.current_context()
@@ -326,7 +330,7 @@ class CloudStatusService:
                 "tag": "poll-diff",
             },
         )
-        handle = self._request_listing_cached(spec)
+        handle = self._request_listing_cached(spec, force_refresh=force)
         with self._lock:
             self._changed_diff_handle = handle
 
@@ -519,13 +523,20 @@ class CloudStatusService:
             force_network=force,
         )
 
-    def _request_listing_cached(self, spec: RequestSpec[list[CloudStatusTarget]]):
+    def _request_listing_cached(
+        self,
+        spec: RequestSpec[list[CloudStatusTarget]],
+        *,
+        force_refresh: bool = False,
+    ):
         if self.resource_cache is None:
             return self.request_manager.submit(spec)
         return self.request_manager.cached_request(
             spec,
             self.resource_cache,
-            max_age_seconds=self.LISTING_TTL_SECONDS,
+            # Explicit polling must revalidate the listing while retaining
+            # the stale value for offline/read-through presentation.
+            max_age_seconds=0 if force_refresh else self.LISTING_TTL_SECONDS,
             cache_validator=self._listing_cache_validator,
             cache_encoder=self._listing_cache_encoder,
             cache_decoder=self._listing_cache_decoder,

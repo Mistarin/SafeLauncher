@@ -161,11 +161,25 @@ class CloudSyncCoordinator:
             lambda: CloudOperationCoordinator.restore_cloud_save(game_name, game_path, **kwargs),
         )
 
-    def restore_generation(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", version: Optional[int] = None) -> CloudOperationResult:
+    def restore_generation(
+        self,
+        game_id: int,
+        game_name: str,
+        game_path: str,
+        steam_id: str = "",
+        version: Optional[int] = None,
+        cancel_check=None,
+        progress_callback=None,
+    ) -> CloudOperationResult:
         return self._serialized(
             game_id, "restore", game_name,
             lambda: CloudOperationCoordinator.restore_generation(
-                game_name, game_path, steam_id=steam_id, version=version
+                game_name,
+                game_path,
+                steam_id=steam_id,
+                version=version,
+                cancel_check=cancel_check,
+                progress_callback=progress_callback,
             ),
         )
 
@@ -296,8 +310,9 @@ class CloudOperationCoordinator:
             game_name, game_path, steam_id=steam_id, target_version=version,
             cancel_check=cancel_check, progress_callback=progress_callback,
         )
-        result.operation = "Generation restore"
-        return result
+        # SaveOperationResult is immutable; use a replacement instead of
+        # mutating it after a successful/failed restore.
+        return replace(result, operation="Restore cloud save")
 
     @staticmethod
     def check_status(game_name: str, game_path: str, steam_id: str = ""):

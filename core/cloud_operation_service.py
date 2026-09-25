@@ -14,6 +14,7 @@ from threading import RLock
 from typing import Callable
 
 from core.cloud_context import CloudContext
+from core.cache_policy import cache_policy
 from core.cloud_operations import (
     CloudOperationResult,
     CloudPreflightResult,
@@ -158,9 +159,41 @@ class CloudOperationService:
             },
         )
 
-    def _request(self, target, operation, loader, *, progress_hook=None, **kwargs):
+    @staticmethod
+    def _history_cache_validator(value) -> bool:
+        return (
+            isinstance(value, tuple)
+            and len(value) == 2
+            and isinstance(value[0], list)
+            and value[1] is None
+        )
+
+    @staticmethod
+    def _history_cache_encoder(value):
+        if not CloudOperationService._history_cache_validator(value):
+            raise ValueError("Invalid cloud history cache value")
+        return value
+
+    @staticmethod
+    def _history_cache_decoder(value):
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            raise ValueError("Invalid cloud history cache document")
+        versions, error = value
+        if error is not None or not isinstance(versions, list):
+            raise ValueError("Invalid cloud history cache value")
+        return (versions, None)
+
+    def _request(self, target, operation, loader, *, progress_hook=None,
+                 cache_options=None, **kwargs):
         spec = self._spec(target, operation, loader, **kwargs)
-        handle = self.request_manager.submit(spec)
+        if cache_options and getattr(self.request_manager, "cache", None) is not None:
+            handle = self.request_manager.cached_request(
+                spec,
+                self.request_manager.cache,
+                **cache_options,
+            )
+        else:
+            handle = self.request_manager.submit(spec)
         now = time.time()
         record = CloudOperationRecord(
             operation_id=handle.request_id,
@@ -602,7 +635,15 @@ class CloudOperationService:
             progress_hook=progress,
         )
 
-    def request_history(self, target: CloudOperationTarget, *, priority=RequestPriority.NORMAL, generation=None, tag=""):
+    def request_history(
+        self,
+        target: CloudOperationTarget,
+        *,
+        priority=RequestPriority.NORMAL,
+        generation=None,
+        tag="",
+        force: bool = False,
+    ):
         progress = _ProgressReporter(self)
 
         def load(token: CancellationToken):
@@ -624,6 +665,15 @@ class CloudOperationService:
             tag=tag,
             timeout_seconds=30,
             progress_hook=progress,
+            cache_options={
+                "max_age_seconds": cache_policy("cloud-listing").max_age_seconds,
+                "cache_validator": self._history_cache_validator,
+                "cache_encoder": self._history_cache_encoder,
+                "cache_decoder": self._history_cache_decoder,
+                "stale_while_revalidate": True,
+                "content_type": "application/json",
+                "force_network": bool(force),
+            },
         )
 
     def request_restore_preflight(

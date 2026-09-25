@@ -29,6 +29,7 @@ from core.logger import get_logger
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 from core.secret_store import get_secret
 from core.request_contracts import classify_remote_error
+from core.save_models import SaveOperationCancelled
 
 logger = get_logger("CloudBackend")
 
@@ -410,8 +411,13 @@ class ConvexSaveBackend:
 
     def upload_plaintext_zip(self, name_key: str, display_name: str,
                              plaintext_zip_path: str,
-                             source_max_mtime: float) -> dict:
+                             source_max_mtime: float,
+                             cancel_check=None,
+                             progress_callback=None,
+                             existing_listing: dict | None = None) -> dict:
         """Encrypt + upload a zipped save archive; returns confirm result."""
+        if cancel_check and cancel_check():
+            raise SaveOperationCancelled()
         try:
             with open(plaintext_zip_path, "rb") as f:
                 plaintext = f.read()
@@ -426,7 +432,10 @@ class ConvexSaveBackend:
                 "payload_too_large", 413
             )
 
-        listing = self.list_games()
+        # Name-key resolution normally fetched this listing already. Reusing
+        # it avoids a second serialized cloud request on every upload; direct
+        # backend callers still get the safe fallback request.
+        listing = existing_listing if existing_listing is not None else self.list_games()
         existing = next((g for g in listing.get("games", []) if g.get("nameKey") == name_key), None)
         if existing and existing.get("versions"):
             matched = next((v for v in existing["versions"] if v.get("plainSha256") == plain_sha), None)
@@ -460,13 +469,35 @@ class ConvexSaveBackend:
             "Upload init",
         )
 
-        with self._lock:
-            post = self.session.post(
+        def body_chunks():
+            chunk_size = 1024 * 1024
+            total = len(envelope)
+            sent = 0
+            for offset in range(0, total, chunk_size):
+                if cancel_check and cancel_check():
+                    raise SaveOperationCancelled()
+                chunk = envelope[offset:offset + chunk_size]
+                sent += len(chunk)
+                if progress_callback is not None:
+                    progress_callback(sent / max(1, total))
+                yield chunk
+
+        transfer_session = requests.Session()
+        try:
+            post = transfer_session.post(
                 init["uploadUrl"],
-                data=envelope,
-                headers={"Content-Type": "application/octet-stream"},
+                data=body_chunks(),
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    # Keep the upload compatible with signed blob endpoints
+                    # that reject chunked transfer encoding while retaining
+                    # cooperative cancellation between stream chunks.
+                    "Content-Length": str(len(envelope)),
+                },
                 timeout=(10, 120),
             )
+        finally:
+            transfer_session.close()
         if post.status_code != 200:
             raise CloudBackendError(
                 f"Save upload rejected ({post.status_code}).", "upload_failed",
@@ -499,7 +530,9 @@ class ConvexSaveBackend:
     # ------------------------------------------------------------------ #
 
     def download_to_temp(self, name_key: str,
-                         version: Optional[int] = None) -> tuple[str, dict]:
+                         version: Optional[int] = None,
+                         cancel_check=None,
+                         progress_callback=None) -> tuple[str, dict]:
         """Fetch + decrypt the latest (or requested) save into a temp zip.
 
         Returns (plaintext_zip_path, meta{version,sizeBytes}); caller must
@@ -518,22 +551,31 @@ class ConvexSaveBackend:
         fd_closed = False
 
         try:
-            with self._lock:
-                stream_req = self.session.get(ref["url"], stream=True,
-                                              timeout=_DOWNLOAD_STREAM_TIMEOUT)
-            with stream_req as resp:
-                if resp.status_code != 200:
-                    raise CloudBackendError("Blob fetch failed.", "download_failed",
-                                            resp.status_code)
-                total = 0
-                limit = MAX_SAVE_BYTES * 2
-                with os.fdopen(fd, "wb") as out:
-                    fd_closed = True
-                    for chunk in resp.iter_content(chunk_size=65536):
-                        total += len(chunk)
-                        if total > limit:
-                            raise CloudBackendError("Blob exceeds expected size cap.")
-                        out.write(chunk)
+            transfer_session = requests.Session()
+            try:
+                stream_req = transfer_session.get(
+                    ref["url"], stream=True, timeout=_DOWNLOAD_STREAM_TIMEOUT
+                )
+                with stream_req as resp:
+                    if resp.status_code != 200:
+                        raise CloudBackendError("Blob fetch failed.", "download_failed",
+                                                resp.status_code)
+                    total = 0
+                    limit = MAX_SAVE_BYTES * 2
+                    expected = int(resp.headers.get("Content-Length", 0) or 0)
+                    with os.fdopen(fd, "wb") as out:
+                        fd_closed = True
+                        for chunk in resp.iter_content(chunk_size=65536):
+                            if cancel_check and cancel_check():
+                                raise SaveOperationCancelled()
+                            total += len(chunk)
+                            if total > limit:
+                                raise CloudBackendError("Blob exceeds expected size cap.")
+                            out.write(chunk)
+                            if progress_callback is not None and expected > 0:
+                                progress_callback(min(1.0, total / expected))
+            finally:
+                transfer_session.close()
         except Exception:
             if not fd_closed:
                 try:
@@ -549,6 +591,8 @@ class ConvexSaveBackend:
         try:
             with open(enc_path, "rb") as f:
                 envelope = f.read()
+            if cancel_check and cancel_check():
+                raise SaveOperationCancelled()
             plaintext = save_crypto.decrypt_save(envelope, self.data_key_b64())
             fd2, plain_path = tempfile.mkstemp(prefix=".sl-save-", suffix=".zip", dir=dest_dir)
             with os.fdopen(fd2, "wb") as out:

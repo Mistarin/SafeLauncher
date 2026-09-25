@@ -150,6 +150,8 @@ _backend_singleton = None
 _backend_context = ""
 _LISTING_CACHE = {"ts": 0.0, "data": None, "context": ""}
 _LISTING_LOCK = threading.Lock()
+_LISTING_FETCH_LOCK = threading.Lock()
+_LISTING_EPOCH = 0
 
 
 def cloud_context_fingerprint() -> str:
@@ -190,44 +192,70 @@ def _get_cloud_listing(force_refresh: bool = False, max_age_seconds: float = 30.
     neither extend nor truncate the freshness window.
     """
     global _LISTING_CACHE
-    if backend_active() and not _cloud_auth_configured():
+    # Local-folder mode is deliberately transport-free.  The old path still
+    # constructed a Convex client here, which made opening local save history
+    # look like a slow/offline cloud request.
+    if not backend_active():
+        return {"games": []}
+    if not _cloud_auth_configured():
         from core.cloud_backend import CloudBackendError
         raise CloudBackendError(
             "Cloud authentication is not configured.", "auth_required", 401
         )
     import time
-    now = time.monotonic()
+    request_started = time.monotonic()
     context = cloud_context_fingerprint()
     with _LISTING_LOCK:
         if (not force_refresh and _LISTING_CACHE["data"]
                 and _LISTING_CACHE.get("context") == context
-                and (now - _LISTING_CACHE["ts"] < max_age_seconds)):
+                and (request_started - _LISTING_CACHE["ts"] < max_age_seconds)):
             return _LISTING_CACHE["data"]
-    try:
-        data = _backend().list_games()
+    # Several status workers can reach this point together. Only one is
+    # allowed to perform the transport fetch; waiters re-check the cache after
+    # it completes instead of opening duplicate listing requests.
+    with _LISTING_FETCH_LOCK:
+        context = cloud_context_fingerprint()
         with _LISTING_LOCK:
-            # Do not repopulate cache with a response that began before a
-            # settings/account change. The caller can finish with its snapshot,
-            # but a later operation must derive fresh state for the new context.
-            if cloud_context_fingerprint() == context:
-                _LISTING_CACHE = {"ts": now, "data": data, "context": context}
-        return data
-    except Exception as e:
-        logger.debug(f"Failed to fetch cloud game listing: {e}")
-        # A stale listing must never masquerade as current cloud state —
-        # serving one made offline clients report sync statuses from data
-        # that could be hours old. Within the freshness window the cache is
-        # still the best-known state; beyond it, the cloud is unreachable.
+            fetch_epoch = _LISTING_EPOCH
         with _LISTING_LOCK:
-            if (_LISTING_CACHE["data"] and _LISTING_CACHE.get("context") == context
-                    and (time.monotonic() - _LISTING_CACHE["ts"] < max_age_seconds)):
-                return _LISTING_CACHE["data"]
-        raise
+            cached = _LISTING_CACHE
+            if (
+                cached["data"]
+                and cached.get("context") == context
+                and (
+                    (not force_refresh and time.monotonic() - cached["ts"] < max_age_seconds)
+                    or cached["ts"] >= request_started
+                )
+            ):
+                return cached["data"]
+        try:
+            data = _backend().list_games()
+            stored_at = time.monotonic()
+            with _LISTING_LOCK:
+                # Do not repopulate cache with a response that began before a
+                # settings/account change. The caller can finish with its
+                # snapshot, but a later operation must derive fresh state.
+                if cloud_context_fingerprint() == context and fetch_epoch == _LISTING_EPOCH:
+                    _LISTING_CACHE = {"ts": stored_at, "data": data, "context": context}
+            return data
+        except Exception as e:
+            logger.debug(f"Failed to fetch cloud game listing: {e}")
+            # A stale listing must never masquerade as current cloud state —
+            # serving one made offline clients report sync statuses from data
+            # that could be hours old. Within the freshness window the cache
+            # is still the best-known state; beyond it, the cloud is
+            # unreachable.
+            with _LISTING_LOCK:
+                if (_LISTING_CACHE["data"] and _LISTING_CACHE.get("context") == context
+                        and (time.monotonic() - _LISTING_CACHE["ts"] < max_age_seconds)):
+                    return _LISTING_CACHE["data"]
+            raise
 
 
 def _invalidate_cloud_listing():
-    global _LISTING_CACHE, _backend_singleton, _backend_context
+    global _LISTING_CACHE, _backend_singleton, _backend_context, _LISTING_EPOCH
     with _LISTING_LOCK:
+        _LISTING_EPOCH += 1
         _LISTING_CACHE = {"ts": 0.0, "data": None, "context": ""}
     if _backend_singleton is not None:
         _backend_singleton.invalidate_key_cache()
@@ -235,8 +263,9 @@ def _invalidate_cloud_listing():
 
 def reset_cloud_backend() -> None:
     """Reset the cloud backend singleton and cache (e.g. after credential updates)."""
-    global _backend_singleton, _LISTING_CACHE, _backend_context
+    global _backend_singleton, _LISTING_CACHE, _backend_context, _LISTING_EPOCH
     with _LISTING_LOCK:
+        _LISTING_EPOCH += 1
         _LISTING_CACHE = {"ts": 0.0, "data": None, "context": ""}
         if _backend_singleton is not None:
             _backend_singleton.close()
@@ -277,6 +306,8 @@ def resolve_name_key(game_name: str) -> str:
     """
     from core.cloud_backend import normalize_name_key, legacy_name_key
     key = normalize_name_key(game_name)
+    if not backend_active():
+        return key
     try:
         listing = _get_cloud_listing()
         cloud_games = listing.get("games", [])
@@ -499,7 +530,11 @@ class CloudSaveSyncEngine:
         """Get the destination zip archive path for a given game in the cloud root."""
         clean_name = "".join(c for c in game_name if c.isalnum() or c in "-_ ").strip() or "game"
         game_folder = os.path.join(cls.get_cloud_root(), clean_name)
-        os.makedirs(game_folder, exist_ok=True)
+        os.makedirs(game_folder, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(game_folder, 0o700)
+        except OSError:
+            pass
         return os.path.join(game_folder, "save_cloud.zip")
 
     # ------------------------------------------------------------------ #
@@ -588,7 +623,11 @@ class CloudSaveSyncEngine:
             # directly comparable with local file mtimes across machines.
             last_modified=float(target.get("sourceMaxMtime") or 0.0),
             size_bytes=int(target.get("sizeBytes") or 0),
-            file_count=len(versions),
+            file_count=int(
+                target.get("fileCount")
+                if target.get("fileCount") is not None
+                else len(target.get("files") or ())
+            ),
             display_path=f"{snapshot.get('displayName', name_key)} (v{target.get('version', 0)})",
         )
         return stats, snapshot
@@ -797,7 +836,12 @@ class CloudSaveSyncEngine:
             progress_callback(0.30)
 
         if backend_active():
-            from core.cloud_backend import normalize_name_key, CloudBackendError
+            from core.cloud_backend import CloudBackendError
+            # Resolve once and reuse the exact key for upload, duplicate
+            # detection, active-version state, and follow-up reads.  Using a
+            # fresh normalized key here could fork an existing legacy entry.
+            resolved_key = resolve_name_key(game_name)
+            listing = _get_cloud_listing()
             backup_mgr = ZipBackupManager()
             tmp_fd, tmp_zip = tempfile.mkstemp(prefix=".sl-up-", suffix=".zip",
                                                dir=cls.get_cloud_root())
@@ -822,17 +866,24 @@ class CloudSaveSyncEngine:
                         payload={"snapshot": snapshot.with_phase(SaveSnapshotPhase.FAILED)},
                     )
                 result = _backend().upload_plaintext_zip(
-                    normalize_name_key(game_name), game_name,
-                    tmp_zip, source_max_mtime=local_stats.last_modified)
+                    resolved_key, game_name,
+                    tmp_zip,
+                    source_max_mtime=local_stats.last_modified,
+                    cancel_check=cancel_check,
+                    progress_callback=(
+                        (lambda value: progress_callback(0.75 + 0.18 * float(value)))
+                        if progress_callback is not None else None
+                    ),
+                    existing_listing=listing,
+                )
                 if result.get("skipped"):
                     logger.info(f"Cloud already up-to-date for '{game_name}'.")
                     skipped_ver = result.get("version")
                     if skipped_ver is not None:
-                        norm_key = normalize_name_key(game_name)
-                        remote_snapshot = cls._remote_game_snapshot(norm_key)
+                        remote_snapshot = cls._remote_game_snapshot(resolved_key)
                         top_v = remote_snapshot["versions"][0].get("version") if (remote_snapshot and remote_snapshot.get("versions")) else skipped_ver
                         set_active_save_version(game_name, int(skipped_ver), cloud_top_version=top_v,
-                                                name_key=norm_key)
+                                                name_key=resolved_key)
                     return SaveOperationResult(
                         True, "Cloud upload", game_name,
                         payload={"backend": result, "snapshot": snapshot.with_phase(SaveSnapshotPhase.COMPLETED)},
@@ -844,7 +895,7 @@ class CloudSaveSyncEngine:
                 uploaded_ver = result.get("version")
                 if uploaded_ver is not None:
                     set_active_save_version(game_name, int(uploaded_ver), cloud_top_version=int(uploaded_ver),
-                                            name_key=normalize_name_key(game_name))
+                                            name_key=resolved_key)
 
                 logger.info(
                     f"Uploaded encrypted save to cloud for '{game_name}' "
@@ -855,6 +906,14 @@ class CloudSaveSyncEngine:
                 return SaveOperationResult(
                     True, "Cloud upload", game_name,
                     payload={"backend": result, "snapshot": snapshot.with_phase(SaveSnapshotPhase.COMPLETED)},
+                )
+            except SaveOperationCancelled:
+                cls._last_sync_error = "Save upload was cancelled."
+                return SaveOperationResult(
+                    False, "Cloud upload", game_name,
+                    error=cls._last_sync_error,
+                    category="cancelled",
+                    payload={"snapshot": snapshot.with_phase(SaveSnapshotPhase.CANCELLED)},
                 )
             except CloudBackendError as e:
                 from core.cloud_backend import describe_cloud_error
@@ -919,7 +978,8 @@ class CloudSaveSyncEngine:
         as a local backup archive before it is overwritten, so accepting
         the cloud side of a conflict never destroys local progress.
         """
-        target_dest = os.path.join(game_path, "prefix")
+        prefix_dest = os.path.join(game_path, "prefix")
+        target_dest = prefix_dest if os.path.isdir(prefix_dest) else game_path
 
         def cancelled_result() -> SaveOperationResult:
             return SaveOperationResult(
@@ -937,6 +997,7 @@ class CloudSaveSyncEngine:
 
         if backend_active():
             key = resolve_name_key(game_name)
+            fork_zip = None
             if preserve_local_fork:
                 local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
                 if progress_callback is not None:
@@ -955,7 +1016,11 @@ class CloudSaveSyncEngine:
                         game_name, game_path, local_validation, source="restore-fork"
                     )
                     fork_dir = os.path.join(os.path.dirname(cls.get_cloud_root()), "save_forks")
-                    os.makedirs(fork_dir, exist_ok=True)
+                    os.makedirs(fork_dir, mode=0o700, exist_ok=True)
+                    try:
+                        os.chmod(fork_dir, 0o700)
+                    except OSError:
+                        pass
                     clean_name = "".join(c for c in game_name if c.isalnum() or c in "-_ ").strip() or "game"
                     prefix_key = key or clean_name
                     already_backed_up = False
@@ -973,6 +1038,7 @@ class CloudSaveSyncEngine:
                                             # stored 1234 produces a diff up to ~1.999s.
                                             if abs(float(mf.get("source_max_mtime", 0.0)) - local_stats.last_modified) <= 2.0:
                                                 already_backed_up = True
+                                                fork_zip = ef
                                                 logger.info(f"Local save for '{game_name}' already backed up in {fname}; skipping duplicate fork.")
                                                 break
                                 except Exception:
@@ -1010,7 +1076,15 @@ class CloudSaveSyncEngine:
             if is_cancelled():
                 return cancelled_result()
             try:
-                plain_zip, meta = _backend().download_to_temp(key, version=target_version)
+                plain_zip, meta = _backend().download_to_temp(
+                    key,
+                    version=target_version,
+                    cancel_check=cancel_check,
+                    progress_callback=(
+                        (lambda value: progress_callback(0.32 + 0.23 * float(value)))
+                        if progress_callback is not None else None
+                    ),
+                )
             except Exception as e:
                 if is_cancelled():
                     return cancelled_result()
@@ -1044,6 +1118,19 @@ class CloudSaveSyncEngine:
                         return cancelled_result()
                     logger.warning(f"Restored files for '{game_name}' do not match the cloud archive.")
                     success = False
+                if not success and fork_zip and os.path.isfile(fork_zip):
+                    # Import is transactional, but verification can still
+                    # fail if the game rewrites a file during restore. Put
+                    # the protected pre-restore state back when possible.
+                    rollback = backup_mgr.import_save(
+                        fork_zip, target_dest, game_path=game_path
+                    )
+                    if not rollback:
+                        logger.critical(
+                            "Could not roll back cloud restore for '%s'; safety fork kept at %s",
+                            game_name,
+                            fork_zip,
+                        )
             finally:
                 try:
                     os.unlink(plain_zip)
@@ -1144,6 +1231,17 @@ class CloudSaveSyncEngine:
                 return cancelled_result()
             logger.warning(f"Restored files for '{game_name}' do not match the cloud archive.")
             success = False
+        if not success and preserve_local_fork:
+            fork_zip = os.path.join(os.path.dirname(cloud_zip), "save_local_fork.zip")
+            if os.path.isfile(fork_zip):
+                rollback = backup_mgr.import_save(
+                    fork_zip, target_dest, game_path=game_path
+                )
+                if not rollback:
+                    logger.critical(
+                        "Could not roll back local cloud restore for '%s'; safety fork kept at %s",
+                        game_name,
+                    )
         if success:
             if progress_callback is not None:
                 progress_callback(0.95)
@@ -1212,7 +1310,9 @@ class CloudSaveSyncEngine:
     def get_available_versions(cls, game_name: str, game_path: str = "", steam_id: str = "") -> list[dict]:
         """Return all available cloud generations and local safety forks for a game."""
         results = []
-        key = resolve_name_key(game_name)
+        from core.cloud_backend import normalize_name_key
+        # Local history must not perform a hidden remote listing request.
+        key = resolve_name_key(game_name) if backend_active() else normalize_name_key(game_name)
         active_ver = get_active_save_version(game_name)
         local_stats = SaveStats(exists=False)
         if game_path:

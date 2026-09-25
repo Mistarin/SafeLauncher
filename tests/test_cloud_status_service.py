@@ -414,6 +414,53 @@ class CloudStatusServiceTests(unittest.TestCase):
             finally:
                 second_manager.shutdown()
 
+    def test_forced_changed_listing_revalidates_without_discarding_cache_contract(self):
+        class ListingCoordinator(_Coordinator):
+            def __init__(self):
+                super().__init__(CloudStatusResult("Example Game", SyncStatus.NO_SAVES))
+                self.listing_calls = 0
+
+            def find_changed_games(self, games, _cached_statuses):
+                self.listing_calls += 1
+                return list(games[:1])
+
+        target = CloudStatusTarget(42, "Example Game", "/games/example", "480")
+        with tempfile.TemporaryDirectory() as directory:
+            first_coordinator = ListingCoordinator()
+            first_manager = RequestManager(
+                max_workers=1,
+                cache=ResourceCache(directory),
+            )
+            try:
+                first_service = CloudStatusService(
+                    first_manager,
+                    coordinator=first_coordinator,
+                    context_provider=self._context_provider(),
+                    cache=first_manager.cache,
+                )
+                first_service.request_changed_diff([target]).future.result(timeout=2)
+            finally:
+                first_manager.shutdown()
+
+            second_coordinator = ListingCoordinator()
+            second_manager = RequestManager(
+                max_workers=1,
+                cache=ResourceCache(directory),
+            )
+            try:
+                second_service = CloudStatusService(
+                    second_manager,
+                    coordinator=second_coordinator,
+                    context_provider=self._context_provider(),
+                    cache=second_manager.cache,
+                )
+                refreshed = second_service.request_changed_diff([target], force=True)
+                result = refreshed.future.result(timeout=2)
+                self.assertEqual(result.status, ResourceStatus.READY)
+                self.assertEqual(second_coordinator.listing_calls, 1)
+            finally:
+                second_manager.shutdown()
+
     def test_record_status_accepts_explicit_context_generation(self):
         coordinator = _Coordinator(CloudStatusResult("Example Game", SyncStatus.IN_SYNC))
         manager = RequestManager(max_workers=1)

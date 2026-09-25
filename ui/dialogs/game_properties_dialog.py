@@ -27,6 +27,8 @@ from core.cloud_operation_service import CloudOperationTarget
 from core.cloud_status_service import CloudStatusTarget
 from core.request_contracts import RequestPriority, ResourceStatus
 from core.zip_backup import ZipBackupManager
+from core.ludusavi_detector import LudusaviDetector
+from core.save_restore_service import restore_archive_with_safety_backup, safety_backup_path
 from ui.resource_binding import ResourceBinding, bind_request
 from ui.components.save_history_timeline import SaveHistoryTimeline
 from ui.components.cloud_ui import (
@@ -911,6 +913,12 @@ class GamePropertiesDialog(PopupDialog):
                         return
                     if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
                         return
+                    if resource.status == ResourceStatus.STALE:
+                        # Render the usable persisted value, but keep this
+                        # binding alive for the manager's revalidation result.
+                        callback(resource)
+                        finish_if_ready()
+                        return
                     binding = self._resource_bindings.pop(request_id, None)
                     if binding is not None:
                         binding.close()
@@ -948,6 +956,11 @@ class GamePropertiesDialog(PopupDialog):
                         result.status,
                         result.local_stats,
                         result.cloud_stats,
+                        checked_at=(
+                            resource.updated_at
+                            if resource.status == ResourceStatus.STALE and resource.updated_at
+                            else None
+                        ),
                         generation=self.cloud_status_service.current_context().generation,
                     )
 
@@ -1140,12 +1153,36 @@ class GamePropertiesDialog(PopupDialog):
                 target_dest = self.game_path
 
             def _restore_fork():
-                return self.backup_mgr.import_save(fork_path, target_dest, game_path=self.game_path)
+                try:
+                    current_locations = LudusaviDetector.detect_saves(
+                        self.game_name, self.game_path, str(self.steam_id or "")
+                    )
+                    backup_dir = os.path.join(os.path.dirname(fork_path), "before_restore")
+                    return restore_archive_with_safety_backup(
+                        fork_path,
+                        target_dest,
+                        game_name=self.game_name,
+                        game_path=self.game_path,
+                        current_locations=current_locations,
+                        backup_zip_path=safety_backup_path(backup_dir, self.game_name),
+                        operation="Restore previous version",
+                    )
+                except Exception as exc:
+                    from core.save_models import SaveOperationResult
+                    return SaveOperationResult(
+                        False,
+                        "Restore previous version",
+                        self.game_name,
+                        error=f"The selected local safety backup could not be restored: {exc}",
+                        category="local_save_unreadable",
+                        guidance="Your local save was left unchanged. Rescan Save Locations and retry.",
+                        retry_safe=False,
+                    )
 
             self._start_managed_task(
                 f"SafeLauncher-ForkRestore-{self.game_id}",
                 _restore_fork,
-                lambda success: self._on_local_history_restore_done(bool(success), title),
+                lambda result: self._on_local_history_restore_done(result, title),
             )
             return
 
@@ -1183,13 +1220,16 @@ class GamePropertiesDialog(PopupDialog):
             self._cloud_unavailable_result("Cloud save restore"), int(version or 0)
         )
 
-    def _on_local_history_restore_done(self, success: bool, title: str) -> None:
+    def _on_local_history_restore_done(self, result, title: str) -> None:
         self.btn_restore_selected.setEnabled(True)
+        success = bool(getattr(result, "success", result))
         if success:
             QMessageBox.information(self, "Cloud save restored", f"'{title}' was restored successfully.")
             self._notify_parent_cloud_changed()
         else:
-            QMessageBox.critical(self, "Cloud restore failed", f"Could not restore '{title}'.")
+            detail = getattr(result, "error", "") or f"Could not restore '{title}'."
+            guidance = getattr(result, "guidance", "")
+            QMessageBox.critical(self, "Cloud restore failed", f"{detail}\n\n{guidance}".strip())
         self._load_save_stats_async()
 
     def _restore_backup_now(self):
@@ -1246,6 +1286,9 @@ class GamePropertiesDialog(PopupDialog):
 
         def _deliver(resource):
             if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                return
+            if resource.status == ResourceStatus.STALE:
+                callback(resource)
                 return
             binding = self._resource_bindings.pop(request_id, None)
             if binding is not None:

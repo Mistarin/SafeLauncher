@@ -86,11 +86,24 @@ class CloudStatusPollingService:
                     self._report_error(exc)
 
         try:
-            handle = self.status_service.request_changed_diff(
-                targets,
-                generation=generation,
-                on_complete=complete,
-            )
+            try:
+                handle = self.status_service.request_changed_diff(
+                    targets,
+                    generation=generation,
+                    on_complete=complete,
+                    force=True,
+                )
+            except TypeError as error:
+                # Keep lightweight embedders written against the pre-force
+                # polling contract usable. The built-in service always takes
+                # the forced revalidation path above.
+                if "force" not in str(error):
+                    raise
+                handle = self.status_service.request_changed_diff(
+                    targets,
+                    generation=generation,
+                    on_complete=complete,
+                )
         except Exception as exc:
             self._report_error(exc)
             return None

@@ -508,6 +508,7 @@ class CloudCenterService:
                 priority=priority,
                 generation=self.current_context().generation,
                 tag="cloud_center_history",
+                force=force,
             )
         context = self.current_context()
         key = context.request_key("cloud-save-history", str(int(game_id)), "v1")
@@ -610,6 +611,14 @@ class CloudCenterService:
         if game_id is not None:
             keys.append(
                 context.request_key("cloud-save-history", str(int(game_id)), "v1")
+            )
+            # Detailed per-game history is also exposed through the managed
+            # operation resource.  Invalidate that exact key as well so a
+            # completed upload/restore cannot leave an old timeline cached.
+            keys.append(
+                context.request_key(
+                    "cloud-save-operation", f"{int(game_id)}:history", "v1"
+                )
             )
         for key in keys:
             self.request_manager.invalidate(key)

@@ -28,7 +28,14 @@ def get_cloud_root(*, create: bool = True) -> str:
         root = DEFAULT_CLOUD_SAVES_DIR
     root = os.path.abspath(os.path.expanduser(root))
     if create:
-        os.makedirs(root, exist_ok=True)
+        os.makedirs(root, mode=0o700, exist_ok=True)
+        # Save archives are private by default.  User-selected shared roots
+        # remain usable, but newly managed directories never inherit broad
+        # permissions from the process umask.
+        try:
+            os.chmod(root, 0o700)
+        except OSError:
+            pass
     return root
 
 
