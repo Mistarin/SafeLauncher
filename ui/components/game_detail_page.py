@@ -723,10 +723,6 @@ class GameDetailPageWidget(QWidget):
             self.btn_cloud_action.setText(" Restore Cloud Save")
             self.btn_cloud_action.setIcon(get_icon("ph.cloud-arrow-down-bold", color="#FFFFFF"))
             self.btn_cloud_action.setVisible(True)
-        elif status == SyncStatus.LOCAL_NEWER:
-            self.btn_cloud_action.setText(" Upload Local Save")
-            self.btn_cloud_action.setIcon(get_icon("ph.cloud-arrow-up-bold", color="#FFFFFF"))
-            self.btn_cloud_action.setVisible(True)
         elif status == SyncStatus.CONFLICT:
             self.btn_cloud_action.setText(" Resolve Conflict")
             self.btn_cloud_action.setIcon(get_icon("ph.warning-circle-bold", color="#FFFFFF"))
@@ -782,8 +778,10 @@ class GameDetailPageWidget(QWidget):
 
     def _on_cloud_action_clicked(self):
         if self.current_game_id is not None and self._cloud_status is not None:
-            action = "restore" if self._cloud_status == SyncStatus.CLOUD_ONLY else "upload"
-            self.cloud_action_requested.emit(self.current_game_id, action)
+            if self._cloud_status == SyncStatus.CLOUD_ONLY:
+                self.cloud_action_requested.emit(self.current_game_id, "restore")
+            elif self._cloud_status == SyncStatus.CONFLICT:
+                self.cloud_action_requested.emit(self.current_game_id, "resolve")
 
     @staticmethod
     def _format_playtime(seconds: int) -> str:

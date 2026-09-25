@@ -7,6 +7,7 @@ from core.logger import get_logger
 from core.network_policy import automatic_network_allowed
 from core.steam_client import SteamClient, SteamClientError
 from core.steam_resource_service import SteamResourceService
+from core.steam_ids import normalize_steam_app_id
 
 logger = get_logger("SteamBuildTracker")
 
@@ -72,16 +73,47 @@ def _read_steam_manifest(manifest_path: str) -> tuple[str, int]:
 
 
 def read_local_steam_build(game_path: str, steam_id: str) -> tuple[str, int]:
-    """Read buildid/LastUpdated from a copied Steam appmanifest, if present."""
-    if not game_path or not steam_id:
+    """Read an installed Steam build from local or standard library manifests.
+
+    Steam normally stores ``appmanifest_<appid>.acf`` beside ``common/`` in
+    the library root, not inside the game directory. The old lookup only
+    handled copied manifests under the game folder, which made valid installs
+    appear to have no current build reference.
+    """
+    app_id = normalize_steam_app_id(steam_id)
+    if not game_path or not app_id:
         return "", 0
-    manifest_name = f"appmanifest_{steam_id}.acf"
-    candidates = (
+    manifest_name = f"appmanifest_{app_id}.acf"
+    candidates = [
         os.path.join(game_path, "_Manifests", manifest_name),
         os.path.join(game_path, "steamapps", manifest_name),
         os.path.join(game_path, manifest_name),
-    )
+    ]
+
+    # For /library/steamapps/common/Game, include /library/steamapps/*.acf.
+    current = os.path.abspath(os.path.expanduser(game_path))
+    for _ in range(5):
+        candidates.append(os.path.join(current, "steamapps", manifest_name))
+        candidates.append(os.path.join(current, manifest_name))
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+    # Cover the standard Linux Steam roots without scanning the filesystem.
+    for root in (
+        os.path.expanduser("~/.local/share/Steam"),
+        os.path.expanduser("~/.local/share/steam"),
+        os.path.expanduser("~/.steam/steam"),
+        os.path.expanduser("~/.steam/root"),
+    ):
+        candidates.append(os.path.join(root, "steamapps", manifest_name))
+
+    seen = set()
     for manifest_path in candidates:
+        if manifest_path in seen:
+            continue
+        seen.add(manifest_path)
         if os.path.isfile(manifest_path):
             build_id, build_date = _read_steam_manifest(manifest_path)
             if build_id or build_date:
@@ -98,7 +130,7 @@ class SteamBuildFetcher(SafeQThread):
     def __init__(self, game_id: int, steam_id: str, local_build_id: str = "", local_build_date: int = 0, parent=None, request_manager=None, steam_client=None):
         super().__init__(parent)
         self.game_id = game_id
-        self.steam_id = str(steam_id).strip()
+        self.steam_id = normalize_steam_app_id(steam_id)
         self.local_build_id = str(local_build_id).strip()
         self.local_build_date = int(local_build_date or 0)
         self.request_manager = request_manager
@@ -106,6 +138,9 @@ class SteamBuildFetcher(SafeQThread):
 
     def safe_run(self):
         if self.isInterruptionRequested():
+            return
+        if not self.steam_id:
+            self._fail("No valid numeric Steam AppID is configured")
             return
         if self.request_manager is not None:
             from core.request_contracts import RequestPriority, ResourceStatus

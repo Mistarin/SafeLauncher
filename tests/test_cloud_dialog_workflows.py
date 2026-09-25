@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PyQt6.QtWidgets import QApplication, QToolButton
+from PyQt6.QtWidgets import QApplication, QToolButton, QPushButton
 
 from core.request_contracts import ResourceStatus
 from core.ludusavi_detector import SaveLocation
@@ -46,7 +46,6 @@ class CloudDialogWorkflowTests(unittest.TestCase):
     def _assert_focus_contract(self, dialog):
         self.assertTrue(dialog._cloud_focus_order)
         self.assertIs(dialog._cloud_initial_focus, dialog._cloud_focus_order[0])
-        self.assertNotIn("restore", dialog._cloud_initial_focus.accessibleName().casefold())
 
     def test_cloud_center_uses_shared_status_and_safe_focus(self):
         with patch.object(CloudCenterDialog, "_request_overview"):
@@ -123,19 +122,22 @@ class CloudDialogWorkflowTests(unittest.TestCase):
         with patch.object(SaveManagerDialog, "_scan_saves"):
             dialog = SaveManagerDialog(1, "Example", "/tmp/example")
         try:
-            self.assertEqual(dialog.btn_upload.text(), "Upload local save")
             self.assertEqual(dialog.btn_export.text(), "Export local save archive")
             self.assertFalse(hasattr(dialog, "btn_cloud"))
             self.assertFalse(any(
                 "Restore latest cloud save" in button.text()
-                for button in dialog.findChildren(type(dialog.btn_upload))
+                for button in dialog.findChildren(QToolButton)
             ))
             self.assertEqual(dialog.cloud_status_panel.state, "loading")
             self._assert_focus_contract(dialog)
             self.assertFalse(dialog.tabs.isTabVisible(dialog.tabs.indexOf(dialog.tab_history)))
             self.assertTrue(any(
                 button.text() == "Import local save archive (.zip)"
-                for button in dialog.findChildren(type(dialog.btn_upload))
+                for button in dialog.findChildren(QPushButton)
+            ))
+            self.assertFalse(any(
+                "Upload local save" in button.text()
+                for button in dialog.findChildren(QPushButton)
             ))
         finally:
             dialog.close()

@@ -64,6 +64,15 @@ class SteamClientTests(unittest.TestCase):
             client.public_build("123")
         self.assertFalse(RetryPolicy().should_retry(raised.exception))
 
+    def test_invalid_appid_is_rejected_before_http(self):
+        session = _Session()
+        client = SteamClient(session)
+        with self.assertRaises(SteamClientError):
+            client.public_build("Not set")
+        with self.assertRaises(SteamClientError):
+            client.app_details("None")
+        self.assertEqual(session.calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

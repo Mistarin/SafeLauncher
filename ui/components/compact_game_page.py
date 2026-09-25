@@ -475,7 +475,7 @@ class CompactActionBar(QFrame):
         self.btn_save.setStyleSheet(quick_btn_style)
         cloud_menu = QMenu(self.btn_save)
         self._resolve_conflict_action = None
-        for action_name, label in (("upload", "Upload local save"), ("restore", "Restore latest cloud save"),
+        for action_name, label in (("restore", "Restore latest cloud save"),
                                    ("history", "Open Game Properties"), ("resolve", "Resolve conflict"),
                                    ("center", "Open Cloud Center")):
             action = cloud_menu.addAction(label)
@@ -1619,7 +1619,7 @@ class CompactGamePageWidget(QWidget):
         self.lbl_mode.setStyleSheet("color: #E4E4E7; font-size: 11px; background: transparent;")
         grid.addWidget(self.lbl_mode, 1, 1)
 
-        lbl_k_ver = QLabel("Version")
+        lbl_k_ver = QLabel("Display version")
         lbl_k_ver.setStyleSheet("color: #71717A; font-size: 11px; font-weight: 600; background: transparent;")
         lbl_k_ver.setFixedWidth(85)
         grid.addWidget(lbl_k_ver, 2, 0)

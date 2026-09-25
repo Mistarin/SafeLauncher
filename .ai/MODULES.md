@@ -36,6 +36,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Achievement persistence service | [`core/achievement_persistence_service.py`](../core/achievement_persistence_service.py) | `AchievementPersistenceService`, `AchievementProjection` | active; SQLite-backed local authority |
 | Library achievement coordination | [`core/library_achievement_coordinator.py`](../core/library_achievement_coordinator.py) | `LibraryAchievementCoordinator`, `AchievementRequestPlan` | active; Qt-free MainWindow orchestration boundary |
 | Steam resource service | [`core/steam_resource_service.py`](../core/steam_resource_service.py) | `SteamResourceService`, cached `request_app_details` | active |
+| Steam AppID/build identity | [`core/steam_ids.py`](../core/steam_ids.py), [`core/steam_build_tracker.py`](../core/steam_build_tracker.py) | `normalize_steam_app_id`, manifest/public build comparison | active |
 | Library Steam metadata coordination | [`core/library_steam_metadata_coordinator.py`](../core/library_steam_metadata_coordinator.py) | `LibrarySteamMetadataCoordinator`, build/tag plans | active; Qt-free MainWindow orchestration boundary |
 | Achievement presentation state | [`core/achievement_state_store.py`](../core/achievement_state_store.py) | `AchievementStateStore` | active; local UI projection only |
 | Launch/session coordination | [`core/launch_session_coordinator.py`](../core/launch_session_coordinator.py) | `LaunchSessionCoordinator`, `LaunchSessionContext` | active; process/session registration boundary |
@@ -80,7 +81,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 - Main shell: [`ui/main_window.py`](../ui/main_window.py)
 - Shared sort control: [`ui/components/sort_combo.py`](../ui/components/sort_combo.py) (`SortComboBox` uses a platform-independent chevron and native popup)
 - Library views: [`ui/library_list.py`](../ui/library_list.py), [`ui/components/library_view_host.py`](../ui/components/library_view_host.py), [`ui/components/compact_game_page.py`](../ui/components/compact_game_page.py), [`ui/components/virtual_grid.py`](../ui/components/virtual_grid.py)
-- The virtualized grid keeps cloud actions keyboard-accessible (`Ctrl+U` for upload), and publishes combined cloud/update tooltip text through model tooltip and accessibility roles because its badges are delegate-painted.
+- The virtualized grid publishes combined cloud/update tooltip text through model tooltip and accessibility roles because its badges are delegate-painted; newer local saves are uploaded automatically by the managed cloud lifecycle.
 - Profile: [`ui/components/profile_page.py`](../ui/components/profile_page.py)
 - Account/settings: [`ui/dialogs/account_dialog.py`](../ui/dialogs/account_dialog.py), [`ui/dialogs/settings_dialog.py`](../ui/dialogs/settings_dialog.py) (account management and technical cloud settings are reached from Cloud Center; the standalone Settings Cloud tab is hidden)
 - Unified private cloud management: [`ui/dialogs/cloud_center_dialog.py`](../ui/dialogs/cloud_center_dialog.py) (overall cloud surface for account status, devices, storage, setup, connection, conflicts, and history)

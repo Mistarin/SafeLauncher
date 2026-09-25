@@ -512,8 +512,6 @@ class VirtualizedGameGridView(QListView):
         )
         cloud_meta = cloud_indicator(cloud_status)
         tooltips = [text for text in (update_meta.tooltip, cloud_meta.tooltip) if text]
-        if cloud_status == SyncStatus.LOCAL_NEWER:
-            tooltips.append("Press Ctrl+U to upload the local save.")
         tooltip = "\n".join(dict.fromkeys(tooltips))
         item.setData(tooltip, CLOUD_TOOLTIP_ROLE)
         item.setData(tooltip, Qt.ItemDataRole.ToolTipRole)
@@ -522,7 +520,7 @@ class VirtualizedGameGridView(QListView):
         accessible = f"{name}. Cloud save action available. {tooltip}" if tooltip else name
         item.setData(accessible, Qt.ItemDataRole.AccessibleTextRole)
         item.setData(
-            "Select this game and press Ctrl+U to upload a newer local save."
+            "SafeLauncher will upload newer local saves automatically when safe."
             if cloud_status == SyncStatus.LOCAL_NEWER else
             "Use the cloud save menu for available cloud actions.",
             Qt.ItemDataRole.AccessibleDescriptionRole,
@@ -593,10 +591,7 @@ class VirtualizedGameGridView(QListView):
         card_h = self.delegate.card_height
         cloud_status = idx.data(CLOUD_STATUS_ROLE)
         if (card_w - 36) <= rel_x <= card_w and (card_h - 32) <= rel_y <= card_h:
-            if cloud_status == SyncStatus.LOCAL_NEWER:
-                self.cloud_action_requested.emit(int(game_id), "upload")
-            else:
-                self.game_right_clicked.emit(int(game_id), event.globalPosition().toPoint())
+            self.game_right_clicked.emit(int(game_id), event.globalPosition().toPoint())
             return
         if (card_w - 36) <= rel_x <= card_w and 0 <= rel_y <= 36:
             self.favorite_clicked.emit(int(game_id))
@@ -628,10 +623,6 @@ class VirtualizedGameGridView(QListView):
         game_id = index.data(GAME_ID_ROLE) if index.isValid() else None
         if game_id is not None:
             modifiers = event.modifiers()
-            if event.key() == Qt.Key.Key_U and modifiers & Qt.KeyboardModifier.ControlModifier:
-                self.cloud_action_requested.emit(int(game_id), "upload")
-                event.accept()
-                return
             if event.key() == Qt.Key.Key_Menu or (
                 event.key() == Qt.Key.Key_F10 and modifiers & Qt.KeyboardModifier.ShiftModifier
             ):

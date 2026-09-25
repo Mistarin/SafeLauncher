@@ -31,6 +31,7 @@ from core.steam_build_tracker import (
     has_resolved_build_reference,
     read_local_steam_build,
 )
+from core.steam_ids import normalize_steam_app_id
 from core.date_formatting import format_datetime_timestamp, format_timestamp, get_date_format_key
 from core.disk_utils import format_size, get_disk_usage, peek_dir_size, has_fresh_dir_size
 from core.discord_rpc import DiscordRPC
@@ -190,6 +191,7 @@ class MainWindow(QMainWindow):
     _profile_sync_done = pyqtSignal(object)
     _managed_cloud_batch_done = pyqtSignal(object)
     _cloud_auto_restore_done = pyqtSignal(object)
+    _cloud_auto_upload_done = pyqtSignal(object)
     _managed_achievement_batch_done = pyqtSignal(object)
     _managed_steam_update_batch_done = pyqtSignal(object)
     _network_probe_done = pyqtSignal(object)
@@ -271,6 +273,7 @@ class MainWindow(QMainWindow):
         # This prevents overlapping polling/startup/detail callbacks from
         # downloading the same version more than once.
         self._cloud_auto_restore_in_flight: dict[int, tuple[int, object]] = {}
+        self._cloud_auto_upload_in_flight: dict[int, tuple[int, object]] = {}
         self.achievement_state = AchievementStateStore()
         self.achievement_persistence_service = AchievementPersistenceService(self.db)
         self._achievement_poll_timer = None
@@ -401,6 +404,7 @@ class MainWindow(QMainWindow):
         self._network_probe_done.connect(self._on_network_probe_done)
         self._managed_cloud_batch_done.connect(self._on_managed_cloud_batch_done)
         self._cloud_auto_restore_done.connect(self._on_cloud_auto_restore_done)
+        self._cloud_auto_upload_done.connect(self._on_cloud_auto_upload_done)
         self._managed_achievement_batch_done.connect(self._on_managed_achievement_batch_done)
         self._cloud_poll_changed.connect(self._on_cloud_poll_changed)
         self._managed_task_callbacks = {}
@@ -833,18 +837,6 @@ class MainWindow(QMainWindow):
         self.btn_detail_cloud_restore.clicked.connect(self._restore_selected_game_cloud_save)
         cloud_status_row.addWidget(self.btn_detail_cloud_restore)
 
-        self.btn_detail_cloud_upload = QPushButton("Upload local save")
-        self.btn_detail_cloud_upload.setAccessibleName("Upload local save")
-        self.btn_detail_cloud_upload.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_detail_cloud_upload.setToolTip("Open Save Manager to choose and upload local save files")
-        self.btn_detail_cloud_upload.setStyleSheet(
-            "QPushButton { background: #14532D; color: #86EFAC; border: 1px solid #238636; border-radius: 4px; "
-            "padding: 2px 8px; font-size: 10px; font-weight: bold; } "
-            "QPushButton:hover { background: #166534; color: #FFFFFF; }"
-        )
-        self.btn_detail_cloud_upload.hide()
-        self.btn_detail_cloud_upload.clicked.connect(self._upload_selected_game_cloud_save)
-        cloud_status_row.addWidget(self.btn_detail_cloud_upload)
         cloud_status_row.addStretch()
         cloud_box_layout.addLayout(cloud_status_row)
 
@@ -1926,7 +1918,6 @@ class MainWindow(QMainWindow):
             self.btn_detail_achievements: "Open selected game achievements",
             self.btn_detail_remove: "Uninstall or permanently delete the selected game",
             self.btn_detail_cloud_restore: "Restore latest cloud save for selected game",
-            self.btn_detail_cloud_upload: "Upload local save for selected game",
             self.btn_update_banner_action: "Download and apply SafeLauncher update",
             self.btn_update_banner_dismiss: "Dismiss update notification",
         }
@@ -3924,7 +3915,7 @@ class MainWindow(QMainWindow):
 
         # Cloud save status
         cached_save = self.cloud_save_status_cache.get(game_id)
-        if game_id in self._cloud_auto_restore_in_flight:
+        if MainWindow._cloud_auto_sync_in_flight(self, game_id):
             cached_local = cached_save[1] if cached_save else None
             cached_cloud = cached_save[2] if cached_save else None
             detail_page.set_cloud_status(SyncStatus.SYNCING, cached_local, cached_cloud)
@@ -4599,8 +4590,8 @@ class MainWindow(QMainWindow):
             specs_by_key = {}
             for game in games:
                 game_id, _, path, _, _, _, steam_id = game[:7]
-                app_id = str(steam_id or "").strip()
-                if not app_id or app_id == "0":
+                app_id = normalize_steam_app_id(steam_id)
+                if not app_id:
                     continue
                 self.metadata_attempted_builds.discard(game_id)
                 local_build_id = game[11] if len(game) > 11 and game[11] else ""
@@ -4644,7 +4635,8 @@ class MainWindow(QMainWindow):
 
         for game in games:
             game_id, _, path, _, _, _, steam_id = game[:7]
-            if not steam_id or str(steam_id) == "0":
+            steam_id = normalize_steam_app_id(steam_id)
+            if not steam_id:
                 continue
             if any(isinstance(fetcher, SteamBuildFetcher) and fetcher.game_id == game_id for fetcher in self.metadata_fetchers):
                 continue
@@ -4685,7 +4677,8 @@ class MainWindow(QMainWindow):
         """
         if not self._automatic_network_allowed():
             return
-        if not steam_id or str(steam_id).strip() in ("", "0"):
+        steam_id = normalize_steam_app_id(steam_id)
+        if not steam_id:
             return
         if self.request_manager is not None:
             self.metadata_attempted_builds.add(game_id)
@@ -4722,7 +4715,7 @@ class MainWindow(QMainWindow):
         If neither exists, perform a real check but keep the local reference
         unresolved instead of treating the newest online build as installed.
         """
-        steam_id = str(steam_id or "").strip()
+        steam_id = normalize_steam_app_id(steam_id)
         build_id = str(build_id or "").strip()
         build_date = int(build_date or 0)
 
@@ -4802,8 +4795,8 @@ class MainWindow(QMainWindow):
         """Subscribe one game to a shared cached public Steam build."""
         if self.request_manager is None:
             return False
-        app_id = str(steam_id or "").strip()
-        if not app_id or app_id == "0":
+        app_id = normalize_steam_app_id(steam_id)
+        if not app_id:
             return False
         plan = self.steam_metadata_coordinator.prepare_build(
             game_id,
@@ -5095,7 +5088,7 @@ class MainWindow(QMainWindow):
                 self.lbl_detail_update.setStyleSheet("background: #3f3f46; color: #d4d4d8; border: 1px solid #71717a; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
                 self.lbl_detail_versions.setText(
                     "<table width='100%' cellspacing='0' cellpadding='1' style='margin:0; padding:0; border-collapse:collapse;'>"
-                    f"<tr><td align='left'><font color='#A7ADB8'>Version</font></td><td align='right'><b>{escape(str(self.selected_game[15] or 'Not set'))}</b></td></tr>"
+                    f"<tr><td align='left'><font color='#A7ADB8'>Display version</font></td><td align='right'><b>{escape(str(self.selected_game[15] or 'Not set'))}</b></td></tr>"
                     f"<tr><td align='left'><font color='#A7ADB8'>Steam AppID</font></td><td align='right'><b>{escape(steam_app_id)}</b></td></tr>"
                     f"<tr><td align='left'><font color='#A7ADB8'>Installed build</font></td><td align='right'><b>{escape(str(local_build_id))}</b>{local_build_found_suffix}</td></tr>"
                     f"<tr><td align='left'><font color='#A7ADB8'>Updated</font></td><td align='right'>{self._format_version_date(local_date)}</td></tr>"
@@ -5141,7 +5134,7 @@ class MainWindow(QMainWindow):
                 "<table width='100%' cellspacing='0' cellpadding='1' style='margin:0; padding:0; border-collapse:collapse;'>"
                 "<tr><td></td><td align='center'><font color='#6F7682'>LOCAL</font></td>"
                 "<td align='center'><font color='#6F7682'>STEAM</font></td></tr>"
-                f"<tr><td><font color='#A7ADB8'>Version</font></td><td align='center'><b>{escape(str(version_override))}</b></td>"
+                f"<tr><td><font color='#A7ADB8'>Display version</font></td><td align='center'><b>{escape(str(version_override))}</b></td>"
                 f"<td align='center'><font color='#6F7682'>—</font></td></tr>"
                 f"<tr><td><font color='#A7ADB8'>Steam AppID</font></td><td colspan='2' align='center'><b>{escape(steam_app_id)}</b></td></tr>"
                 f"<tr><td><font color='#A7ADB8'>Build</font></td><td align='center'><b>{escape(str(local_build_id))}</b>{local_build_found_suffix}</td>"
@@ -5219,7 +5212,7 @@ class MainWindow(QMainWindow):
             steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
             version_override = self.selected_game[15] if len(self.selected_game) > 15 and self.selected_game[15] else "Not set"
             self.lbl_detail_versions.setText(
-                f"<b>Version:</b> {escape(str(version_override))} &nbsp;·&nbsp; "
+                f"<b>Display version:</b> {escape(str(version_override))} &nbsp;·&nbsp; "
                 f"<b>Steam AppID:</b> {escape(steam_app_id)}<br>"
                 f"{escape(str(reason or 'Steam build check failed'))}"
             )
@@ -5288,7 +5281,7 @@ class MainWindow(QMainWindow):
             steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
             version_override = self.selected_game[15] if len(self.selected_game) > 15 and self.selected_game[15] else "Not set"
             self.lbl_detail_versions.setText(
-                f"<b>Version:</b> {escape(str(version_override))} &nbsp;·&nbsp; "
+                f"<b>Display version:</b> {escape(str(version_override))} &nbsp;·&nbsp; "
                 f"<b>Steam AppID:</b> {escape(steam_app_id)}<br>{escape(reason)}"
             )
             self.lbl_detail_versions.setToolTip(reason)
@@ -5530,7 +5523,13 @@ class MainWindow(QMainWindow):
 
             if hasattr(self, "detail_cloud_metadata"):
                 metadata_stats = (
-                    display_local if status == SyncStatus.LOCAL_NEWER else display_cloud
+                    display_local
+                    if status == SyncStatus.LOCAL_NEWER
+                    or (
+                        status == SyncStatus.SYNCING
+                        and int(game_id) in getattr(self, "_cloud_auto_upload_in_flight", {})
+                    )
+                    else display_cloud
                 )
                 if metadata_stats is not None and getattr(metadata_stats, "exists", False):
                     saved_at = format_datetime_timestamp(
@@ -5565,10 +5564,6 @@ class MainWindow(QMainWindow):
                     self.btn_detail_cloud_restore.show()
                 else:
                     self.btn_detail_cloud_restore.hide()
-                if actions_available and status == SyncStatus.LOCAL_NEWER:
-                    self.btn_detail_cloud_upload.show()
-                else:
-                    self.btn_detail_cloud_upload.hide()
 
     def _set_detail_cloud_checking(self) -> None:
         """Show a clear in-flight state while the selected save is probed."""
@@ -5581,14 +5576,6 @@ class MainWindow(QMainWindow):
             self.detail_cloud_metadata.setVisible(False)
         if hasattr(self, "btn_detail_cloud_restore"):
             self.btn_detail_cloud_restore.hide()
-        if hasattr(self, "btn_detail_cloud_upload"):
-            self.btn_detail_cloud_upload.hide()
-
-    def _upload_selected_game_cloud_save(self) -> None:
-        """Open Save Manager directly from the local-newer detail state."""
-        game = self.selected_game
-        if game:
-            self._open_save_manager_for_game(game)
 
     def _restore_selected_game_cloud_save(self):
         """Restore cloud save for the currently selected library game.
@@ -5827,6 +5814,12 @@ class MainWindow(QMainWindow):
         self._render_cloud_status(game_id, status, local_stats, cloud_stats)
         self._save_persistent_cache()
         if auto_sync:
+            self._maybe_auto_upload_cloud_save(
+                game_id,
+                status,
+                local_stats,
+                cloud_stats,
+            )
             self._maybe_auto_restore_cloud_save(
                 game_id,
                 status,
@@ -5857,7 +5850,7 @@ class MainWindow(QMainWindow):
         )
 
     def _set_cloud_syncing(self, game_id: int, local_stats=None, cloud_stats=None) -> None:
-        """Render a transient state while an automatic restore runs."""
+        """Render a transient state while an automatic cloud sync runs."""
         current = self.game_status_by_id.get(game_id, GameStatusState())
         local_stats = local_stats if local_stats is not None else current.local_stats
         cloud_stats = cloud_stats if cloud_stats is not None else current.cloud_stats
@@ -5878,6 +5871,133 @@ class MainWindow(QMainWindow):
         if hasattr(self, "btn_detail_launch"):
             self._update_detail_launch_button(game_id)
 
+    def _cloud_auto_sync_in_flight(self, game_id: int) -> bool:
+        """Return whether an automatic upload or restore owns this game's save."""
+        return (
+            int(game_id) in getattr(self, "_cloud_auto_restore_in_flight", {})
+            or int(game_id) in getattr(self, "_cloud_auto_upload_in_flight", {})
+        )
+
+    def _maybe_auto_upload_cloud_save(
+        self,
+        game_id: int,
+        status,
+        local_stats=None,
+        cloud_stats=None,
+    ) -> None:
+        """Upload a newer local save automatically once the game is stopped."""
+        if status != SyncStatus.LOCAL_NEWER:
+            return
+        if game_id in self.running_game_ids:
+            return
+        if not self._automatic_network_allowed():
+            return
+        if MainWindow._cloud_auto_sync_in_flight(self, game_id):
+            return
+        game = self.games_by_id.get(game_id)
+        if not game:
+            return
+
+        active_operations = self.cloud_operation_service.active_operations()
+        if any(
+            record.game_id == int(game_id)
+            and (
+                str(record.operation).startswith("restore")
+                or record.operation in {"exit-sync", "prelaunch", "upload"}
+            )
+            for record in active_operations
+        ):
+            return
+
+        game_name = str(game[1] if len(game) > 1 else "")
+        game_path = str(game[2] if len(game) > 2 else "")
+        steam_id = str(game[6] if len(game) > 6 and game[6] else "")
+        generation = self.cloud_sync_coordinator.generation
+        marker = (generation, "upload")
+        self._cloud_auto_upload_in_flight[int(game_id)] = marker
+        self._set_cloud_syncing(game_id, local_stats, cloud_stats)
+        target = CloudOperationTarget(int(game_id), game_name, game_path, steam_id)
+        try:
+            handle = self.cloud_operation_service.request_upload(
+                target,
+                priority=RequestPriority.BACKGROUND,
+                generation=generation,
+                tag="automatic-cloud-upload",
+            )
+        except Exception as exc:
+            logger.exception("Unable to queue automatic cloud upload for game %s", game_id)
+            self._cloud_auto_upload_done.emit({
+                "game_id": int(game_id),
+                "game_name": game_name,
+                "generation": generation,
+                "success": False,
+                "error": str(exc),
+                "guidance": "Check the cloud connection and try again.",
+            })
+            return
+
+        def _deliver(future):
+            from core.cloud_operations import CloudOperationResult
+            try:
+                resource = future.result()
+                result = resource.value if resource.status == ResourceStatus.READY else None
+                error = str(resource.error or "") if result is None else ""
+            except Exception as exc:
+                result = None
+                error = str(exc)
+            if not isinstance(result, CloudOperationResult):
+                self._cloud_auto_upload_done.emit({
+                    "game_id": int(game_id),
+                    "game_name": game_name,
+                    "generation": generation,
+                    "success": False,
+                    "error": error or "Cloud upload failed.",
+                    "guidance": "Check the cloud connection and try again.",
+                })
+                return
+            self._cloud_auto_upload_done.emit({
+                "game_id": int(game_id),
+                "game_name": game_name,
+                "generation": generation,
+                "success": bool(result.success),
+                "error": str(result.error or ""),
+                "guidance": str(result.guidance or ""),
+            })
+
+        handle.future.add_done_callback(_deliver)
+
+    def _on_cloud_auto_upload_done(self, payload: object) -> None:
+        """Finish an automatic upload and re-derive the authoritative status."""
+        if not isinstance(payload, dict):
+            return
+        game_id = int(payload.get("game_id", 0) or 0)
+        marker = self._cloud_auto_upload_in_flight.get(game_id)
+        expected = (int(payload.get("generation", -1)), "upload")
+        if marker != expected:
+            return
+        self._cloud_auto_upload_in_flight.pop(game_id, None)
+        self._update_detail_launch_button(game_id)
+        if not self.cloud_sync_coordinator.accepts(expected[0]):
+            return
+
+        game_name = str(payload.get("game_name", "this game"))
+        if payload.get("success"):
+            self._show_toast(f"Local save synced to cloud for '{game_name}'.")
+            self.request_cloud_recheck(
+                [game_id],
+                "automatic-upload-complete",
+                auto_sync=True,
+            )
+            return
+
+        message = str(payload.get("error") or "Cloud upload failed.")
+        guidance = str(payload.get("guidance") or "")
+        self._show_toast(
+            f"{message} Local save preserved. {guidance}".strip(),
+            is_error=True,
+        )
+        self.request_cloud_recheck([game_id], "automatic-upload-failed")
+
     def _maybe_auto_restore_cloud_save(
         self,
         game_id: int,
@@ -5892,7 +6012,7 @@ class MainWindow(QMainWindow):
             return
         if not self._automatic_network_allowed():
             return
-        if game_id in self._cloud_auto_restore_in_flight:
+        if MainWindow._cloud_auto_sync_in_flight(self, game_id):
             return
         game = self.games_by_id.get(game_id)
         if not game:
@@ -6018,6 +6138,7 @@ class MainWindow(QMainWindow):
             return
 
         game_id, name, path, exe, mode, banner_url, steam_id = game[:7]
+        steam_id = normalize_steam_app_id(steam_id)
         playtime_seconds = game[7] if len(game) > 7 and game[7] else 0
         is_fav = bool(game[8]) if len(game) > 8 and game[8] else False
         last_played_ts = game[9] if len(game) > 9 and game[9] else 0
@@ -6099,7 +6220,7 @@ class MainWindow(QMainWindow):
             cached_save = self.cloud_save_status_cache.get(game_id)
             is_stale = False
 
-        if game_id in self._cloud_auto_restore_in_flight:
+        if MainWindow._cloud_auto_sync_in_flight(self, game_id):
             cached_local = cached_save[1] if cached_save else None
             cached_cloud = cached_save[2] if cached_save else None
             self._render_cloud_status(
@@ -6139,7 +6260,7 @@ class MainWindow(QMainWindow):
             SyncStatus.CLOUD_OFFLINE,
             SyncStatus.CLOUD_UNAVAILABLE,
         }
-        if network_allowed and not cloud_auth_required and game_id not in self._cloud_auto_restore_in_flight and (
+        if network_allowed and not cloud_auth_required and not MainWindow._cloud_auto_sync_in_flight(self, game_id) and (
             cached_save is None or is_stale or cloud_status_needs_refresh
         ):
             self._set_detail_cloud_checking()
@@ -6179,7 +6300,8 @@ class MainWindow(QMainWindow):
         steam_last_checked = self.library_metadata_state.steam_build_checked_at.get(game_id, 0)
         steam_is_stale = (now - steam_last_checked) > 7200  # 2 hours
 
-        if (network_allowed and steam_id and steam_id != "0"
+        steam_id = normalize_steam_app_id(steam_id)
+        if (network_allowed and steam_id
                 and (game_id not in self.metadata_attempted_builds or steam_is_stale)
                 and (
                     self.request_manager is not None
@@ -6236,7 +6358,7 @@ class MainWindow(QMainWindow):
             self._update_tags_pills(tags_list)
         # Existing cached tags must not prevent resolving the Steam AppID:
         # UMU needs GAMEID=umu-<appid> for Steamworks/protonfixes games.
-        if network_allowed and (not steam_id or str(steam_id) == "0"):
+        if network_allowed and not steam_id:
             if game_id not in self.metadata_attempted_tags and (
                 self.request_manager is not None
                 or not any(
@@ -6334,7 +6456,7 @@ class MainWindow(QMainWindow):
             return
 
         if (
-            game_id in self._cloud_auto_restore_in_flight
+            MainWindow._cloud_auto_sync_in_flight(self, game_id)
             and game_id not in self.running_game_ids
         ):
             self.btn_detail_launch.setText("Syncing Cloud Save…")
@@ -6444,7 +6566,7 @@ class MainWindow(QMainWindow):
     def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True, disable_performance: bool = False):
         """Helper to launch a game directly with the chosen mode"""
         logger.info(f"Initiating launch for Game ID {game_id}: exe='{exe}', mode='{selected_mode}', path='{path}'")
-        if game_id in self._cloud_auto_restore_in_flight:
+        if MainWindow._cloud_auto_sync_in_flight(self, game_id):
             self._show_toast("Please wait for the cloud save to finish syncing.")
             return
         if not path or not os.path.exists(path):
@@ -8190,10 +8312,10 @@ class MainWindow(QMainWindow):
 
     def _on_cloud_batch_finished(self, uploaded: list, newer_in_cloud: list):
         """GUI-thread slot when library background cloud batch queue completes."""
-        if uploaded and not newer_in_cloud:
-            names = ", ".join(uploaded[:2])
-            extra = f" (+{len(uploaded)-2} more)" if len(uploaded) > 2 else ""
-            self._show_toast(f"Cloud Sync: Local save(s) ready to sync: {names}{extra}.")
+        # Uploads and restores are now queued automatically by each terminal
+        # status callback. The operation completion handler owns user feedback;
+        # this batch-level hook deliberately stays quiet to avoid stale
+        # "ready to sync" messages after an operation has already started.
 
     def _start_cloud_poll_timer(self):
         """Start service-owned periodic listing checks.
@@ -9190,7 +9312,6 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.setTitle(str(game[1]))
         for name, label, icon_name in (
-            ("upload", "Upload local save", "ph.cloud-arrow-up-bold"),
             ("restore", "Restore latest cloud save", "ph.cloud-arrow-down-bold"),
             ("history", "Open Game Properties", "ph.clock-counter-clockwise-bold"),
             ("resolve", "Resolve conflict", "ph.warning-bold"),
@@ -9219,8 +9340,7 @@ class MainWindow(QMainWindow):
         """Make the rendered cloud badge an actionable library control."""
         cached = self.cloud_save_status_cache.get(int(game_id))
         status = cached[0] if cached else None
-        action = "upload" if status == SyncStatus.LOCAL_NEWER else "history"
-        self._on_game_cloud_action(int(game_id), action)
+        self._on_game_cloud_action(int(game_id), "history")
 
     def _on_game_cloud_action(self, game_id: int, action: str) -> None:
         """Route per-game commands after the originating menu has closed.

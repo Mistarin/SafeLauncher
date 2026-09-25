@@ -11,6 +11,7 @@ from typing import Any
 import requests
 
 from core.request_contracts import classify_remote_error
+from core.steam_ids import normalize_steam_app_id
 
 
 class SteamClientError(RuntimeError):
@@ -55,7 +56,9 @@ class SteamClient:
             response.close()
 
     def app_details(self, app_id: str | int, *, timeout: float = 8) -> dict[str, Any]:
-        app_id = str(app_id).strip()
+        app_id = normalize_steam_app_id(app_id)
+        if not app_id:
+            raise SteamClientError("Steam app details requires a numeric AppID")
         response = self.session.get(self.APP_DETAILS_URL, params={"appids": app_id}, timeout=timeout)
         try:
             if response.status_code != 200:
@@ -87,7 +90,9 @@ class SteamClient:
         return result, app_id
 
     def public_build(self, app_id: str | int, *, timeout: float = 12) -> tuple[str, int]:
-        app_id = str(app_id).strip()
+        app_id = normalize_steam_app_id(app_id)
+        if not app_id:
+            raise SteamClientError("Steam build metadata requires a numeric AppID")
         response = self.session.get(f"{self.BUILD_INFO_URL}/{app_id}", timeout=timeout)
         try:
             if response.status_code != 200:

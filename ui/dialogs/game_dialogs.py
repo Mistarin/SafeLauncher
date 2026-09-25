@@ -8,8 +8,8 @@ from PyQt6.QtWidgets import (
     QCheckBox, QStackedWidget, QPlainTextEdit, QGraphicsOpacityEffect, QApplication,
     QGridLayout, QScrollArea, QDateEdit, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QSize, QPoint, QDate, QEvent, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QUrl
-from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QMovie, QDesktopServices, QPainterPath
+from PyQt6.QtCore import Qt, QSize, QPoint, QDate, QEvent, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QUrl, QRegularExpression
+from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QMovie, QDesktopServices, QPainterPath, QRegularExpressionValidator
 
 from core.steamgriddb_client import SteamGridDBClient
 from core.artwork_resource_service import ArtworkResourceService
@@ -22,6 +22,7 @@ from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+from core.steam_ids import normalize_steam_app_id
 from core.cache_policy import cache_policy
 from ui.resource_binding import ResourceBinding, bind_resource
 
@@ -171,6 +172,9 @@ class AddGameDialog(PopupDialog):
 
         self.steam_id_input = QLineEdit()
         self.steam_id_input.setPlaceholderText("Optional Steam AppID, e.g. 1321440")
+        self.steam_id_input.setValidator(
+            QRegularExpressionValidator(QRegularExpression(r"^(|[1-9][0-9]{0,9})$"), self.steam_id_input)
+        )
         self.steam_id_input.setMinimumHeight(36)
         form_layout.addRow("Steam AppID:", self.steam_id_input)
 
@@ -792,7 +796,7 @@ class AddGameDialog(PopupDialog):
         if not self._validate_form():
             return
         self._form_result = self._read_form_values()
-        self._steam_id_result = self.steam_id_input.text().strip()
+        self._steam_id_result = normalize_steam_app_id(self.steam_id_input.text())
         self._version_result = (
             self.version_input.text().strip(),
             self.patch_notes_input.text().strip(),
@@ -848,7 +852,8 @@ class AddGameDialog(PopupDialog):
 
     def get_steam_id(self) -> str:
         """Return the manually entered or automatically selected Steam AppID."""
-        return self._steam_id_result if self._steam_id_result is not None else self.steam_id_input.text().strip()
+        value = self._steam_id_result if self._steam_id_result is not None else self.steam_id_input.text()
+        return normalize_steam_app_id(value)
 
     def get_version_metadata(self) -> tuple[str, str]:
         if self._version_result is not None:

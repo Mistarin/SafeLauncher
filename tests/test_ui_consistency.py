@@ -210,7 +210,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
                     Qt.KeyboardModifier.ControlModifier,
                 )
             )
-            self.assertEqual(actions, [(1, "upload")])
+            self.assertEqual(actions, [])
         finally:
             grid.deleteLater()
             self.app.processEvents()
@@ -290,6 +290,61 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
 
         fake.cloud_operation_service.request_restore.assert_not_called()
 
+    def test_background_cloud_upload_enters_syncing_and_is_automatic(self):
+        upload = Mock()
+        upload.future = SimpleNamespace(add_done_callback=Mock())
+        fake = SimpleNamespace(
+            running_game_ids=set(),
+            _cloud_auto_restore_in_flight={},
+            _cloud_auto_upload_in_flight={},
+            games_by_id={7: (7, "Example", "/saves/example", "game.exe", "umu", "", "480")},
+            game_status_by_id={},
+            cloud_operation_service=SimpleNamespace(
+                active_operations=Mock(return_value=[]),
+                request_upload=Mock(return_value=upload),
+            ),
+            cloud_sync_coordinator=SimpleNamespace(generation=4),
+            _automatic_network_allowed=Mock(return_value=True),
+            _render_cloud_status=Mock(),
+            _update_detail_launch_button=Mock(),
+        )
+        fake._set_cloud_syncing = MainWindow._set_cloud_syncing.__get__(fake)
+
+        MainWindow._maybe_auto_upload_cloud_save(
+            fake,
+            7,
+            SyncStatus.LOCAL_NEWER,
+            SaveStats(exists=True, last_modified=100, device_name="Desktop"),
+            SaveStats(exists=True, cloud_version=11),
+        )
+
+        self.assertEqual(fake.game_status_by_id[7].cloud_status, SyncStatus.SYNCING)
+        fake.cloud_operation_service.request_upload.assert_called_once()
+        self.assertEqual(
+            fake.cloud_operation_service.request_upload.call_args.kwargs["tag"],
+            "automatic-cloud-upload",
+        )
+        upload.future.add_done_callback.assert_called_once()
+
+    def test_background_cloud_upload_success_rechecks(self):
+        fake = SimpleNamespace(
+            _cloud_auto_upload_in_flight={7: (4, "upload")},
+            cloud_sync_coordinator=SimpleNamespace(accepts=Mock(return_value=True)),
+            _update_detail_launch_button=Mock(),
+            _show_toast=Mock(),
+            request_cloud_recheck=Mock(),
+        )
+        MainWindow._on_cloud_auto_upload_done(fake, {
+            "game_id": 7,
+            "game_name": "Example",
+            "generation": 4,
+            "success": True,
+        })
+        self.assertNotIn(7, fake._cloud_auto_upload_in_flight)
+        fake.request_cloud_recheck.assert_called_once_with(
+            [7], "automatic-upload-complete", auto_sync=True
+        )
+
     def test_background_cloud_restore_failure_rechecks_without_retry_loop(self):
         fake = SimpleNamespace(
             _cloud_auto_restore_in_flight={7: (4, 12)},
@@ -357,10 +412,10 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             item = grid.model.item(0, 0)
             tooltip = str(item.data(Qt.ItemDataRole.ToolTipRole))
             accessible = str(item.data(Qt.ItemDataRole.AccessibleTextRole))
-            self.assertIn("ready to upload", tooltip.lower())
-            self.assertIn("ctrl+u", tooltip.lower())
+            self.assertIn("automatically", tooltip.lower())
+            self.assertNotIn("ctrl+u", tooltip.lower())
             self.assertIn("Test Game", accessible)
-            self.assertIn("ctrl+u", accessible.lower())
+            self.assertIn("automatically", accessible.lower())
         finally:
             grid.deleteLater()
             self.app.processEvents()

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T22:07:39+00:00",
+  "generated_at": "2026-09-25T19:52:01+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -224,81 +224,159 @@
       "name": "CloudAccountServiceTests"
     },
     {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test",
+      "line": 72,
+      "name": "test_connected_probe_uses_auth_headers_and_reports_latency"
+    },
+    {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test",
+      "line": 95,
+      "name": "test_probe_normalizes_convex_cloud_to_convex_site"
+    },
+    {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test",
+      "line": 114,
+      "name": "test_missing_health_version_falls_back_to_version_endpoint"
+    },
+    {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test",
+      "line": 131,
+      "name": "test_malformed_health_and_version_responses_use_safe_fallback"
+    },
+    {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test",
+      "line": 146,
+      "name": "test_legacy_backend_is_healthy_but_identified_as_legacy"
+    },
+    {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test",
+      "line": 157,
+      "name": "test_auth_and_server_failures_have_distinct_statuses"
+    },
+    {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test",
+      "line": 170,
+      "name": "test_empty_endpoint_is_unconfigured_without_transport_call"
+    },
+    {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test",
+      "line": 181,
+      "name": "test_transport_exception_is_reported_as_unreachable"
+    },
+    {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test",
+      "line": 201,
+      "name": "test_health_and_version_response_objects_are_always_closed"
+    },
+    {
+      "file": "tests/test_cloud_backend_health.py",
+      "kind": "test_class",
+      "line": 57,
+      "name": "CloudBackendHealthTests"
+    },
+    {
       "file": "tests/test_cloud_center_service.py",
       "kind": "test",
-      "line": 107,
+      "line": 112,
       "name": "test_overview_is_composed_and_cached_without_secret_or_endpoint_in_key"
     },
     {
       "file": "tests/test_cloud_center_service.py",
       "kind": "test",
-      "line": 133,
+      "line": 138,
       "name": "test_offline_context_returns_local_state_without_transport_call"
     },
     {
       "file": "tests/test_cloud_center_service.py",
       "kind": "test",
-      "line": 148,
+      "line": 153,
       "name": "test_sync_delegates_to_managed_metadata_service"
     },
     {
       "file": "tests/test_cloud_center_service.py",
       "kind": "test",
-      "line": 166,
+      "line": 171,
       "name": "test_history_and_probe_are_managed_and_redacted"
     },
     {
       "file": "tests/test_cloud_center_service.py",
       "kind": "test",
-      "line": 193,
+      "line": 198,
       "name": "test_detailed_history_and_operations_delegate_through_facade"
     },
     {
       "file": "tests/test_cloud_center_service.py",
+      "kind": "test",
+      "line": 226,
+      "name": "test_successful_upload_invalidates_per_game_status"
+    },
+    {
+      "file": "tests/test_cloud_center_service.py",
       "kind": "test_class",
-      "line": 82,
+      "line": 87,
       "name": "CloudCenterServiceTests"
     },
     {
       "file": "tests/test_cloud_dialog_workflows.py",
       "kind": "test",
-      "line": 48,
+      "line": 49,
       "name": "test_cloud_center_uses_shared_status_and_safe_focus"
     },
     {
       "file": "tests/test_cloud_dialog_workflows.py",
       "kind": "test",
-      "line": 67,
+      "line": 68,
       "name": "test_late_cloud_transport_error_is_presented_as_offline"
     },
     {
       "file": "tests/test_cloud_dialog_workflows.py",
       "kind": "test",
-      "line": 85,
+      "line": 86,
       "name": "test_successful_probe_refreshes_overview_and_notifies_shell"
     },
     {
       "file": "tests/test_cloud_dialog_workflows.py",
       "kind": "test",
-      "line": 107,
+      "line": 108,
       "name": "test_account_dialog_uses_shared_status_and_safe_focus"
     },
     {
       "file": "tests/test_cloud_dialog_workflows.py",
       "kind": "test",
-      "line": 119,
+      "line": 120,
       "name": "test_save_manager_standardizes_actions_and_hides_paths"
     },
     {
       "file": "tests/test_cloud_dialog_workflows.py",
       "kind": "test",
-      "line": 136,
+      "line": 146,
+      "name": "test_save_manager_shows_local_save_time_and_device"
+    },
+    {
+      "file": "tests/test_cloud_dialog_workflows.py",
+      "kind": "test",
+      "line": 169,
       "name": "test_game_properties_hides_paths_and_uses_shared_status"
     },
     {
       "file": "tests/test_cloud_dialog_workflows.py",
+      "kind": "test",
+      "line": 182,
+      "name": "test_game_properties_latest_restore_uses_newest_content_version"
+    },
+    {
+      "file": "tests/test_cloud_dialog_workflows.py",
       "kind": "test_class",
-      "line": 39,
+      "line": 41,
       "name": "CloudDialogWorkflowTests"
     },
     {
@@ -340,92 +418,152 @@
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 117,
+      "line": 129,
       "name": "test_upload_is_manager_backed_and_typed"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 140,
+      "line": 152,
+      "name": "test_coordinator_upload_accepts_and_forwards_progress_callback"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 177,
       "name": "test_exit_sync_service_normalizes_operation_payload"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 162,
+      "line": 199,
       "name": "test_failed_operation_records_shared_error_category"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 179,
+      "line": 216,
       "name": "test_identical_mutation_requests_are_deduplicated"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 198,
+      "line": 235,
       "name": "test_deduplicated_mutation_notifies_read_invalidator_once"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 220,
-      "name": "test_preflight_resolution_keeps_conflict_decision_typed"
-    },
-    {
-      "file": "tests/test_cloud_operation_service.py",
-      "kind": "test",
-      "line": 238,
-      "name": "test_restore_preflight_exposes_metadata_without_mutating_local_saves"
-    },
-    {
-      "file": "tests/test_cloud_operation_service.py",
-      "kind": "test",
       "line": 257,
-      "name": "test_legacy_restore_with_preflight_is_read_only"
+      "name": "test_preflight_resolution_automatically_restores_newest_cloud_save"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 273,
-      "name": "test_auto_prefer_newer_runs_restore_inside_managed_request"
+      "line": 275,
+      "name": "test_restore_forwards_explicit_selected_cloud_version"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
       "line": 292,
+      "name": "test_restore_preflight_exposes_metadata_without_mutating_local_saves"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 311,
+      "name": "test_legacy_restore_with_preflight_is_read_only"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 327,
+      "name": "test_auto_prefer_newer_runs_restore_inside_managed_request"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 346,
       "name": "test_exit_sync_checks_then_uploads_local_newer_save"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 308,
+      "line": 362,
+      "name": "test_exit_sync_restores_newest_cloud_save_when_cloud_wins"
+    },
+    {
+      "file": "tests/test_cloud_operation_service.py",
+      "kind": "test",
+      "line": 380,
       "name": "test_operation_progress_is_bounded_and_stops_after_completion"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 326,
+      "line": 398,
       "name": "test_engine_progress_is_recorded_without_save_payloads"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 344,
+      "line": 416,
       "name": "test_cancelled_cooperative_operation_has_cancelled_terminal_record"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test",
-      "line": 364,
+      "line": 436,
       "name": "test_domain_failure_is_not_reported_as_completed_request"
     },
     {
       "file": "tests/test_cloud_operation_service.py",
       "kind": "test_class",
-      "line": 103,
+      "line": 115,
       "name": "CloudOperationServiceTests"
+    },
+    {
+      "file": "tests/test_cloud_save_flow.py",
+      "kind": "test",
+      "line": 16,
+      "name": "test_upload_body_uses_content_length_without_chunked_transfer"
+    },
+    {
+      "file": "tests/test_cloud_save_flow.py",
+      "kind": "test",
+      "line": 34,
+      "name": "test_streaming_envelope_round_trip_does_not_require_whole_archive"
+    },
+    {
+      "file": "tests/test_cloud_save_flow.py",
+      "kind": "test",
+      "line": 51,
+      "name": "test_repository_reuses_existing_legacy_key"
+    },
+    {
+      "file": "tests/test_cloud_save_flow.py",
+      "kind": "test",
+      "line": 61,
+      "name": "test_local_mode_name_resolution_never_fetches_remote_listing"
+    },
+    {
+      "file": "tests/test_cloud_save_flow.py",
+      "kind": "test",
+      "line": 67,
+      "name": "test_remote_stats_uses_version_file_count_not_version_count"
+    },
+    {
+      "file": "tests/test_cloud_save_flow.py",
+      "kind": "test",
+      "line": 88,
+      "name": "test_remote_stats_selects_newest_content_timestamp_across_devices"
+    },
+    {
+      "file": "tests/test_cloud_save_flow.py",
+      "kind": "test_class",
+      "line": 13,
+      "name": "CloudSaveFlowTests"
     },
     {
       "file": "tests/test_cloud_status_polling_service.py",
@@ -527,30 +665,36 @@
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
       "line": 416,
+      "name": "test_forced_changed_listing_revalidates_without_discarding_cache_contract"
+    },
+    {
+      "file": "tests/test_cloud_status_service.py",
+      "kind": "test",
+      "line": 463,
       "name": "test_record_status_accepts_explicit_context_generation"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 439,
+      "line": 486,
       "name": "test_forget_status_keeps_cache_ownership_in_service"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 455,
+      "line": 502,
       "name": "test_recheck_planning_prioritizes_uncached_then_offline_then_stale"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 476,
+      "line": 523,
       "name": "test_recheck_planning_prioritizes_unavailable_backend_statuses"
     },
     {
       "file": "tests/test_cloud_status_service.py",
       "kind": "test",
-      "line": 497,
+      "line": 544,
       "name": "test_changed_listing_is_manager_backed_and_deduplicated"
     },
     {
@@ -617,18 +761,30 @@
       "file": "tests/test_cloud_ui.py",
       "kind": "test",
       "line": 171,
+      "name": "test_history_is_grouped_by_upload_device"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 200,
+      "name": "test_history_shows_registered_devices_without_versions"
+    },
+    {
+      "file": "tests/test_cloud_ui.py",
+      "kind": "test",
+      "line": 245,
       "name": "test_shared_cloud_status_panel_covers_all_states_with_text"
     },
     {
       "file": "tests/test_cloud_ui.py",
       "kind": "test",
-      "line": 191,
+      "line": 265,
       "name": "test_cloud_focus_order_is_explicit_and_recorded"
     },
     {
       "file": "tests/test_cloud_ui.py",
       "kind": "test",
-      "line": 201,
+      "line": 275,
       "name": "test_cloud_initial_focus_uses_a_safe_primary_control"
     },
     {
@@ -672,6 +828,18 @@
       "kind": "test_class",
       "line": 17,
       "name": "CrossDeviceLibraryMatrixTests"
+    },
+    {
+      "file": "tests/test_firejail_network_policy.py",
+      "kind": "test",
+      "line": 15,
+      "name": "test_umu_standard_keeps_host_networking_for_umu_loopback"
+    },
+    {
+      "file": "tests/test_firejail_network_policy.py",
+      "kind": "test_class",
+      "line": 12,
+      "name": "FirejailNetworkPolicyTests"
     },
     {
       "file": "tests/test_game_name_resolution.py",
@@ -762,6 +930,12 @@
       "kind": "test",
       "line": 20,
       "name": "test_explicit_offline_status_explains_when_it_will_be_checked_again"
+    },
+    {
+      "file": "tests/test_game_status.py",
+      "kind": "test",
+      "line": 27,
+      "name": "test_syncing_status_is_explicit_and_actionable"
     },
     {
       "file": "tests/test_game_status.py",
@@ -988,43 +1162,49 @@
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
-      "line": 39,
+      "line": 41,
       "name": "test_connectivity_probe_returns_safe_failure_for_transport_error"
     },
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
-      "line": 50,
+      "line": 52,
       "name": "test_persisted_setting_round_trip"
     },
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
-      "line": 58,
+      "line": 60,
       "name": "test_environment_override_blocks_automatic_work"
     },
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
-      "line": 64,
+      "line": 66,
       "name": "test_test_mode_blocks_network_without_changing_user_setting"
     },
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
-      "line": 70,
+      "line": 72,
       "name": "test_telemetry_does_not_open_http_in_offline_mode"
     },
     {
       "file": "tests/test_network_policy.py",
       "kind": "test",
-      "line": 79,
+      "line": 81,
       "name": "test_ludusavi_does_not_download_in_offline_mode"
     },
     {
       "file": "tests/test_network_policy.py",
+      "kind": "test",
+      "line": 98,
+      "name": "test_managed_ludusavi_repairs_missing_execute_bit"
+    },
+    {
+      "file": "tests/test_network_policy.py",
       "kind": "test_class",
-      "line": 36,
+      "line": 38,
       "name": "NetworkPolicyTests"
     },
     {
@@ -1072,19 +1252,19 @@
     {
       "file": "tests/test_offline_update_status.py",
       "kind": "test",
-      "line": 174,
+      "line": 178,
       "name": "test_detail_cloud_panel_has_explicit_checking_state"
     },
     {
       "file": "tests/test_offline_update_status.py",
       "kind": "test",
-      "line": 190,
+      "line": 194,
       "name": "test_managed_cloud_error_resolves_detail_to_unavailable"
     },
     {
       "file": "tests/test_offline_update_status.py",
       "kind": "test",
-      "line": 215,
+      "line": 219,
       "name": "test_managed_cloud_status_fans_out_to_detail_and_library"
     },
     {
@@ -1840,79 +2020,79 @@
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 376,
+      "line": 386,
       "name": "test_manager_cancel_detaches_projection_for_resource_bindings"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 391,
+      "line": 401,
       "name": "test_invalidating_source_retires_all_projections"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 411,
+      "line": 431,
       "name": "test_manager_invalidate_evicts_shared_cache"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 423,
+      "line": 443,
       "name": "test_invalidate_allows_default_generation_refresh"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 451,
+      "line": 471,
       "name": "test_cache_metrics_distinguish_fresh_hit_and_miss"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 477,
+      "line": 497,
       "name": "test_metrics_capture_deduplication_and_completion"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 495,
+      "line": 515,
       "name": "test_cooperative_request_timeout_is_reported"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 518,
+      "line": 538,
       "name": "test_timeout_budget_starts_when_queued_request_begins"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 553,
+      "line": 573,
       "name": "test_queued_cancellation_still_prevents_loader_execution"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 583,
+      "line": 603,
       "name": "test_shutdown_cancels_active_cooperative_request"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 596,
+      "line": 616,
       "name": "test_cancel_interrupts_retry_backoff"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 615,
+      "line": 635,
       "name": "test_cancellation_and_newer_generation_suppress_stale_listener"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 639,
+      "line": 659,
       "name": "test_late_superseded_result_cannot_overwrite_newer_state"
     },
     {
@@ -2098,56 +2278,122 @@
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 11,
+      "line": 15,
+      "name": "test_device_section_uses_upload_device"
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "kind": "test",
+      "line": 24,
+      "name": "test_device_section_falls_back_for_legacy_and_local_records"
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "kind": "test",
+      "line": 28,
+      "name": "test_registered_device_label_accepts_cloud_api_shapes"
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "kind": "test",
+      "line": 33,
       "name": "test_explicit_creation_and_upload_devices_are_distinguished"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 25,
+      "line": 48,
       "name": "test_single_compatibility_device_is_used_for_both_roles"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 31,
+      "line": 54,
       "name": "test_legacy_cloud_entry_does_not_render_an_opaque_id"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 37,
+      "line": 60,
       "name": "test_local_fork_is_identified_as_local"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 40,
+      "line": 63,
       "name": "test_device_name_is_single_line_and_bounded"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 46,
+      "line": 69,
       "name": "test_history_prefers_upload_time_then_creation_time"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 54,
+      "line": 77,
       "name": "test_cloud_and_local_entries_share_one_stable_timeline"
     },
     {
       "file": "tests/test_save_history.py",
       "kind": "test",
-      "line": 65,
+      "line": 88,
       "name": "test_missing_timestamp_is_sorted_after_dated_entries"
     },
     {
       "file": "tests/test_save_history.py",
+      "kind": "test",
+      "line": 96,
+      "name": "test_newest_cloud_version_uses_content_time_across_devices"
+    },
+    {
+      "file": "tests/test_save_history.py",
+      "kind": "test",
+      "line": 117,
+      "name": "test_newest_cloud_version_falls_back_to_upload_time_for_legacy_data"
+    },
+    {
+      "file": "tests/test_save_history.py",
       "kind": "test_class",
-      "line": 8,
+      "line": 12,
       "name": "SaveHistoryDeviceTests"
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
+      "kind": "test",
+      "line": 15,
+      "name": "test_restore_creates_backup_before_replacing_local_files"
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
+      "kind": "test",
+      "line": 47,
+      "name": "test_backup_failure_does_not_replace_local_files"
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
+      "kind": "test",
+      "line": 78,
+      "name": "test_import_rejects_duplicate_destination_members"
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
+      "kind": "test",
+      "line": 87,
+      "name": "test_manifest_restore_accepts_identical_overlapping_locations"
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
+      "kind": "test",
+      "line": 113,
+      "name": "test_restore_plan_rejects_changed_archive_before_backup"
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
+      "kind": "test_class",
+      "line": 10,
+      "name": "SaveRestoreSafetyTests"
     },
     {
       "file": "tests/test_security_and_threads.py",
@@ -2229,98 +2475,164 @@
     },
     {
       "file": "tests/test_steam_client.py",
+      "kind": "test",
+      "line": 66,
+      "name": "test_invalid_appid_is_rejected_before_http"
+    },
+    {
+      "file": "tests/test_steam_client.py",
       "kind": "test_class",
       "line": 33,
       "name": "SteamClientTests"
     },
     {
+      "file": "tests/test_steam_ids.py",
+      "kind": "test",
+      "line": 14,
+      "name": "test_normalize_accepts_decimal_ids_and_rejects_placeholders"
+    },
+    {
+      "file": "tests/test_steam_ids.py",
+      "kind": "test",
+      "line": 19,
+      "name": "test_manifest_can_be_found_in_standard_steam_library_root"
+    },
+    {
+      "file": "tests/test_steam_ids.py",
+      "kind": "test_class",
+      "line": 11,
+      "name": "SteamIdTests"
+    },
+    {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 27,
+      "line": 29,
       "name": "test_property_form_aligns_labels_and_expands_fields"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 42,
+      "line": 44,
       "name": "test_info_hint_is_muted_and_accessible"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 56,
+      "line": 58,
       "name": "test_settings_uses_shared_section_surfaces_and_contrasting_fields"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 74,
+      "line": 76,
       "name": "test_cloud_settings_routes_account_work_to_cloud_center"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 89,
+      "line": 92,
       "name": "test_cloud_backend_selector_does_not_persist_until_save"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 104,
+      "line": 107,
       "name": "test_add_game_keeps_invalid_form_open"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 117,
+      "line": 120,
       "name": "test_add_game_button_checked_payload_is_not_treated_as_collection"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 146,
+      "line": 149,
       "name": "test_header_view_menu_exposes_only_library_profile_and_friends"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 162,
+      "line": 165,
       "name": "test_social_navigation_is_not_duplicated_in_identity_menu"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 177,
+      "line": 180,
       "name": "test_cloud_badge_is_an_actionable_control"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 190,
+      "line": 193,
       "name": "test_virtual_grid_exposes_upload_shortcut_for_selected_game"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 214,
+      "line": 217,
+      "name": "test_game_detail_shows_cloud_save_time_and_device"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 232,
+      "name": "test_background_cloud_restore_enters_syncing_and_targets_version"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 270,
+      "name": "test_background_cloud_restore_is_deferred_while_game_runs"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 292,
+      "name": "test_background_cloud_upload_enters_syncing_and_is_automatic"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 328,
+      "name": "test_background_cloud_upload_success_rechecks"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 347,
+      "name": "test_background_cloud_restore_failure_rechecks_without_retry_loop"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 374,
+      "name": "test_background_cloud_restore_success_rechecks_and_allows_convergence"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 403,
       "name": "test_virtual_grid_exposes_cloud_tooltip_and_accessible_text"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 233,
+      "line": 422,
       "name": "test_cloud_action_is_deferred_until_menu_event_finishes"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 244,
+      "line": 433,
       "name": "test_launch_failure_actions_reflow_without_gaps"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test_class",
-      "line": 21,
+      "line": 23,
       "name": "PopupPropertyConsistencyTests"
     }
   ]

@@ -117,8 +117,8 @@ def update_indicator(
 def cloud_indicator(status: SyncStatus | None) -> StatusIndicator:
     values = {
         SyncStatus.IN_SYNC: ("Cloud Save: Synced", "Cloud save is up to date.", "ph.cloud-check-fill", "#35C98A"),
-        SyncStatus.SYNCING: ("Cloud Save: Syncing…", "SafeLauncher is downloading the newest cloud save.", "ph.arrows-clockwise-bold", "#3B9FE8"),
-        SyncStatus.LOCAL_NEWER: ("Cloud Save: Ready to upload", "Local save is newer than cloud and is ready to upload.", "ph.cloud-arrow-up-fill", "#3B9FE8"),
+        SyncStatus.SYNCING: ("Cloud Save: Syncing…", "SafeLauncher is synchronizing the newest safe save automatically.", "ph.arrows-clockwise-bold", "#3B9FE8"),
+        SyncStatus.LOCAL_NEWER: ("Cloud Save: Upload pending", "Local save is newer than cloud; SafeLauncher will upload it automatically when safe.", "ph.cloud-arrow-up-fill", "#3B9FE8"),
         SyncStatus.CLOUD_NEWER: ("Cloud Save: Newer in cloud", "A newer save exists in the cloud.", "ph.cloud-arrow-down-fill", "#E5A93D"),
         SyncStatus.CLOUD_ONLY: ("Cloud Save: Available", "A cloud save is available to restore.", "ph.cloud-arrow-down-fill", "#3B9FE8"),
         SyncStatus.CONFLICT: ("Cloud Save: Conflict", "Local and cloud saves conflict and require a choice.", "ph.warning-circle-bold", "#E5A93D"),

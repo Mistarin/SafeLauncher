@@ -29,7 +29,7 @@ class CloudConflictActionStateTests(unittest.TestCase):
         indicator = cloud_indicator(SyncStatus.SYNCING)
 
         self.assertEqual(indicator.label, "Cloud Save: Syncing…")
-        self.assertIn("downloading", indicator.tooltip)
+        self.assertIn("synchronizing", indicator.tooltip)
         self.assertEqual(indicator.icon, "ph.arrows-clockwise-bold")
 
 

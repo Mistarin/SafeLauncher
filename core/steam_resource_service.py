@@ -16,6 +16,7 @@ from core.request_contracts import (
     RequestSpec,
 )
 from core.steam_client import SteamClient
+from core.steam_ids import normalize_steam_app_id
 
 
 class SteamResourceService:
@@ -32,7 +33,7 @@ class SteamResourceService:
 
     @staticmethod
     def build_key(app_id: str) -> RequestKey:
-        return RequestKey("steam-build", str(app_id).strip(), "public-v1")
+        return RequestKey("steam-build", normalize_steam_app_id(app_id), "public-v1")
 
     @staticmethod
     def tags_key(game_name: str) -> RequestKey:
@@ -41,7 +42,7 @@ class SteamResourceService:
 
     @staticmethod
     def app_details_key(app_id: str) -> RequestKey:
-        return RequestKey("steam-app-details", str(app_id).strip(), "store-v1")
+        return RequestKey("steam-app-details", normalize_steam_app_id(app_id), "store-v1")
 
     def build_spec(
         self,
@@ -51,7 +52,9 @@ class SteamResourceService:
         generation: int = 0,
         tag: str = "",
     ) -> RequestSpec:
-        app_id = str(app_id).strip()
+        app_id = normalize_steam_app_id(app_id)
+        if not app_id:
+            raise ValueError("Steam build metadata requires a numeric AppID")
         key = self.build_key(app_id)
 
         def load(token: CancellationToken):
@@ -103,7 +106,9 @@ class SteamResourceService:
         generation: int = 0,
         tag: str = "",
     ) -> RequestSpec:
-        app_id = str(app_id).strip()
+        app_id = normalize_steam_app_id(app_id)
+        if not app_id:
+            raise ValueError("Steam app details requires a numeric AppID")
         key = self.app_details_key(app_id)
 
         def load(token: CancellationToken):
@@ -156,8 +161,8 @@ class SteamResourceService:
         specs = []
         seen = set()
         for app_id in app_ids:
-            app_id = str(app_id or "").strip()
-            if not app_id or app_id == "0" or app_id in seen:
+            app_id = normalize_steam_app_id(app_id)
+            if not app_id or app_id in seen:
                 continue
             seen.add(app_id)
             specs.append(

@@ -60,7 +60,6 @@ class GamePropertiesDialog(PopupDialog):
 
     _save_stats_ready = pyqtSignal(object)
     _gen_restore_done = pyqtSignal(object, int)
-    _manual_sync_up_done = pyqtSignal(object)
     _manual_sync_down_done = pyqtSignal(object)
 
     def _cloud_unavailable_result(self, operation: str):
@@ -118,7 +117,6 @@ class GamePropertiesDialog(PopupDialog):
 
         self._save_stats_ready.connect(self._on_save_stats_ready)
         self._gen_restore_done.connect(self._on_gen_restore_done)
-        self._manual_sync_up_done.connect(self._on_manual_sync_up_done)
         self._manual_sync_down_done.connect(self._on_manual_sync_down_done)
         self._cloud_versions = []
         self._backup_version = None
@@ -695,13 +693,6 @@ class GamePropertiesDialog(PopupDialog):
         details_toggle.toggled.connect(_toggle_cloud_details)
 
         sync_btn_row = QHBoxLayout()
-        self.btn_sync_up = QPushButton(" Upload local save")
-        self.btn_sync_up.setIcon(get_app_icon("export"))
-        self.btn_sync_up.setStyleSheet("QPushButton { background: #161A22; color: #3B9FE8; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #202633; }")
-        self.btn_sync_up.clicked.connect(self._sync_up_now)
-        self.btn_sync_up.setAccessibleName("Upload local save to cloud")
-        sync_btn_row.addWidget(self.btn_sync_up)
-
         self.btn_sync_down = QPushButton(" Restore latest cloud save")
         self.btn_sync_down.setIcon(get_app_icon("import"))
         self.btn_sync_down.setStyleSheet("QPushButton { background: #161A22; color: #35C98A; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; } QPushButton:hover { background: #202633; }")
@@ -802,13 +793,12 @@ class GamePropertiesDialog(PopupDialog):
 
         set_cloud_focus_order(
             self,
-            self.btn_sync_up,
             self.btn_sync_down,
             self.btn_restore_selected,
             btn_open_mgr,
             save_details_toggle,
         )
-        set_cloud_initial_focus(self, self.btn_sync_up)
+        set_cloud_initial_focus(self, self.btn_sync_down)
 
         # Trigger async save status load
         self._load_registered_devices()
@@ -1349,60 +1339,6 @@ class GamePropertiesDialog(PopupDialog):
         self._resource_bindings[request_id] = binding
         return binding
 
-    def _sync_up_now(self):
-        self.btn_sync_up.setEnabled(False)
-        self.btn_sync_down.setEnabled(False)
-        if hasattr(self, "btn_restore_selected"):
-            self.btn_restore_selected.setEnabled(False)
-
-        prog = cloud_progress(
-            self, f"Uploading local save for '{self.game_name}'…"
-        )
-        self._active_manual_sync_progress = prog
-
-        if self.cloud_center_service is not None or self.cloud_operation_service is not None:
-            target = CloudOperationTarget(
-                self.game_id, self.game_name, self.game_path, str(self.steam_id or "")
-            )
-            operation_service = self.cloud_center_service or self.cloud_operation_service
-            handle = operation_service.request_upload(
-                target,
-                priority=RequestPriority.NORMAL,
-                tag="properties_upload",
-            )
-            self._bind_cloud_operation(
-                handle,
-                lambda resource: self._manual_sync_up_done.emit(
-                    self._operation_result_from_resource(resource, "Cloud upload")
-                ),
-            )
-            return
-
-        self._manual_sync_up_done.emit(self._cloud_unavailable_result("Cloud upload"))
-
-    def _on_manual_sync_up_done(self, result):
-        if hasattr(self, "_active_manual_sync_progress") and self._active_manual_sync_progress:
-            try:
-                self._active_manual_sync_progress.close()
-                self._active_manual_sync_progress.deleteLater()
-            except Exception:
-                pass
-            self._active_manual_sync_progress = None
-
-        self.btn_sync_up.setEnabled(True)
-        self.btn_sync_down.setEnabled(True)
-        if hasattr(self, "btn_restore_selected"):
-            self.btn_restore_selected.setEnabled(True)
-
-        if getattr(result, "success", bool(result)):
-            QMessageBox.information(self, "Cloud Sync", "Local save uploaded successfully.")
-            self._load_save_stats_async()
-            self._notify_parent_cloud_changed()
-        else:
-            message = getattr(result, "error", "No local save files found to upload.")
-            guidance = getattr(result, "guidance", "")
-            QMessageBox.warning(self, "Cloud Sync", f"{message}\n\n{guidance}".strip())
-
     def _is_game_running(self) -> bool:
         """True only when a live process for this game is actually tracked.
 
@@ -1475,7 +1411,6 @@ class GamePropertiesDialog(PopupDialog):
         ):
             return
 
-        self.btn_sync_up.setEnabled(False)
         self.btn_sync_down.setEnabled(False)
         if hasattr(self, "btn_restore_selected"):
             self.btn_restore_selected.setEnabled(False)
@@ -1519,7 +1454,6 @@ class GamePropertiesDialog(PopupDialog):
                 pass
             self._active_manual_sync_progress = None
 
-        self.btn_sync_up.setEnabled(True)
         self.btn_sync_down.setEnabled(True)
         if hasattr(self, "btn_restore_selected"):
             self.btn_restore_selected.setEnabled(True)

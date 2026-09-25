@@ -44,6 +44,9 @@ backend deployment checkout, not the client's local SQLite database. See
   also reconciled into a unique later-known Steam identity by matching the
   meaningful title; installed local games are not merged by title alone. See
   [game-name-resolution.md](architecture/game-name-resolution.md).
+- Steam build comparisons use a normalized numeric AppID, prefer an installed
+  build reference from the standard Steam library manifest, and keep the
+  manually entered display version separate from the actual build comparison.
 - Archived library records use a neutral archive icon and do not schedule,
   load, or accept late game-artwork results. Artwork fetching remains an
   active-game concern.
@@ -68,7 +71,9 @@ models plus managed overview, history, and connection-probe handles. The
 default surface is a compact overview, while setup, connection settings, and
 detailed save history remain expandable/secondary workflows. Per-game grid,
 list, and compact views expose one Cloud menu that routes to the existing
-managed Save Manager or this center. Menu-triggered modal work is deferred one
+managed Save Manager or this center. Newer local saves are uploaded
+automatically through the managed cloud operation service when the game is
+stopped; newer cloud saves are restored by the same lifecycle. Menu-triggered modal work is deferred one
 Qt event-loop turn so native menu teardown completes before a frameless dialog
 opens. Only redacted overview/health metadata is cacheable; raw credentials and
 save contents never cross this boundary.
