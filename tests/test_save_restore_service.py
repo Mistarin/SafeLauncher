@@ -85,6 +85,32 @@ class SaveRestoreSafetyTests(unittest.TestCase):
             destination = os.path.join(root, "destination")
             self.assertFalse(ZipBackupManager().import_save(archive, destination))
 
+    def test_manifest_restore_accepts_identical_overlapping_locations(self):
+        with tempfile.TemporaryDirectory() as root:
+            game = os.path.join(root, "game")
+            source = os.path.join(game, "prefix", "userdata")
+            os.makedirs(source)
+            with open(os.path.join(source, "achievements.ini"), "w") as handle:
+                handle.write("[achievements]\n")
+            archive = os.path.join(root, "overlapping.zip")
+            locations = [
+                self._location(source),
+                SaveLocation(
+                    "Achievement state",
+                    os.path.join(source, "achievements.ini"),
+                    False,
+                ),
+            ]
+            manager = ZipBackupManager()
+            self.assertTrue(manager.export_save_locations(
+                locations, archive, game_name="Example", game_path=game
+            ))
+            self.assertTrue(manager.validate_archive(
+                archive,
+                os.path.join(game, "prefix"),
+                game_path=game,
+            ))
+
     def test_restore_plan_rejects_changed_archive_before_backup(self):
         with tempfile.TemporaryDirectory() as root:
             game = os.path.join(root, "game")

@@ -541,6 +541,21 @@ class ZipBackupManager(IBackupManager):
             logger.warning(f"Restore verification failed: {e}")
             return False
 
+    @staticmethod
+    def _archive_members_have_same_content(zipf, first, second) -> bool:
+        """Compare duplicate archive members without trusting CRC metadata."""
+        if int(first.file_size or 0) != int(second.file_size or 0):
+            return False
+        first_digest = hashlib.sha256()
+        second_digest = hashlib.sha256()
+        with zipf.open(first, "r") as first_file:
+            for chunk in iter(lambda: first_file.read(1024 * 1024), b""):
+                first_digest.update(chunk)
+        with zipf.open(second, "r") as second_file:
+            for chunk in iter(lambda: second_file.read(1024 * 1024), b""):
+                second_digest.update(chunk)
+        return first_digest.digest() == second_digest.digest()
+
     def _plan_manifest_import(self, zipf, dest_abs: str, game_abs: str = "",
                               home_dir: str = "") -> Optional[list]:
         """Resolve manifest items into (ZipInfo, final destination path, mtime) triples.
@@ -556,6 +571,7 @@ class ZipBackupManager(IBackupManager):
             manifest_data = json.loads(zipf.read(_MANIFEST_NAME).decode("utf-8"))
             items = manifest_data.get("items", [])
             transfers = []
+            destination_map = {}
             for item in items:
                 arc_prefix = item.get("archive_prefix", "")
                 if not arc_prefix:
@@ -606,8 +622,26 @@ class ZipBackupManager(IBackupManager):
                             mtime = float(file_mtimes.get(sub_rel)) if file_mtimes.get(sub_rel) else None
                         except (TypeError, ValueError):
                             mtime = None
-                        transfers.append((member, final_out, mtime))
                         matched += 1
+                        destination_key = os.path.normcase(os.path.abspath(final_out))
+                        previous = destination_map.get(destination_key)
+                        if previous is not None:
+                            # Ludusavi and the heuristic detector can report a
+                            # directory plus one of its files (for example a
+                            # Steam userdata tree and achievements.ini).  The
+                            # exporter legitimately stores both views, so an
+                            # identical duplicate is harmless and should not
+                            # make an otherwise valid cloud archive unusable.
+                            if not self._archive_members_have_same_content(zipf, previous[0], member):
+                                logger.warning(
+                                    "Refusing manifest archive with conflicting duplicate destination: %s",
+                                    final_out,
+                                )
+                                return None
+                            continue
+                        transfer = (member, final_out, mtime)
+                        destination_map[destination_key] = transfer
+                        transfers.append(transfer)
                 if matched == 0:
                     logger.warning(f"No archive members found for manifest item '{arc_prefix}'")
             return transfers
