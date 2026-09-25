@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
     _managed_task_done = pyqtSignal(object)
     _profile_sync_done = pyqtSignal(object)
     _managed_cloud_batch_done = pyqtSignal(object)
+    _cloud_auto_restore_done = pyqtSignal(object)
     _managed_achievement_batch_done = pyqtSignal(object)
     _managed_steam_update_batch_done = pyqtSignal(object)
     _network_probe_done = pyqtSignal(object)
@@ -266,6 +267,10 @@ class MainWindow(QMainWindow):
         # of letting the last caller overwrite the previous callback.
         self._cloud_status_callbacks: dict[RequestKey, list[tuple[int, int, object]]] = {}
         self._cloud_status_target_ids: dict[RequestKey, int] = {}
+        # Background cloud restores are keyed by game and context generation.
+        # This prevents overlapping polling/startup/detail callbacks from
+        # downloading the same version more than once.
+        self._cloud_auto_restore_in_flight: dict[int, tuple[int, object]] = {}
         self.achievement_state = AchievementStateStore()
         self.achievement_persistence_service = AchievementPersistenceService(self.db)
         self._achievement_poll_timer = None
@@ -395,6 +400,7 @@ class MainWindow(QMainWindow):
         self._managed_task_done.connect(self._on_managed_task_done)
         self._network_probe_done.connect(self._on_network_probe_done)
         self._managed_cloud_batch_done.connect(self._on_managed_cloud_batch_done)
+        self._cloud_auto_restore_done.connect(self._on_cloud_auto_restore_done)
         self._managed_achievement_batch_done.connect(self._on_managed_achievement_batch_done)
         self._cloud_poll_changed.connect(self._on_cloud_poll_changed)
         self._managed_task_callbacks = {}
@@ -1702,7 +1708,7 @@ class MainWindow(QMainWindow):
                 if was_transiently_unavailable:
                     self._refresh_library()
                     self._start_cloud_poll_timer()
-                    self.request_cloud_recheck(None, "network-restored")
+                    self.request_cloud_recheck(None, "network-restored", auto_sync=True)
                     QTimer.singleShot(300, self._check_all_steam_updates)
             return
 
@@ -1856,7 +1862,7 @@ class MainWindow(QMainWindow):
             # render a useful state without networking.  Re-entering online
             # mode must immediately re-check those verdicts instead of
             # waiting for the next poll interval or treating them as fresh.
-            self.request_cloud_recheck(None, "online-mode")
+            self.request_cloud_recheck(None, "online-mode", auto_sync=True)
             # The normal startup path performs this check after the window is
             # visible.  Do the same on an online transition so cached offline
             # game-version badges and the selected-game detail are refreshed.
@@ -2253,13 +2259,13 @@ class MainWindow(QMainWindow):
         """Refresh every library save projection after a healthy probe."""
         if not self._automatic_network_allowed():
             return
-        self.request_cloud_recheck(None, "cloud-probe-success")
+        self.request_cloud_recheck(None, "cloud-probe-success", auto_sync=True)
 
     def _on_cloud_center_sync_finished(self, result) -> None:
         """Refresh library/cloud badges after the central sync action."""
         if getattr(result, "success", False):
             self.settings.setValue("cloud_center_last_sync_at", time.time())
-            self.request_cloud_recheck(None, "cloud-center-sync")
+            self.request_cloud_recheck(None, "cloud-center-sync", auto_sync=True)
             self._refresh_library()
 
     def _open_cloud_setup_from_center(self) -> None:
@@ -2287,7 +2293,7 @@ class MainWindow(QMainWindow):
                 cloud_operation_service=self.cloud_operation_service,
             )
             dialog.exec()
-            self.request_cloud_recheck(None, "cloud-history")
+            self.request_cloud_recheck(None, "cloud-history", auto_sync=True)
         except Exception as error:
             self._show_toast(f"Could not open cloud storage management: {error}", is_error=True)
 
@@ -2435,7 +2441,7 @@ class MainWindow(QMainWindow):
                 self.detail_cloud_metadata.clear()
                 self.detail_cloud_metadata.setVisible(False)
         self._save_persistent_cache()
-        self.request_cloud_recheck(None, "config-change")
+        self.request_cloud_recheck(None, "config-change", auto_sync=True)
 
     def refresh_cloud_status_for_game(self, game_id: int):
         """Re-check one game's cloud status and update its badge when done."""
@@ -3918,7 +3924,11 @@ class MainWindow(QMainWindow):
 
         # Cloud save status
         cached_save = self.cloud_save_status_cache.get(game_id)
-        if cached_save is not None:
+        if game_id in self._cloud_auto_restore_in_flight:
+            cached_local = cached_save[1] if cached_save else None
+            cached_cloud = cached_save[2] if cached_save else None
+            detail_page.set_cloud_status(SyncStatus.SYNCING, cached_local, cached_cloud)
+        elif cached_save is not None:
             c_status, c_local, c_cloud = cached_save
             detail_page.set_cloud_status(c_status, c_local, c_cloud)
 
@@ -5546,6 +5556,7 @@ class MainWindow(QMainWindow):
                     if cached_entry:
                         c_stats = cached_entry[2]
                 actions_available = status not in {
+                    SyncStatus.SYNCING,
                     SyncStatus.CLOUD_OFFLINE,
                     SyncStatus.CLOUD_AUTH_REQUIRED,
                     SyncStatus.CLOUD_UNAVAILABLE,
@@ -5787,8 +5798,15 @@ class MainWindow(QMainWindow):
             self._show_toast(f"{message} {guidance}".strip(), is_error=True)
 
 
-    def _on_cloud_save_status_calculated(self, game_id: int, status, local_stats, cloud_stats):
-        import time
+    def _on_cloud_save_status_calculated(
+        self,
+        game_id: int,
+        status,
+        local_stats,
+        cloud_stats,
+        *,
+        auto_sync: bool = False,
+    ):
         checked_at = time.time()
         self.cloud_status_service.record_status(
             game_id,
@@ -5808,13 +5826,187 @@ class MainWindow(QMainWindow):
         )
         self._render_cloud_status(game_id, status, local_stats, cloud_stats)
         self._save_persistent_cache()
+        if auto_sync:
+            self._maybe_auto_restore_cloud_save(
+                game_id,
+                status,
+                local_stats,
+                cloud_stats,
+            )
 
-    def _accept_cloud_status_for_context(self, generation: int, game_id: int, status, local_stats, cloud_stats):
+    def _accept_cloud_status_for_context(
+        self,
+        generation: int,
+        game_id: int,
+        status,
+        local_stats,
+        cloud_stats,
+        *,
+        auto_sync: bool = False,
+    ):
         """Discard an asynchronous cloud result from a retired configuration."""
         if not self.cloud_sync_coordinator.accepts(generation):
             logger.debug("Discarded cloud status for game %s from retired context %s", game_id, generation)
             return
-        self._on_cloud_save_status_calculated(game_id, status, local_stats, cloud_stats)
+        self._on_cloud_save_status_calculated(
+            game_id,
+            status,
+            local_stats,
+            cloud_stats,
+            auto_sync=auto_sync,
+        )
+
+    def _set_cloud_syncing(self, game_id: int, local_stats=None, cloud_stats=None) -> None:
+        """Render a transient state while an automatic restore runs."""
+        current = self.game_status_by_id.get(game_id, GameStatusState())
+        local_stats = local_stats if local_stats is not None else current.local_stats
+        cloud_stats = cloud_stats if cloud_stats is not None else current.cloud_stats
+        self.game_status_by_id[game_id] = replace(
+            current,
+            cloud_status=SyncStatus.SYNCING,
+            local_stats=local_stats,
+            cloud_stats=cloud_stats,
+            cloud_checked_at=time.time(),
+        )
+        # Do not persist SYNCING: a restart must re-establish the real state.
+        self._render_cloud_status(
+            game_id,
+            SyncStatus.SYNCING,
+            local_stats,
+            cloud_stats,
+        )
+        if hasattr(self, "btn_detail_launch"):
+            self._update_detail_launch_button(game_id)
+
+    def _maybe_auto_restore_cloud_save(
+        self,
+        game_id: int,
+        status,
+        local_stats=None,
+        cloud_stats=None,
+    ) -> None:
+        """Restore a newly detected cloud save when it is safe to mutate disk."""
+        if status not in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
+            return
+        if game_id in self.running_game_ids:
+            return
+        if not self._automatic_network_allowed():
+            return
+        if game_id in self._cloud_auto_restore_in_flight:
+            return
+        game = self.games_by_id.get(game_id)
+        if not game:
+            return
+
+        active_operations = self.cloud_operation_service.active_operations()
+        if any(
+            record.game_id == int(game_id)
+            and (
+                str(record.operation).startswith("restore")
+                or record.operation in {"exit-sync", "prelaunch", "upload"}
+            )
+            for record in active_operations
+        ):
+            return
+
+        game_name = str(game[1] if len(game) > 1 else "")
+        game_path = str(game[2] if len(game) > 2 else "")
+        steam_id = str(game[6] if len(game) > 6 and game[6] else "")
+        target_version = getattr(cloud_stats, "cloud_version", None)
+        generation = self.cloud_sync_coordinator.generation
+        marker = (generation, target_version)
+        self._cloud_auto_restore_in_flight[int(game_id)] = marker
+        self._set_cloud_syncing(game_id, local_stats, cloud_stats)
+
+        target = CloudOperationTarget(int(game_id), game_name, game_path, steam_id)
+        try:
+            handle = self.cloud_operation_service.request_restore(
+                target,
+                priority=RequestPriority.BACKGROUND,
+                generation=generation,
+                tag="automatic-cloud-restore",
+                target_version=target_version,
+            )
+        except Exception as exc:
+            logger.exception("Unable to queue automatic cloud restore for game %s", game_id)
+            self._cloud_auto_restore_done.emit({
+                "game_id": int(game_id),
+                "game_name": game_name,
+                "generation": generation,
+                "target_version": target_version,
+                "success": False,
+                "error": str(exc),
+                "guidance": "Check the cloud connection and try again.",
+            })
+            return
+
+        def _deliver(future):
+            from core.cloud_operations import CloudOperationResult
+            try:
+                resource = future.result()
+                result = resource.value if resource.status == ResourceStatus.READY else None
+                error = str(resource.error or "") if result is None else ""
+            except Exception as exc:
+                result = None
+                error = str(exc)
+            if not isinstance(result, CloudOperationResult):
+                self._cloud_auto_restore_done.emit({
+                    "game_id": int(game_id),
+                    "game_name": game_name,
+                    "generation": generation,
+                    "target_version": target_version,
+                    "success": False,
+                    "error": error or "Cloud restore failed.",
+                    "guidance": "Check the cloud connection and try again.",
+                })
+                return
+            self._cloud_auto_restore_done.emit({
+                "game_id": int(game_id),
+                "game_name": game_name,
+                "generation": generation,
+                "target_version": target_version,
+                "success": bool(result.success),
+                "error": str(result.error or ""),
+                "guidance": str(result.guidance or ""),
+            })
+
+        handle.future.add_done_callback(_deliver)
+
+    def _on_cloud_auto_restore_done(self, payload: object) -> None:
+        """Finish an automatic restore on the GUI thread and re-derive status."""
+        if not isinstance(payload, dict):
+            return
+        game_id = int(payload.get("game_id", 0) or 0)
+        marker = self._cloud_auto_restore_in_flight.get(game_id)
+        expected = (
+            int(payload.get("generation", -1)),
+            payload.get("target_version"),
+        )
+        if marker != expected:
+            return
+        self._cloud_auto_restore_in_flight.pop(game_id, None)
+        self._update_detail_launch_button(game_id)
+        if not self.cloud_sync_coordinator.accepts(expected[0]):
+            return
+
+        game_name = str(payload.get("game_name", "this game"))
+        if payload.get("success"):
+            self._show_toast(f"Newest cloud save restored for '{game_name}'.")
+            self.request_cloud_recheck(
+                [game_id],
+                "automatic-restore-complete",
+                auto_sync=True,
+            )
+            return
+
+        message = str(payload.get("error") or "Cloud restore failed.")
+        guidance = str(payload.get("guidance") or "")
+        self._show_toast(
+            f"{message} Local save preserved. {guidance}".strip(),
+            is_error=True,
+        )
+        # Recheck without launching another restore loop after a failure.
+        self.request_cloud_recheck([game_id], "automatic-restore-failed")
 
     def _update_detail_panel(self):
         """Update left panel with current selected game details and trigger smooth slide animation."""
@@ -5907,7 +6099,17 @@ class MainWindow(QMainWindow):
             cached_save = self.cloud_save_status_cache.get(game_id)
             is_stale = False
 
-        if cached_save is not None:
+        if game_id in self._cloud_auto_restore_in_flight:
+            cached_local = cached_save[1] if cached_save else None
+            cached_cloud = cached_save[2] if cached_save else None
+            self._render_cloud_status(
+                game_id,
+                SyncStatus.SYNCING,
+                cached_local,
+                cached_cloud,
+                stale=False,
+            )
+        elif cached_save is not None:
             c_status, c_local, c_cloud = cached_save
             self._render_cloud_status(
                 game_id,
@@ -5937,13 +6139,19 @@ class MainWindow(QMainWindow):
             SyncStatus.CLOUD_OFFLINE,
             SyncStatus.CLOUD_UNAVAILABLE,
         }
-        if network_allowed and not cloud_auth_required and (
+        if network_allowed and not cloud_auth_required and game_id not in self._cloud_auto_restore_in_flight and (
             cached_save is None or is_stale or cloud_status_needs_refresh
         ):
             self._set_detail_cloud_checking()
             self._spawn_status_fetchers(
                 [(game_id, name, path or "", str(steam_id or ""))],
-                self._on_cloud_save_status_calculated,
+                lambda gid, status, local, cloud: self._on_cloud_save_status_calculated(
+                    gid,
+                    status,
+                    local,
+                    cloud,
+                    auto_sync=True,
+                ),
                 "detail",
                 generation=self.cloud_sync_coordinator.generation,
                 force=True,
@@ -6125,6 +6333,19 @@ class MainWindow(QMainWindow):
             self.btn_detail_remove.setToolTip("Manage this uninstalled game or permanently delete it.")
             return
 
+        if (
+            game_id in self._cloud_auto_restore_in_flight
+            and game_id not in self.running_game_ids
+        ):
+            self.btn_detail_launch.setText("Syncing Cloud Save…")
+            self.btn_detail_launch.setIcon(get_icon("ph.arrows-clockwise-bold", color="#6F7682"))
+            self.btn_detail_launch.setIconSize(QSize(15, 15))
+            self.btn_detail_launch.setEnabled(False)
+            self.btn_detail_launch.setToolTip(
+                "The newest cloud save is being downloaded before launch."
+            )
+            return
+
         self.btn_detail_remove.setText("Uninstall / Delete")
         self.btn_detail_remove.setToolTip(
             "Uninstall the game while keeping its record, or permanently delete it."
@@ -6223,6 +6444,9 @@ class MainWindow(QMainWindow):
     def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True, disable_performance: bool = False):
         """Helper to launch a game directly with the chosen mode"""
         logger.info(f"Initiating launch for Game ID {game_id}: exe='{exe}', mode='{selected_mode}', path='{path}'")
+        if game_id in self._cloud_auto_restore_in_flight:
+            self._show_toast("Please wait for the cloud save to finish syncing.")
+            return
         if not path or not os.path.exists(path):
             logger.error(f"Cannot launch Game ID {game_id}: Path does not exist on disk ({path})")
             QMessageBox.warning(self, "Missing Game", f"Cannot launch game. Path does not exist:\n{path}")
@@ -7519,7 +7743,13 @@ class MainWindow(QMainWindow):
             # of leaving the pre-upload state cached.
             self.refresh_cloud_status_for_game(result.game_id)
 
-    def request_cloud_recheck(self, game_ids=None, reason: str = ""):
+    def request_cloud_recheck(
+        self,
+        game_ids=None,
+        reason: str = "",
+        *,
+        auto_sync: bool = False,
+    ):
         """THE single entry point for cloud status re-checks.
 
         Every feature routes through here — startup scan, poll timer, settings
@@ -7575,8 +7805,15 @@ class MainWindow(QMainWindow):
                 return
             self._spawn_status_fetchers(
                 targets,
-                lambda gid, status, local, cloud, g=generation:
-                self._accept_cloud_status_for_context(g, gid, status, local, cloud),
+                lambda gid, status, local, cloud, g=generation, should_auto_sync=auto_sync:
+                self._accept_cloud_status_for_context(
+                    g,
+                    gid,
+                    status,
+                    local,
+                    cloud,
+                    auto_sync=should_auto_sync,
+                ),
                 tag,
                 generation=generation,
                 force=force_refresh,
@@ -7593,10 +7830,19 @@ class MainWindow(QMainWindow):
                 game_ids,
                 reason=reason,
             )
+            callback = self._on_cloud_save_status_calculated
+            if auto_sync:
+                callback = lambda gid, status, local, cloud: self._on_cloud_save_status_calculated(
+                    gid,
+                    status,
+                    local,
+                    cloud,
+                    auto_sync=True,
+                )
             self._spawn_status_fetchers(
                 [(target.game_id, target.game_name, target.game_path, target.steam_id)
                  for target in plan.targets if target.game_id in by_id],
-                self._on_cloud_save_status_calculated,
+                callback,
                 tag,
                 generation=generation,
                 force=force_refresh,
@@ -7940,15 +8186,11 @@ class MainWindow(QMainWindow):
         """Startup cloud save check & sync queue across the library."""
         if not self._automatic_network_allowed():
             return
-        self.request_cloud_recheck(None, "startup")
+        self.request_cloud_recheck(None, "startup", auto_sync=True)
 
     def _on_cloud_batch_finished(self, uploaded: list, newer_in_cloud: list):
         """GUI-thread slot when library background cloud batch queue completes."""
-        if newer_in_cloud:
-            names = ", ".join(newer_in_cloud[:2])
-            extra = f" (+{len(newer_in_cloud)-2} more)" if len(newer_in_cloud) > 2 else ""
-            self._show_toast(f"Newer cloud save(s) available for: {names}{extra}")
-        elif uploaded:
+        if uploaded and not newer_in_cloud:
             names = ", ".join(uploaded[:2])
             extra = f" (+{len(uploaded)-2} more)" if len(uploaded) > 2 else ""
             self._show_toast(f"Cloud Sync: Local save(s) ready to sync: {names}{extra}.")
@@ -7986,17 +8228,24 @@ class MainWindow(QMainWindow):
         self._spawn_status_fetchers(changed, self._on_polled_cloud_status, "poll")
 
     def _on_polled_cloud_status(self, game_id: int, status, local_stats, cloud_stats):
-        from core.cloud_models import SyncStatus
         prev = self.cloud_save_status_cache.get(game_id)
         prev_status = prev[0] if prev else None
-        self._on_cloud_save_status_calculated(game_id, status, local_stats, cloud_stats)
+        is_running = game_id in self.running_game_ids
+        self._on_cloud_save_status_calculated(
+            game_id,
+            status,
+            local_stats,
+            cloud_stats,
+            auto_sync=not is_running,
+        )
         if status == SyncStatus.CLOUD_NEWER and prev_status != SyncStatus.CLOUD_NEWER:
-            if game_id in self.running_game_ids:
-                return  # exit sync already surfaces the collision for this session
+            if is_running:
+                # Exit sync already handles the collision for this session;
+                # never replace files underneath a running game.
+                return
             name = self.games_by_id.get(game_id, (None, ""))[1]
             self._show_toast(
-                f"Newer cloud save for '{name}' — uploaded from another device. "
-                f"You'll be asked which to keep on launch."
+                f"Syncing newest cloud save for '{name}'…"
             )
 
     def _ensure_managed_achievement_binding(self, key: RequestKey) -> None:

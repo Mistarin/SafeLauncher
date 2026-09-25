@@ -25,6 +25,13 @@ class CloudConflictActionStateTests(unittest.TestCase):
         self.assertIn("Offline mode is enabled", indicator.tooltip)
         self.assertIn("checked again when online", indicator.tooltip)
 
+    def test_syncing_status_is_explicit_and_actionable(self):
+        indicator = cloud_indicator(SyncStatus.SYNCING)
+
+        self.assertEqual(indicator.label, "Cloud Save: Syncing…")
+        self.assertIn("downloading", indicator.tooltip)
+        self.assertEqual(indicator.icon, "ph.arrows-clockwise-bold")
+
 
 if __name__ == "__main__":
     unittest.main()

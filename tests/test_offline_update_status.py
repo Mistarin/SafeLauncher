@@ -163,7 +163,11 @@ class OfflineUpdateStatusTests(unittest.TestCase):
         with patch("ui.main_window.QTimer.singleShot") as single_shot:
             MainWindow._apply_network_policy_change(fake, True)
 
-        fake.request_cloud_recheck.assert_called_once_with(None, "online-mode")
+        fake.request_cloud_recheck.assert_called_once_with(
+            None,
+            "online-mode",
+            auto_sync=True,
+        )
         fake.cloud_center_service.invalidate_account_reads.assert_called_once_with()
         fake._refresh_cloud_center_indicator.assert_called_once_with()
         self.assertTrue(any(

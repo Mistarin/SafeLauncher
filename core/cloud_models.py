@@ -9,6 +9,7 @@ from typing import Optional
 
 class SyncStatus(Enum):
     IN_SYNC = "in_sync"
+    SYNCING = "syncing"
     LOCAL_NEWER = "local_newer"
     CLOUD_ONLY = "cloud_only"
     CLOUD_NEWER = "cloud_newer"
