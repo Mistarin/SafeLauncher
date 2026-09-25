@@ -125,6 +125,7 @@ class CloudDialogWorkflowTests(unittest.TestCase):
             self.assertEqual(dialog.btn_export.text(), "Export local save archive")
             self.assertEqual(dialog.cloud_status_panel.state, "loading")
             self._assert_focus_contract(dialog)
+            self.assertFalse(dialog.tabs.isTabVisible(dialog.tabs.indexOf(dialog.tab_history)))
             self.assertTrue(any(
                 button.text() == "Import local save archive (.zip)"
                 for button in dialog.findChildren(type(dialog.btn_upload))

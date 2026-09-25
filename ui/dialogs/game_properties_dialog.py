@@ -717,7 +717,7 @@ class GamePropertiesDialog(PopupDialog):
         self.ver_selector_layout = QVBoxLayout()
         self.ver_selector_layout.setSpacing(6)
 
-        lbl_ver_title = QLabel("Cloud version summary")
+        lbl_ver_title = QLabel("Cloud saves by device")
         lbl_ver_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #F5F7FA;")
         self.ver_selector_layout.addWidget(lbl_ver_title)
 
@@ -775,7 +775,7 @@ class GamePropertiesDialog(PopupDialog):
         body_layout.addWidget(sync_card)
 
         # ── 3. Interactive Save Manager Button ──
-        btn_open_mgr = QPushButton(" Open Save Manager · files, backups & versions")
+        btn_open_mgr = QPushButton(" Open Save Manager · files, backups & import/export")
         btn_open_mgr.setIcon(get_icon("ph.archive-bold"))
         btn_open_mgr.setFixedHeight(38)
         btn_open_mgr.setStyleSheet("""
@@ -793,7 +793,7 @@ class GamePropertiesDialog(PopupDialog):
             }
         """)
         btn_open_mgr.clicked.connect(self._open_save_manager)
-        btn_open_mgr.setAccessibleName("Open Save Manager for detailed cloud save management")
+        btn_open_mgr.setAccessibleName("Open Save Manager for local save files, backups, and import/export")
         body_layout.addWidget(btn_open_mgr)
 
         body_layout.addStretch()
@@ -810,6 +810,7 @@ class GamePropertiesDialog(PopupDialog):
         set_cloud_initial_focus(self, self.btn_sync_up)
 
         # Trigger async save status load
+        self._load_registered_devices()
         self._load_save_stats_async()
 
         return scroll
@@ -849,6 +850,40 @@ class GamePropertiesDialog(PopupDialog):
             event.ignore()
             return
         super().closeEvent(event)
+
+    def _load_registered_devices(self) -> None:
+        """Load the account device roster for the per-game history view."""
+        service = self.cloud_center_service
+        manager = getattr(service, "request_manager", None) if service is not None else None
+        request_devices = getattr(service, "request_devices", None) if service is not None else None
+        if manager is None or not callable(request_devices):
+            return
+        try:
+            handle = request_devices(priority=RequestPriority.BACKGROUND)
+        except Exception as exc:
+            logger.debug("Registered cloud devices unavailable in game properties: %s", exc)
+            return
+
+        request_id = handle.request_id
+
+        def _deliver(resource):
+            if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
+                return
+            payload = resource.value if resource.status in {ResourceStatus.READY, ResourceStatus.STALE} else {}
+            if isinstance(payload, dict):
+                self.history_timeline.set_devices(payload.get("devices", []))
+            if resource.status != ResourceStatus.STALE:
+                binding = self._resource_bindings.pop(request_id, None)
+                if binding is not None:
+                    binding.close()
+
+        self._resource_bindings[request_id] = bind_request(
+            manager,
+            handle,
+            _deliver,
+            self,
+            cancel_on_close=True,
+        )
 
     def _load_save_stats_async(self):
         """Load save detection and history through managed resources."""
@@ -1093,8 +1128,12 @@ class GamePropertiesDialog(PopupDialog):
         self._cloud_versions = list(versions or [])
         if not self._cloud_versions:
             self._backup_version = None
+            self.history_timeline.set_entries([])
+            self.history_timeline.setMinimumHeight(90)
+            self.history_timeline.show()
             self.lbl_generations.setText(
-                "No cloud save versions found yet. Upload a local save or open Save Manager for local files and backups."
+                "No cloud save versions found yet. Registered devices are shown above; "
+                "use Save Manager for local files, backups, and import/export."
             )
             self.lbl_generations.show()
             self.ver_selector_widget.show()

@@ -29,7 +29,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Private cloud center facade | [`core/cloud_center_service.py`](../core/cloud_center_service.py) | `CloudCenterService`, `CloudOverview`, `CloudConnectionState`, `CloudSyncSummary`, `CloudQuotaSummary`, `CloudConflictSummary` | active; single overview/sync/history/probe and operation-delegation entry point composed from existing cloud services |
 | Cloud operation service | [`core/cloud_operation_service.py`](../core/cloud_operation_service.py) | `CloudOperationService`, `CloudOperationTarget` | active |
 | Cloud operation lifecycle records | [`core/cloud_operation_records.py`](../core/cloud_operation_records.py) | `CloudOperationRecord`, `CloudOperationState` | active; metadata-only, no save payloads |
-| Save history projection | [`core/save_history.py`](../core/save_history.py), [`ui/components/save_history_timeline.py`](../ui/components/save_history_timeline.py) | `HistoryEntry`, `normalize_history_entries`, `SaveHistoryTimeline` | active; shared date-grouped cloud/local timeline |
+| Save history projection | [`core/save_history.py`](../core/save_history.py), [`ui/components/save_history_timeline.py`](../ui/components/save_history_timeline.py) | `HistoryEntry`, `normalize_history_entries`, `SaveHistoryTimeline` | active; shared device/date-grouped cloud/local timeline with registered-device empty sections |
 | Cloud exit synchronization | [`core/cloud_exit_sync_service.py`](../core/cloud_exit_sync_service.py) | `CloudExitSyncService`, `CloudExitSyncResult`, `CloudExitPresentation` | active; exit request/result/presentation boundary |
 | Cloud metadata service | [`core/cloud_metadata_service.py`](../core/cloud_metadata_service.py) | `CloudMetadataService`, `CloudMetadataTarget`, `CloudMetadataResult`, `request_latest_game` | active; managed reconciliation/coalescing |
 | Achievement resource service | [`core/achievement_resource_service.py`](../core/achievement_resource_service.py) | `AchievementResourceService`, `AchievementTarget` | active |
@@ -82,10 +82,10 @@ Status values: `active` is a normal production path; `compatibility` is retained
 - Library views: [`ui/library_list.py`](../ui/library_list.py), [`ui/components/library_view_host.py`](../ui/components/library_view_host.py), [`ui/components/compact_game_page.py`](../ui/components/compact_game_page.py), [`ui/components/virtual_grid.py`](../ui/components/virtual_grid.py)
 - The virtualized grid keeps cloud actions keyboard-accessible (`Ctrl+U` for upload), and publishes combined cloud/update tooltip text through model tooltip and accessibility roles because its badges are delegate-painted.
 - Profile: [`ui/components/profile_page.py`](../ui/components/profile_page.py)
-- Account/settings: [`ui/dialogs/account_dialog.py`](../ui/dialogs/account_dialog.py), [`ui/dialogs/settings_dialog.py`](../ui/dialogs/settings_dialog.py)
-- Unified private cloud management: [`ui/dialogs/cloud_center_dialog.py`](../ui/dialogs/cloud_center_dialog.py) (simple overview by default; setup, connection settings, and detailed history are advanced paths)
+- Account/settings: [`ui/dialogs/account_dialog.py`](../ui/dialogs/account_dialog.py), [`ui/dialogs/settings_dialog.py`](../ui/dialogs/settings_dialog.py) (account management and technical cloud settings are reached from Cloud Center; the standalone Settings Cloud tab is hidden)
+- Unified private cloud management: [`ui/dialogs/cloud_center_dialog.py`](../ui/dialogs/cloud_center_dialog.py) (overall cloud surface for account status, devices, storage, setup, connection, conflicts, and history)
 - Achievements: [`ui/dialogs/achievements_dialog.py`](../ui/dialogs/achievements_dialog.py), [`ui/dialogs/achievement_profile_dialog.py`](../ui/dialogs/achievement_profile_dialog.py)
-- Save/cloud UI: [`ui/dialogs/save_manager_dialog.py`](../ui/dialogs/save_manager_dialog.py), [`ui/dialogs/save_conflict_dialog.py`](../ui/dialogs/save_conflict_dialog.py)
+- Save/cloud UI: [`ui/dialogs/game_properties_dialog.py`](../ui/dialogs/game_properties_dialog.py), [`ui/dialogs/save_manager_dialog.py`](../ui/dialogs/save_manager_dialog.py), [`ui/dialogs/save_conflict_dialog.py`](../ui/dialogs/save_conflict_dialog.py) (Game Properties is the per-game cloud hub; Save Manager is local-save tooling)
 - Compatibility worker definitions: [`ui/threads.py`](../ui/threads.py), [`core/safe_thread.py`](../core/safe_thread.py)
 
 ## Verification

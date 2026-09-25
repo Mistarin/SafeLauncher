@@ -329,6 +329,11 @@ class UserSettingsDialog(PopupDialog):
             nav_bar.addWidget(btn)
             self.tab_buttons.append(btn)
 
+        # Cloud is an account-wide surface owned by Cloud Center. Keep the
+        # page available for Cloud Center's technical-settings handoff and
+        # compatibility callers, but remove it as a standalone Settings tab.
+        self.tab_buttons[3].setVisible(False)
+
         nav_bar.addStretch()
         self.tab_buttons[0].setChecked(True)
         body_layout.addWidget(nav_frame)
@@ -1140,16 +1145,16 @@ class UserSettingsDialog(PopupDialog):
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(14)
 
-        sec_account = QLabel("Cloud Settings · Connection")
+        sec_account = QLabel("Cloud Connection · Technical Settings")
         sec_account.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         sec_account.setStyleSheet("color: #ffffff; padding-bottom: 2px;")
         layout.addWidget(sec_account)
         self._add_section_divider(layout)
 
         layout.addWidget(self.info_hint(
-            "Use Cloud Center for account status, storage, devices, conflicts, and cloud save versions. "
-            "This page is for connection and backend settings.",
-            tooltip="Cloud Center is the account-wide cloud dashboard; Settings keeps only configuration and diagnostics.",
+            "Cloud Center is the single account-wide cloud surface. This technical page is opened from Cloud Center "
+            "for backend connection and diagnostics only.",
+            tooltip="Open Cloud Center for account status, storage, devices, conflicts, and cloud save versions.",
         ))
 
         from core.cloud_backend import get_site_url, normalize_site_url

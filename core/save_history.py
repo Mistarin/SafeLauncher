@@ -84,6 +84,29 @@ def history_device_text(entry: Any) -> str:
     return "Unavailable (older cloud version)"
 
 
+def history_device_label(entry: Any) -> str:
+    """Return the device section label for a history record.
+
+    The uploader is the device that produced the retained cloud version from
+    the cloud's point of view.  Older records may only have creation metadata,
+    while local safety forks always belong to this installation.
+    """
+    if isinstance(entry, dict) and entry.get("source") == "fork":
+        return "This PC"
+    devices = history_device_metadata(entry)
+    return devices["uploaded"] or devices["created"] or "Unknown device"
+
+
+def history_registered_device_label(device: Any) -> str:
+    """Return a safe display label for a registered cloud device."""
+    if not isinstance(device, dict):
+        return "Unknown device"
+    return (
+        _first_name(device, "device_name", "deviceName", "name", "label")
+        or "Unknown device"
+    )
+
+
 @dataclass(frozen=True)
 class HistoryEntry:
     """Normalized, display-safe representation of one history record."""
@@ -100,6 +123,7 @@ class HistoryEntry:
     is_active: bool
     has_conflict: bool
     device_text: str
+    device_label: str
     title: str
 
     @property
@@ -193,6 +217,7 @@ def normalize_history_entries(entries: Iterable[Any] | None) -> list[HistoryEntr
             is_active=bool(raw.get("is_active", raw.get("isActive", False))),
             has_conflict=bool(raw.get("has_conflict", raw.get("hasConflict", False))),
             device_text=history_device_text(raw),
+            device_label=history_device_label(raw),
             title=title,
         ))
     normalized.sort(key=lambda item: (
@@ -207,7 +232,9 @@ def normalize_history_entries(entries: Iterable[Any] | None) -> list[HistoryEntr
 
 __all__ = [
     "HistoryEntry",
+    "history_device_label",
     "history_device_metadata",
+    "history_registered_device_label",
     "history_device_text",
     "normalize_history_entries",
 ]

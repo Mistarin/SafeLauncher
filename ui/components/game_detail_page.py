@@ -308,7 +308,7 @@ class GameDetailPageWidget(QWidget):
         self.btn_properties.clicked.connect(lambda: self.current_game_id and self.properties_requested.emit(self.current_game_id))
         sec_grid.addWidget(self.btn_properties, 0, 1)
 
-        self.btn_saves = QPushButton("Save Manager")
+        self.btn_saves = QPushButton("Local Saves")
         self.btn_saves.setIcon(get_icon("ph.floppy-disk-bold", color="#8E8E93"))
         self.btn_saves.setIconSize(QSize(14, 14))
         self.btn_saves.setFixedHeight(34)

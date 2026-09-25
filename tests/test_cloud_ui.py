@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from PyQt6.QtWidgets import QApplication, QDialog, QPushButton
+from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QPushButton
 
 from core.save_history import normalize_history_entries
 from ui.components.cloud_ui import (
@@ -167,6 +167,80 @@ class CloudUiPresentationTests(unittest.TestCase):
         button = next(iter(timeline._buttons.values()))
         self.assertEqual(button.accessibleName(), "Cloud save version 2")
         self.assertIn("Created and uploaded on Desktop", button.accessibleDescription())
+        timeline.deleteLater()
+
+    def test_history_is_grouped_by_upload_device(self):
+        timeline = SaveHistoryTimeline()
+        timeline.set_entries([
+            {
+                "source": "cloud",
+                "version": 2,
+                "createdAt": 1_700_000_100,
+                "uploadedDeviceName": "Steam Deck",
+            },
+            {
+                "source": "cloud",
+                "version": 1,
+                "createdAt": 1_700_000_000,
+                "uploadedDeviceName": "Desktop",
+            },
+        ])
+        section_labels = []
+        for index in range(timeline.content_layout.count()):
+            widget = timeline.content_layout.itemAt(index).widget()
+            if widget is None:
+                continue
+            section_labels.extend(
+                child.text()
+                for child in widget.findChildren(QLabel)
+                if child.text().startswith("Device: ")
+            )
+        self.assertEqual(section_labels, ["Device: Steam Deck", "Device: Desktop"])
+        timeline.deleteLater()
+
+    def test_history_shows_registered_devices_without_versions(self):
+        timeline = SaveHistoryTimeline()
+        timeline.set_devices([
+            {"deviceName": "Desktop"},
+            {"name": "Steam Deck"},
+        ])
+        timeline.set_entries([
+            {
+                "source": "cloud",
+                "version": 1,
+                "createdAt": 1_700_000_000,
+                "uploadedDeviceName": "Desktop",
+            }
+        ])
+        section_labels = []
+        for index in range(timeline.content_layout.count()):
+            widget = timeline.content_layout.itemAt(index).widget()
+            if widget is None:
+                continue
+            section_labels.extend(
+                child.text()
+                for child in widget.findChildren(QLabel)
+                if child.text().startswith("Device: ")
+            )
+        self.assertEqual(section_labels, ["Device: Desktop", "Device: Steam Deck"])
+        self.assertTrue(
+            any(
+                child.text() == "No cloud versions from this device."
+                for child in timeline.content.findChildren(QLabel)
+            )
+        )
+        timeline.set_entries([])
+        empty_sections = []
+        for index in range(timeline.content_layout.count()):
+            widget = timeline.content_layout.itemAt(index).widget()
+            if widget is None:
+                continue
+            empty_sections.extend(
+                child.text()
+                for child in widget.findChildren(QLabel)
+                if child.text().startswith("Device: ")
+            )
+        self.assertEqual(empty_sections, ["Device: Desktop", "Device: Steam Deck"])
         timeline.deleteLater()
 
     def test_shared_cloud_status_panel_covers_all_states_with_text(self):

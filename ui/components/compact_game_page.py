@@ -252,7 +252,7 @@ class CompactHeroBanner(QWidget):
 class CompactActionBar(QFrame):
     """
     Action Play button, stats metrics columns (Cloud, Last Played, Playtime, Achievements),
-    and quick action tools (Settings, Folder, Save Manager, Favorite).
+    and quick action tools (Settings, Folder, Local Saves, Favorite).
     """
     play_clicked = pyqtSignal()
     edit_clicked = pyqtSignal()
@@ -476,7 +476,7 @@ class CompactActionBar(QFrame):
         cloud_menu = QMenu(self.btn_save)
         self._resolve_conflict_action = None
         for action_name, label in (("upload", "Upload local save"), ("restore", "Restore latest cloud save"),
-                                   ("history", "Open Save Manager"), ("resolve", "Resolve conflict"),
+                                   ("history", "Open Game Properties"), ("resolve", "Resolve conflict"),
                                    ("center", "Open Cloud Center")):
             action = cloud_menu.addAction(label)
             if action_name == "resolve":
@@ -678,7 +678,7 @@ class CompactActionBar(QFrame):
 class CompactSubNavBar(QFrame):
     """
     Sub-navigation links strip:
-    Game Properties | Save Manager | Game Folder | Wine Prefix | Screenshots | Steam Page
+        Game Properties | Local Saves | Game Folder | Wine Prefix | Screenshots | Steam Page
     """
     edit_clicked = pyqtSignal()
     properties_clicked = pyqtSignal()
@@ -740,7 +740,7 @@ class CompactSubNavBar(QFrame):
         self.btn_prop.clicked.connect(self.properties_clicked.emit)
         layout.addWidget(self.btn_prop)
 
-        self.btn_save = QPushButton("Save Manager")
+        self.btn_save = QPushButton("Local Saves")
         self.btn_save.setStyleSheet(nav_style)
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.clicked.connect(self.save_manager_clicked.emit)

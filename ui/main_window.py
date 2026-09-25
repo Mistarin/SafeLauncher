@@ -4380,6 +4380,12 @@ class MainWindow(QMainWindow):
         game = self.selected_game
         if not game:
             return
+        self._open_game_properties_for_game(game)
+
+    def _open_game_properties_for_game(self, game) -> None:
+        """Open the canonical per-game cloud and properties surface."""
+        if not game:
+            return
         dialog = GamePropertiesDialog(game, self)
         dialog.exec()
         # Edits here can change the cloud verdict (manual upload/download,
@@ -8867,7 +8873,7 @@ class MainWindow(QMainWindow):
         for name, label, icon_name in (
             ("upload", "Upload local save", "ph.cloud-arrow-up-bold"),
             ("restore", "Restore latest cloud save", "ph.cloud-arrow-down-bold"),
-            ("history", "Open Save Manager", "ph.clock-counter-clockwise-bold"),
+            ("history", "Open Game Properties", "ph.clock-counter-clockwise-bold"),
             ("resolve", "Resolve conflict", "ph.warning-bold"),
         ):
             action = menu.addAction(get_icon(icon_name, color="#A1A1AA"), label)
@@ -8925,7 +8931,7 @@ class MainWindow(QMainWindow):
             return
         self._select_game_by_id(int(game_id))
         if action in {"history", "resolve"}:
-            self._open_save_manager_for_game(game, tab="history")
+            self._open_game_properties_for_game(game)
         elif action == "restore":
             self._open_save_manager_for_game(game, tab="restore")
         else:

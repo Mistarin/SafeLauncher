@@ -247,7 +247,7 @@ class AccountDialog(PopupDialog):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
-        lbl_versions = QLabel("Cloud save versions")
+        lbl_versions = QLabel("Cloud save versions by device")
         lbl_versions.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         lbl_versions.setStyleSheet("color: #FFFFFF;")
         right_layout.addWidget(lbl_versions)
@@ -614,6 +614,7 @@ class AccountDialog(PopupDialog):
     def _populate_devices(self, devices):
         """Fill the device list and expose revocation for remote entries."""
         self._devices = devices or []
+        self.history_timeline.set_devices(self._devices)
         self.lst_devices.clear()
         if not self._devices:
             item = QListWidgetItem("No registered devices.")

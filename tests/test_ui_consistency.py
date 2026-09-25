@@ -76,10 +76,11 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         dialog = UserSettingsDialog("Player", parent=None)
         try:
             self.assertEqual(dialog.btn_open_cloud_center.text(), "Open Cloud Center…")
+            self.assertFalse(dialog.tab_buttons[3].isVisible())
             self.assertFalse(dialog.btn_review_conflicts.isVisible())
             self.assertFalse(dialog.btn_refresh_quota.isHidden())
             self.assertTrue(any(
-                "Use Cloud Center" in label.text()
+                "Cloud Center is the single account-wide cloud surface" in label.text()
                 for label in dialog.findChildren(QLabel)
             ))
         finally:

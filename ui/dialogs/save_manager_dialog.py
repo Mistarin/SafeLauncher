@@ -183,7 +183,7 @@ class SaveManagerDialog(PopupDialog):
         self.btn_recovery_retry = QPushButton("Retry")
         self.btn_recovery_retry.clicked.connect(self._retry_last_operation)
         recovery_buttons.addWidget(self.btn_recovery_retry)
-        self.btn_recovery_cloud = QPushButton("Cloud Settings")
+        self.btn_recovery_cloud = QPushButton("Open Cloud Center")
         self.btn_recovery_cloud.clicked.connect(self._open_cloud_settings)
         recovery_buttons.addWidget(self.btn_recovery_cloud)
         self.btn_recovery_copy = QPushButton("Copy Details")
@@ -402,7 +402,7 @@ class SaveManagerDialog(PopupDialog):
         tab_history_layout.setSpacing(10)
 
         history_header = QHBoxLayout()
-        lbl_hist = QLabel("Cloud save versions & local backups")
+        lbl_hist = QLabel("Cloud save versions by device & local backups")
         lbl_hist.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         lbl_hist.setStyleSheet("color: #F5F7FA;")
         history_header.addWidget(lbl_hist)
@@ -483,6 +483,10 @@ class SaveManagerDialog(PopupDialog):
 
         tab_history_layout.addLayout(history_footer)
         self.tabs.addTab(self.tab_history, "Cloud Versions & Backups")
+        # Cloud history and conflict management belong to Game Properties.
+        # Keep the page and compatibility members alive for older callers, but
+        # do not expose a second user-facing cloud destination here.
+        self.tabs.setTabVisible(self.tabs.indexOf(self.tab_history), False)
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
         body_layout.addWidget(self.tabs)
@@ -661,9 +665,10 @@ class SaveManagerDialog(PopupDialog):
 
     def _open_cloud_settings(self) -> None:
         parent = self.parent()
-        if parent is not None and hasattr(parent, "_open_settings"):
+        host = getattr(parent, "parent_window", None) or parent
+        if host is not None and hasattr(host, "_open_cloud_center"):
             self.hide()
-            parent._open_settings()
+            host._open_cloud_center()
 
     def _copy_error_details(self) -> None:
         result = self._last_operation_result

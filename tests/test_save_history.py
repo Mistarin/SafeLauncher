@@ -1,13 +1,34 @@
 import unittest
 
 from core.save_history import (
+    history_device_label,
     history_device_metadata,
+    history_registered_device_label,
     history_device_text,
     normalize_history_entries,
 )
 
 
 class SaveHistoryDeviceTests(unittest.TestCase):
+    def test_device_section_uses_upload_device(self):
+        self.assertEqual(
+            history_device_label({
+                "source": "cloud",
+                "createdDeviceName": "Desktop",
+                "uploadedDeviceName": "Steam Deck",
+            }),
+            "Steam Deck",
+        )
+
+    def test_device_section_falls_back_for_legacy_and_local_records(self):
+        self.assertEqual(history_device_label({"source": "cloud"}), "Unknown device")
+        self.assertEqual(history_device_label({"source": "fork"}), "This PC")
+
+    def test_registered_device_label_accepts_cloud_api_shapes(self):
+        self.assertEqual(history_registered_device_label({"deviceName": "Desktop"}), "Desktop")
+        self.assertEqual(history_registered_device_label({"name": "Steam Deck"}), "Steam Deck")
+        self.assertEqual(history_registered_device_label({}), "Unknown device")
+
     def test_explicit_creation_and_upload_devices_are_distinguished(self):
         entry = {
             "source": "cloud",
