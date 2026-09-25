@@ -602,6 +602,8 @@ class CloudCenterService:
 
     def invalidate_account_reads(self, game_id: int | None = None) -> None:
         """Invalidate the canonical snapshot and its non-persistent views."""
+        from core.cloud_repository import CloudSaveRepository
+        CloudSaveRepository.shared().invalidate()
         context = self.current_context()
         keys = [
             self.snapshot_key(context),

@@ -361,14 +361,24 @@ class RequestManagerTests(unittest.TestCase):
 
     def test_cancelling_projection_does_not_cancel_source(self):
         manager = RequestManager(max_workers=1)
+        started = threading.Event()
+        release = threading.Event()
         try:
-            source = manager.request(RequestKey("source", "projection-cancel"), lambda _token: "ok")
+            def load(token):
+                started.set()
+                release.wait(2)
+                token.raise_if_cancelled()
+                return "ok"
+
+            source = manager.request(RequestKey("source", "projection-cancel"), load)
+            self.assertTrue(started.wait(2))
             projected = manager.project(
                 source,
                 RequestKey("projection", "projection-cancel"),
                 lambda value: value,
             )
             self.assertTrue(projected.cancel())
+            release.set()
             self.assertEqual(projected.future.result(timeout=2).status, ResourceStatus.CANCELLED)
             self.assertEqual(source.future.result(timeout=2).status, ResourceStatus.READY)
         finally:
@@ -391,8 +401,17 @@ class RequestManagerTests(unittest.TestCase):
 
     def test_invalidating_source_retires_all_projections(self):
         manager = RequestManager(max_workers=1)
+        started = threading.Event()
+        release = threading.Event()
         try:
-            source = manager.request(RequestKey("source", "invalidate-projections"), lambda _token: "ok")
+            def load(token):
+                started.set()
+                release.wait(2)
+                token.raise_if_cancelled()
+                return "ok"
+
+            source = manager.request(RequestKey("source", "invalidate-projections"), load)
+            self.assertTrue(started.wait(2))
             first = manager.project(
                 source,
                 RequestKey("projection", "invalidate-one"),
@@ -404,6 +423,7 @@ class RequestManagerTests(unittest.TestCase):
                 lambda value: value,
             )
             self.assertTrue(manager.invalidate(source.key))
+            release.set()
             self.assertEqual(first.future.result(timeout=2).status, ResourceStatus.CANCELLED)
             self.assertEqual(second.future.result(timeout=2).status, ResourceStatus.CANCELLED)
         finally:

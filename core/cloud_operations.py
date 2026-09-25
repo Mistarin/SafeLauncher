@@ -291,6 +291,7 @@ class CloudOperationCoordinator:
         target_version: Optional[int] = None,
         cancel_check=None,
         progress_callback=None,
+        restore_plan=None,
     ) -> CloudOperationResult:
         try:
             result = CloudSaveSyncEngine.sync_cloud_to_local(
@@ -298,6 +299,7 @@ class CloudOperationCoordinator:
                 preserve_local_fork=True, target_version=target_version,
                 cancel_check=cancel_check,
                 progress_callback=progress_callback,
+                restore_plan=restore_plan,
             )
         except Exception as exc:
             return _failure("Cloud restore", game_name, describe_cloud_error(exc))

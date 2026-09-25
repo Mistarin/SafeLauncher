@@ -15,6 +15,7 @@ logger = get_logger("ZipBackup")
 _MANIFEST_NAME = "safelauncher_manifest.json"
 MAX_ARCHIVE_MEMBERS = 100_000
 MAX_ARCHIVE_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024
+MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 
 
 def _is_within(parent: str, candidate: str) -> bool:
@@ -287,6 +288,8 @@ class ZipBackupManager(IBackupManager):
             with zipfile.ZipFile(import_zip_path, "r") as zipf:
                 if _MANIFEST_NAME not in zipf.namelist():
                     return {}
+                if zipf.getinfo(_MANIFEST_NAME).file_size > MAX_MANIFEST_BYTES:
+                    return {}
                 manifest = json.loads(zipf.read(_MANIFEST_NAME).decode("utf-8"))
                 raw = manifest.get("launcher_metadata") or {}
                 return {
@@ -346,8 +349,12 @@ class ZipBackupManager(IBackupManager):
                 planned = None
                 if _MANIFEST_NAME in namelist:
                     planned = self._plan_manifest_import(zipf, dest_abs, game_abs, home_dir)
-
-                if planned is None:
+                    # A present manifest is a restore-scope contract.  Do not
+                    # silently reinterpret a malformed or escaping manifest
+                    # as a raw archive.
+                    if planned is None:
+                        return False
+                else:
                     # Standard / Legacy safe extraction of the whole archive.
                     for member in members:
                         target_path = os.path.join(dest_abs, member.filename)
@@ -435,6 +442,58 @@ class ZipBackupManager(IBackupManager):
             if rollback_root and os.path.isdir(rollback_root):
                 shutil.rmtree(rollback_root, ignore_errors=True)
 
+    def validate_archive(
+        self,
+        import_zip_path: str,
+        destination_path: str,
+        game_path: str = "",
+    ) -> bool:
+        """Validate an archive and its restore scope without touching saves.
+
+        Restore callers use this before creating a safety backup.  It repeats
+        the exact member/path checks used by :meth:`import_save`, preventing a
+        malformed archive from consuming the backup step or reaching the live
+        save tree.
+        """
+        if not import_zip_path or not os.path.isfile(import_zip_path):
+            return False
+        dest_abs = os.path.abspath(destination_path)
+        game_abs = os.path.abspath(game_path) if game_path else ""
+        home_dir = os.path.expanduser("~")
+        try:
+            with zipfile.ZipFile(import_zip_path, "r") as zipf:
+                members = [member for member in zipf.infolist() if not member.is_dir()]
+                if not members or len(members) > MAX_ARCHIVE_MEMBERS:
+                    return False
+                expanded_bytes = 0
+                for member in members:
+                    mode = (int(member.external_attr) >> 16) & 0o170000
+                    if mode == 0o120000:
+                        return False
+                    expanded_bytes += max(0, int(member.file_size or 0))
+                    if expanded_bytes > MAX_ARCHIVE_EXPANDED_BYTES:
+                        return False
+                if _MANIFEST_NAME in zipf.namelist():
+                    planned = self._plan_manifest_import(zipf, dest_abs, game_abs, home_dir)
+                    if planned is None:
+                        return False
+                else:
+                    planned = []
+                    for member in members:
+                        target = os.path.normpath(os.path.join(dest_abs, member.filename))
+                        if not _is_within(dest_abs, target):
+                            return False
+                        planned.append((member, target, None))
+                if not planned:
+                    return False
+                destinations = [
+                    os.path.normcase(os.path.abspath(final_path))
+                    for _member, final_path, _mtime in planned
+                ]
+                return len(destinations) == len(set(destinations))
+        except (OSError, ValueError, zipfile.BadZipFile):
+            return False
+
     def verify_import(
         self,
         import_zip_path: str,
@@ -490,6 +549,10 @@ class ZipBackupManager(IBackupManager):
         plain whole-archive extraction.
         """
         try:
+            manifest_info = zipf.getinfo(_MANIFEST_NAME)
+            if int(manifest_info.file_size or 0) > MAX_MANIFEST_BYTES:
+                logger.warning("Refusing oversized save archive manifest")
+                return None
             manifest_data = json.loads(zipf.read(_MANIFEST_NAME).decode("utf-8"))
             items = manifest_data.get("items", [])
             transfers = []
@@ -524,8 +587,12 @@ class ZipBackupManager(IBackupManager):
 
                 # Escape attempts fall back to the base root instead of executing.
                 if not _is_within(root, target_dir):
-                    logger.warning(f"Manifest item escapes {base or 'destination'} root ({rel_prefix}); clamping to {root}")
-                    target_dir = root
+                    logger.warning(
+                        "Refusing manifest item outside %s root (%s)",
+                        base or "destination",
+                        rel_prefix,
+                    )
+                    return None
 
                 matched = 0
                 for member in zipf.infolist():
@@ -533,8 +600,8 @@ class ZipBackupManager(IBackupManager):
                         sub_rel = os.path.relpath(member.filename, arc_prefix)
                         final_out = os.path.normpath(os.path.join(target_dir, sub_rel))
                         if not _is_within(root, final_out):
-                            logger.warning(f"Skipping unsafe archive member: {member.filename}")
-                            continue
+                            logger.warning("Refusing unsafe archive member: %s", member.filename)
+                            return None
                         try:
                             mtime = float(file_mtimes.get(sub_rel)) if file_mtimes.get(sub_rel) else None
                         except (TypeError, ValueError):

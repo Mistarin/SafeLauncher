@@ -249,7 +249,9 @@ class ResourceCache:
                 json.dump(document, handle, separators=(",", ":"), sort_keys=True)
                 handle.flush()
                 os.fsync(handle.fileno())
+            os.chmod(temp_path, 0o600)
             os.replace(temp_path, path)
+            os.chmod(path, 0o600)
         finally:
             try:
                 os.unlink(temp_path)

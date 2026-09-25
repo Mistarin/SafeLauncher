@@ -418,19 +418,31 @@ class ConvexSaveBackend:
         """Encrypt + upload a zipped save archive; returns confirm result."""
         if cancel_check and cancel_check():
             raise SaveOperationCancelled()
+        plain_sha = hashlib.sha256()
+        plain_size = 0
         try:
-            with open(plaintext_zip_path, "rb") as f:
-                plaintext = f.read()
+            with open(plaintext_zip_path, "rb") as source:
+                while True:
+                    if cancel_check and cancel_check():
+                        raise SaveOperationCancelled()
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    plain_size += len(chunk)
+                    if plain_size > MAX_SAVE_BYTES:
+                        raise CloudBackendError(
+                            f"Save archive ({plain_size / (1024*1024):.1f} MB) exceeds the maximum allowed size ({MAX_SAVE_BYTES / (1024*1024):.0f} MB).",
+                            "payload_too_large", 413,
+                        )
+                    plain_sha.update(chunk)
+        except SaveOperationCancelled:
+            raise
+        except CloudBackendError:
+            raise
         except OSError as e:
             raise CloudBackendError(f"Could not read staged save: {e}") from e
-        plain_sha = hashlib.sha256(plaintext).hexdigest()
+        plain_sha = plain_sha.hexdigest()
         device_id, device_name, device_platform = get_device_identity()
-
-        if len(plaintext) > MAX_SAVE_BYTES:
-            raise CloudBackendError(
-                f"Save archive ({len(plaintext) / (1024*1024):.1f} MB) exceeds the maximum allowed size ({MAX_SAVE_BYTES / (1024*1024):.0f} MB).",
-                "payload_too_large", 413
-            )
 
         # Name-key resolution normally fetched this listing already. Reusing
         # it avoids a second serialized cloud request on every upload; direct
@@ -446,84 +458,106 @@ class ConvexSaveBackend:
                 )
                 return {"skipped": True, "version": matched.get("version"), "existingVersion": matched.get("version")}
 
-        envelope = save_crypto.encrypt_save(plaintext, self.data_key_b64())
-        declared = len(envelope)
-
-        init = self._check(
-            self._request(
-                "POST",
-                f"/api/games/{requests.utils.quote(name_key)}/init-upload",
-                json_body={
-                    "displayName": display_name,
-                    "plainSha256": plain_sha,
-                    "sourceMaxMtime": int(source_max_mtime),
-                    "declaredSizeBytes": declared,
-                    "createdDeviceId": device_id,
-                    "createdDeviceName": device_name,
-                    "createdDevicePlatform": device_platform,
-                    "uploadedDeviceId": device_id,
-                    "uploadedDeviceName": device_name,
-                    "uploadedDevicePlatform": device_platform,
-                },
-            ),
-            "Upload init",
-        )
-
-        def body_chunks():
-            chunk_size = 1024 * 1024
-            total = len(envelope)
-            sent = 0
-            for offset in range(0, total, chunk_size):
-                if cancel_check and cancel_check():
-                    raise SaveOperationCancelled()
-                chunk = envelope[offset:offset + chunk_size]
-                sent += len(chunk)
-                if progress_callback is not None:
-                    progress_callback(sent / max(1, total))
-                yield chunk
-
-        transfer_session = requests.Session()
+        envelope_path = None
         try:
-            post = transfer_session.post(
-                init["uploadUrl"],
-                data=body_chunks(),
-                headers={
-                    "Content-Type": "application/octet-stream",
-                    # Keep the upload compatible with signed blob endpoints
-                    # that reject chunked transfer encoding while retaining
-                    # cooperative cancellation between stream chunks.
-                    "Content-Length": str(len(envelope)),
-                },
-                timeout=(10, 120),
+            envelope_fd, envelope_path = tempfile.mkstemp(
+                prefix=".sl-save-", suffix=".enc", dir=os.path.dirname(os.path.abspath(plaintext_zip_path))
             )
-        finally:
-            transfer_session.close()
-        if post.status_code != 200:
-            raise CloudBackendError(
-                f"Save upload rejected ({post.status_code}).", "upload_failed",
-                post.status_code,
-            )
-        try:
-            storage_id = post.json().get("storageId")
-        except (ValueError, AttributeError):
-            storage_id = None
-        finally:
+            os.close(envelope_fd)
             try:
-                post.close()
-            except Exception:
-                pass
-        if not storage_id:
-            raise CloudBackendError("Upload succeeded but no valid id was returned.",
-                                    "upload_failed", 502)
+                _digest, encrypted_plain_size, declared = save_crypto.encrypt_save_file(
+                    plaintext_zip_path,
+                    envelope_path,
+                    self.data_key_b64(),
+                    max_plaintext_bytes=MAX_SAVE_BYTES,
+                    cancel_check=cancel_check,
+                )
+            except SaveOperationCancelled:
+                raise
+            except save_crypto.SaveCryptoError as exc:
+                raise CloudBackendError(str(exc), "encryption_failed") from exc
+            if encrypted_plain_size != plain_size or _digest != plain_sha:
+                raise CloudBackendError("Staged save changed while it was being encrypted.", "local_save_changed")
+            init = self._check(
+                self._request(
+                    "POST",
+                    f"/api/games/{requests.utils.quote(name_key)}/init-upload",
+                    json_body={
+                        "displayName": display_name,
+                        "plainSha256": plain_sha,
+                        "sourceMaxMtime": int(source_max_mtime),
+                        "declaredSizeBytes": declared,
+                        "createdDeviceId": device_id,
+                        "createdDeviceName": device_name,
+                        "createdDevicePlatform": device_platform,
+                        "uploadedDeviceId": device_id,
+                        "uploadedDeviceName": device_name,
+                        "uploadedDevicePlatform": device_platform,
+                    },
+                ),
+                "Upload init",
+            )
 
-        return self._check(
-            self._request(
-                "POST",
-                f"/api/games/{requests.utils.quote(name_key)}/confirm-upload",
-                json_body={"saveId": init["saveId"], "storageId": storage_id},
-            ),
-            "Upload confirm",
-        )
+            def body_chunks():
+                chunk_size = 1024 * 1024
+                sent = 0
+                with open(envelope_path, "rb") as envelope:
+                    while True:
+                        if cancel_check and cancel_check():
+                            raise SaveOperationCancelled()
+                        chunk = envelope.read(chunk_size)
+                        if not chunk:
+                            break
+                        sent += len(chunk)
+                        if progress_callback is not None:
+                            progress_callback(sent / max(1, declared))
+                        yield chunk
+
+            transfer_session = requests.Session()
+            try:
+                post = transfer_session.post(
+                    init["uploadUrl"],
+                    data=body_chunks(),
+                    headers={
+                        "Content-Type": "application/octet-stream",
+                        "Content-Length": str(declared),
+                    },
+                    timeout=(10, 120),
+                )
+            finally:
+                transfer_session.close()
+            if post.status_code != 200:
+                raise CloudBackendError(
+                    f"Save upload rejected ({post.status_code}).", "upload_failed",
+                    post.status_code,
+                )
+            try:
+                storage_id = post.json().get("storageId")
+            except (ValueError, AttributeError):
+                storage_id = None
+            finally:
+                try:
+                    post.close()
+                except Exception:
+                    pass
+            if not storage_id:
+                raise CloudBackendError("Upload succeeded but no valid id was returned.",
+                                        "upload_failed", 502)
+
+            return self._check(
+                self._request(
+                    "POST",
+                    f"/api/games/{requests.utils.quote(name_key)}/confirm-upload",
+                    json_body={"saveId": init["saveId"], "storageId": storage_id},
+                ),
+                "Upload confirm",
+            )
+        finally:
+            if envelope_path:
+                try:
+                    os.unlink(envelope_path)
+                except OSError:
+                    pass
 
     # ------------------------------------------------------------------ #
     # Download                                                           #
@@ -588,22 +622,34 @@ class ConvexSaveBackend:
                 pass
             raise
 
+        plain_path = None
         try:
-            with open(enc_path, "rb") as f:
-                envelope = f.read()
-            if cancel_check and cancel_check():
-                raise SaveOperationCancelled()
-            plaintext = save_crypto.decrypt_save(envelope, self.data_key_b64())
             fd2, plain_path = tempfile.mkstemp(prefix=".sl-save-", suffix=".zip", dir=dest_dir)
-            with os.fdopen(fd2, "wb") as out:
-                out.write(plaintext)
-            os.chmod(plain_path, 0o600)
-            return plain_path, {"version": ref["version"], "sizeBytes": ref["sizeBytes"]}
+            os.close(fd2)
+            save_crypto.decrypt_save_file(
+                enc_path,
+                plain_path,
+                self.data_key_b64(),
+                max_plaintext_bytes=MAX_SAVE_BYTES,
+                cancel_check=cancel_check,
+            )
+            return plain_path, {
+                "version": ref.get("version"),
+                "sizeBytes": ref.get("sizeBytes"),
+                "fileCount": ref.get("fileCount"),
+                "createdAt": ref.get("createdAt", 0),
+                "uploadedDeviceName": ref.get("uploadedDeviceName", ""),
+            }
         finally:
             try:
                 os.unlink(enc_path)
             except OSError:
                 pass
+            if plain_path and not os.path.isfile(plain_path):
+                try:
+                    os.unlink(plain_path)
+                except OSError:
+                    pass
 
     def delete_generation(self, name_key: str, version: int) -> bool:
         resp = self._request(
@@ -627,10 +673,29 @@ class ConvexSaveBackend:
         return check_backend_health(self.site_url, self.secret_key, timeout=timeout)
 
     def import_cloud_save_local(self, cloud_zip_path: str, destination: str, game_path: str = "") -> bool:
-        """Extract a downloaded plaintext zip using the shared importer."""
-        from core.zip_backup import ZipBackupManager
-        ok = ZipBackupManager().import_save(cloud_zip_path, destination, game_path=game_path)
-        return ok
+        """Restore a downloaded archive through the shared safety boundary."""
+        from core.ludusavi_detector import SaveLocation
+        from core.save_restore_service import (
+            restore_archive_with_safety_backup,
+            safety_backup_path,
+        )
+
+        current = (
+            [SaveLocation("Current local save", destination, os.path.isdir(destination))]
+            if os.path.lexists(destination) else []
+        )
+        result = restore_archive_with_safety_backup(
+            cloud_zip_path,
+            destination,
+            game_name="Cloud save",
+            game_path=game_path,
+            current_locations=current,
+            backup_zip_path=safety_backup_path(
+                os.path.dirname(os.path.abspath(destination)), "cloud-save"
+            ),
+            operation="Restore cloud save",
+        )
+        return bool(result.success)
 
 
 def check_backend_health(

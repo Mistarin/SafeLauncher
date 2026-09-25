@@ -1191,11 +1191,15 @@ class GamePropertiesDialog(PopupDialog):
                 self.game_id, self.game_name, self.game_path, str(self.steam_id or "")
             )
             operation_service = self.cloud_center_service or self.cloud_operation_service
+            restore_plan = self._restore_plan_for_history_entry(
+                self.game_name, self.game_path, selected
+            )
             handle = operation_service.request_restore(
                 target,
                 priority=RequestPriority.CRITICAL,
                 tag="properties_generation_restore",
                 target_version=int(version),
+                restore_plan=restore_plan,
             )
 
             def _deliver(resource):
@@ -1377,6 +1381,30 @@ class GamePropertiesDialog(PopupDialog):
                 return True
         return False
 
+    @staticmethod
+    def _restore_plan_for_history_entry(game_name: str, game_path: str, entry):
+        if entry is None:
+            return None
+        raw = getattr(entry, "raw", None) or {}
+        try:
+            from core.save_restore_service import create_remote_restore_plan
+            return create_remote_restore_plan(
+                game_name=game_name,
+                game_path=game_path,
+                source_key="",
+                version=int(raw.get("version")) if raw.get("version") is not None else None,
+                source_timestamp=float(
+                    raw.get("uploaded_at", raw.get("uploadedAt", raw.get("created_at", raw.get("createdAt", 0)))) or 0
+                ),
+                source_size_bytes=int(raw.get("size_bytes", raw.get("sizeBytes", 0)) or 0),
+                source_file_count=int(raw.get("file_count", raw.get("fileCount", 0)) or 0),
+                source_device=str(
+                    raw.get("uploaded_device_name", raw.get("uploadedDeviceName", raw.get("deviceName", ""))) or ""
+                ),
+            )
+        except Exception:
+            return None
+
     def _sync_down_now(self):
         if self._is_game_running():
             QMessageBox.warning(
@@ -1391,6 +1419,9 @@ class GamePropertiesDialog(PopupDialog):
             if entry.source == "cloud"
         ]
         latest_entry = cloud_entries[0] if cloud_entries else None
+        restore_plan = self._restore_plan_for_history_entry(
+            self.game_name, self.game_path, latest_entry
+        )
         if not confirm_restore(
             self,
             game_name=self.game_name,
@@ -1419,6 +1450,7 @@ class GamePropertiesDialog(PopupDialog):
                 target,
                 priority=RequestPriority.CRITICAL,
                 tag="properties_restore",
+                restore_plan=restore_plan,
             )
             self._bind_cloud_operation(
                 handle,

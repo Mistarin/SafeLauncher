@@ -5498,6 +5498,7 @@ class MainWindow(QMainWindow):
                 "steam_id": steam_id,
                 "phase": "preflight",
                 "preflight": value,
+                "restore_plan": value.get("restore_plan") if isinstance(value, dict) else None,
                 "error": error or (value.get("error") if isinstance(value, dict) else ""),
             })
 
@@ -5572,6 +5573,7 @@ class MainWindow(QMainWindow):
                     target,
                     priority=RequestPriority.CRITICAL,
                     tag="manual_restore",
+                    restore_plan=payload.get("restore_plan"),
                 )
             except Exception as exc:
                 from core.cloud_operations import CloudOperationResult

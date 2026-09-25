@@ -121,6 +121,8 @@ class CloudStatusService:
         # flag that can drift from RequestManager state.
         self._active_batches: dict[tuple, _ActiveStatusBatch] = {}
         self._load_cache(legacy_cache_path)
+        from core.cloud_repository import CloudSaveRepository
+        CloudSaveRepository.shared().configure_cache(self.resource_cache)
 
     def _cancel_active_batches_locked(self) -> None:
         for batch in self._active_batches.values():
@@ -372,6 +374,8 @@ class CloudStatusService:
 
     def invalidate_context(self) -> CloudContext:
         """Retire all previous-context results and return the new snapshot."""
+        from core.cloud_repository import CloudSaveRepository
+        CloudSaveRepository.shared().invalidate()
         with self._lock:
             generation = self.coordinator.invalidate_context()
             self._context = self._context_provider(generation)

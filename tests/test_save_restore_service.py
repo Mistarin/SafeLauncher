@@ -5,7 +5,7 @@ import zipfile
 from unittest.mock import patch
 
 from core.ludusavi_detector import SaveLocation
-from core.save_restore_service import restore_archive_with_safety_backup
+from core.save_restore_service import create_restore_plan, restore_archive_with_safety_backup
 from core.zip_backup import ZipBackupManager
 
 
@@ -84,6 +84,42 @@ class SaveRestoreSafetyTests(unittest.TestCase):
                 output.writestr("./slot.dat", b"two")
             destination = os.path.join(root, "destination")
             self.assertFalse(ZipBackupManager().import_save(archive, destination))
+
+    def test_restore_plan_rejects_changed_archive_before_backup(self):
+        with tempfile.TemporaryDirectory() as root:
+            game = os.path.join(root, "game")
+            source = os.path.join(root, "source")
+            os.makedirs(game)
+            os.makedirs(source)
+            with open(os.path.join(game, "slot.dat"), "w") as handle:
+                handle.write("before")
+            with open(os.path.join(source, "slot.dat"), "w") as handle:
+                handle.write("after")
+            archive = os.path.join(root, "cloud.zip")
+            location = self._location(source)
+            self.assertTrue(ZipBackupManager().export_save_locations([location], archive, game_name="Example", game_path=game))
+            plan = create_restore_plan(
+                archive,
+                game,
+                game_name="Example",
+                game_path=game,
+                current_locations=[self._location(game)],
+            )
+            stat = os.stat(archive)
+            os.utime(archive, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+            result = restore_archive_with_safety_backup(
+                archive,
+                game,
+                game_name="Example",
+                game_path=game,
+                current_locations=[self._location(game)],
+                backup_zip_path=os.path.join(root, "backup.zip"),
+                plan=plan,
+            )
+            self.assertFalse(result.success)
+            self.assertEqual(result.category, "stale_selection")
+            with open(os.path.join(game, "slot.dat")) as handle:
+                self.assertEqual(handle.read(), "before")
 
 
 if __name__ == "__main__":

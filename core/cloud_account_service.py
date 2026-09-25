@@ -92,6 +92,10 @@ class CloudAccountService:
         self._generation = 0
         self._context_lock = RLock()
         self._read_invalidator = read_invalidator
+        from core.cloud_repository import CloudSaveRepository
+        CloudSaveRepository.shared().configure_cache(
+            getattr(request_manager, "cache", None)
+        )
 
     SNAPSHOT_TTL_SECONDS = cache_policy("cloud-account-snapshot").max_age_seconds
 
@@ -143,6 +147,8 @@ class CloudAccountService:
 
     def invalidate_context(self) -> CloudContext:
         """Retire account-admin requests from the previous cloud identity."""
+        from core.cloud_repository import CloudSaveRepository
+        CloudSaveRepository.shared().invalidate()
         with self._context_lock:
             previous = self._context
             self._generation += 1
@@ -191,8 +197,11 @@ class CloudAccountService:
         """Load the account overview and save listing using one transport."""
         client = self._client()
         try:
+            listing = client.list_games()
+            from core.cloud_repository import CloudSaveRepository
+            CloudSaveRepository.shared().adopt_listing(listing)
             return CloudAccountSnapshot(
-                listing=client.list_games(),
+                listing=listing,
                 overview=client.account(),
             )
         finally:
@@ -254,6 +263,12 @@ class CloudAccountService:
             try:
                 listing = client.list_games()
                 token.raise_if_cancelled()
+                # Publish the one manager-backed listing to the canonical
+                # resolver used by status/history/mutations.  This prevents
+                # account refreshes and save operations from maintaining
+                # separate key-resolution snapshots.
+                from core.cloud_repository import CloudSaveRepository
+                CloudSaveRepository.shared().adopt_listing(listing)
                 overview = client.account()
                 token.raise_if_cancelled()
                 if not isinstance(listing, dict) or not isinstance(overview, dict):
@@ -301,7 +316,9 @@ class CloudAccountService:
         """Load the cloud save-generation listing."""
         client = self._client()
         try:
-            return client.list_games()
+            listing = client.list_games()
+            from core.cloud_repository import CloudSaveRepository
+            return CloudSaveRepository.shared().adopt_listing(listing)
         finally:
             client.close()
 

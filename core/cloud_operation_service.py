@@ -34,6 +34,10 @@ from core.request_contracts import (
     classify_remote_error,
     is_transient_error,
 )
+from core.logger import get_logger
+
+
+logger = get_logger("CloudOperationService")
 
 
 class _ProgressReporter:
@@ -43,9 +47,11 @@ class _ProgressReporter:
         self._service = service
         self._operation_id = ""
         self._pending: float | None = None
+        self._last_phase = ""
 
     def bind(self, operation_id: str) -> None:
         self._operation_id = str(operation_id)
+        self._service.record_phase(self._operation_id, "queued")
         if self._pending is not None:
             self(self._pending)
             self._pending = None
@@ -55,6 +61,15 @@ class _ProgressReporter:
         if not self._operation_id:
             self._pending = bounded
             return
+        phase = (
+            "prepare" if bounded < 0.15 else
+            "package" if bounded < 0.75 else
+            "transfer" if bounded < 0.95 else
+            "finalize"
+        )
+        if phase != self._last_phase:
+            self._last_phase = phase
+            self._service.record_phase(self._operation_id, phase)
         self._service.update_progress(self._operation_id, bounded)
 
 
@@ -94,8 +109,14 @@ class CloudOperationService:
         self._records: dict[str, CloudOperationRecord] = {}
         self._handles = {}
         self._read_invalidation_notified: set[str] = set()
+        self._read_invalidation_keys: set[RequestKey] = set()
+        self._phase_timings: dict[str, dict[str, float]] = {}
         self._records_lock = RLock()
         self._read_invalidator = read_invalidator
+        from core.cloud_repository import CloudSaveRepository
+        CloudSaveRepository.shared().configure_cache(
+            getattr(request_manager, "cache", None)
+        )
 
     def set_read_invalidator(
         self,
@@ -185,7 +206,42 @@ class CloudOperationService:
 
     def _request(self, target, operation, loader, *, progress_hook=None,
                  cache_options=None, **kwargs):
-        spec = self._spec(target, operation, loader, **kwargs)
+        invalidation_notified = False
+        request_key = None
+
+        def load_with_invalidation(token):
+            nonlocal invalidation_notified
+            value = loader(token)
+            succeeded = getattr(value, "success", True) is not False
+            if isinstance(value, dict):
+                succeeded = succeeded and value.get("outcome") != "failed"
+            if isinstance(value, tuple) and len(value) > 1:
+                succeeded = succeeded and value[1] is None
+            operation_name = str(operation or "").split(":", 1)[0]
+            mutated = operation_name in {"upload", "restore", "restore-with-preflight"}
+            if operation_name == "exit-sync":
+                mutated = isinstance(value, dict) and value.get("outcome") == "uploaded"
+            if succeeded and mutated:
+                try:
+                    from core.cloud_repository import CloudSaveRepository
+                    CloudSaveRepository.shared().invalidate()
+                except Exception:
+                    pass
+            if succeeded and self._read_invalidator is not None and not invalidation_notified:
+                invalidation_notified = True
+                if request_key is not None:
+                    with self._records_lock:
+                        self._read_invalidation_keys.add(request_key)
+                try:
+                    # Run before the RequestManager marks the future ready so
+                    # callers observing completion also observe fresh reads.
+                    self._read_invalidator(target, operation, value)
+                except Exception:
+                    pass
+            return value
+
+        spec = self._spec(target, operation, load_with_invalidation, **kwargs)
+        request_key = spec.key
         if cache_options and getattr(self.request_manager, "cache", None) is not None:
             handle = self.request_manager.cached_request(
                 spec,
@@ -257,7 +313,12 @@ class CloudOperationService:
                 error_category=error_category,
             )
             notify_read_invalidator = False
-            if state == CloudOperationState.COMPLETED and self._read_invalidator is not None:
+            if (
+                state == CloudOperationState.COMPLETED
+                and self._read_invalidator is not None
+                and not invalidation_notified
+                and handle.key not in self._read_invalidation_keys
+            ):
                 with self._records_lock:
                     if operation_id not in self._read_invalidation_notified:
                         self._read_invalidation_notified.add(operation_id)
@@ -286,6 +347,12 @@ class CloudOperationService:
             current = self._records.get(operation_id)
             if current is None:
                 return
+            if current.state in {
+                CloudOperationState.COMPLETED,
+                CloudOperationState.FAILED,
+                CloudOperationState.CANCELLED,
+            }:
+                return
             self._records[operation_id] = CloudOperationRecord(
                 operation_id=current.operation_id,
                 key=current.key,
@@ -301,6 +368,40 @@ class CloudOperationService:
                 error=error,
                 result_status=result_status,
             )
+            phases = dict(self._phase_timings.pop(operation_id, {}))
+        now_mono = time.monotonic()
+        for key in tuple(phases):
+            if key.startswith("__started__:"):
+                phase_name = key.split(":", 1)[1]
+                phases[phase_name] = phases.get(phase_name, 0.0) + max(
+                    0.0, (now_mono - phases[key]) * 1000.0
+                )
+                del phases[key]
+        duration_ms = max(0.0, (time.time() - current.started_at) * 1000.0)
+        logger.info(
+            "Cloud operation completed id=%s game_id=%s operation=%s state=%s duration_ms=%.1f phases=%s",
+            operation_id,
+            current.game_id,
+            current.operation,
+            state.value,
+            duration_ms,
+            ",".join(f"{name}={value:.1f}ms" for name, value in phases.items()) or "none",
+        )
+
+    def record_phase(self, operation_id: str, phase: str) -> None:
+        """Record coarse phase durations without save paths or payloads."""
+        now = time.monotonic()
+        with self._records_lock:
+            state = self._phase_timings.setdefault(str(operation_id), {})
+            marker = f"__started__:{phase}"
+            if marker in state:
+                return
+            for key in tuple(state):
+                if key.startswith("__started__:"):
+                    previous = key.split(":", 1)[1]
+                    state[previous] = state.get(previous, 0.0) + max(0.0, (now - state[key]) * 1000.0)
+                    del state[key]
+            state[marker] = now
 
     def operation(self, operation_id: str) -> CloudOperationRecord | None:
         with self._records_lock:
@@ -439,6 +540,7 @@ class CloudOperationService:
         generation=None,
         tag="",
         target_version=None,
+        restore_plan=None,
     ):
         progress = _ProgressReporter(self)
 
@@ -451,6 +553,7 @@ class CloudOperationService:
                 target.game_path,
                 steam_id=target.steam_id,
                 target_version=target_version,
+                restore_plan=restore_plan,
                 cancel_check=lambda: token.cancelled,
                 progress_callback=progress,
             )
@@ -698,11 +801,37 @@ class CloudOperationService:
             if history_error is not None:
                 return {"kind": "error", "error": history_error}
             cloud_versions = [version for version in versions if version.get("source") == "cloud"]
+            restore_plan = None
+            if cloud_versions:
+                entry = cloud_versions[0]
+                try:
+                    from core.cloud_save_sync import resolve_cloud_game_ref
+                    from core.save_history import history_device_metadata
+                    from core.save_restore_service import create_remote_restore_plan
+                    restore_plan = create_remote_restore_plan(
+                        game_name=target.game_name,
+                        game_path=target.game_path,
+                        source_key=resolve_cloud_game_ref(target.game_name).name_key,
+                        version=int(entry.get("version")) if entry.get("version") is not None else None,
+                        source_timestamp=float(
+                            entry.get("uploaded_at", entry.get("uploadedAt", entry.get("created_at", entry.get("createdAt", 0)))) or 0
+                        ),
+                        source_size_bytes=int(entry.get("size_bytes", entry.get("sizeBytes", 0)) or 0),
+                        source_file_count=int(entry.get("file_count", entry.get("fileCount", 0)) or 0),
+                        source_device=history_device_metadata(entry).get("uploaded", ""),
+                    )
+                except Exception:
+                    # A preflight plan is an extra safety guard; failure to
+                    # construct it must not turn a valid read into a broken
+                    # cloud operation. The explicit selected version remains
+                    # immutable and is still passed by the UI when available.
+                    restore_plan = None
             if len(cloud_versions) > 1:
                 return {
                     "kind": "history",
                     "display_path": "Latest cloud save version",
                     "history_entry": cloud_versions[0],
+                    "restore_plan": restore_plan,
                 }
             preflight = self.coordinator.preflight(
                 target.game_id, target.game_name, target.game_path, target.steam_id
@@ -721,6 +850,7 @@ class CloudOperationService:
                 # the local save. The raw entry is still treated as transport
                 # data and normalized by the presentation layer.
                 "history_entry": cloud_versions[0] if cloud_versions else None,
+                "restore_plan": restore_plan,
             }
 
         return self._request(

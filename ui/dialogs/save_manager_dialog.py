@@ -1405,10 +1405,13 @@ class SaveManagerDialog(PopupDialog):
                 except Exception:
                     value = None
                 if value is None or value.get("kind") == "error":
+                    self._pending_cloud_restore_plan = None
                     self._restore_done.emit(False, "__preflight_error__")
                 elif value.get("kind") == "history":
+                    self._pending_cloud_restore_plan = None
                     self._restore_done.emit(False, "__switch_to_history__")
                 else:
+                    self._pending_cloud_restore_plan = value.get("restore_plan")
                     self._restore_done.emit(
                         False,
                         f"__preflight_ok__{value.get('display_path', 'Unavailable')}__exists__{bool(value.get('cloud_exists'))}",
@@ -1488,7 +1491,9 @@ class SaveManagerDialog(PopupDialog):
                     target,
                     priority=RequestPriority.CRITICAL,
                     tag="save_manager_restore",
+                    restore_plan=getattr(self, "_pending_cloud_restore_plan", None),
                 )
+                self._pending_cloud_restore_plan = None
 
                 def _deliver(resource):
                     result = self._resource_operation_result(resource, "Cloud restore")
