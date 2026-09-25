@@ -274,6 +274,13 @@ class MainWindow(QMainWindow):
         # downloading the same version more than once.
         self._cloud_auto_restore_in_flight: dict[int, tuple[int, object]] = {}
         self._cloud_auto_upload_in_flight: dict[int, tuple[int, object]] = {}
+        # A single cloud snapshot must not be restored forever when a remote
+        # timestamp cannot converge with the extracted local files.  The
+        # counter is reset automatically when the cloud version/signature
+        # changes, and also bounds transient retry noise.
+        self._cloud_auto_restore_attempts: dict[int, tuple[tuple, int]] = {}
+        self._cloud_auto_upload_attempts: dict[int, tuple[tuple, int]] = {}
+        self._closing = False
         self.achievement_state = AchievementStateStore()
         self.achievement_persistence_service = AchievementPersistenceService(self.db)
         self._achievement_poll_timer = None
@@ -5794,6 +5801,8 @@ class MainWindow(QMainWindow):
         *,
         auto_sync: bool = False,
     ):
+        if getattr(self, "_closing", False):
+            return
         checked_at = time.time()
         self.cloud_status_service.record_status(
             game_id,
@@ -5878,6 +5887,30 @@ class MainWindow(QMainWindow):
             or int(game_id) in getattr(self, "_cloud_auto_upload_in_flight", {})
         )
 
+    @staticmethod
+    def _cloud_restore_signature(cloud_stats) -> tuple:
+        """Identify one cloud snapshot independently of backend list order."""
+        if cloud_stats is None:
+            return (None, 0.0, 0, 0, "")
+        return (
+            getattr(cloud_stats, "cloud_version", None),
+            round(float(getattr(cloud_stats, "last_modified", 0.0) or 0.0), 3),
+            int(getattr(cloud_stats, "size_bytes", 0) or 0),
+            int(getattr(cloud_stats, "file_count", 0) or 0),
+            str(getattr(cloud_stats, "device_name", "") or ""),
+        )
+
+    def _request_manager_accepts_work(self) -> bool:
+        """Return whether new managed requests can still be submitted."""
+        if getattr(self, "_closing", False):
+            return False
+        if not hasattr(self, "request_manager"):
+            # Keep the helper usable by lightweight embedding/test doubles;
+            # real MainWindow instances always create the manager eagerly.
+            return True
+        manager = getattr(self, "request_manager", None)
+        return manager is not None and not getattr(manager, "_closed", False)
+
     def _maybe_auto_upload_cloud_save(
         self,
         game_id: int,
@@ -5886,6 +5919,8 @@ class MainWindow(QMainWindow):
         cloud_stats=None,
     ) -> None:
         """Upload a newer local save automatically once the game is stopped."""
+        if not MainWindow._request_manager_accepts_work(self):
+            return
         if status != SyncStatus.LOCAL_NEWER:
             return
         if game_id in self.running_game_ids:
@@ -5912,8 +5947,29 @@ class MainWindow(QMainWindow):
         game_name = str(game[1] if len(game) > 1 else "")
         game_path = str(game[2] if len(game) > 2 else "")
         steam_id = str(game[6] if len(game) > 6 and game[6] else "")
+        signature = (
+            self.cloud_sync_coordinator.generation,
+            round(float(getattr(local_stats, "last_modified", 0.0) or 0.0), 3),
+            int(getattr(local_stats, "size_bytes", 0) or 0),
+            int(getattr(local_stats, "file_count", 0) or 0),
+            str(getattr(local_stats, "device_name", "") or ""),
+        )
+        attempts = getattr(self, "_cloud_auto_upload_attempts", {})
+        previous = attempts.get(int(game_id))
+        attempt_count = previous[1] if previous and previous[0] == signature else 0
+        if attempt_count >= 2:
+            logger.warning(
+                "Automatic cloud upload stopped for game %s after %d attempts "
+                "for unchanged local snapshot %s",
+                game_id,
+                attempt_count,
+                signature,
+            )
+            return
         generation = self.cloud_sync_coordinator.generation
         marker = (generation, "upload")
+        attempts[int(game_id)] = (signature, attempt_count + 1)
+        setattr(self, "_cloud_auto_upload_attempts", attempts)
         self._cloud_auto_upload_in_flight[int(game_id)] = marker
         self._set_cloud_syncing(game_id, local_stats, cloud_stats)
         target = CloudOperationTarget(int(game_id), game_name, game_path, steam_id)
@@ -5971,6 +6027,9 @@ class MainWindow(QMainWindow):
         if not isinstance(payload, dict):
             return
         game_id = int(payload.get("game_id", 0) or 0)
+        if getattr(self, "_closing", False):
+            self._cloud_auto_upload_in_flight.pop(game_id, None)
+            return
         marker = self._cloud_auto_upload_in_flight.get(game_id)
         expected = (int(payload.get("generation", -1)), "upload")
         if marker != expected:
@@ -5986,7 +6045,7 @@ class MainWindow(QMainWindow):
             self.request_cloud_recheck(
                 [game_id],
                 "automatic-upload-complete",
-                auto_sync=True,
+                auto_sync=False,
             )
             return
 
@@ -6006,6 +6065,8 @@ class MainWindow(QMainWindow):
         cloud_stats=None,
     ) -> None:
         """Restore a newly detected cloud save when it is safe to mutate disk."""
+        if not MainWindow._request_manager_accepts_work(self):
+            return
         if status not in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
             return
         if game_id in self.running_game_ids:
@@ -6033,8 +6094,29 @@ class MainWindow(QMainWindow):
         game_path = str(game[2] if len(game) > 2 else "")
         steam_id = str(game[6] if len(game) > 6 and game[6] else "")
         target_version = getattr(cloud_stats, "cloud_version", None)
+        signature = (
+            self.cloud_sync_coordinator.generation,
+            *MainWindow._cloud_restore_signature(cloud_stats),
+        )
+        attempts = getattr(self, "_cloud_auto_restore_attempts", {})
+        previous = attempts.get(int(game_id))
+        attempt_count = previous[1] if previous and previous[0] == signature else 0
+        # Two attempts cover a transient transfer failure.  A successful
+        # restore that still reports the same cloud snapshot must never turn
+        # into a periodic destructive restore loop.
+        if attempt_count >= 2:
+            logger.warning(
+                "Automatic cloud restore stopped for game %s after %d attempts "
+                "for unchanged snapshot %s",
+                game_id,
+                attempt_count,
+                signature,
+            )
+            return
         generation = self.cloud_sync_coordinator.generation
         marker = (generation, target_version)
+        attempts[int(game_id)] = (signature, attempt_count + 1)
+        setattr(self, "_cloud_auto_restore_attempts", attempts)
         self._cloud_auto_restore_in_flight[int(game_id)] = marker
         self._set_cloud_syncing(game_id, local_stats, cloud_stats)
 
@@ -6097,6 +6179,9 @@ class MainWindow(QMainWindow):
         if not isinstance(payload, dict):
             return
         game_id = int(payload.get("game_id", 0) or 0)
+        if getattr(self, "_closing", False):
+            self._cloud_auto_restore_in_flight.pop(game_id, None)
+            return
         marker = self._cloud_auto_restore_in_flight.get(game_id)
         expected = (
             int(payload.get("generation", -1)),
@@ -6115,7 +6200,10 @@ class MainWindow(QMainWindow):
             self.request_cloud_recheck(
                 [game_id],
                 "automatic-restore-complete",
-                auto_sync=True,
+                # Re-read and render the authoritative status, but do not
+                # immediately feed a non-converged result back into restore.
+                # The normal poll path can handle a genuinely new snapshot.
+                auto_sync=False,
             )
             return
 
@@ -7883,6 +7971,9 @@ class MainWindow(QMainWindow):
         game_ids=[]    -> only games whose cloud copy changed (listing diff)
         game_ids=[…]   -> exactly these games (after uploads, restores, edits)
         """
+        if not MainWindow._request_manager_accepts_work(self):
+            logger.debug("Ignoring cloud recheck during launcher shutdown")
+            return
         context = self.cloud_status_service.current_context()
         if not context.network_allowed:
             if game_ids is None or game_ids:
@@ -8074,6 +8165,8 @@ class MainWindow(QMainWindow):
         force: bool = False,
     ):
         """Request per-game cloud statuses through the shared manager."""
+        if not MainWindow._request_manager_accepts_work(self):
+            return
         if not self._automatic_network_allowed():
             return
         if generation is None:
@@ -8122,14 +8215,23 @@ class MainWindow(QMainWindow):
                     cancel_on_close=True,
                 )
 
-        self.cloud_status_service.request_many(
-            status_targets,
-            priority=priority,
-            generation=generation,
-            tag=tag,
-            force=force,
-            on_complete=on_batch_complete,
-        )
+        try:
+            self.cloud_status_service.request_many(
+                status_targets,
+                priority=priority,
+                generation=generation,
+                tag=tag,
+                force=force,
+                on_complete=on_batch_complete,
+            )
+        except RuntimeError as exc:
+            # closeEvent can retire the shared manager between a queued Qt
+            # callback and this submission.  Late UI work is harmless and
+            # must not become an unhandled exception during shutdown.
+            if "shut down" in str(exc).lower() or getattr(self, "_closing", False):
+                logger.debug("Cloud status request ignored during shutdown: %s", exc)
+                return
+            raise
 
     def _on_managed_cloud_status_state(self, key: RequestKey, result) -> None:
         """Apply a managed cloud status only on the current UI generation."""
@@ -8647,6 +8749,7 @@ class MainWindow(QMainWindow):
         # rather than immediately starting a new shutdown after the user chose
         # to keep the launcher open.
         self._shutdown_abort_requested = True
+        self._closing = False
         self.setEnabled(True)
         self.show()
         self.raise_()
@@ -8680,6 +8783,7 @@ class MainWindow(QMainWindow):
 
         first_attempt = getattr(self, "_shutdown_deadline", 0.0) == 0.0
         if first_attempt:
+            self._closing = True
             self._shutdown_deadline = _time.monotonic() + 12.0
             self._show_shutdown_progress()
             self._network_probe_timer.stop()

@@ -949,8 +949,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 55983,
-      "lines": 1210,
+      "bytes": 57896,
+      "lines": 1251,
       "path": "core/cloud_save_sync.py",
       "suffix": ".py"
     },
@@ -1741,8 +1741,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 5295,
-      "lines": 121,
+      "bytes": 6521,
+      "lines": 141,
       "path": "tests/test_cloud_save_flow.py",
       "suffix": ".py"
     },
@@ -1981,8 +1981,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 19545,
-      "lines": 464,
+      "bytes": 21585,
+      "lines": 516,
       "path": "tests/test_ui_consistency.py",
       "suffix": ".py"
     },
@@ -2227,8 +2227,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 439424,
-      "lines": 9404,
+      "bytes": 444511,
+      "lines": 9508,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2263,5 +2263,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-25T19:52:01+00:00"
+  "generated_at": "2026-09-25T20:14:54+00:00"
 }

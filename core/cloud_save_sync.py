@@ -359,9 +359,23 @@ def get_active_cloud_top_version(game_name: str) -> Optional[int]:
     return None
 
 
+def get_active_save_mtime(game_name: str) -> Optional[float]:
+    """Return the local save timestamp recorded for the active cloud version."""
+    settings = QSettings("SafeLauncher", "SafeLauncher")
+    for k_name in _candidate_save_keys(game_name):
+        value = settings.value(f"active_save_mtime_{k_name}", None)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
 def set_active_save_version(game_name: str, version: Optional[int],
                             cloud_top_version: Optional[int] = None,
-                            name_key: str = "") -> None:
+                            name_key: str = "",
+                            local_mtime: Optional[float] = None) -> None:
     """Store or clear locally activated cloud save generation for this game.
 
     ``name_key`` is the resolved cloud nameKey (e.g. "the-witcher-3").  Pass
@@ -381,13 +395,17 @@ def set_active_save_version(game_name: str, version: Optional[int],
     for k_name in candidates:
         k = f"active_save_ver_{k_name}"
         k_top = f"active_save_top_{k_name}"
+        k_mtime = f"active_save_mtime_{k_name}"
         if version is None:
             settings.remove(k)
             settings.remove(k_top)
+            settings.remove(k_mtime)
         else:
             settings.setValue(k, int(version))
             if cloud_top_version is not None:
                 settings.setValue(k_top, int(cloud_top_version))
+            if local_mtime is not None:
+                settings.setValue(k_mtime, float(local_mtime))
 
     if version is None:
         # Sweep for any lingering keys that might have been written under
@@ -399,7 +417,7 @@ def set_active_save_version(game_name: str, version: Optional[int],
         candidates_set = set(candidates)
         all_keys = settings.allKeys()
         for qk in all_keys:
-            for prefix in ("active_save_ver_", "active_save_top_"):
+            for prefix in ("active_save_ver_", "active_save_top_", "active_save_mtime_"):
                 if qk.startswith(prefix):
                     suffix = qk[len(prefix):]
                     if suffix in candidates_set:
@@ -587,6 +605,17 @@ class CloudSaveSyncEngine:
                 logger.warning(f"Cloud stats unavailable for '{game_name}': {exc}")
                 return SyncStatus.CLOUD_UNAVAILABLE, local_stats, SaveStats(exists=False)
             if cloud_stats is not None:
+                active_version = get_active_save_version(game_name)
+                active_mtime = get_active_save_mtime(game_name)
+                if (
+                    local_stats.exists
+                    and cloud_stats.exists
+                    and active_version is not None
+                    and cloud_stats.cloud_version == active_version
+                    and active_mtime is not None
+                    and abs(local_stats.last_modified - active_mtime) <= 2.0
+                ):
+                    return SyncStatus.IN_SYNC, local_stats, cloud_stats
                 return cls._decide(local_stats, cloud_stats)
             # Cloud unreachable: say so instead of guessing a sync state from
             # the local-folder engine's disk cache.
@@ -767,9 +796,13 @@ class CloudSaveSyncEngine:
                     skipped_ver = result.get("version")
                     if skipped_ver is not None:
                         remote_snapshot = cls._remote_game_snapshot(resolved_key)
-                        top_v = remote_snapshot["versions"][0].get("version") if (remote_snapshot and remote_snapshot.get("versions")) else skipped_ver
+                        top = newest_cloud_version(
+                            remote_snapshot.get("versions") if remote_snapshot else ()
+                        )
+                        top_v = top.get("version") if top else skipped_ver
                         set_active_save_version(game_name, int(skipped_ver), cloud_top_version=top_v,
-                                                name_key=resolved_key)
+                                                name_key=resolved_key,
+                                                local_mtime=local_stats.last_modified)
                     return SaveOperationResult(
                         True, "Cloud upload", game_name,
                         payload={"backend": result, "snapshot": snapshot.with_phase(SaveSnapshotPhase.COMPLETED)},
@@ -781,7 +814,8 @@ class CloudSaveSyncEngine:
                 uploaded_ver = result.get("version")
                 if uploaded_ver is not None:
                     set_active_save_version(game_name, int(uploaded_ver), cloud_top_version=int(uploaded_ver),
-                                            name_key=resolved_key)
+                                            name_key=resolved_key,
+                                            local_mtime=local_stats.last_modified)
 
                 logger.info(
                     f"Uploaded encrypted save to cloud for '{game_name}' "
@@ -1028,9 +1062,16 @@ class CloudSaveSyncEngine:
                 restored_ver = meta.get("version")
                 if restored_ver is not None:
                     snapshot = cls._remote_game_snapshot(key)
-                    top_v = snapshot["versions"][0].get("version") if (snapshot and snapshot.get("versions")) else restored_ver
+                    top = newest_cloud_version(
+                        snapshot.get("versions") if snapshot else ()
+                    )
+                    top_v = top.get("version") if top else restored_ver
+                    restored_local_stats, _ = cls.get_local_save_stats(
+                        game_name, game_path, steam_id
+                    )
                     set_active_save_version(game_name, int(restored_ver), cloud_top_version=top_v,
-                                            name_key=key)
+                                            name_key=key,
+                                            local_mtime=restored_local_stats.last_modified)
                 logger.info("Restored cloud save v%s for '%s'", restored_ver, game_name)
             return restore_result
 

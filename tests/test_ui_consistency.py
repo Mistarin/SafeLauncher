@@ -342,7 +342,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         })
         self.assertNotIn(7, fake._cloud_auto_upload_in_flight)
         fake.request_cloud_recheck.assert_called_once_with(
-            [7], "automatic-upload-complete", auto_sync=True
+            [7], "automatic-upload-complete", auto_sync=False
         )
 
     def test_background_cloud_restore_failure_rechecks_without_retry_loop(self):
@@ -398,8 +398,60 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         fake.request_cloud_recheck.assert_called_once_with(
             [7],
             "automatic-restore-complete",
-            auto_sync=True,
+            auto_sync=False,
         )
+
+    def test_background_cloud_restore_caps_retries_for_unchanged_snapshot(self):
+        restore = Mock()
+        restore.future = SimpleNamespace(add_done_callback=Mock())
+        cloud = SaveStats(
+            exists=True,
+            cloud_version=12,
+            last_modified=200,
+            size_bytes=100,
+            file_count=4,
+            device_name="Desktop",
+        )
+        fake = SimpleNamespace(
+            running_game_ids=set(),
+            _cloud_auto_restore_in_flight={},
+            _cloud_auto_restore_attempts={},
+            games_by_id={7: (7, "Example", "/saves/example", "game.exe", "umu", "", "480")},
+            cloud_operation_service=SimpleNamespace(
+                active_operations=Mock(return_value=[]),
+                request_restore=Mock(return_value=restore),
+            ),
+            cloud_sync_coordinator=SimpleNamespace(generation=4),
+            game_status_by_id={},
+            _automatic_network_allowed=Mock(return_value=True),
+            _render_cloud_status=Mock(),
+            _update_detail_launch_button=Mock(),
+        )
+        fake._set_cloud_syncing = MainWindow._set_cloud_syncing.__get__(fake)
+
+        for _ in range(3):
+            fake._cloud_auto_restore_in_flight.clear()
+            MainWindow._maybe_auto_restore_cloud_save(
+                fake, 7, SyncStatus.CLOUD_NEWER, None, cloud
+            )
+
+        self.assertEqual(fake.cloud_operation_service.request_restore.call_count, 2)
+
+    def test_late_restore_completion_is_ignored_during_shutdown(self):
+        fake = SimpleNamespace(
+            _closing=True,
+            _cloud_auto_restore_in_flight={7: (4, 12)},
+            _show_toast=Mock(),
+            request_cloud_recheck=Mock(),
+        )
+        MainWindow._on_cloud_auto_restore_done(fake, {
+            "game_id": 7,
+            "generation": 4,
+            "target_version": 12,
+            "success": True,
+        })
+        self.assertNotIn(7, fake._cloud_auto_restore_in_flight)
+        fake.request_cloud_recheck.assert_not_called()
 
     def test_virtual_grid_exposes_cloud_tooltip_and_accessible_text(self):
         grid = VirtualizedGameGridView()

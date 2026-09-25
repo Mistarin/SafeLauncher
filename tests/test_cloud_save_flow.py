@@ -6,7 +6,7 @@ from unittest.mock import patch
 import requests
 
 from core.cloud_backend import _ProgressUploadFile, normalize_name_key
-from core.cloud_models import SaveStats
+from core.cloud_models import SaveStats, SyncStatus
 from core.cloud_save_sync import CloudSaveSyncEngine, resolve_name_key
 from core.cloud_repository import CloudSaveRepository
 from core.save_crypto import decrypt_save_file, encrypt_save_file, generate_data_key_b64
@@ -114,6 +114,26 @@ class CloudSaveFlowTests(unittest.TestCase):
         self.assertEqual(stats.last_modified, 200.0)
         self.assertEqual(stats.cloud_version, 7)
         self.assertEqual(stats.device_name, "Steam Deck")
+
+    def test_active_cloud_version_converges_after_restore_timestamp_rounding(self):
+        local = SaveStats(exists=True, last_modified=202.0)
+        cloud = SaveStats(exists=True, last_modified=100.0, cloud_version=12)
+        with patch("core.cloud_save_sync.backend_active", return_value=True), \
+             patch("core.cloud_save_sync._cloud_auth_configured", return_value=True), \
+             patch("core.cloud_save_sync.resolve_cloud_game_ref", return_value=type(
+                 "CloudRef", (), {"name_key": "example-game"}
+             )()), \
+             patch.object(CloudSaveSyncEngine, "get_local_save_stats", return_value=(local, [])), \
+             patch.object(CloudSaveSyncEngine, "_remote_stats", return_value=(cloud, {})), \
+             patch("core.cloud_save_sync.get_active_save_version", return_value=12), \
+             patch("core.cloud_save_sync.get_active_save_mtime", return_value=202.0):
+            status, actual_local, actual_cloud = CloudSaveSyncEngine.check_sync_status(
+                "Example Game", "/tmp/example"
+            )
+
+        self.assertEqual(status, SyncStatus.IN_SYNC)
+        self.assertIs(actual_local, local)
+        self.assertIs(actual_cloud, cloud)
 
 
 if __name__ == "__main__":

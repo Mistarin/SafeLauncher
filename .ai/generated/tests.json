@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-25T19:52:01+00:00",
+  "generated_at": "2026-09-25T20:14:54+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -558,6 +558,12 @@
       "kind": "test",
       "line": 88,
       "name": "test_remote_stats_selects_newest_content_timestamp_across_devices"
+    },
+    {
+      "file": "tests/test_cloud_save_flow.py",
+      "kind": "test",
+      "line": 117,
+      "name": "test_active_cloud_version_converges_after_restore_timestamp_rounding"
     },
     {
       "file": "tests/test_cloud_save_flow.py",
@@ -2615,18 +2621,30 @@
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
       "line": 403,
+      "name": "test_background_cloud_restore_caps_retries_for_unchanged_snapshot"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 439,
+      "name": "test_late_restore_completion_is_ignored_during_shutdown"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 455,
       "name": "test_virtual_grid_exposes_cloud_tooltip_and_accessible_text"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 422,
+      "line": 474,
       "name": "test_cloud_action_is_deferred_until_menu_event_finishes"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 433,
+      "line": 485,
       "name": "test_launch_failure_actions_reflow_without_gaps"
     },
     {
