@@ -725,16 +725,15 @@ try:
             assert _clean_game_slug("Cassette Beasts") == "cassettebeasts"
 
             # Mock listing to verify resolve_name_key matches tagged installed game to clean cloud game
-            orig_listing_cache = css_mod._LISTING_CACHE
+            from core.cloud_repository import CloudSaveRepository
+            repo = CloudSaveRepository.shared()
+            repo.adopt_listing({
+                "games": [
+                    {"nameKey": "Dave the Diver", "displayName": "Dave the Diver"},
+                    {"nameKey": "Cassette Beasts", "displayName": "Cassette Beasts"},
+                ]
+            })
             try:
-                css_mod._LISTING_CACHE = {
-                    "ts": 9999999999.0,
-                    "context": css_mod.cloud_context_fingerprint(),
-                    "data": {"games": [
-                        {"nameKey": "Dave the Diver", "displayName": "Dave the Diver"},
-                        {"nameKey": "Cassette Beasts", "displayName": "Cassette Beasts"},
-                    ]}
-                }
                 assert resolve_name_key("Dave-the-Diver-AnkerGames") == "Dave the Diver"
                 assert resolve_name_key("Cassette Beasts") == "Cassette Beasts"
 
@@ -751,7 +750,7 @@ try:
                 assert matched is not None and matched.name == "Dave-the-Diver-AnkerGames"
                 print("✓ Robust slug matching & cloud-to-library resolution across release tags verified")
             finally:
-                css_mod._LISTING_CACHE = orig_listing_cache
+                repo.invalidate()
 
             # 8. Test ephemeral file filtering from source_max_mtime
             with tempfile.TemporaryDirectory(prefix="sl-test-ephemeral-") as tmp_save_dir:
@@ -793,6 +792,8 @@ try:
                 settings.remove("cloud_mode")
 
 except Exception as e:
+    import traceback
+    traceback.print_exc()
     print(f"✗ Security diagnostics test error: {e}")
     sys.exit(1)
 
@@ -2053,13 +2054,12 @@ try:
         mock_upload_resp = MagicMock(status_code=200)
         mock_upload_resp.json = MagicMock(side_effect=ValueError("No JSON"))
         mock_upload_resp.text = "<html><body>502 Bad Gateway</body></html>"
-        backend.session.post = MagicMock(return_value=mock_upload_resp)
-
-        try:
-            backend.upload_plaintext_zip("mygame", "My Game", dummy_zip, 1700000000.0)
-            assert False, "Expected CloudBackendError was not raised on invalid upload JSON"
-        except CloudBackendError as cbe:
-            assert cbe.status_code == 502
+        with patch.object(requests.Session, "post", return_value=mock_upload_resp):
+            try:
+                backend.upload_plaintext_zip("mygame", "My Game", dummy_zip, 1700000000.0)
+                assert False, "Expected CloudBackendError was not raised on invalid upload JSON"
+            except CloudBackendError as cbe:
+                assert cbe.status_code == 502
 
         # C. Test dual-key persistence (game_name and normalized key)
         set_active_save_version("Special Game - AnkerGames", 5, cloud_top_version=7)
@@ -2109,27 +2109,22 @@ try:
             delegate._draw_cloud_badge(painter, cover_rect, st)
         painter.end()
 
-        # H. Test LibraryListView cloud status presentation
-        from ui.library_list import LibraryListView
-        list_view = LibraryListView()
-        dummy_game = (999, "CloudListTestGame", td, "game.exe", "sandbox", "", "12345", 3600, True, 0, "RPG", "", "", "", 0, "1.0", "", False, "")
-        list_view.set_games(
-            [(dummy_game, False, 3600, True)],
-            cloud_status_cache={999: (SyncStatus.CLOUD_ONLY, None, None)}
-        )
-        assert 999 in list_view._row_widgets_by_id
-        row_w = list_view._row_widgets_by_id[999]
-        assert row_w.cloud_status == SyncStatus.CLOUD_ONLY
-        assert not row_w.cloud_badge.isHidden()
-        assert "Available" in row_w.cloud_badge.text()
+        # H. Test GameDetailPageWidget cloud status presentation
+        from ui.components.game_detail_page import GameDetailPageWidget
+        detail_page = GameDetailPageWidget()
+        detail_page.show()
+        dummy_game = (999, "CloudListTestGame", td, "game.exe", "sandbox", "", "12345", 3600, True, 0, "RPG,Action", "", "", "", 0, "1.0", "", False, "")
+        detail_page.load_game(dummy_game)
+        detail_page.set_cloud_status(SyncStatus.CLOUD_ONLY)
+        assert detail_page.current_game_id == 999
+        assert "Available" in detail_page.lbl_cloud_status.text()
+        assert detail_page.btn_cloud_action.isVisible() is True
 
-
-        # Test dynamic update_cloud_status on list view
-        list_view.update_cloud_status(999, SyncStatus.IN_SYNC)
-        assert row_w.cloud_status == SyncStatus.IN_SYNC
-        assert "Synced" in row_w.cloud_badge.text()
-        list_view.update_cloud_status(999, SyncStatus.CONFLICT)
-        assert "Conflict" in row_w.cloud_badge.text()
+        # Test dynamic update_cloud_status on detail page
+        detail_page.set_cloud_status(SyncStatus.IN_SYNC)
+        assert "Synced" in detail_page.lbl_cloud_status.text()
+        detail_page.set_cloud_status(SyncStatus.CONFLICT)
+        assert "Conflict" in detail_page.lbl_cloud_status.text()
 
         # I. Test GamePropertiesDialog manual sync signals and SaveManagerDialog history signal
         from ui.dialogs.game_properties_dialog import GamePropertiesDialog
@@ -2473,7 +2468,7 @@ try:
     assert mw_compact.current_sort == 1
 
     mw_compact._toggle_library_view()
-    assert mw_compact.library_view_mode in ("compact", "grid", "list")
+    assert mw_compact.library_view_mode in ("compact", "grid")
     assert mw_compact.library_header_bar.isHidden() is False
     assert mw_compact.right_layout.contentsMargins().top() == 14
     assert mw_compact.right_layout.contentsMargins().left() == 18

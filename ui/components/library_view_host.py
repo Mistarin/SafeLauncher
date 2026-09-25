@@ -1,8 +1,8 @@
 """Shared host for SafeLauncher's library presentations.
 
-The grid, list, virtualized grid, and compact presentation are renderers of
-one library snapshot.  This host owns their lifetime, routing, and selection
-surface so MainWindow does not need to know which widget is currently active.
+The grid, virtualized grid, compact presentation, and game detail page are renderers
+of the library. This host owns their lifetime, routing, and selection surface so
+MainWindow does not need to know which widget is currently active.
 """
 
 from __future__ import annotations
@@ -14,19 +14,19 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PyQt6.QtWidgets import QLabel, QStackedWidget
 
 from core.library_controller import LibrarySnapshot
-from ui.library_list import LibraryListView
 from ui.components.banner_card import GameBannerWidget
 from ui.components.responsive_grid import ResponsiveGridContainer
 from ui.components.virtual_grid import VirtualizedGameGridView
 from ui.components.compact_game_page import CompactLayoutContainer
+from ui.components.game_detail_page import GameDetailPageWidget
 
 
 class LibraryViewHost(QStackedWidget):
     """Own and synchronize all library renderers.
 
-    Renderers only render.  Product actions remain callbacks supplied by the
+    Renderers only render. Product actions remain callbacks supplied by the
     application shell, while snapshot, selection, and view-mode routing live
-    here.  The public API intentionally has one rendering entry point.
+    here. The public API intentionally has one rendering entry point.
     """
 
     game_selected = pyqtSignal(int)
@@ -49,11 +49,13 @@ class LibraryViewHost(QStackedWidget):
     add_game_requested = pyqtSignal()
     cloud_menu_requested = pyqtSignal(int, QPoint)
     cloud_action_requested = pyqtSignal(int, str)
+    back_requested = pyqtSignal()
+    remove_requested = pyqtSignal(int)
 
     GRID = 0
-    LIST = 1
-    VIRTUAL_GRID = 2
-    COMPACT = 3
+    VIRTUAL_GRID = 1
+    COMPACT = 2
+    DETAIL = 3
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -63,12 +65,12 @@ class LibraryViewHost(QStackedWidget):
         self.grid_container = ResponsiveGridContainer(self, card_width=200, spacing=15)
         self.grid_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.grid_container.setStyleSheet("background: transparent; background-color: transparent;")
-        self.list_view = LibraryListView(self)
         self.virtual_grid = VirtualizedGameGridView(self, card_width=200, spacing=15)
         self.compact_container = CompactLayoutContainer(self)
         self.steam_container = self.compact_container
+        self.detail_page = GameDetailPageWidget(self)
 
-        for widget in (self.grid_container, self.list_view, self.virtual_grid, self.compact_container):
+        for widget in (self.grid_container, self.virtual_grid, self.compact_container, self.detail_page):
             self.addWidget(widget)
 
         self._connect_renderer_events()
@@ -77,11 +79,6 @@ class LibraryViewHost(QStackedWidget):
         self._empty_label: Optional[QLabel] = None
 
     def _connect_renderer_events(self) -> None:
-        self.list_view.game_clicked.connect(self.game_selected.emit)
-        self.list_view.game_double_clicked.connect(self.game_double_clicked.emit)
-        self.list_view.game_launch_clicked.connect(self.game_launch_requested.emit)
-        self.list_view.cloud_menu_requested.connect(self.cloud_menu_requested.emit)
-
         self.virtual_grid.game_clicked.connect(self.game_selected.emit)
         self.virtual_grid.game_double_clicked.connect(self.game_double_clicked.emit)
         self.virtual_grid.game_launch_clicked.connect(self.game_launch_requested.emit)
@@ -110,6 +107,22 @@ class LibraryViewHost(QStackedWidget):
         compact.add_game_requested.connect(self.add_game_requested.emit)
         compact.cloud_action_requested.connect(self._emit_compact_cloud_action)
 
+        # Detail Page events
+        detail = self.detail_page
+        detail.back_requested.connect(self.back_requested.emit)
+        detail.play_requested.connect(self.game_launch_requested.emit)
+        detail.edit_requested.connect(self.edit_requested.emit)
+        detail.properties_requested.connect(self.properties_requested.emit)
+        detail.save_manager_requested.connect(self.save_manager_requested.emit)
+        detail.open_folder_requested.connect(self.open_folder_requested.emit)
+        detail.prefix_maintenance_requested.connect(self.prefix_maintenance_requested.emit)
+        detail.favorite_toggled.connect(self.favorite_requested.emit)
+        detail.achievements_requested.connect(self.achievements_requested.emit)
+        detail.screenshots_requested.connect(self.screenshots_requested.emit)
+        detail.videos_requested.connect(self.videos_requested.emit)
+        detail.remove_requested.connect(self.remove_requested.emit)
+        detail.cloud_action_requested.connect(self._emit_compact_cloud_action)
+
     def _emit_compact_cloud_action(self, game_id: int, action: str) -> None:
         """Forward compact Cloud actions using the host's normal action bus."""
         self.cloud_action_requested.emit(int(game_id), str(action))
@@ -123,7 +136,6 @@ class LibraryViewHost(QStackedWidget):
         """Render one immutable snapshot into every renderer."""
         self.snapshot = snapshot
         self.selected_ids = set(selected_ids or set())
-        self.list_view.set_snapshot(snapshot, cache_dir, self.selected_ids)
         self.virtual_grid.set_snapshot(snapshot, self.selected_ids)
         self.compact_container.set_snapshot(snapshot, cache_dir, self.selected_ids)
 
@@ -148,8 +160,8 @@ class LibraryViewHost(QStackedWidget):
 
     def set_mode(self, mode: str, use_virtual: bool = False) -> int:
         """Select the renderer for a logical mode and return its index."""
-        if mode == "list":
-            index = self.LIST
+        if mode == "detail":
+            index = self.DETAIL
         elif mode in ("compact", "steam"):
             index = self.COMPACT
         elif use_virtual:
@@ -166,38 +178,35 @@ class LibraryViewHost(QStackedWidget):
         return set()
 
     def update_cloud_status(self, game_id: int, status) -> None:
-        self.list_view.update_cloud_status(game_id, status)
         self.virtual_grid.update_cloud_status(game_id, status)
         self.compact_container.update_cloud_status(game_id, status)
+        if self.detail_page.current_game_id == game_id:
+            self.detail_page.set_cloud_status(status)
 
     def update_update_available(self, game_id: int, available: bool) -> None:
-        self.list_view.update_update_available(game_id, available)
         self.virtual_grid.update_update_available(game_id, available)
         self.compact_container.update_update_available(game_id, available)
 
     def update_update_state(self, game_id: int, state) -> None:
         """Fan out availability and live/cached provenance together."""
-        self.list_view.update_update_state(game_id, state)
         self.virtual_grid.update_update_state(game_id, state)
         self.compact_container.update_update_state(game_id, state)
 
     def update_game_icon(self, game_id: int, icon_path: str) -> None:
-        self.list_view.update_game_icon(game_id, icon_path)
         self.virtual_grid.update_icon(game_id, icon_path)
         self.compact_container.update_game_icon(game_id, icon_path)
 
     def update_favorite(self, game_id: int, is_favorite: bool) -> None:
         """Fan out one favorite change without rebuilding any presentation."""
-        self.list_view.update_favorite(game_id, is_favorite)
         self.virtual_grid.update_favorite(game_id, is_favorite)
         self.compact_container.update_favorite(game_id, is_favorite)
+        if self.detail_page.current_game_id == game_id:
+            self.detail_page.update_favorite(is_favorite)
 
     def update_missing(self, game_id: int, missing: bool) -> None:
-        self.list_view.update_missing(game_id, missing)
         self.virtual_grid.update_missing(game_id, missing)
 
     def set_selected_game_ids(self, game_ids: set[int]) -> None:
         self.selected_ids = set(game_ids)
-        self.list_view.set_selected_game_ids(self.selected_ids)
         self.virtual_grid.set_selected_game_ids(self.selected_ids)
         self.compact_container.set_selected_game_ids(self.selected_ids)

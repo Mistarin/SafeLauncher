@@ -1,5 +1,6 @@
 import os
 import getpass
+from typing import Optional
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
@@ -8,7 +9,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QScrollArea, QDateEdit, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QSize, QPoint, QDate, QEvent, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QUrl
-from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QMovie, QDesktopServices
+from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QIcon, QMovie, QDesktopServices, QPainterPath
 
 from core.steamgriddb_client import SteamGridDBClient
 from core.artwork_resource_service import ArtworkResourceService
@@ -301,10 +302,8 @@ class AddGameDialog(PopupDialog):
         self.banner_label = QLabel()
         self.banner_label.setFixedSize(QSize(180, 270))
         self.banner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.banner_label.setStyleSheet("border: 1px solid #2A303B; border-radius: 8px; background: #101217;")
-        pixmap = QPixmap(180, 270)
-        pixmap.fill(QColor("#1f1f1f"))
-        self.banner_label.setPixmap(pixmap)
+        self.banner_label.setStyleSheet("border: none; background: transparent;")
+        self.banner_label.setPixmap(self._render_preview_card(None))
         preview_container.addWidget(self.banner_label, 0, Qt.AlignmentFlag.AlignCenter)
         right_box.addLayout(preview_container)
 
@@ -689,22 +688,57 @@ class AddGameDialog(PopupDialog):
         if self.downloader_thread is thread:
             self.downloader_thread = None
     
+    def _render_preview_card(self, pixmap_source: Optional[QPixmap] = None) -> QPixmap:
+        """Render a polished 180x270 preview card with 10px rounded corners, or fallback icon."""
+        target_size = QSize(180, 270)
+        res = QPixmap(target_size)
+        res.fill(Qt.GlobalColor.transparent)
+        p = QPainter(res)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, target_size.width(), target_size.height(), 10, 10)
+        
+        if pixmap_source and not pixmap_source.isNull():
+            scaled = pixmap_source.scaled(
+                target_size,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            crop_x = max(0, (scaled.width() - target_size.width()) // 2)
+            crop_y = max(0, (scaled.height() - target_size.height()) // 2)
+            cropped = scaled.copy(crop_x, crop_y, target_size.width(), target_size.height())
+            
+            p.setClipPath(path)
+            p.drawPixmap(0, 0, cropped)
+            p.setClipping(False)
+            p.setPen(QColor(255, 255, 255, 30))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(0, 0, target_size.width(), target_size.height(), 10, 10)
+        else:
+            p.setBrush(QColor("#141822"))
+            p.setPen(QColor(255, 255, 255, 20))
+            p.drawRoundedRect(0, 0, target_size.width(), target_size.height(), 10, 10)
+            
+            ico = get_icon("ph.image-bold", color="#4A5568").pixmap(48, 48)
+            p.drawPixmap((target_size.width() - 48) // 2, (target_size.height() // 2) - 36, ico)
+            
+            p.setPen(QColor("#71717A"))
+            p.setFont(QFont("Arial", 11, QFont.Weight.Medium))
+            text_rect = res.rect().adjusted(10, (target_size.height() // 2) + 18, -10, -10)
+            p.drawText(text_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, "No Cover Art")
+            
+        p.end()
+        return res
+
     def _on_banner_downloaded(self, image_path: str):
         """Update preview image when background download completes with smooth scaling"""
         if image_path and os.path.exists(image_path):
             self.banner_path = image_path
             pixmap = QPixmap(image_path)
             if not pixmap.isNull():
-                target_size = self.banner_label.size()
-                scaled = pixmap.scaled(
-                    target_size,
-                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                crop_x = max(0, (scaled.width() - target_size.width()) // 2)
-                crop_y = max(0, (scaled.height() - target_size.height()) // 2)
-                cropped = scaled.copy(crop_x, crop_y, target_size.width(), target_size.height())
-                self.banner_label.setPixmap(cropped)
+                self.banner_label.setPixmap(self._render_preview_card(pixmap))
     
     def _on_search_error(self, error_msg: str):
         """Handle search error"""
@@ -718,14 +752,7 @@ class AddGameDialog(PopupDialog):
     def _skip_banner(self):
         """Clear cover art preview and mark as explicitly cleared."""
         self.banner_path = "none"
-        pixmap = QPixmap(180, 270)
-        pixmap.fill(QColor("#181818"))
-        painter = QPainter(pixmap)
-        painter.setPen(QColor("#777777"))
-        painter.setFont(QFont("Monospace", 11, QFont.Weight.Bold))
-        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "No Cover Art")
-        painter.end()
-        self.banner_label.setPixmap(pixmap)
+        self.banner_label.setPixmap(self._render_preview_card(None))
 
     def _cancel_extraction(self):
         if self.extractor_thread and self.extractor_thread.isRunning():

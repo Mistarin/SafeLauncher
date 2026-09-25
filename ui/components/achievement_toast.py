@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QFont
 
 from core.logger import get_logger
+from ui.icons import get_icon
 
 logger = get_logger("AchievementToast")
 
@@ -92,14 +93,17 @@ class AchievementToast(QWidget):
                 loaded_pix = True
 
         if not loaded_pix:
-            # Fallback styled badge
+            # Fallback styled badge with trophy vector icon
             fallback = QPixmap(48, 48)
-            fallback.fill(QColor("#1E293B"))
+            fallback.fill(Qt.GlobalColor.transparent)
             painter = QPainter(fallback)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            painter.setBrush(QColor("#1E293B"))
             painter.setPen(QColor("#10B981"))
-            font = QFont("Arial", 11, QFont.Weight.Bold)
-            painter.setFont(font)
-            painter.drawText(fallback.rect(), Qt.AlignmentFlag.AlignCenter, "ACH")
+            painter.drawRoundedRect(1, 1, 46, 46, 8, 8)
+            ico_pix = get_icon("ph.trophy-fill", color="#10B981").pixmap(24, 24)
+            painter.drawPixmap(12, 12, ico_pix)
             painter.end()
             self.icon_lbl.setPixmap(fallback)
 

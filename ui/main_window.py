@@ -440,7 +440,7 @@ class MainWindow(QMainWindow):
             self.settings.setValue("compact_view_default_migrated", True)
         else:
             self.library_view_mode = self.settings.value("library_view_mode", "compact", type=str)
-        if self.library_view_mode in ("steam", ""):
+        if self.library_view_mode in ("steam", "", "list"):
             self.library_view_mode = "compact"
         self.virtualization_threshold = self.settings.value("virtualization_threshold", 200, type=int)
         default_user = getpass.getuser().capitalize()
@@ -1084,13 +1084,10 @@ class MainWindow(QMainWindow):
         self.right_layout.setSpacing(12)
         right_layout = self.right_layout
 
-        # Add center game grid first, right detail panel second
+        # Add center game grid (inspector panel removed, central grid takes full width)
         self.splitter.addWidget(self.right_panel)
-        self.splitter.addWidget(self.detail_panel)
-
-        saved_right_w = self.settings.value("right_inspector_width", 300, type=int)
-        self.splitter.setSizes([880, saved_right_w])
-        self.splitter.splitterMoved.connect(self._on_splitter_moved)
+        self.detail_panel.setParent(self)
+        self.detail_panel.setVisible(False)
 
         # Sorting and Search Controls for Grid / List views (hidden in Compact view)
         self.library_header_bar = QWidget(self.right_panel)
@@ -1104,8 +1101,8 @@ class MainWindow(QMainWindow):
         # Search Bar for Grid & List views
         self.grid_search_input = QLineEdit()
         self.grid_search_input.setPlaceholderText("Search library...")
-        self.grid_search_input.setFixedWidth(200)
-        self.grid_search_input.setFixedHeight(30)
+        self.grid_search_input.setFixedWidth(210)
+        self.grid_search_input.setFixedHeight(32)
         self.grid_search_input.setClearButtonEnabled(True)
         self.grid_search_input.addAction(get_icon("ph.magnifying-glass-bold", color="#8E8E93"), QLineEdit.ActionPosition.LeadingPosition)
         self.grid_search_input.setStyleSheet(f"""
@@ -1113,12 +1110,12 @@ class MainWindow(QMainWindow):
                 background-color: {SURFACE};
                 color: {TEXT_PRIMARY};
                 border: 1px solid {BORDER};
-                border-radius: 6px;
+                border-radius: 8px;
                 padding: 0 10px 0 28px;
                 font-size: 11px;
             }}
             QLineEdit:focus {{
-                border-color: {TEXT_MUTED};
+                border-color: #0A84FF;
                 background-color: {SURFACE_ELEVATED};
             }}
             QLineEdit::placeholder {{
@@ -1142,19 +1139,20 @@ class MainWindow(QMainWindow):
                 background: {SURFACE};
                 color: {TEXT_SECONDARY};
                 border: 1px solid {BORDER};
-                border-radius: 6px;
-                padding: 0 9px;
-                font-size: 10px;
+                border-radius: 8px;
+                padding: 0 10px;
+                font-size: 11px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
                 background: {SURFACE_ELEVATED};
                 color: {TEXT_PRIMARY};
+                border-color: rgba(255, 255, 255, 0.16);
             }}
             QPushButton:checked {{
-                background: {SURFACE_ELEVATED};
-                color: {TEXT_PRIMARY};
-                border-color: {TEXT_MUTED};
+                background: rgba(10, 132, 255, 0.18);
+                color: #38BDF8;
+                border-color: rgba(10, 132, 255, 0.45);
             }}
         """
         for filter_mode, label, icon_name in filter_specs:
@@ -1162,7 +1160,7 @@ class MainWindow(QMainWindow):
             button.setCheckable(True)
             button.setIcon(get_icon(icon_name, color=TEXT_SECONDARY))
             button.setIconSize(QSize(14, 14))
-            button.setFixedHeight(30)
+            button.setFixedHeight(32)
             button.setMinimumWidth(58 if filter_mode == "all" else 78)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setAccessibleName(f"Show {label.lower()} games")
@@ -1177,19 +1175,20 @@ class MainWindow(QMainWindow):
         # Sorting ComboBox
         self.sort_combo = SortComboBox()
         self.sort_combo.addItems(["Sort: A–Z Title", "Sort: Most Played", "Sort: Recently Added", "Sort: Disk Size", "Sort: Runner"])
-        self.sort_combo.setFixedHeight(30)
+        self.sort_combo.setFixedHeight(32)
         self.sort_combo.setStyleSheet(f"""
             QComboBox {{
                 background-color: {SURFACE};
                 color: {TEXT_PRIMARY};
                 border: 1px solid {BORDER};
-                border-radius: 6px;
-                padding: 0 10px;
+                border-radius: 8px;
+                padding: 0 12px;
                 font-size: 11px;
                 font-weight: 500;
             }}
             QComboBox:hover {{
-                border-color: {TEXT_MUTED};
+                border-color: rgba(255, 255, 255, 0.18);
+                background-color: {SURFACE_ELEVATED};
             }}
             QComboBox::drop-down {{
                 subcontrol-origin: padding;
@@ -1207,6 +1206,7 @@ class MainWindow(QMainWindow):
                 color: {TEXT_PRIMARY};
                 border: 1px solid {BORDER};
                 selection-background-color: {BORDER};
+                border-radius: 8px;
             }}
         """)
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
@@ -1323,10 +1323,10 @@ class MainWindow(QMainWindow):
         self.library_view_host = LibraryViewHost(self.scroll_area)
         self.library_view_stack = self.library_view_host
         self.grid_container = self.library_view_host.grid_container
-        self.list_view = self.library_view_host.list_view
         self.virtual_grid = self.library_view_host.virtual_grid
         self.compact_container = self.library_view_host.compact_container
         self.steam_container = self.compact_container
+        self.detail_page = self.library_view_host.detail_page
 
         self.library_view_host.game_selected.connect(self._select_game_by_id)
         self.library_view_host.game_double_clicked.connect(self._on_double_click_game)
@@ -1348,13 +1348,9 @@ class MainWindow(QMainWindow):
         self.library_view_host.add_game_requested.connect(lambda: self._on_add(self.collection_filter))
         self.library_view_host.sort_changed.connect(self._on_sort_changed)
         self.library_view_host.search_changed.connect(self._on_search_query_changed)
-        if self.library_view_mode == "list":
-            self.library_view_host.set_mode("list")
-            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            self.library_header_bar.setVisible(True)
-            self.right_layout.setContentsMargins(18, 14, 18, 14)
-            self.right_layout.setSpacing(12)
-        elif self.library_view_mode in ("compact", "steam"):
+        self.library_view_host.back_requested.connect(self._close_game_detail)
+        self.library_view_host.remove_requested.connect(self._on_remove_by_id)
+        if self.library_view_mode in ("compact", "steam"):
             self.library_view_host.set_mode("compact")
             # Compact view owns scrolling so the list and game page stay
             # independent from the outer library container.
@@ -1437,7 +1433,7 @@ class MainWindow(QMainWindow):
         footer_divider.setStyleSheet("background-color: rgba(255, 255, 255, 0.1); border: none;")
         footer_layout.addWidget(footer_divider)
 
-        view_labels = {"compact": "Compact", "grid": "Grid", "list": "List", "steam": "Compact"}
+        view_labels = {"compact": "Compact", "grid": "Grid", "steam": "Compact"}
         self.btn_view_toggle = QPushButton(f"View: {view_labels.get(self.library_view_mode, 'Grid')}")
         self.btn_view_toggle.setObjectName("viewToggleButton")
         self.btn_view_toggle.setToolTip("Change library view (currently " + view_labels.get(self.library_view_mode, "Grid") + ")")
@@ -1527,9 +1523,7 @@ class MainWindow(QMainWindow):
             }
         """)
         self.btn_reveal_detail.clicked.connect(lambda: self._animate_left_panel(True))
-        if self.library_view_mode in ("compact", "steam"):
-            self.btn_reveal_detail.setVisible(False)
-        footer_layout.addWidget(self.btn_reveal_detail)
+        self.btn_reveal_detail.setVisible(False)
 
         root_vbox.addWidget(self.footer_bar)
         self.activity_drawer = ActivityDrawer(self.operation_registry, self)
@@ -2833,7 +2827,7 @@ class MainWindow(QMainWindow):
             ("Ctrl+R", self._refresh_library),
             ("Ctrl+1", lambda: self._set_library_view_mode("compact")),
             ("Ctrl+2", lambda: self._set_library_view_mode("grid")),
-            ("Ctrl+3", lambda: self._set_library_view_mode("list")),
+            ("Escape", self._on_escape_pressed),
         )
         for sequence, callback in bindings:
             shortcut = QShortcut(QKeySequence(sequence), self)
@@ -2869,35 +2863,23 @@ class MainWindow(QMainWindow):
             self._show_toast("Game files rescanned.")
 
     def _set_library_view_mode(self, mode: str) -> None:
-        if mode not in {"compact", "grid", "list"} or self.library_view_mode == mode:
+        if mode not in {"compact", "grid"} or self.library_view_mode == mode:
             return
         self.library_view_mode = mode
         self.settings.setValue("library_view_mode", mode)
         # Reuse the existing view transition logic without changing the public
         # cycle behavior of the footer button.
         current = self.library_view_mode
-        previous = {"compact": "list", "grid": "compact", "list": "grid"}[current]
+        previous = {"compact": "grid", "grid": "compact"}[current]
         self.library_view_mode = previous
         self._toggle_library_view()
 
     def _toggle_library_view(self):
-        cycle = {"compact": "grid", "grid": "list", "list": "compact", "steam": "grid"}
+        cycle = {"compact": "grid", "grid": "compact", "steam": "grid"}
         self.library_view_mode = cycle.get(self.library_view_mode, "compact")
         self.settings.setValue("library_view_mode", self.library_view_mode)
         use_virtual = len(self.banner_widgets) >= getattr(self, "virtualization_threshold", 200)
-        if self.library_view_mode == "list":
-            self.library_view_host.set_mode("list")
-            if hasattr(self, "library_header_bar"):
-                self.library_header_bar.setVisible(True)
-            if hasattr(self, "right_layout"):
-                self.right_layout.setContentsMargins(18, 14, 18, 14)
-                self.right_layout.setSpacing(12)
-            if self.selected_game:
-                self._animate_left_panel(True)
-                self._update_detail_panel()
-            else:
-                self.btn_reveal_detail.setVisible(True)
-        elif self.library_view_mode in ("compact", "steam"):
+        if self.library_view_mode in ("compact", "steam"):
             self.library_view_host.set_mode("compact")
             self.detail_panel.setVisible(False)
             self.btn_reveal_detail.setVisible(False)
@@ -2915,11 +2897,6 @@ class MainWindow(QMainWindow):
             if hasattr(self, "right_layout"):
                 self.right_layout.setContentsMargins(18, 14, 18, 14)
                 self.right_layout.setSpacing(12)
-            if self.selected_game:
-                self._animate_left_panel(True)
-                self._update_detail_panel()
-            else:
-                self.btn_reveal_detail.setVisible(True)
         else:
             self.library_view_host.set_mode("grid")
             self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -2928,12 +2905,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "right_layout"):
                 self.right_layout.setContentsMargins(18, 14, 18, 14)
                 self.right_layout.setSpacing(12)
-            if self.selected_game:
-                self._animate_left_panel(True)
-                self._update_detail_panel()
-            else:
-                self.btn_reveal_detail.setVisible(True)
-        view_labels = {"compact": "Compact", "grid": "Grid", "list": "List", "steam": "Compact"}
+        view_labels = {"compact": "Compact", "grid": "Grid", "steam": "Compact"}
         current_label = view_labels.get(self.library_view_mode, "Grid")
         self.btn_view_toggle.setText(f"View: {current_label}")
         self.btn_view_toggle.setToolTip(f"Change library view (currently {current_label})")
@@ -3263,23 +3235,15 @@ class MainWindow(QMainWindow):
             pass
         self.performance_tracker.mark_library_render()
 
-        if self.library_view_mode == "list":
-            self.library_view_host.set_mode("list")
-            if self.selected_game:
-                self._update_detail_panel()
-        elif self.library_view_mode in ("compact", "steam"):
+        if self.library_view_mode in ("compact", "steam"):
             self.library_view_host.set_mode("compact")
             self.detail_panel.setVisible(False)
             self.btn_reveal_detail.setVisible(False)
             self._update_compact_game_page()
         elif use_virtual:
             self.library_view_host.set_mode("grid", use_virtual=True)
-            if self.selected_game:
-                self._update_detail_panel()
         else:
             self.library_view_host.set_mode("grid")
-            if self.selected_game:
-                self._update_detail_panel()
         self._check_games_on_drive()
         self._update_tray_menu()
 
@@ -3858,8 +3822,8 @@ class MainWindow(QMainWindow):
         if self.current_sort == 3 and not self._size_resort_timer.isActive():
             self._size_resort_timer.start()
 
-    def _select_game_by_id(self, game_id: int):
-        """Select a game card visually and update the left detail panel"""
+    def _select_game_by_id(self, game_id: int, open_detail: bool = True):
+        """Select a game card visually and update game details"""
         additive = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier)
         self._toggle_library_selection(game_id, additive=additive)
         if not self.selected_game or self.selected_game[0] != game_id:
@@ -3890,6 +3854,169 @@ class MainWindow(QMainWindow):
                 break
         self._update_detail_panel()
         self._update_compact_game_page()
+        if self.library_view_mode not in ("compact", "steam") and open_detail:
+            self._open_game_detail(game_id)
+
+    def _on_escape_pressed(self):
+        """Handle Escape key to close the game detail page if active."""
+        if getattr(self, "library_view_host", None) is not None:
+            if self.library_view_host.currentIndex() == LibraryViewHost.DETAIL:
+                self._close_game_detail()
+
+    def _on_detail_back_clicked(self):
+        """Return from game detail page to grid view."""
+        self._close_game_detail()
+
+    def _close_game_detail(self):
+        """Return from Game Detail Page back to the Grid view."""
+        if hasattr(self, "library_header_bar"):
+            self.library_header_bar.setVisible(True)
+        use_virtual = len(self.banner_widgets) >= getattr(self, "virtualization_threshold", 200)
+        self.library_view_host.set_mode("grid", use_virtual=use_virtual)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+    def _open_game_detail(self, game_id: int):
+        """Open the dedicated Game Detail Page for the clicked banner in Grid view."""
+        game = None
+        for g in self.games:
+            if g[0] == game_id:
+                game = g
+                break
+        if not game:
+            return
+
+        detail_page = self.library_view_host.detail_page
+        detail_page.load_game(game, self.cache_dir)
+
+        # Disk size peek or calculation
+        path = game[2] if len(game) > 2 else ""
+        cached_size = peek_dir_size(path) if (path and os.path.exists(path)) else None
+        if cached_size is not None:
+            detail_page.set_disk_size(cached_size)
+        elif path and os.path.exists(path):
+            disk_thread = DiskSizeFetcherThread(game_id, path, parent=self)
+            disk_thread.disk_size_calculated.connect(
+                lambda gid, sz: detail_page.set_disk_size(sz) if detail_page.current_game_id == gid else None
+            )
+            self._track_metadata_fetcher(disk_thread)
+
+        # Cloud save status
+        cached_save = self.cloud_save_status_cache.get(game_id)
+        if cached_save is not None:
+            c_status, c_local, c_cloud = cached_save
+            detail_page.set_cloud_status(c_status, c_local, c_cloud)
+
+        # Achievements
+        try:
+            achievement_projection, all_achs = self.achievement_persistence_service.stats_and_schema(game_id)
+            if achievement_projection and achievement_projection.total > 0:
+                badges = []
+                unlocked_achs = [a for a in all_achs if a.get("unlocked")]
+                for ach in unlocked_achs[:6]:
+                    icon_p = ach.get("icon_path")
+                    if icon_p and os.path.exists(icon_p):
+                        badges.append(QPixmap(icon_p))
+                detail_page.set_achievements(achievement_projection.unlocked, achievement_projection.total, badges)
+            else:
+                detail_page.set_achievements(0, 0)
+        except Exception as e:
+            logger.debug("Failed loading achievements for detail page: %s", e)
+
+        # Tags
+        tags_str = game[10] if len(game) > 10 and game[10] else ""
+        tags_list = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+        if tags_list:
+            detail_page.set_tags(tags_list)
+
+        # Description
+        name = game[1]
+        steam_id = game[6] if len(game) > 6 and game[6] else ""
+        self._fetch_detail_page_description(game_id, name, steam_id)
+
+        # Update hero background image
+        self._update_hero_background_for_game(game)
+
+        # Hide grid header search/sort bar and transition stack to detail page
+        if hasattr(self, "library_header_bar"):
+            self.library_header_bar.setVisible(False)
+        self.library_view_host.set_mode("detail")
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def _update_hero_background_for_game(self, game: tuple):
+        if not game:
+            self.hero_bg.set_hero_image(None)
+            return
+        g_id, name, path, exe = game[:4]
+        banner_url = game[5] if len(game) > 5 else ""
+        steam_id = game[6] if len(game) > 6 else ""
+        full_exe = os.path.join(path, exe) if (path and exe) else ""
+        hero_cache_path = self.sgdb_client.get_hero_cached_path(steam_id=steam_id, game_name=name, exe_path=full_exe, game_id=g_id)
+        if hero_cache_path and os.path.exists(hero_cache_path):
+            self.hero_bg.set_hero_image(hero_cache_path)
+        elif banner_url and os.path.exists(banner_url):
+            self.hero_bg.set_hero_image(banner_url)
+        else:
+            self.hero_bg.set_hero_image(None)
+
+    def _fetch_detail_page_description(self, game_id: int, game_name: str, steam_id: str):
+        detail_page = self.library_view_host.detail_page
+        saved_notes = self.settings.value(f"game_notes/{game_id}", "", type=str)
+
+        def worker():
+            desc = ""
+            tags = []
+            client = SteamClient()
+            try:
+                sid = steam_id
+                if not sid:
+                    items = client.search(game_name, timeout=6)
+                    if items and items[0].get("id"):
+                        sid = str(items[0]["id"])
+                if sid:
+                    details = client.app_details(sid, timeout=6)
+                    if details:
+                        desc = details.get("short_description") or details.get("detailed_description") or ""
+                        genres = details.get("genres", [])
+                        categories = details.get("categories", [])
+                        extracted_tags = [
+                            str(item.get("description", ""))
+                            for grp in (genres, categories)
+                            if isinstance(grp, list)
+                            for item in grp
+                            if isinstance(item, dict) and item.get("description")
+                        ]
+                        tags = list(dict.fromkeys(extracted_tags))[:6]
+            except Exception as e:
+                logger.debug("Could not fetch Steam details for %s: %s", game_name, e)
+            finally:
+                client.close()
+            return desc, tags
+
+        def on_done(result):
+            if detail_page.current_game_id != game_id:
+                return
+            if result:
+                desc, tags = result
+                if desc:
+                    detail_page.set_description(desc)
+                elif saved_notes:
+                    detail_page.set_description(saved_notes)
+                if tags and not detail_page.tags_container.isVisible():
+                    detail_page.set_tags(tags)
+            elif saved_notes:
+                detail_page.set_description(saved_notes)
+
+        thread = FunctionWorker(worker, parent=self)
+        thread.completed.connect(on_done)
+        self._track_metadata_fetcher(thread)
+        thread.start()
+
+    def _on_remove_by_id(self, game_id: int):
+        self._select_game_by_id(game_id, open_detail=False)
+        self._on_remove()
+        if getattr(self, "library_view_host", None) is not None:
+            if self.library_view_host.currentIndex() == LibraryViewHost.DETAIL:
+                self._close_game_detail()
 
     def _library_presentations(self) -> tuple:
         """Return the single renderer boundary for library updates."""
@@ -4033,16 +4160,7 @@ class MainWindow(QMainWindow):
         self._launch_mode(game_id, path, exe, mode or "umu")
 
     def _on_splitter_moved(self, pos: int, index: int):
-        # A user drag must win over any in-progress show/hide animation.
-        if self.panel_anim.state() == QAbstractAnimation.State.Running:
-            self.panel_anim.stop()
-            self._panel_expanding = True
-            self.detail_panel.setVisible(True)
-            self.btn_reveal_detail.setVisible(False)
-        sizes = self.splitter.sizes()
-        if len(sizes) > 1 and sizes[1] > 150:
-            self.settings.setValue("right_inspector_width", sizes[1])
-        self._reposition_reveal_button()
+        pass
 
     RESIZE_MARGIN = 8
 
@@ -4173,45 +4291,9 @@ class MainWindow(QMainWindow):
             return 1.0 if self.detail_panel.isVisible() else 0.0
 
     def _animate_left_panel(self, expand: bool):
-        """Smoothly swipe and fade in/out the right detail inspector panel from the right edge."""
-        if self.library_view_mode in ("compact", "steam"):
-            self.detail_panel.setVisible(False)
-            self.btn_reveal_detail.setVisible(False)
-            return
-        if expand:
-            if self.panel_anim.state() == QAbstractAnimation.State.Running:
-                # Resource refreshes may update the inspector while it is
-                # opening. Restarting the same animation makes the splitter
-                # jump and appear to move on its own.
-                if self._panel_expanding:
-                    return
-                start_value = self._panel_animation_progress()
-                self.panel_anim.stop()
-            elif self.detail_panel.isVisible() and self.splitter.sizes()[1] >= self.detail_panel.minimumWidth():
-                return
-            else:
-                start_value = self._panel_animation_progress()
-            self._panel_expanding = True
-            self.btn_reveal_detail.setVisible(False)
-            self.detail_panel.setVisible(True)
-            self.panel_anim.stop()
-            self.panel_anim.setDuration(280)
-            self.panel_anim.setStartValue(start_value)
-            self.panel_anim.setEndValue(1.0)
-            self.panel_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-            self.panel_anim.start()
-        else:
-            if self.detail_panel.isVisible():
-                start_value = self._panel_animation_progress()
-                if self.panel_anim.state() == QAbstractAnimation.State.Running and not self._panel_expanding:
-                    return
-                self._panel_expanding = False
-                self.panel_anim.stop()
-                self.panel_anim.setDuration(220)
-                self.panel_anim.setStartValue(start_value)
-                self.panel_anim.setEndValue(0.0)
-                self.panel_anim.setEasingCurve(QEasingCurve.Type.InCubic)
-                self.panel_anim.start()
+        """Inspector panel is removed; keep as safe no-op for backward compatibility."""
+        self.detail_panel.setVisible(False)
+        self.btn_reveal_detail.setVisible(False)
 
     def _update_global_hotkeys(self):
         """Refresh registered global hotkeys in background listener."""
@@ -5705,12 +5787,9 @@ class MainWindow(QMainWindow):
                 priority=RequestPriority.CRITICAL,
             )
 
-        if self.library_view_mode in ("compact", "steam"):
-            self.detail_panel.setVisible(False)
-            self.btn_reveal_detail.setVisible(False)
-            return
-
-        self._animate_left_panel(True)
+        self.detail_panel.setVisible(False)
+        self.btn_reveal_detail.setVisible(False)
+        return
 
         # Update Inspector Cover Art Preview (2:3 Portrait Cover)
         if banner_url and os.path.exists(banner_url):
@@ -8414,7 +8493,7 @@ class MainWindow(QMainWindow):
     def set_virtualization_threshold(self, threshold: int) -> None:
         """Configure the library count threshold where virtualized grid activates."""
         self.virtualization_threshold = max(1, int(threshold))
-        if self.library_view_mode not in ("grid", "list"):
+        if self.library_view_mode != "grid":
             self.library_view_mode = "grid"
         self._refresh_library()
 

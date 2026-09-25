@@ -3,9 +3,9 @@ from typing import Optional, List, Tuple, Dict, Any
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QToolButton, QWidget
 from PyQt6.QtCore import (
     Qt, QSize, QPoint, QPointF, QTimer, pyqtSignal, QVariantAnimation, QEasingCurve,
-    QPropertyAnimation, QSequentialAnimationGroup,
+    QPropertyAnimation, QSequentialAnimationGroup, QRectF, QRect,
 )
-from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QPixmapCache, QCursor
+from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QPixmapCache, QCursor, QPainterPath, QPen
 
 # Allocate 64MB LRU cache budget for decoded pixmaps
 QPixmapCache.setCacheLimit(64 * 1024)
@@ -141,14 +141,14 @@ class GameBannerWidget(QFrame):
         self.favorite_button.setIconSize(QSize(16, 16))
         self.favorite_button.setStyleSheet("""
             QPushButton {
-                background: rgba(20, 23, 29, 0.75);
-                border: 1px solid #252A33;
-                border-radius: 6px;
+                background: rgba(15, 18, 24, 0.82);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
                 padding: 0;
             }
             QPushButton:hover {
-                background: #1A1E26;
-                border-color: #6F7682;
+                background: rgba(28, 33, 44, 0.95);
+                border-color: rgba(255, 255, 255, 0.28);
             }
         """)
         self.favorite_button.clicked.connect(lambda: self.favoriteClicked.emit(self.game_id))
@@ -164,18 +164,18 @@ class GameBannerWidget(QFrame):
         self.btn_card_play.setToolTip(f"Launch {self.name}")
         self.btn_card_play.setStyleSheet("""
             QPushButton {
-                background: #3B9FE8;
+                background: #0A84FF;
                 color: #FFFFFF;
-                border: 1px solid #3B9FE8;
+                border: 1px solid rgba(255, 255, 255, 0.22);
                 border-radius: 22px;
                 padding: 0;
             }
             QPushButton:hover {
-                background: #55ACED;
-                border-color: #55ACED;
+                background: #0071E3;
+                border-color: rgba(255, 255, 255, 0.45);
             }
             QPushButton:pressed {
-                background: #2789D0;
+                background: #005BB5;
             }
         """)
         self.btn_card_play.clicked.connect(lambda: self.launchClicked.emit(self.game_id))
@@ -187,13 +187,13 @@ class GameBannerWidget(QFrame):
         self.version_badge.setFont(QFont("Arial", 9, QFont.Weight.Bold))
         self.version_badge.setStyleSheet("""
             QLabel {
-                background: rgba(20, 23, 29, 0.88);
-                color: #A7ADB8;
+                background: rgba(15, 18, 24, 0.88);
+                color: #A1A1AA;
                 font-weight: 600;
                 font-size: 10px;
-                border-radius: 4px;
-                padding: 2px 6px;
-                border: 1px solid #252A33;
+                border-radius: 6px;
+                padding: 2px 7px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
             }
         """)
         self.version_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -208,10 +208,14 @@ class GameBannerWidget(QFrame):
         self.cloud_badge.clicked.connect(lambda: self.cloudActionRequested.emit(self.game_id))
         self.cloud_badge.setStyleSheet("""
             QToolButton {
-                background: rgba(20, 23, 29, 0.88);
-                border: 1px solid #252A33;
-                border-radius: 6px;
+                background: rgba(15, 18, 24, 0.88);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 7px;
                 padding: 0;
+            }
+            QToolButton:hover {
+                background: rgba(28, 33, 44, 0.95);
+                border-color: rgba(255, 255, 255, 0.28);
             }
         """)
         self.cloud_badge.hide()
@@ -256,7 +260,7 @@ class GameBannerWidget(QFrame):
         self.cloud_badge.setIcon(get_icon(meta.icon, color=meta.color))
         self.cloud_badge.setToolTip(meta.tooltip)
         self.cloud_badge.setStyleSheet(
-            f"QToolButton {{ background: rgba(20, 23, 29, 0.90); border: 1px solid {meta.color}; border-radius: 6px; padding: 0; }}"
+            f"QToolButton {{ background: rgba(15, 18, 24, 0.90); border: 1px solid {meta.color}; border-radius: 7px; padding: 0; }}"
         )
         self.cloud_badge.show()
         self._position_cloud_badge()
@@ -401,19 +405,17 @@ class GameBannerWidget(QFrame):
     def update_appearance(self):
         """Update container styling (borderless when not hovering) and trigger frame render"""
         self.setStyleSheet("border: none; background: transparent;")
+        self.image_label.setStyleSheet("border: none; background: transparent;")
         
         if self.is_missing:
             self.name_label.setText(self.name)
-            self.name_label.setStyleSheet("padding: 4px; color: #6F7682; font-weight: 600;")
-            self.image_label.setStyleSheet("background: #14171D; border: 1px solid #252A33; border-radius: 8px;")
+            self.name_label.setStyleSheet("padding: 2px 6px; color: #6F7682; font-weight: 600;")
         elif self.selected:
             self.name_label.setText(self.name)
-            self.name_label.setStyleSheet("padding: 4px; background: #0D2A40; color: #3B9FE8; font-weight: 600; border-radius: 4px;")
-            self.image_label.setStyleSheet("background: #14171D; border: 2px solid #3B9FE8; border-radius: 8px;")
+            self.name_label.setStyleSheet("padding: 2px 6px; background: rgba(10, 132, 255, 0.18); color: #38BDF8; font-weight: 600; border-radius: 6px;")
         else:
             self.name_label.setText(self.name)
-            self.name_label.setStyleSheet("padding: 4px; color: #F5F7FA; font-weight: 600;")
-            self.image_label.setStyleSheet("background: #14171D; border: 1px solid #252A33; border-radius: 8px;")
+            self.name_label.setStyleSheet("padding: 2px 6px; color: #F5F7FA; font-weight: 600;")
 
         self.render_frame(self._hover_progress)
 
@@ -540,61 +542,13 @@ class GameBannerWidget(QFrame):
         self.render_frame(self._hover_progress)
 
     def render_frame(self, progress: float):
-        """Render cover art with LERP zoom & hover overlay using QPixmapCache."""
+        """Render cover art with rounded corners, LERP zoom & hover overlay using QPixmapCache."""
         target_w, target_h = self.card_width, self.card_height
-        
-        # 2. Missing game state (greyed out fallback)
-        if self.is_missing:
-            cache_key = f"grey_{self.game_id}_{target_w}_{target_h}"
-            cached_grey = QPixmapCache.find(cache_key)
-            if cached_grey and not cached_grey.isNull():
-                self.image_label.setPixmap(cached_grey)
-                self.image_label.setText("")
-                if hasattr(self, 'update_indicator') and self.is_update_available:
-                    self.update_indicator.raise_()
-                self._position_version_badge()
-                return
+        radius = 12.0
 
-            pixmap = self._get_source_pixmap()
-            if pixmap:
-                scaled = pixmap.scaled(
-                    QSize(target_w, target_h),
-                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                crop_x = max(0, (scaled.width() - target_w) // 2)
-                crop_y = max(0, (scaled.height() - target_h) // 2)
-                cropped = scaled.copy(crop_x, crop_y, target_w, target_h)
-                
-                greyed = QPixmap(cropped.size())
-                greyed.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(greyed)
-                painter.drawPixmap(0, 0, cropped)
-                painter.fillRect(greyed.rect(), QColor(20, 20, 20, 175))
-                painter.end()
-                QPixmapCache.insert(cache_key, greyed)
-                
-                self.image_label.setPixmap(greyed)
-                self.image_label.setText("")
-                if hasattr(self, 'update_indicator') and self.is_update_available:
-                    self.update_indicator.raise_()
-                self._position_version_badge()
-                return
-            
-            placeholder = QPixmap(target_w, target_h)
-            placeholder.fill(QColor("#111318"))
-            painter = QPainter(placeholder)
-            painter.setPen(QColor("#475569"))
-            painter.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-            painter.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, self.name)
-            painter.end()
-            self.image_label.setPixmap(placeholder)
-            self.image_label.setText("")
-            return
-
-        # 3. Normal game state with LERP hover zoom + smooth hover darkening!
-        if progress == 0.0:
-            cache_key = f"card_idle_{self.game_id}_{target_w}_{target_h}"
+        # Check idle cache if progress == 0.0 and not missing
+        if progress == 0.0 and not self.is_missing:
+            cache_key = f"card_idle_{self.game_id}_{target_w}_{target_h}_{int(self.selected)}"
             cached = QPixmapCache.find(cache_key)
             if cached and not cached.isNull():
                 self.image_label.setPixmap(cached)
@@ -604,48 +558,77 @@ class GameBannerWidget(QFrame):
                 self._position_version_badge()
                 return
 
+        # Check missing cache
+        if self.is_missing:
+            cache_key = f"grey_{self.game_id}_{target_w}_{target_h}_{int(self.selected)}"
+            cached_grey = QPixmapCache.find(cache_key)
+            if cached_grey and not cached_grey.isNull():
+                self.image_label.setPixmap(cached_grey)
+                self.image_label.setText("")
+                if hasattr(self, 'update_indicator') and self.is_update_available:
+                    self.update_indicator.raise_()
+                self._position_version_badge()
+                return
+
+        out = QPixmap(target_w, target_h)
+        out.fill(Qt.GlobalColor.transparent)
+        p = QPainter(out)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0.5, 0.5, float(target_w) - 1.0, float(target_h) - 1.0), radius, radius)
+
+        p.save()
+        p.setClipPath(path)
+
         pixmap = self._get_source_pixmap()
-        if pixmap:
-            scale_factor = 1.0 + (0.04 * progress)
+        if pixmap and not pixmap.isNull():
+            scale_factor = 1.0 + (0.04 * progress) if not self.is_missing else 1.0
             zoom_w = int(target_w * scale_factor)
             zoom_h = int(target_h * scale_factor)
-            
             scaled = pixmap.scaled(
                 QSize(zoom_w, zoom_h),
                 Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation
+                Qt.TransformationMode.SmoothTransformation,
             )
             crop_x = max(0, (scaled.width() - target_w) // 2)
             crop_y = max(0, (scaled.height() - target_h) // 2)
-            cropped = scaled.copy(crop_x, crop_y, target_w, target_h)
+            p.drawPixmap(0, 0, scaled, crop_x, crop_y, target_w, target_h)
+        else:
+            # Fallback placeholder card with subtle modern dark tone
+            p.fillRect(0, 0, target_w, target_h, QColor("#141720"))
+            p.setPen(QColor("#64748B"))
+            p.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+            text_rect = QRect(10, 0, target_w - 20, target_h)
+            p.drawText(text_rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, self.name)
 
-            # Apply smooth dark tint overlay on hover
-            if progress > 0.0:
-                darkened = QPixmap(cropped.size())
-                darkened.fill(Qt.GlobalColor.transparent)
-                p = QPainter(darkened)
-                p.drawPixmap(0, 0, cropped)
-                p.fillRect(darkened.rect(), QColor(0, 0, 0, int(70 * progress)))
-                p.end()
-                cropped = darkened
-            elif progress == 0.0:
-                QPixmapCache.insert(f"card_idle_{self.game_id}_{target_w}_{target_h}", cropped)
+        if self.is_missing:
+            p.fillRect(0, 0, target_w, target_h, QColor(15, 17, 23, 190))
+        elif progress > 0.0:
+            p.fillRect(0, 0, target_w, target_h, QColor(0, 0, 0, int(70 * progress)))
 
-            self.image_label.setPixmap(cropped)
-            self.image_label.setText("")
-            if hasattr(self, 'update_indicator') and self.is_update_available:
-                self.update_indicator.raise_()
-            self._position_version_badge()
-            return
+        p.restore()
 
-        # 4. Placeholder card when cover art is cleared ('none') or missing
-        placeholder = QPixmap(target_w, target_h)
-        placeholder.fill(QColor("#181818"))
-        painter = QPainter(placeholder)
-        painter.setPen(QColor("#777777"))
-        painter.setFont(QFont("Monospace", 12, QFont.Weight.Bold))
-        painter.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, self.name)
-        painter.end()
-        self.image_label.setPixmap(placeholder)
+        # Antialiased rounded border ring
+        if self.selected:
+            border_pen = QPen(QColor("#3B9FE8"), 2.0)
+        elif progress > 0.0:
+            alpha = int(30 + 50 * progress)
+            border_pen = QPen(QColor(255, 255, 255, alpha), 1.2)
+        else:
+            border_pen = QPen(QColor(255, 255, 255, 24), 1.0)
+
+        p.strokePath(path, border_pen)
+        p.end()
+
+        if self.is_missing:
+            QPixmapCache.insert(f"grey_{self.game_id}_{target_w}_{target_h}_{int(self.selected)}", out)
+        elif progress == 0.0:
+            QPixmapCache.insert(f"card_idle_{self.game_id}_{target_w}_{target_h}_{int(self.selected)}", out)
+
+        self.image_label.setPixmap(out)
+        self.image_label.setText("")
         if hasattr(self, 'update_indicator') and self.is_update_available:
             self.update_indicator.raise_()
+        self._position_version_badge()

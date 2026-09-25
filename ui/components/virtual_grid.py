@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import (
     QPainter, QColor, QFont, QFontMetrics, QPixmap, QPixmapCache,
-    QPainterPath, QStandardItemModel, QStandardItem
+    QPainterPath, QStandardItemModel, QStandardItem, QPen
 )
 
 from ui.icons import get_icon
@@ -121,32 +121,15 @@ class GameCardItemDelegate(QStyledItemDelegate):
         cover_rect = QRect(card_x, card_y, self.card_width, self.card_height)
         footer_rect = QRect(card_x + 4, card_y + self.card_height, self.card_width - 8, self.footer_height)
 
-        # 1. Base card container background and border
-        bg_path = QPainterPath()
-        bg_path.addRoundedRect(QRectF(card_rect), 8.0, 8.0)
-
-        if is_selected:
-            painter.fillPath(bg_path, QColor("#0D2A40"))
-            painter.setPen(QColor("#3B9FE8"))
-            painter.drawPath(bg_path)
-        elif is_hovered:
-            painter.fillPath(bg_path, QColor("#181B22"))
-            painter.setPen(QColor("#3A4150"))
-            painter.drawPath(bg_path)
-        else:
-            painter.fillPath(bg_path, QColor("#14171D"))
-            painter.setPen(QColor("#252A33"))
-            painter.drawPath(bg_path)
-
-        # 2. Render cover art with rounded top corners
-        painter.save()
-        cover_clip = QPainterPath()
-        cover_clip.addRoundedRect(
-            QRectF(cover_rect.x(), cover_rect.y(), cover_rect.width(), cover_rect.height() + 8),
-            8.0, 8.0
+        # 1. Render standalone rounded cover art (2:3 banner) matching standard grid
+        cover_path = QPainterPath()
+        cover_path.addRoundedRect(
+            QRectF(cover_rect.x() + 0.5, cover_rect.y() + 0.5, cover_rect.width() - 1.0, cover_rect.height() - 1.0),
+            12.0, 12.0
         )
-        painter.setClipPath(cover_clip)
 
+        painter.save()
+        painter.setClipPath(cover_path)
         try:
             cover_pixmap = self._get_cached_cover(game_id, banner_path, name, is_missing)
             if cover_pixmap and not cover_pixmap.isNull():
@@ -154,11 +137,21 @@ class GameCardItemDelegate(QStyledItemDelegate):
 
             # Missing game overlay or hover darkening
             if is_missing:
-                painter.fillRect(cover_rect, QColor(20, 20, 20, 175))
+                painter.fillRect(cover_rect, QColor(15, 17, 23, 190))
             elif is_hovered:
                 painter.fillRect(cover_rect, QColor(0, 0, 0, 70))
         finally:
             painter.restore()
+
+        # Modern antialiased rounded border
+        if is_selected:
+            painter.setPen(QPen(QColor("#3B9FE8"), 2.0))
+        elif is_hovered:
+            painter.setPen(QPen(QColor(255, 255, 255, 80), 1.2))
+        else:
+            painter.setPen(QPen(QColor(255, 255, 255, 24), 1.0))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(cover_path)
 
         # 3. Badges on cover
         # Update indicator (top-left)
@@ -224,7 +217,17 @@ class GameCardItemDelegate(QStyledItemDelegate):
         elided_title = fm_title.elidedText(name, Qt.TextElideMode.ElideRight, title_rect.width())
 
         if is_selected:
-            painter.setPen(QColor("#3B9FE8"))
+            text_width = fm_title.horizontalAdvance(elided_title)
+            pill_rect = QRectF(
+                title_rect.x() + (title_rect.width() - text_width - 12) / 2.0,
+                title_rect.y() + 1,
+                float(text_width + 12),
+                float(title_rect.height() - 2)
+            )
+            pill_path = QPainterPath()
+            pill_path.addRoundedRect(pill_rect, 5.0, 5.0)
+            painter.fillPath(pill_path, QColor(10, 132, 255, 45))
+            painter.setPen(QColor("#38BDF8"))
         elif is_missing:
             painter.setPen(QColor("#6F7682"))
         else:
@@ -243,8 +246,8 @@ class GameCardItemDelegate(QStyledItemDelegate):
         badge_rect = QRect(badge_x, badge_y, 22, 18)
 
         badge_path = QPainterPath()
-        badge_path.addRoundedRect(QRectF(badge_rect), 4.0, 4.0)
-        painter.fillPath(badge_path, QColor(20, 23, 29, 225))
+        badge_path.addRoundedRect(QRectF(badge_rect), 6.0, 6.0)
+        painter.fillPath(badge_path, QColor(15, 18, 24, 225))
 
         icon_rect = QRect(badge_x + 3, badge_y + 1, 16, 16)
         meta = cloud_indicator(status)
@@ -253,7 +256,6 @@ class GameCardItemDelegate(QStyledItemDelegate):
         painter.setPen(QColor(meta.color))
         painter.drawPath(badge_path)
         get_icon(meta.icon, color=meta.color).paint(painter, icon_rect)
-
 
     def _get_cached_cover(self, game_id: int, banner_path: str, name: str, is_missing: bool) -> QPixmap:
         """Fetch or generate and cache the scaled cover pixmap using QPixmapCache."""
@@ -280,11 +282,12 @@ class GameCardItemDelegate(QStyledItemDelegate):
 
         # Fallback dark placeholder card
         placeholder = QPixmap(target_w, target_h)
-        placeholder.fill(QColor("#18181F"))
+        placeholder.fill(QColor("#141720"))
         p = QPainter(placeholder)
-        p.setPen(QColor("#6F7682"))
-        p.setFont(QFont("Arial", 9, QFont.Weight.Bold))
-        p.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, name)
+        p.setPen(QColor("#64748B"))
+        p.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        text_rect = QRect(10, 0, target_w - 20, target_h)
+        p.drawText(text_rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, name)
         p.end()
         QPixmapCache.insert(cache_key, placeholder)
         return placeholder

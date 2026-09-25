@@ -291,7 +291,7 @@ class CompactActionBar(QFrame):
 
         # ── 1. Action Play Button ──
         self.btn_play = QPushButton("  PLAY")
-        self.btn_play.setIcon(get_icon("fa5s.play", color="#FFFFFF"))
+        self.btn_play.setIcon(get_icon("ph.play-fill", color="#FFFFFF"))
         self.btn_play.setIconSize(QSize(16, 16))
         self.btn_play.setFixedSize(140, 46)
         self.btn_play.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -509,7 +509,7 @@ class CompactActionBar(QFrame):
         state_lower = (state or "").lower()
         if state_lower in ("running", "active"):
             self.btn_play.setText("  RUNNING")
-            self.btn_play.setIcon(get_icon("fa5s.stop", color="#FFFFFF"))
+            self.btn_play.setIcon(get_icon("ph.stop-fill", color="#FFFFFF"))
             self.btn_play.setIconSize(QSize(16, 16))
             self.btn_play.setEnabled(True)
             self.btn_play.setToolTip("Click to stop game")
@@ -553,7 +553,7 @@ class CompactActionBar(QFrame):
             """)
         else:
             self.btn_play.setText("  PLAY")
-            self.btn_play.setIcon(get_icon("fa5s.play", color="#FFFFFF"))
+            self.btn_play.setIcon(get_icon("ph.play-fill", color="#FFFFFF"))
             self.btn_play.setIconSize(QSize(16, 16))
             self.btn_play.setEnabled(True)
             self.btn_play.setToolTip("Launch game")

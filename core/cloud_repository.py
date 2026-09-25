@@ -163,9 +163,12 @@ class CloudSaveRepository:
         requested = str(game_name or "")
         canonical = normalize_name_key(requested)
         context = self._context_identity()
-        if not self._is_remote_active():
+        try:
+            data = listing if listing is not None else (self._listing if not self._is_remote_active() else self.listing(force_refresh=force_refresh))
+        except Exception:
+            data = self._listing or {}
+        if not self._is_remote_active() and (not isinstance(data, dict) or not data.get("games")):
             return CloudGameRef(canonical, requested, context, {}, requested)
-        data = listing if listing is not None else self.listing(force_refresh=force_refresh)
         games = data.get("games", []) if isinstance(data, dict) else []
         selected = next((item for item in games if item.get("nameKey") == canonical), None)
         legacy = legacy_name_key(requested)

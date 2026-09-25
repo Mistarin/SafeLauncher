@@ -874,7 +874,7 @@ class CloudSaveSyncEngine:
         the cloud side of a conflict never destroys local progress.
         """
         prefix_dest = os.path.join(game_path, "prefix")
-        target_dest = prefix_dest if os.path.isdir(prefix_dest) else game_path
+        target_dest = prefix_dest
 
         def cancelled_result() -> SaveOperationResult:
             return SaveOperationResult(

@@ -182,15 +182,19 @@ class AppleAchievementCard(QFrame):
 
         if not loaded_pix:
             fallback = QPixmap(52, 52)
-            fallback.fill(QColor("#1C1C1E" if not unlocked else "#063D24"))
+            fallback.fill(Qt.GlobalColor.transparent)
             painter = QPainter(fallback)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(QColor("#30D158" if unlocked else "#636366"))
-            font = QFont("Arial", 10, QFont.Weight.Bold)
-            painter.setFont(font)
-            painter.drawText(fallback.rect(), Qt.AlignmentFlag.AlignCenter, "EARNED" if unlocked else "LOCKED")
+            painter.setBrush(QColor("#063D24" if unlocked else "#1C1C1E"))
+            painter.setPen(QColor("#30D158" if unlocked else "#3A3A3C"))
+            painter.drawRoundedRect(1, 1, 50, 50, 10, 10)
+            if unlocked:
+                ico = get_icon("ph.trophy-fill", color="#30D158").pixmap(26, 26)
+            else:
+                ico = get_icon("ph.lock-simple-bold", color="#636366").pixmap(24, 24)
+            painter.drawPixmap((52 - ico.width()) // 2, (52 - ico.height()) // 2, ico)
             painter.end()
-            self.icon_lbl.setPixmap(create_rounded_pixmap(fallback, QSize(52, 52), radius=10))
+            self.icon_lbl.setPixmap(fallback)
 
         layout.addWidget(self.icon_lbl)
 
@@ -587,11 +591,25 @@ class AchievementsDialog(PopupDialog):
         # Game Cover thumbnail
         self.cover_lbl = QLabel()
         self.cover_lbl.setFixedSize(48, 64)
-        self.cover_lbl.setStyleSheet("background-color: #1C1C1E; border-radius: 6px;")
+        self.cover_lbl.setStyleSheet("background-color: transparent;")
+        loaded_cover = False
         if self.game_banner and os.path.isfile(self.game_banner):
             pix = QPixmap(self.game_banner)
             if not pix.isNull():
                 self.cover_lbl.setPixmap(create_rounded_pixmap(pix, QSize(48, 64), radius=6))
+                loaded_cover = True
+        if not loaded_cover:
+            fb = QPixmap(48, 64)
+            fb.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(fb)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setBrush(QColor("#1C1C1E"))
+            painter.setPen(QColor(255, 255, 255, 25))
+            painter.drawRoundedRect(0, 0, 48, 64, 6, 6)
+            ico = get_icon("ph.game-controller-bold", color="#636366").pixmap(24, 24)
+            painter.drawPixmap(12, 20, ico)
+            painter.end()
+            self.cover_lbl.setPixmap(fb)
         hero_layout.addWidget(self.cover_lbl)
 
         # Title & Sub-pills
