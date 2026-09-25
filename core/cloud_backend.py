@@ -18,7 +18,7 @@ import os
 import tempfile
 import time
 import threading
-from typing import Optional, Dict, Any
+from typing import Any, BinaryIO, Dict, Optional
 
 import requests
 from PyQt6.QtCore import QSettings
@@ -39,6 +39,47 @@ BASE_FREE_QUOTA_BYTES = QUOTA_BYTES
 # is an account/referral entitlement, not an artificial 50 MB per-save cap.
 MAX_SAVE_BYTES = QUOTA_BYTES
 _DOWNLOAD_STREAM_TIMEOUT = (10, 60)
+
+
+class _ProgressUploadFile:
+    """File-like upload body with a stable length and cooperative progress.
+
+    ``requests`` treats an iterator as a chunked body even when callers add a
+    ``Content-Length`` header themselves.  That produces both
+    ``Transfer-Encoding: chunked`` and ``Content-Length`` on the wire, which
+    Convex's signed storage upload endpoint rejects with HTTP 400.  A real
+    file-like body lets requests calculate and send only ``Content-Length``.
+    """
+
+    def __init__(self, path: str, size: int, cancel_check=None, progress_callback=None):
+        self._stream: BinaryIO = open(path, "rb")
+        self._size = int(size)
+        self._sent = 0
+        self._cancel_check = cancel_check
+        self._progress_callback = progress_callback
+
+    def __len__(self) -> int:
+        return self._size
+
+    def tell(self) -> int:
+        return self._stream.tell()
+
+    def fileno(self) -> int:
+        return self._stream.fileno()
+
+    def read(self, amount: int = -1) -> bytes:
+        if self._cancel_check and self._cancel_check():
+            raise SaveOperationCancelled()
+        chunk = self._stream.read(amount)
+        if chunk:
+            self._sent += len(chunk)
+            if self._progress_callback is not None:
+                self._progress_callback(self._sent / max(1, self._size))
+        return chunk
+
+    def close(self) -> None:
+        self._stream.close()
+
 
 # Default endpoint (configured per-user via QSettings or 'safelauncher --setup-cloud')
 DEFAULT_SITE_URL = ""
@@ -498,37 +539,41 @@ class ConvexSaveBackend:
                 "Upload init",
             )
 
-            def body_chunks():
-                chunk_size = 1024 * 1024
-                sent = 0
-                with open(envelope_path, "rb") as envelope:
-                    while True:
-                        if cancel_check and cancel_check():
-                            raise SaveOperationCancelled()
-                        chunk = envelope.read(chunk_size)
-                        if not chunk:
-                            break
-                        sent += len(chunk)
-                        if progress_callback is not None:
-                            progress_callback(sent / max(1, declared))
-                        yield chunk
-
             transfer_session = requests.Session()
+            upload_body = _ProgressUploadFile(
+                envelope_path,
+                declared,
+                cancel_check=cancel_check,
+                progress_callback=progress_callback,
+            )
             try:
                 post = transfer_session.post(
                     init["uploadUrl"],
-                    data=body_chunks(),
+                    data=upload_body,
                     headers={
                         "Content-Type": "application/octet-stream",
-                        "Content-Length": str(declared),
                     },
                     timeout=(10, 120),
                 )
             finally:
+                upload_body.close()
                 transfer_session.close()
             if post.status_code != 200:
+                detail = ""
+                try:
+                    payload = post.json()
+                    if isinstance(payload, dict):
+                        detail = str(payload.get("error") or payload.get("message") or "").strip()
+                except (ValueError, AttributeError):
+                    detail = (post.text or "").strip()
+                if detail:
+                    detail = " ".join(detail.split())[:512]
+                try:
+                    post.close()
+                except Exception:
+                    pass
                 raise CloudBackendError(
-                    f"Save upload rejected ({post.status_code}).", "upload_failed",
+                    f"Save upload rejected ({post.status_code}){': ' + detail if detail else '.'}", "upload_failed",
                     post.status_code,
                 )
             try:

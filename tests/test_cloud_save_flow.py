@@ -3,7 +3,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core.cloud_backend import normalize_name_key
+import requests
+
+from core.cloud_backend import _ProgressUploadFile, normalize_name_key
 from core.cloud_models import SaveStats
 from core.cloud_save_sync import CloudSaveSyncEngine, resolve_name_key
 from core.cloud_repository import CloudSaveRepository
@@ -11,6 +13,25 @@ from core.save_crypto import decrypt_save_file, encrypt_save_file, generate_data
 
 
 class CloudSaveFlowTests(unittest.TestCase):
+    def test_upload_body_uses_content_length_without_chunked_transfer(self):
+        with tempfile.NamedTemporaryFile() as handle:
+            payload = b"encrypted-save"
+            handle.write(payload)
+            handle.flush()
+            body = _ProgressUploadFile(handle.name, len(payload))
+            try:
+                prepared = requests.Request(
+                    "POST",
+                    "https://uploads.example",
+                    data=body,
+                    headers={"Content-Type": "application/octet-stream"},
+                ).prepare()
+            finally:
+                body.close()
+
+        self.assertEqual(prepared.headers.get("Content-Length"), str(len(payload)))
+        self.assertNotIn("Transfer-Encoding", prepared.headers)
+
     def test_streaming_envelope_round_trip_does_not_require_whole_archive(self):
         with tempfile.TemporaryDirectory() as root:
             plain = os.path.join(root, "save.zip")
