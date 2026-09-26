@@ -22,6 +22,7 @@ from core.profile_avatar_catalog import (
 )
 from core.profile_models import (
     BACKGROUND_PRESETS, DEFAULT_BACKGROUND,
+    PUBLIC_PROFILE_VERSION,
     build_public_projection,
     load_profile_settings,
     normalize_public_document, normalize_social_snapshot, normalize_username_handle,
@@ -59,6 +60,18 @@ from ui.profile_theme import get_profile_theme, normalize_profile_theme, profile
 
 
 class ProfileModelTests(unittest.TestCase):
+    def test_public_projection_uses_current_wire_schema(self):
+        db = GameDatabase(":memory:")
+        try:
+            document = build_public_projection(db, {
+                "display_name": "Player",
+                "public_handle": "profile-player",
+            }, now=1)
+            self.assertEqual(PUBLIC_PROFILE_VERSION, 4)
+            self.assertEqual(document["schema_version"], 4)
+        finally:
+            db.close()
+
     def test_private_cloud_merge_cannot_overwrite_public_publication_state(self):
         merged = _merge_profiles(
             {

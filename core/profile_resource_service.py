@@ -267,6 +267,24 @@ class ProfileResourceService:
     ) -> dict[str, Any]:
         """Create/update the owner profile with revision conflict recovery."""
         with self._client(service_url) as client:
+            def write_with_schema_compatibility(writer):
+                """Prefer schema 4, with one safe retry for older deployments."""
+                try:
+                    return writer(document)
+                except ProfileServiceError as exc:
+                    # The public gateway may lag the desktop release during a
+                    # rolling deployment. Only downgrade for the exact schema
+                    # validation response; never hide handle, avatar, or
+                    # arbitrary profile validation failures.
+                    if exc.code != "invalid_profile" or "schema" not in str(exc).casefold():
+                        raise
+                    compatible = dict(document)
+                    compatible["schema_version"] = 3
+                    response = writer(compatible)
+                    document.clear()
+                    document.update(compatible)
+                    return response
+
             remote = client.current_profile()
             claimed = False
             token = str(legacy_token or "").strip()
@@ -282,7 +300,7 @@ class ProfileResourceService:
 
             if remote is None:
                 try:
-                    response = client.create_profile(document)
+                    response = write_with_schema_compatibility(client.create_profile)
                 except ProfileServiceError as exc:
                     if exc.code not in {"exists", "profile_exists", "profile_exists_for_identity"}:
                         raise
@@ -303,18 +321,24 @@ class ProfileResourceService:
                                 {"original_code": exc.code},
                             ) from exc
                         raise
-                    response = client.update_profile(document, int(remote.get("revision", 0) or 0))
+                    response = write_with_schema_compatibility(
+                        lambda payload: client.update_profile(payload, int(remote.get("revision", 0) or 0))
+                    )
             else:
                 revision = int(remote.get("revision", 0) or 0)
                 try:
-                    response = client.update_profile(document, revision)
+                    response = write_with_schema_compatibility(
+                        lambda payload: client.update_profile(payload, revision)
+                    )
                 except ProfileServiceError as exc:
                     if exc.code != "conflict":
                         raise
                     fresh = client.current_profile()
                     if fresh is None:
                         raise
-                    response = client.update_profile(document, int(fresh.get("revision", 0) or 0))
+                    response = write_with_schema_compatibility(
+                        lambda payload: client.update_profile(payload, int(fresh.get("revision", 0) or 0))
+                    )
             if isinstance(response, dict) and response.get("handle"):
                 document["handle"] = str(response["handle"])
             return {"response": response, "document": document, "legacy_claimed": claimed}

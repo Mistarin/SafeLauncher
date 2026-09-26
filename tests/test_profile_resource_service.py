@@ -77,6 +77,14 @@ class _RenameClient(_FakeClient):
         return {"handle": "new-name", "revision": revision + 1}
 
 
+class _SchemaCompatibilityClient(_FakeClient):
+    def create_profile(self, document):
+        self.calls.append(("create_profile", document["schema_version"]))
+        if document["schema_version"] == 4:
+            raise ProfileServiceError("Profile schema or handle is invalid.", "invalid_profile", 400)
+        return {"handle": document["handle"], "revision": 1}
+
+
 class ProfileResourceServiceTests(unittest.TestCase):
     def test_endpoint_keys_are_stable_without_exposing_endpoint_text(self):
         first = ProfileResourceService.endpoint_fingerprint("https://profile.example")
@@ -205,6 +213,14 @@ class ProfileResourceServiceTests(unittest.TestCase):
         result = service.publish(document, "old-name", service_url="https://profile.example")
 
         self.assertEqual(result["document"]["handle"], "new-name")
+
+    def test_publish_retries_schema_four_once_for_an_older_gateway(self):
+        service = ProfileResourceService(client_factory=_SchemaCompatibilityClient)
+        document = {"schema_version": 4, "handle": "new-name", "display_name": "Player"}
+
+        result = service.publish(document, "new-name", service_url="https://profile.example")
+
+        self.assertEqual(result["document"]["schema_version"], 3)
 
 
 if __name__ == "__main__":
