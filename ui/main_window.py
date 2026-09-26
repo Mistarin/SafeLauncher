@@ -41,6 +41,7 @@ from core.archive_extractor import (
     find_executables, save_sandbox_config, scan_sandbox_games
 )
 from core.archive_installer import ArchiveInstaller
+from core.game_archive_updater import recover_incomplete_game_updates
 from core.proton_manager import GEProtonDownloader
 from database import GameDatabase, _APP_DATA_DIR
 from core.logger import get_logger
@@ -85,6 +86,7 @@ logger = get_logger("UI")
 
 from ui.threads import (
     BannerFetcher, BannerDownloader, BannerAutoFetcher, ArchiveExtractorThread,
+    GameArchiveUpdateThread,
     GitHubReleasesFetcherThread, UmuBootstrapWorker, SafeLaunchLogReader,
     DiskSizeFetcherThread,
     AchievementStatusFetcherThread, AchievementBatchQueueWorker
@@ -515,6 +517,15 @@ class MainWindow(QMainWindow):
         self.hero_bg = HeroBackgroundWidget(self)
         self.setCentralWidget(self.hero_bg)
         self.extraction_spinner = ExtractionSpinner(self)
+        recovered_updates = recover_incomplete_game_updates(ensure_sandbox_dir())
+        if recovered_updates:
+            QTimer.singleShot(
+                0,
+                lambda: self._show_toast(
+                    f"Recovered {len(recovered_updates)} interrupted game update(s).",
+                    is_error=True,
+                ),
+            )
         
         self.setMouseTracking(True)
         self.hero_bg.setMouseTracking(True)
@@ -537,6 +548,7 @@ class MainWindow(QMainWindow):
         self.title_bar.settings_requested.connect(self._open_settings)
         self.title_bar.sync_requested.connect(self._on_sync_sandbox)
         self.title_bar.install_archive_requested.connect(self._on_install_zip_archive)
+        self.title_bar.update_game_files_requested.connect(self._on_update_game_files_from_archive)
         self.title_bar.check_updates_requested.connect(self._check_all_steam_updates)
         self.title_bar.open_sandbox_requested.connect(self._open_sandbox_dir)
         self.title_bar.export_save_requested.connect(self._on_export)
@@ -2650,6 +2662,112 @@ class MainWindow(QMainWindow):
         self._register_worker(thread)
         thread.start()
         self.topbar_extractor_thread = thread
+
+    def _on_update_game_files_from_archive(self):
+        """Replace one installed game's payload while protecting its state."""
+        game = self._get_selected_game()
+        if (
+            not game
+            or not game[2]
+            or not os.path.isdir(game[2])
+            or (len(game) > 17 and game[17])
+        ):
+            active_games = [
+                candidate for candidate in self.games
+                if len(candidate) > 2
+                and candidate[2]
+                and os.path.isdir(candidate[2])
+                and not (len(candidate) > 17 and candidate[17])
+            ]
+            if not active_games:
+                self._show_toast("Select an installed game before updating its files.", is_error=True)
+                return
+            labels = [str(candidate[1]) for candidate in active_games]
+            selected, accepted = QInputDialog.getItem(
+                self,
+                "Select Game to Update",
+                "Installed game:",
+                labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+            game = active_games[labels.index(selected)]
+
+        if game[0] in self.running_game_ids:
+            QMessageBox.warning(
+                self,
+                "Game is running",
+                "Close the game before replacing its files.",
+            )
+            return
+
+        archive_path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Select Update Archive for {game[1]}",
+            "",
+            "Archive Files (*.zip *.7z *.rar *.tar.gz *.tgz)",
+        )
+        if not archive_path or not os.path.isfile(archive_path):
+            return
+
+        try:
+            inspection = ArchiveInstaller().inspect(
+                archive_path,
+                os.path.dirname(os.path.abspath(game[2])) or game[2],
+            )
+        except Exception as error:
+            QMessageBox.critical(self, "Archive preflight failed", str(error))
+            return
+
+        if not inspection.enough_space:
+            QMessageBox.warning(
+                self,
+                "Not enough disk space",
+                f"The archive needs about {inspection.required_bytes / (1024 ** 3):.2f} GB, "
+                f"but only {inspection.free_bytes / (1024 ** 3):.2f} GB is free.",
+            )
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Update game files",
+            f"Replace the game files for '{game[1]}' from this archive?\n\n"
+            "SafeLauncher will stage and validate the archive first, preserve the "
+            "Wine/UMU prefix, launcher configuration, and detected saves, then "
+            "swap the installation with rollback protection. If save locations "
+            "cannot be verified, the update will be aborted safely.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        thread = GameArchiveUpdateThread(archive_path, game, parent=self)
+        thread.update_progress.connect(
+            lambda message: self._show_toast(f"{game[1]}: {message}")
+        )
+        thread.update_complete.connect(
+            lambda result, target=game: self._on_game_archive_update_complete(target, result)
+        )
+        thread.finished.connect(self._hide_extraction_spinner)
+        self._show_extraction_spinner()
+        self._show_toast(f"Preparing a safe update for '{game[1]}'…")
+        self._register_worker(thread)
+        thread.start()
+        self.game_archive_update_thread = thread
+
+    def _on_game_archive_update_complete(self, game, result) -> None:
+        if bool(getattr(result, "success", False)):
+            self._refresh_library()
+            self._show_toast(f"Updated game files for '{game[1]}' successfully.")
+            return
+        error = str(getattr(result, "error", "Game update failed.") or "Game update failed.")
+        guidance = str(getattr(result, "guidance", "") or "")
+        message = f"{error}\n\n{guidance}".strip()
+        self._show_toast(f"Could not update '{game[1]}'.", is_error=True)
+        QMessageBox.critical(self, "Game file update failed", message)
 
     def _on_topbar_extraction_complete(self, game_name: str, dest_dir: str, success: bool):
         """Callback when topbar archive extraction completes"""

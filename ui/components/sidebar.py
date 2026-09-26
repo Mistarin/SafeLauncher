@@ -466,6 +466,7 @@ class HeaderBar(QFrame):
     toggle_collections_requested = pyqtSignal()
     sync_requested = pyqtSignal()
     install_archive_requested = pyqtSignal()
+    update_game_files_requested = pyqtSignal()
     check_updates_requested = pyqtSignal()
     open_sandbox_requested = pyqtSignal()
     export_save_requested = pyqtSignal()
@@ -593,6 +594,12 @@ class HeaderBar(QFrame):
 
         act_inst = self.tools_menu.addAction(get_icon("ph.archive-bold", color="#FFFFFF"), "Install Game Archive (.zip/.7z/.rar/.tar)")
         act_inst.triggered.connect(self.install_archive_requested.emit)
+
+        act_update_files = self.tools_menu.addAction(
+            get_icon("ph.arrows-clockwise-bold", color="#FFFFFF"),
+            "Update Game Files from Archive...",
+        )
+        act_update_files.triggered.connect(self.update_game_files_requested.emit)
 
         act_upd = self.tools_menu.addAction(get_icon("ph.arrows-clockwise-bold", color="#FFFFFF"), "Check for Steam Updates")
         act_upd.triggered.connect(self.check_updates_requested.emit)

@@ -14,6 +14,7 @@ from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
 from core.steamgriddb_client import SteamGridDBClient
 from core.archive_extractor import extract_archive_sandboxed
+from core.game_archive_updater import GameArchiveUpdater
 from core.proton_manager import fetch_online_ge_proton_releases
 from database import _APP_DATA_DIR
 from core.disk_utils import get_dir_size, format_size, peek_dir_size
@@ -226,6 +227,37 @@ class ArchiveExtractorThread(SafeQThread):
         )
         if not self.isInterruptionRequested():
             self.extraction_complete.emit(game_name, self.dest_dir, success)
+
+
+class GameArchiveUpdateThread(SafeQThread):
+    """Apply a transactional game-payload update outside the Qt UI thread."""
+
+    update_complete = pyqtSignal(object)
+    update_progress = pyqtSignal(str)
+
+    def __init__(self, archive_path: str, game, parent=None):
+        super().__init__(parent)
+        self.archive_path = archive_path
+        self.game = game
+
+    def safe_run(self):
+        game_id, game_name = self.game[0], self.game[1]
+        game_path = self.game[2] if len(self.game) > 2 else ""
+        executable = self.game[3] if len(self.game) > 3 else ""
+        steam_id = self.game[6] if len(self.game) > 6 else ""
+        result = GameArchiveUpdater().update(
+            self.archive_path,
+            game_path,
+            game_name=game_name,
+            executable=executable,
+            steam_id=steam_id,
+            cancel_check=self.isInterruptionRequested,
+            progress_callback=self.update_progress.emit,
+        )
+        result_payload = getattr(result, "payload", None)
+        if isinstance(result_payload, dict):
+            result_payload.setdefault("game_id", game_id)
+        self.update_complete.emit(result)
 
 
 class GitHubReleasesFetcherThread(SafeQThread):

@@ -73,7 +73,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Achievement file watcher | [`core/achievement_watcher.py`](../core/achievement_watcher.py) | `AchievementWatcher` | active |
 | Game launch/session | [`core/game_session.py`](../core/game_session.py), [`core/playtime_tracker.py`](../core/playtime_tracker.py) | session and playtime lifecycle | active |
 | Sandbox execution | [`core/firejail_runner.py`](../core/firejail_runner.py), [`core/host_process.py`](../core/host_process.py) | runner/process ownership | active |
-| Archive installation | [`core/archive_installer.py`](../core/archive_installer.py), [`core/archive_extractor.py`](../core/archive_extractor.py) | inspection/extraction/install | active |
+| Archive installation and game updates | [`core/archive_installer.py`](../core/archive_installer.py), [`core/archive_extractor.py`](../core/archive_extractor.py), [`core/game_archive_updater.py`](../core/game_archive_updater.py) | inspection/extraction/install; transactional payload replacement with save/prefix protection and interrupted-swap recovery | active |
 | Save validation/crypto | [`core/save_validation.py`](../core/save_validation.py), [`core/save_crypto.py`](../core/save_crypto.py) | archive safety and encryption | active |
 
 ## UI entrypoints
