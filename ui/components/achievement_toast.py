@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QFont
 
 from core.logger import get_logger
-from ui.icons import get_icon
+from ui.icons import get_icon, get_icon_pixmap
 
 logger = get_logger("AchievementToast")
 
@@ -71,8 +71,8 @@ class AchievementToast(QWidget):
         self.card.setStyleSheet("""
             QFrame {
                 background-color: #121214;
-                border: 1px solid #27272A;
-                border-left: 4px solid #10B981;
+                border: 1px solid #202024;
+                border-left: 4px solid #35C98A;
                 border-radius: 8px;
             }
         """)
@@ -99,10 +99,10 @@ class AchievementToast(QWidget):
             painter = QPainter(fallback)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            painter.setBrush(QColor("#1E293B"))
-            painter.setPen(QColor("#10B981"))
+            painter.setBrush(QColor("#202024"))
+            painter.setPen(QColor("#35C98A"))
             painter.drawRoundedRect(1, 1, 46, 46, 8, 8)
-            ico_pix = get_icon("ph.trophy-fill", color="#10B981").pixmap(24, 24)
+            ico_pix = get_icon_pixmap("ph.trophy-fill", 24, color="#35C98A")
             painter.drawPixmap(12, 12, ico_pix)
             painter.end()
             self.icon_lbl.setPixmap(fallback)
@@ -114,7 +114,7 @@ class AchievementToast(QWidget):
         text_layout.setSpacing(2)
 
         header_lbl = QLabel("ACHIEVEMENT UNLOCKED")
-        header_lbl.setStyleSheet("color: #10B981; font-size: 10px; font-weight: bold; letter-spacing: 1px; background: transparent; border: none;")
+        header_lbl.setStyleSheet("color: #35C98A; font-size: 10px; font-weight: bold; letter-spacing: 1px; background: transparent; border: none;")
         text_layout.addWidget(header_lbl)
 
         title_lbl = QLabel(self.display_name)

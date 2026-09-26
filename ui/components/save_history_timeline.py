@@ -224,12 +224,12 @@ class SaveHistoryTimeline(QWidget):
         layout.setSpacing(8)
         line_left = QFrame()
         line_left.setFrameShape(QFrame.Shape.HLine)
-        line_left.setStyleSheet("color: #2D313A;")
+        line_left.setStyleSheet("color: #2A2A2E;")
         line_right = QFrame()
         line_right.setFrameShape(QFrame.Shape.HLine)
-        line_right.setStyleSheet("color: #2D313A;")
+        line_right.setStyleSheet("color: #2A2A2E;")
         date = QLabel(label)
-        date.setStyleSheet("color: #8E8E93; font-size: 10px; font-weight: 700; letter-spacing: 0.4px;")
+        date.setStyleSheet("color: #A1A1AA; font-size: 10px; font-weight: 700; letter-spacing: 0.4px;")
         layout.addWidget(line_left, 1)
         layout.addWidget(date)
         layout.addWidget(line_right, 1)
@@ -243,12 +243,12 @@ class SaveHistoryTimeline(QWidget):
         layout.setSpacing(8)
         device = QLabel(f"Device: {label}")
         device.setStyleSheet(
-            "color: #D4D4D8; font-size: 11px; font-weight: 700; "
+            "color: #F4F4F5; font-size: 11px; font-weight: 700; "
             "letter-spacing: 0.2px;"
         )
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("color: #2D313A;")
+        line.setStyleSheet("color: #2A2A2E;")
         layout.addWidget(device)
         layout.addWidget(line, 1)
         return frame
@@ -270,12 +270,12 @@ class SaveHistoryTimeline(QWidget):
                 padding: 8px 12px;
                 background: #181A20;
                 color: #E5E7EB;
-                border: 1px solid #252A33;
+                border: 1px solid #2A2A2E;
                 border-radius: 7px;
                 font-size: 11px;
             }}
-            QPushButton:hover {{ background: #202633; border-color: #3B9FE8; }}
-            QPushButton:checked {{ background: #1E293B; border-color: #3B9FE8; color: #FFFFFF; }}
+            QPushButton:hover {{ background: #202024; border-color: #3B9FE8; }}
+            QPushButton:checked {{ background: #202024; border-color: #3B9FE8; color: #FFFFFF; }}
         """)
         button.setToolTip(
             f"{entry.title}\n{entry.date_label} at {entry.time_label}\n"

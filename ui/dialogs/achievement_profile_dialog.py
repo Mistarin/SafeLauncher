@@ -30,7 +30,7 @@ class AchievementProfileDialog(PopupDialog):
             stats.addWidget(label)
         root.addLayout(stats)
         self.list = QListWidget()
-        self.list.setStyleSheet("QListWidget { background:#121214; border:1px solid #27272A; border-radius:8px; color:#E5E7EB; } QListWidget::item { padding:9px; }")
+        self.list.setStyleSheet("QListWidget { background:#121214; border:1px solid #202024; border-radius:8px; color:#E5E7EB; } QListWidget::item { padding:9px; }")
         root.addWidget(self.list, 1)
         actions = QHBoxLayout()
         self.btn_resync = QPushButton("Resync All")

@@ -8,10 +8,24 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from core.firejail_runner import FirejailSandboxRunner
+from core.firejail_runner import FirejailSandboxRunner, _sandbox_name_for_path
 
 
 class FirejailNetworkPolicyTests(unittest.TestCase):
+    def test_sandbox_name_cannot_end_with_separator_after_truncation(self):
+        name = _sandbox_name_for_path(
+            "/home/martin/Games/Sandbox/Graveyard-Keeper-2-SteamRIP"
+        )
+        self.assertEqual(name, "safelauncher-graveyard-ke-d23485")
+        self.assertLessEqual(len(name), 32)
+        self.assertNotRegex(name, r"[-_]$")
+
+    def test_short_sandbox_name_remains_readable(self):
+        self.assertEqual(
+            _sandbox_name_for_path("/tmp/Ender-Magnolia"),
+            "safelauncher-ender-magnolia",
+        )
+
     def test_umu_standard_keeps_host_networking_for_umu_loopback(self):
         with tempfile.TemporaryDirectory() as game_path:
             executable = os.path.join(game_path, "game.exe")

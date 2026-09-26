@@ -79,7 +79,7 @@ class DeployKeyWizardDialog(PopupDialog):
         label = QLabel(text)
         label.setWordWrap(True)
         label.setTextFormat(Qt.TextFormat.RichText)
-        label.setStyleSheet("color:#D1D5DB; font-size:12px;")
+        label.setStyleSheet("color:#F4F4F5; font-size:12px;")
         return label
 
     def _intro_page(self) -> QWidget:
@@ -253,13 +253,13 @@ class DeployKeyWizardDialog(PopupDialog):
             return
         prereq = deploy_key_prerequisites(backend_path)
         if not prereq["has_npx"]:
-            self.auto_status.setText("<font color='#F87171'>npx was not found. Use the manual dashboard path or install Node.js first.</font>")
+            self.auto_status.setText("<font color='#F05D6C'>npx was not found. Use the manual dashboard path or install Node.js first.</font>")
             return
         if not prereq["has_backend"]:
-            self.auto_status.setText("<font color='#F87171'>Select the SafeLauncherCloud project directory.</font>")
+            self.auto_status.setText("<font color='#F05D6C'>Select the SafeLauncherCloud project directory.</font>")
             return
         if not prereq["has_cli_login"]:
-            self.auto_status.setText("<font color='#FBBF24'>Convex CLI login/project configuration was not detected. Sign in and link the project, or use manual entry.</font>")
+            self.auto_status.setText("<font color='#E5A93D'>Convex CLI login/project configuration was not detected. Sign in and link the project, or use manual entry.</font>")
             return
         self._busy = True
         self.btn_next.setEnabled(False)
@@ -276,20 +276,20 @@ class DeployKeyWizardDialog(PopupDialog):
         self.btn_next.setEnabled(True)
         self.btn_back.setEnabled(True)
         if not result.get("ok"):
-            self.auto_status.setText(f"<font color='#F87171'>{result.get('error', 'Deploy-key generation failed.')}</font>")
+            self.auto_status.setText(f"<font color='#F05D6C'>{result.get('error', 'Deploy-key generation failed.')}</font>")
             return
         self._pending_key = str(result.get("key", ""))
         if not set_secret("convex_deploy_key", self._pending_key):
             self._pending_key = ""
             self.auto_status.setText(
-                "<font color='#F87171'>The key was generated, but SafeLauncher could not securely store it. "
+                "<font color='#F05D6C'>The key was generated, but SafeLauncher could not securely store it. "
                 "It may still be active in Convex; revoke it from the dashboard before retrying.</font>"
             )
             return
         self._backend_path = self.backend_path_edit.text().strip()
         self.pages.setCurrentIndex(3)
         self.btn_next.setText("Verify & Finish")
-        self.finish_status.setText("<font color='#34D399'>Deploy key generated and stored securely. Continue to verify it and complete Cloud Save setup.</font>")
+        self.finish_status.setText("<font color='#35C98A'>Deploy key generated and stored securely. Continue to verify it and complete Cloud Save setup.</font>")
 
     def _prepare_manual_key(self) -> None:
         key = self.manual_key_edit.text().strip()
@@ -352,14 +352,14 @@ class DeployKeyWizardDialog(PopupDialog):
         if not key_result.get("ok"):
             error = html.escape(str(key_result.get("error", "Deploy-key verification failed."))).replace("\n", "<br>")
             self.finish_status.setText(
-                f"<font color='#F87171'>{error}</font>"
+                f"<font color='#F05D6C'>{error}</font>"
             )
             return
         secret_result = result.get("secret_result") or {}
         if not secret_result.get("ok"):
             error = html.escape(str(secret_result.get("error", "Enter the existing secret above and try again, or configure it in Convex Dashboard."))).replace("\n", "<br>")
             self.finish_status.setText(
-                "<font color='#FBBF24'>Deploy key verified, but Cloud Save Secret Access Key setup did not finish.</font><br>"
+                "<font color='#E5A93D'>Deploy key verified, but Cloud Save Secret Access Key setup did not finish.</font><br>"
                 f"{error}"
             )
             return
@@ -371,7 +371,7 @@ class DeployKeyWizardDialog(PopupDialog):
         if not set_secret("convex_deploy_key", self._pending_key):
             QMessageBox.critical(self, "Deploy Key", "SafeLauncher could not securely persist the deploy key.")
             return
-        self.finish_status.setText(f"<font color='#34D399'>{message}</font>")
+        self.finish_status.setText(f"<font color='#35C98A'>{message}</font>")
         self.key_saved.emit()
         self.accept()
 

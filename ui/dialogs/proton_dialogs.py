@@ -93,7 +93,7 @@ class ProtonManagerDialog(PopupDialog):
         self.resize(720, 560)
         self.setSizeGripEnabled(True)
         self.setStyleSheet("""
-            QDialog { background-color: #121215; color: #ffffff; }
+            QDialog { background-color: #121214; color: #ffffff; }
             QLabel { color: #d4d4d8; font-size: 12px; }
             QPushButton {
                 background: #52565e; color: #ffffff; border: none;
@@ -178,19 +178,19 @@ class ProtonManagerDialog(PopupDialog):
         btn_layout = QHBoxLayout()
 
         btn_refresh = QPushButton("Refresh Releases")
-        btn_refresh.setStyleSheet("QPushButton { background: #27272a; border: 1px solid #3f3f46; } QPushButton:hover { background: #3f3f46; }")
+        btn_refresh.setStyleSheet("QPushButton { background: #27272a; border: 1px solid #2A2A2E; } QPushButton:hover { background: #2A2A2E; }")
         btn_refresh.clicked.connect(self._fetch_releases)
         btn_layout.addWidget(btn_refresh)
 
         btn_system = QPushButton("Use System Auto Proton (Default)")
-        btn_system.setStyleSheet("QPushButton { background: #1e293b; color: #94a3b8; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
+        btn_system.setStyleSheet("QPushButton { background: #202024; color: #94a3b8; border: 1px solid #2A2A2E; } QPushButton:hover { background: #2A2A2E; }")
         btn_system.clicked.connect(lambda: self._select_proton(""))
         btn_layout.addWidget(btn_system)
 
         btn_layout.addStretch(1)
 
         btn_close = QPushButton("Close")
-        btn_close.setStyleSheet("QPushButton { background: #27272a; border: 1px solid #3f3f46; } QPushButton:hover { background: #3f3f46; }")
+        btn_close.setStyleSheet("QPushButton { background: #27272a; border: 1px solid #2A2A2E; } QPushButton:hover { background: #2A2A2E; }")
         btn_close.clicked.connect(self.reject)
         btn_layout.addWidget(btn_close)
 
@@ -262,7 +262,7 @@ class ProtonManagerDialog(PopupDialog):
                     w_layout.addWidget(btn_apply_game)
 
                 btn_global = QPushButton("Set Global Default")
-                btn_global.setStyleSheet("QPushButton { background: #1e293b; color: #94a3b8; border: 1px solid #334155; } QPushButton:hover { background: #334155; }")
+                btn_global.setStyleSheet("QPushButton { background: #202024; color: #94a3b8; border: 1px solid #2A2A2E; } QPushButton:hover { background: #2A2A2E; }")
                 btn_global.clicked.connect(lambda _, p=target_path: self._select_proton(p))
                 w_layout.addWidget(btn_global)
             else:

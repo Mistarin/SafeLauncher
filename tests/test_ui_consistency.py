@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from PyQt6.QtWidgets import (
     QApplication, QFormLayout, QLineEdit, QLabel, QToolButton, QFrame,
-    QPushButton, QMainWindow,
+    QPushButton, QMainWindow, QWidget, QCheckBox,
 )
 from PyQt6.QtCore import QEvent, QSettings, Qt
 from PyQt6.QtGui import QKeyEvent
@@ -65,13 +65,23 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             self.assertGreaterEqual(len(dialog.findChildren(QFrame, "settingsDivider")), 5)
             stylesheet = dialog.styleSheet()
             self.assertIn("#18181B", stylesheet)
-            self.assertIn("#15181E", stylesheet)
+            self.assertIn("#1C1C1F", stylesheet)
             self.assertIn("QLabel#propertyLabel", stylesheet)
             self.assertIn("#18181B", dialog.findChildren(QFrame, "settingsSection")[0].styleSheet())
-            self.assertIn("#15181E", dialog.name_input.styleSheet())
+            self.assertIn("#1C1C1F", dialog.name_input.styleSheet())
             self.assertGreaterEqual(dialog.name_input.minimumHeight(), 36)
             self.assertIn("border: none", dialog.findChildren(QFrame, "settingsSection")[0].styleSheet())
             self.assertTrue(hasattr(dialog, "chk_launch_startup"))
+            self.assertLess(
+                dialog.findChildren(QCheckBox)[0].geometry().top(),
+                dialog.chk_welcome.geometry().top(),
+            )
+            self.assertEqual(dialog.btn_save.minimumHeight(), dialog.btn_cancel.minimumHeight())
+            self.assertIn("#3B9FE8", dialog.btn_desktop_entry.styleSheet())
+            self.assertTrue(all(
+                widget.findChild(QToolButton, "propertyInfo") is not None
+                for widget in dialog.findChildren(QWidget, "propertyHint")
+            ))
         finally:
             dialog.close()
             dialog.deleteLater()
@@ -150,7 +160,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
 
         service.update_collection_membership.assert_not_called()
 
-    def test_header_view_menu_exposes_only_library_profile_and_friends(self):
+    def test_header_view_menu_exposes_only_library_navigation(self):
         class _HeaderWindow(QMainWindow):
             def _toggle_maximize(self):
                 pass
@@ -159,14 +169,14 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         title_bar = CustomTitleBar(window)
         try:
             labels = [action.text() for action in title_bar.view_menu.actions()]
-            self.assertEqual(labels, ["Library", "Profile", "Friends"])
+            self.assertEqual(labels, ["Library"])
             self.assertFalse(title_bar.btn_friends.isVisible())
         finally:
             title_bar.deleteLater()
             window.deleteLater()
             self.app.processEvents()
 
-    def test_social_navigation_is_not_duplicated_in_identity_menu(self):
+    def test_identity_menu_owns_profile_and_social_navigation(self):
         class _HeaderWindow(QMainWindow):
             def _toggle_maximize(self):
                 pass
@@ -175,7 +185,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         title_bar = CustomTitleBar(window)
         try:
             labels = [action.text() for action in title_bar.profile_menu.actions() if not action.isSeparator()]
-            self.assertEqual(labels, ["Cloud Center", "Settings…"])
+            self.assertEqual(labels, ["Profile", "Friends"])
         finally:
             title_bar.deleteLater()
             window.deleteLater()

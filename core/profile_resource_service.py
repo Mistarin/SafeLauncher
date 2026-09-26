@@ -116,6 +116,25 @@ class ProfileResourceService:
         with self._client(service_url) as client:
             return client.get_social(handle)
 
+    def get_owner_social(self, service_url: str | None = None) -> dict[str, Any]:
+        """Return authoritative owner profile state together with its friends.
+
+        The local ``profile_published`` setting is only a UI cache. Resolve the
+        Auth0-owned profile first so stale private-cloud metadata cannot make
+        Friends claim that an actually published profile does not exist.
+        """
+        with self._client(service_url) as client:
+            owner = client.current_profile()
+            if owner is None:
+                raise ProfileServiceError(
+                    "Create a public profile first.",
+                    "profile_required",
+                )
+            handle = str(owner.get("handle", "") or "").strip().lower()
+            if not handle:
+                raise ProfileServiceError("The public profile has no username yet.", "invalid_profile")
+            return {"profile": owner, "social": client.get_social(handle)}
+
     def social_operation(
         self,
         operation: str,

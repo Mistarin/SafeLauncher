@@ -56,7 +56,7 @@ class ExtractionSpinner(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setStyleSheet(
             "QFrame#extractionSpinner {"
-            " background: #151A22; border: 1px solid #2A303B; border-radius: 9px;"
+            " background: #151A22; border: 1px solid #2A2A2E; border-radius: 9px;"
             "}"
             "QLabel { color: #F4F4F5; background: transparent;"
             " font-size: 11px; font-weight: 600; }"

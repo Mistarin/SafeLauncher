@@ -34,10 +34,10 @@ class CheckField(QCheckBox):
         if checked:
             # Keep the selected field neutral; the checkmark carries the
             # accent so checked controls do not become distracting blue tiles.
-            fill = QColor("#24242A") if enabled else QColor("#1B1B1F")
+            fill = QColor("#24242A") if enabled else QColor("#18181B")
             border = QColor("#63B8F5") if enabled else QColor("#46515C")
         else:
-            fill = QColor("#1B1B1F") if enabled else QColor("#161619")
+            fill = QColor("#18181B") if enabled else QColor("#161619")
             border = QColor("#555561") if enabled else QColor("#36363D")
             if hovered:
                 border = QColor("#7B7B88")

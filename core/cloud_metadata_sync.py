@@ -327,6 +327,14 @@ def _merge_profiles(local: dict, remote: dict) -> dict:
     """Merge the account profile without losing achievements or playtime."""
     local = _normalise_profile(local)
     remote = _normalise_profile(remote)
+    # Public identity and publication are owned by the central public-profile
+    # service.  The private cloud may contain older copies of these fields,
+    # but it must never let a stale private record unpublish a profile or
+    # change the username used by Friends.
+    merged_profile = merge_profile_settings(local.get("profile"), remote.get("profile"))
+    local_profile = local.get("profile") if isinstance(local.get("profile"), dict) else {}
+    merged_profile["public_handle"] = str(local_profile.get("public_handle", "") or "")
+    merged_profile["published"] = bool(local_profile.get("published", False))
     merged_games = {}
     for identity in set((local or {}).get("games", {}) or {}) | set((remote or {}).get("games", {}) or {}):
         left = ((local or {}).get("games", {}) or {}).get(identity, {}) or {}
@@ -376,7 +384,7 @@ def _merge_profiles(local: dict, remote: dict) -> dict:
         merged[str(app_id)] = _merge_unlocks(left, right)
     return {
         "format_version": PRIVATE_PROFILE_VERSION,
-        "profile": merge_profile_settings(local.get("profile"), remote.get("profile")),
+        "profile": merged_profile,
         "games": merged_games,
         "achievements": merged,
     }

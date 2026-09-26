@@ -298,7 +298,7 @@ def btn_primary_style() -> str:
     """Apple Blue accent button, white text, subtle hover transitions, no harsh borders."""
     return f"""
         QPushButton {{
-            background-color: #0A84FF;
+            background-color: #3B9FE8;
             color: #FFFFFF;
             border: none;
             border-radius: 8px;
@@ -308,14 +308,14 @@ def btn_primary_style() -> str:
             letter-spacing: 0.2px;
         }}
         QPushButton:hover {{
-            background-color: #0071E3;
+            background-color: #55ACED;
         }}
         QPushButton:pressed {{
-            background-color: #005BB5;
+            background-color: #2789D0;
         }}
         QPushButton:disabled {{
-            background-color: #161A22;
-            color: #636366;
+            background-color: #18181B;
+            color: #71717A;
             border: none;
         }}
     """
@@ -325,8 +325,8 @@ def btn_secondary_style() -> str:
     """Dark elevated surface, light text, subtle 1px border."""
     return f"""
         QPushButton {{
-            background-color: #161A22;
-            color: #F5F7FA;
+            background-color: #18181B;
+            color: #F4F4F5;
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 8px;
             font-size: 12px;
@@ -334,16 +334,16 @@ def btn_secondary_style() -> str:
             padding: 7px 14px;
         }}
         QPushButton:hover {{
-            background-color: #202633;
+            background-color: #202024;
             border-color: rgba(255, 255, 255, 0.12);
             color: #FFFFFF;
         }}
         QPushButton:pressed {{
-            background-color: #10141B;
+            background-color: #121214;
             border-color: rgba(255, 255, 255, 0.05);
         }}
         QPushButton:disabled {{
-            color: #636366;
+            color: #71717A;
             border-color: transparent;
         }}
     """
@@ -354,7 +354,7 @@ def btn_tertiary_style() -> str:
     return f"""
         QPushButton {{
             background-color: transparent;
-            color: #98989D;
+            color: #A1A1AA;
             border: none;
             border-radius: 7px;
             font-size: 12px;
@@ -362,14 +362,14 @@ def btn_tertiary_style() -> str:
             padding: 6px 12px;
         }}
         QPushButton:hover {{
-            background-color: #1A1F28;
+            background-color: #202024;
             color: #FFFFFF;
         }}
         QPushButton:pressed {{
             background-color: rgba(255, 255, 255, 0.1);
         }}
         QPushButton:disabled {{
-            color: #636366;
+            color: #71717A;
         }}
     """
 
@@ -395,7 +395,7 @@ def btn_destructive_style() -> str:
         }}
         QPushButton:disabled {{
             background-color: transparent;
-            color: #636366;
+            color: #71717A;
         }}
     """
 
@@ -404,7 +404,7 @@ def search_input_style() -> str:
     """Sleek, modern search bar for header and library filter."""
     return f"""
         QLineEdit {{
-            background-color: #161A22;
+            background-color: #18181B;
             color: #FFFFFF;
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 7px;
@@ -412,10 +412,10 @@ def search_input_style() -> str:
             font-size: 12px;
         }}
         QLineEdit:focus {{
-            border-color: #0A84FF;
+            border-color: #3B9FE8;
             background-color: #1D222B;
         }}
         QLineEdit::placeholder {{
-            color: #636366;
+            color: #71717A;
         }}
     """

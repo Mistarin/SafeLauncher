@@ -76,7 +76,7 @@ from core.game_names import is_placeholder_game_name
 from core.game_status import GameStatusState, cloud_indicator
 from ui.icons import (
     LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap,
-    get_app_icon, get_icon,
+    get_app_icon, get_icon, get_icon_pixmap,
 )
 from ui.maintenance_dialogs import PrefixMaintenanceDialog
 from ui.dialogs.achievements_dialog import create_rounded_pixmap
@@ -561,8 +561,8 @@ class MainWindow(QMainWindow):
         self.update_banner.setVisible(False)
         self.update_banner.setStyleSheet("""
             QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1E3A8A, stop:1 #1D4ED8);
-                border-bottom: 1px solid #3B82F6;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1E3A8A, stop:1 #2789D0);
+                border-bottom: 1px solid #3B9FE8;
             }
         """)
         ub_layout = QHBoxLayout(self.update_banner)
@@ -578,16 +578,16 @@ class MainWindow(QMainWindow):
         self.btn_update_banner_action = QPushButton("Download & Apply")
         self.btn_update_banner_action.setStyleSheet("""
             QPushButton {
-                background: #2563EB;
+                background: #3B9FE8;
                 color: #FFFFFF;
-                border: 1px solid #60A5FA;
+                border: 1px solid #55ACED;
                 border-radius: 4px;
                 padding: 4px 12px;
                 font-size: 11px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background: #1D4ED8;
+                background: #2789D0;
             }
         """)
         ub_layout.addWidget(self.btn_update_banner_action)
@@ -655,7 +655,7 @@ class MainWindow(QMainWindow):
                 background: transparent;
             }
             QSplitter::handle {
-                background: #2A2D34;
+                background: #202024;
                 width: 8px;
                 margin: 0px;
             }
@@ -676,12 +676,12 @@ class MainWindow(QMainWindow):
         self.detail_panel.setMaximumWidth(480)
         self.detail_panel.setStyleSheet("""
             QFrame#detailPanel {
-                background-color: #161618;
+                background-color: #18181B;
                 border: none;
                 border-left: 1px solid rgba(255, 255, 255, 0.06);
             }
             QLabel {
-                color: #F5F7FA;
+                color: #F4F4F5;
             }
         """)
         # Keep the inspector as a solid docked surface.  The library behind it
@@ -723,12 +723,12 @@ class MainWindow(QMainWindow):
         top_bar.setContentsMargins(2, 0, 0, 2)
         
         lbl_inspector_hdr = QLabel("INSPECTOR")
-        lbl_inspector_hdr.setStyleSheet("color: #636366; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
+        lbl_inspector_hdr.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
         top_bar.addWidget(lbl_inspector_hdr)
         top_bar.addStretch()
 
         self.btn_hide_detail = QPushButton()
-        self.btn_hide_detail.setIcon(get_icon("ph.x-bold", color="#8E8E93"))
+        self.btn_hide_detail.setIcon(get_icon("ph.x-bold", color="#A1A1AA"))
         self.btn_hide_detail.setIconSize(QSize(12, 12))
         self.btn_hide_detail.setFixedSize(24, 24)
         self.btn_hide_detail.setToolTip("Close inspector")
@@ -739,7 +739,7 @@ class MainWindow(QMainWindow):
                 border-radius: 12px;
             }
             QPushButton:hover {
-                background: #202633;
+                background: #202024;
             }
         """)
         self.btn_hide_detail.clicked.connect(lambda: self._animate_left_panel(False))
@@ -754,7 +754,7 @@ class MainWindow(QMainWindow):
             QLabel {
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 12px;
-                background-color: #1C1C20;
+                background-color: #202024;
             }
         """)
         
@@ -790,7 +790,7 @@ class MainWindow(QMainWindow):
         self.detail_spec_card.setObjectName("detailSpecCard")
         self.detail_spec_card.setStyleSheet("""
             QFrame#detailSpecCard {
-                background-color: #11141A;
+                background-color: #121214;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 10px;
             }
@@ -802,31 +802,31 @@ class MainWindow(QMainWindow):
 
         # Col 0: Playtime
         lbl_pt_h = QLabel("PLAYTIME")
-        lbl_pt_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_pt_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_pt_h, 0, 0)
         self.detail_playtime = QLabel("--")
-        self.detail_playtime.setStyleSheet("color: #F5F7FA; font-size: 11px; font-weight: 600; background: transparent;")
+        self.detail_playtime.setStyleSheet("color: #F4F4F5; font-size: 11px; font-weight: 600; background: transparent;")
         spec_layout.addWidget(self.detail_playtime, 1, 0)
 
         # Col 1: Last Played
         lbl_lp_h = QLabel("LAST PLAYED")
-        lbl_lp_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_lp_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_lp_h, 0, 1)
         self.detail_last_played = QLabel("--")
-        self.detail_last_played.setStyleSheet("color: #F5F7FA; font-size: 11px; font-weight: 600; background: transparent;")
+        self.detail_last_played.setStyleSheet("color: #F4F4F5; font-size: 11px; font-weight: 600; background: transparent;")
         spec_layout.addWidget(self.detail_last_played, 1, 1)
 
         # Row 2, Col 0: Disk Size
         lbl_ds_h = QLabel("DISK SIZE")
-        lbl_ds_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_ds_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_ds_h, 2, 0)
         self.detail_disk_size = QLabel("--")
-        self.detail_disk_size.setStyleSheet("color: #A1A1A6; font-size: 11px; font-weight: 500; background: transparent;")
+        self.detail_disk_size.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 500; background: transparent;")
         spec_layout.addWidget(self.detail_disk_size, 3, 0)
 
         # Row 2, Col 1: Cloud Sync
         lbl_cs_h = QLabel("CLOUD SAVE")
-        lbl_cs_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_cs_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_cs_h, 2, 1)
 
         cloud_box = QWidget()
@@ -840,7 +840,7 @@ class MainWindow(QMainWindow):
         cloud_status_row.setSpacing(6)
 
         self.detail_cloud_status = QLabel("--")
-        self.detail_cloud_status.setStyleSheet("color: #A1A1A6; font-size: 11px; font-weight: 500; background: transparent;")
+        self.detail_cloud_status.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 500; background: transparent;")
         cloud_status_row.addWidget(self.detail_cloud_status)
 
         self.btn_detail_cloud_restore = QPushButton("Restore latest cloud save")
@@ -848,9 +848,9 @@ class MainWindow(QMainWindow):
         self.btn_detail_cloud_restore.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_detail_cloud_restore.setToolTip("Restore latest cloud save for this game")
         self.btn_detail_cloud_restore.setStyleSheet(
-            "QPushButton { background: #2563EB; color: #FFFFFF; border: none; border-radius: 4px; "
+            "QPushButton { background: #3B9FE8; color: #FFFFFF; border: none; border-radius: 4px; "
             "padding: 2px 8px; font-size: 10px; font-weight: bold; } "
-            "QPushButton:hover { background: #3B82F6; }"
+            "QPushButton:hover { background: #3B9FE8; }"
         )
         self.btn_detail_cloud_restore.hide()
         self.btn_detail_cloud_restore.clicked.connect(self._restore_selected_game_cloud_save)
@@ -861,7 +861,7 @@ class MainWindow(QMainWindow):
 
         self.detail_cloud_metadata = QLabel("")
         self.detail_cloud_metadata.setStyleSheet(
-            "color: #6F7682; font-size: 9px; font-weight: 500; background: transparent;"
+            "color: #71717A; font-size: 9px; font-weight: 500; background: transparent;"
         )
         self.detail_cloud_metadata.setAccessibleName("Cloud save time and device")
         self.detail_cloud_metadata.setVisible(False)
@@ -897,7 +897,7 @@ class MainWindow(QMainWindow):
         self.lbl_detail_versions.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_detail_versions.setWordWrap(True)
         self.lbl_detail_versions.setOpenExternalLinks(True)
-        self.lbl_detail_versions.setStyleSheet("QLabel { color: #A1A1A6; background: #161A22; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; font-size: 10px; padding: 3px 8px; }")
+        self.lbl_detail_versions.setStyleSheet("QLabel { color: #A1A1AA; background: #18181B; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; font-size: 10px; padding: 3px 8px; }")
         self.detail_update_layout.addWidget(self.lbl_detail_versions)
 
         self.btn_retry_steam = QPushButton("Retry")
@@ -918,7 +918,7 @@ class MainWindow(QMainWindow):
         self.btn_detail_launch.setFixedHeight(40)
         self.btn_detail_launch.setStyleSheet("""
             QPushButton#detailLaunch {
-                background-color: #0A84FF;
+                background-color: #3B9FE8;
                 color: #FFFFFF;
                 font-weight: 600;
                 font-size: 13px;
@@ -929,10 +929,10 @@ class MainWindow(QMainWindow):
                 letter-spacing: 0.2px;
             }
             QPushButton#detailLaunch:hover {
-                background-color: #0071E3;
+                background-color: #55ACED;
             }
             QPushButton#detailLaunch:pressed {
-                background-color: #005BB5;
+                background-color: #2789D0;
             }
         """)
         self.btn_detail_launch.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -941,8 +941,8 @@ class MainWindow(QMainWindow):
 
         sec_btn_style = """
             QPushButton {
-                background-color: #161A22;
-                color: #D1D5DB;
+                background-color: #18181B;
+                color: #F4F4F5;
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 8px;
                 padding: 0 10px;
@@ -951,12 +951,12 @@ class MainWindow(QMainWindow):
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #202633;
+                background-color: #202024;
                 border-color: rgba(255, 255, 255, 0.12);
                 color: #FFFFFF;
             }
             QPushButton:pressed {
-                background-color: #10141B;
+                background-color: #121214;
             }
         """
 
@@ -966,7 +966,7 @@ class MainWindow(QMainWindow):
         actions_grid.setSpacing(6)
 
         self.btn_detail_edit = QPushButton("Edit Game")
-        self.btn_detail_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#0A84FF"))
+        self.btn_detail_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#3B9FE8"))
         self.btn_detail_edit.setIconSize(QSize(14, 14))
         self.btn_detail_edit.setFixedHeight(32)
         self.btn_detail_edit.setStyleSheet(sec_btn_style)
@@ -974,7 +974,7 @@ class MainWindow(QMainWindow):
         actions_grid.addWidget(self.btn_detail_edit, 0, 0)
 
         self.btn_detail_properties = QPushButton("Properties")
-        self.btn_detail_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#8E8E93"))
+        self.btn_detail_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#A1A1AA"))
         self.btn_detail_properties.setIconSize(QSize(14, 14))
         self.btn_detail_properties.setFixedHeight(32)
         self.btn_detail_properties.setStyleSheet(sec_btn_style)
@@ -982,7 +982,7 @@ class MainWindow(QMainWindow):
         actions_grid.addWidget(self.btn_detail_properties, 0, 1)
 
         self.btn_detail_screenshots = QPushButton("Screenshots")
-        self.btn_detail_screenshots.setIcon(get_icon("ph.image-bold", color="#8E8E93"))
+        self.btn_detail_screenshots.setIcon(get_icon("ph.image-bold", color="#A1A1AA"))
         self.btn_detail_screenshots.setIconSize(QSize(14, 14))
         self.btn_detail_screenshots.setFixedHeight(32)
         self.btn_detail_screenshots.setStyleSheet(sec_btn_style)
@@ -990,7 +990,7 @@ class MainWindow(QMainWindow):
         actions_grid.addWidget(self.btn_detail_screenshots, 1, 0)
 
         self.btn_detail_videos = QPushButton("Videos")
-        self.btn_detail_videos.setIcon(get_icon("ph.video-camera-bold", color="#8E8E93"))
+        self.btn_detail_videos.setIcon(get_icon("ph.video-camera-bold", color="#A1A1AA"))
         self.btn_detail_videos.setIconSize(QSize(14, 14))
         self.btn_detail_videos.setFixedHeight(32)
         self.btn_detail_videos.setStyleSheet(sec_btn_style)
@@ -1002,7 +1002,7 @@ class MainWindow(QMainWindow):
         self.btn_detail_achievements = QPushButton("Achievements")
         self.btn_detail_achievements.setAccessibleName("Open achievements")
         self.btn_detail_achievements.setToolTip("Open the full achievement list for this game")
-        self.btn_detail_achievements.setIcon(get_icon("ph.trophy-bold", color="#30D158"))
+        self.btn_detail_achievements.setIcon(get_icon("ph.trophy-bold", color="#35C98A"))
         self.btn_detail_achievements.setIconSize(QSize(14, 14))
         self.btn_detail_achievements.setFixedHeight(32)
         self.btn_detail_achievements.setStyleSheet(sec_btn_style)
@@ -1016,13 +1016,13 @@ class MainWindow(QMainWindow):
         self.detail_ach_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.detail_ach_card.setStyleSheet("""
             QFrame#detailAchCard {
-                background-color: #11141A;
+                background-color: #121214;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 10px;
                 padding: 10px;
             }
             QFrame#detailAchCard:hover {
-                background-color: #171B23;
+                background-color: #18181B;
                 border-color: rgba(48, 209, 88, 0.3);
             }
         """)
@@ -1038,12 +1038,12 @@ class MainWindow(QMainWindow):
         ach_hdr_row.setSpacing(6)
 
         ach_title = QLabel("ACHIEVEMENTS")
-        ach_title.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
+        ach_title.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
         ach_hdr_row.addWidget(ach_title)
         ach_hdr_row.addStretch()
 
         self.lbl_detail_ach_count = QLabel("0 / 0 (0%)")
-        self.lbl_detail_ach_count.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700; background: transparent;")
+        self.lbl_detail_ach_count.setStyleSheet("color: #35C98A; font-size: 11px; font-weight: 700; background: transparent;")
         ach_hdr_row.addWidget(self.lbl_detail_ach_count)
         ach_card_layout.addLayout(ach_hdr_row)
 
@@ -1054,12 +1054,12 @@ class MainWindow(QMainWindow):
         self.detail_ach_progress.setValue(0)
         self.detail_ach_progress.setStyleSheet("""
             QProgressBar {
-                background-color: #1A1F28;
+                background-color: #202024;
                 border: none;
                 border-radius: 2px;
             }
             QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #30D158, stop:1 #34C759);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #35C98A, stop:1 #35C98A);
                 border-radius: 2px;
             }
         """)
@@ -1134,7 +1134,7 @@ class MainWindow(QMainWindow):
         self.grid_search_input.setFixedWidth(210)
         self.grid_search_input.setFixedHeight(32)
         self.grid_search_input.setClearButtonEnabled(True)
-        self.grid_search_input.addAction(get_icon("ph.magnifying-glass-bold", color="#8E8E93"), QLineEdit.ActionPosition.LeadingPosition)
+        self.grid_search_input.addAction(get_icon("ph.magnifying-glass-bold", color="#A1A1AA"), QLineEdit.ActionPosition.LeadingPosition)
         self.grid_search_input.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {SURFACE};
@@ -1145,7 +1145,7 @@ class MainWindow(QMainWindow):
                 font-size: 11px;
             }}
             QLineEdit:focus {{
-                border-color: #0A84FF;
+                border-color: #3B9FE8;
                 background-color: {SURFACE_ELEVATED};
             }}
             QLineEdit::placeholder {{
@@ -1181,7 +1181,7 @@ class MainWindow(QMainWindow):
             }}
             QPushButton:checked {{
                 background: rgba(10, 132, 255, 0.18);
-                color: #38BDF8;
+                color: #3B9FE8;
                 border-color: rgba(10, 132, 255, 0.45);
             }}
         """
@@ -1226,11 +1226,6 @@ class MainWindow(QMainWindow):
                 width: 0px;
                 border: none;
             }}
-            QComboBox::down-arrow {{
-                image: none;
-                width: 0px;
-                height: 0px;
-            }}
             QComboBox QAbstractItemView {{
                 background-color: {SURFACE_ELEVATED};
                 color: {TEXT_PRIMARY};
@@ -1258,7 +1253,7 @@ class MainWindow(QMainWindow):
         cb_layout.setSpacing(14)
 
         col_icon_lbl = QLabel()
-        col_icon_lbl.setPixmap(get_icon("ph.folder-open-bold", color=ACCENT_PRIMARY).pixmap(24, 24))
+        col_icon_lbl.setPixmap(get_icon_pixmap("ph.folder-open-bold", 24, color=ACCENT_PRIMARY))
         cb_layout.addWidget(col_icon_lbl)
 
         col_text_layout = QVBoxLayout()
@@ -1420,12 +1415,12 @@ class MainWindow(QMainWindow):
         self._profile_view_active = False
         self._profile_remote_tasks = TaskSupervisor(self, worker_registry=self.worker_supervisor)
 
-        # ── Dedicated Darker Footer Bar (#0E0E10, 36px) with Add Game and View Toggle on bottom-left ──
+        # ── Dedicated Darker Footer Bar (#121214, 36px) with Add Game and View Toggle on bottom-left ──
         self.footer_bar = QFrame(self)
         self.footer_bar.setFixedHeight(36)
         self.footer_bar.setStyleSheet("""
             QFrame {
-                background-color: #0E0E10;
+                background-color: #121214;
                 border: none;
                 border-top: 1px solid rgba(255, 255, 255, 0.05);
             }
@@ -1514,7 +1509,7 @@ class MainWindow(QMainWindow):
         self.lbl_network_status = QLabel("Offline")
         self.lbl_network_status.setObjectName("networkStatusLabel")
         self.lbl_network_status.setStyleSheet(
-            "QLabel#networkStatusLabel { color: #777C86; background: transparent; "
+            "QLabel#networkStatusLabel { color: #71717A; background: transparent; "
             "font-size: 10px; font-weight: 500; padding: 0 2px; }"
         )
         self.lbl_network_status.setToolTip(
@@ -1540,7 +1535,7 @@ class MainWindow(QMainWindow):
         self.btn_reveal_detail.setStyleSheet("""
             QPushButton {
                 background: transparent;
-                color: #8E8E93;
+                color: #A1A1AA;
                 border: none;
                 border-radius: 5px;
                 padding: 0 8px;
@@ -2445,7 +2440,7 @@ class MainWindow(QMainWindow):
             for game_id in self.games_by_id:
                 self.library_view_host.update_cloud_status(game_id, None)
         if self.selected_game:
-            self.detail_cloud_status.setText("<font color='#6F7682'>Cloud Save: checking…</font>")
+            self.detail_cloud_status.setText("<font color='#71717A'>Cloud Save: checking…</font>")
             self.detail_cloud_status.setToolTip("Cloud settings changed — re-checking.")
             if hasattr(self, "detail_cloud_metadata"):
                 self.detail_cloud_metadata.clear()
@@ -2512,7 +2507,7 @@ class MainWindow(QMainWindow):
                 font-size: 12px;
             }
             QMenu::item:selected {
-                background-color: #1e293b;
+                background-color: #202024;
                 color: #ffffff;
             }
             QMenu::separator {
@@ -4670,7 +4665,7 @@ class MainWindow(QMainWindow):
         local = escape(format_timestamp(local_date))
         self.lbl_update_dates.setText(
             f"<font color='#F4F4F5'>New update: {latest}</font>"
-            " <font color='#525866'>│</font> "
+            " <font color='#71717A'>│</font> "
             f"<font color='#F4F4F5'>Installed: {local}</font>"
         )
         self.lbl_update_dates.setVisible(True)
@@ -5210,14 +5205,14 @@ class MainWindow(QMainWindow):
                 steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
                 self.lbl_detail_update.setText("Steam check unavailable")
                 self._render_update_date_detail(0, local_date, False)
-                self.lbl_detail_update.setStyleSheet("background: #3f3f46; color: #d4d4d8; border: 1px solid #71717a; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
+                self.lbl_detail_update.setStyleSheet("background: #2A2A2E; color: #d4d4d8; border: 1px solid #71717a; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
                 self.lbl_detail_versions.setText(
                     "<table width='100%' cellspacing='0' cellpadding='1' style='margin:0; padding:0; border-collapse:collapse;'>"
-                    f"<tr><td align='left'><font color='#A7ADB8'>Display version</font></td><td align='right'><b>{escape(str(self.selected_game[15] or 'Not set'))}</b></td></tr>"
-                    f"<tr><td align='left'><font color='#A7ADB8'>Steam AppID</font></td><td align='right'><b>{escape(steam_app_id)}</b></td></tr>"
-                    f"<tr><td align='left'><font color='#A7ADB8'>Installed build</font></td><td align='right'><b>{escape(str(local_build_id))}</b>{local_build_found_suffix}</td></tr>"
-                    f"<tr><td align='left'><font color='#A7ADB8'>Updated</font></td><td align='right'>{self._format_version_date(local_date)}</td></tr>"
-                    "<tr><td colspan='2' align='right'><font color='#6F7682'>Steam build unavailable</font></td></tr>"
+                    f"<tr><td align='left'><font color='#A1A1AA'>Display version</font></td><td align='right'><b>{escape(str(self.selected_game[15] or 'Not set'))}</b></td></tr>"
+                    f"<tr><td align='left'><font color='#A1A1AA'>Steam AppID</font></td><td align='right'><b>{escape(steam_app_id)}</b></td></tr>"
+                    f"<tr><td align='left'><font color='#A1A1AA'>Installed build</font></td><td align='right'><b>{escape(str(local_build_id))}</b>{local_build_found_suffix}</td></tr>"
+                    f"<tr><td align='left'><font color='#A1A1AA'>Updated</font></td><td align='right'>{self._format_version_date(local_date)}</td></tr>"
+                    "<tr><td colspan='2' align='right'><font color='#71717A'>Steam build unavailable</font></td></tr>"
                     "</table>"
                 )
                 self.detail_update_widget.setVisible(True)
@@ -5252,19 +5247,19 @@ class MainWindow(QMainWindow):
                     else "No newer game version was found."
                 )
             self.lbl_detail_update.setStyleSheet(
-                f"background: {status_color[0]}; color: {('#8493A7' if source == 'cached' else status_color[1])}; border: 1px solid {status_color[2]}; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 600;"
+                f"background: {status_color[0]}; color: {('#71717A' if source == 'cached' else status_color[1])}; border: 1px solid {status_color[2]}; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 600;"
             )
             self._render_update_date_detail(latest_build_date, local_date, is_update_available)
             self.lbl_detail_versions.setText(
                 "<table width='100%' cellspacing='0' cellpadding='1' style='margin:0; padding:0; border-collapse:collapse;'>"
-                "<tr><td></td><td align='center'><font color='#6F7682'>LOCAL</font></td>"
-                "<td align='center'><font color='#6F7682'>STEAM</font></td></tr>"
-                f"<tr><td><font color='#A7ADB8'>Display version</font></td><td align='center'><b>{escape(str(version_override))}</b></td>"
-                f"<td align='center'><font color='#6F7682'>—</font></td></tr>"
-                f"<tr><td><font color='#A7ADB8'>Steam AppID</font></td><td colspan='2' align='center'><b>{escape(steam_app_id)}</b></td></tr>"
-                f"<tr><td><font color='#A7ADB8'>Build</font></td><td align='center'><b>{escape(str(local_build_id))}</b>{local_build_found_suffix}</td>"
+                "<tr><td></td><td align='center'><font color='#71717A'>LOCAL</font></td>"
+                "<td align='center'><font color='#71717A'>STEAM</font></td></tr>"
+                f"<tr><td><font color='#A1A1AA'>Display version</font></td><td align='center'><b>{escape(str(version_override))}</b></td>"
+                f"<td align='center'><font color='#71717A'>—</font></td></tr>"
+                f"<tr><td><font color='#A1A1AA'>Steam AppID</font></td><td colspan='2' align='center'><b>{escape(steam_app_id)}</b></td></tr>"
+                f"<tr><td><font color='#A1A1AA'>Build</font></td><td align='center'><b>{escape(str(local_build_id))}</b>{local_build_found_suffix}</td>"
                 f"<td align='center'><b>{escape(str(latest_build_id))}</b></td></tr>"
-                f"<tr><td><font color='#A7ADB8'>Updated</font></td><td align='center'>{self._format_version_date(local_date)}</td>"
+                f"<tr><td><font color='#A1A1AA'>Updated</font></td><td align='center'>{self._format_version_date(local_date)}</td>"
                 f"<td align='center'>{self._format_version_date(latest_build_date)}</td></tr>"
                 f"<tr><td colspan='3' align='center'>{patch_link.replace('<br>', '', 1) if patch_link else ''}</td></tr>"
                 "</table>"
@@ -5400,9 +5395,9 @@ class MainWindow(QMainWindow):
             error="offline",
         )
         if self.selected_game and self.selected_game[0] == game_id:
-            self.lbl_detail_update.setText("<font color='#6F7682'>Offline — update check not performed</font>")
+            self.lbl_detail_update.setText("<font color='#71717A'>Offline — update check not performed</font>")
             self._render_update_date_detail(0, 0, False)
-            self.lbl_detail_update.setStyleSheet("background: #1A1E26; color: #A7ADB8; border: 1px solid #252A33; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 500;")
+            self.lbl_detail_update.setStyleSheet("background: #202024; color: #A1A1AA; border: 1px solid #2A2A2E; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 500;")
             steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
             version_override = self.selected_game[15] if len(self.selected_game) > 15 and self.selected_game[15] else "Not set"
             self.lbl_detail_versions.setText(
@@ -5580,7 +5575,7 @@ class MainWindow(QMainWindow):
             badge.setStyleSheet("""
                 QLabel {
                     background: rgba(255, 255, 255, 0.05);
-                    color: #98989D;
+                    color: #A1A1AA;
                     border: none;
                     border-radius: 5px;
                     padding: 3px 8px;
@@ -5693,7 +5688,7 @@ class MainWindow(QMainWindow):
     def _set_detail_cloud_checking(self) -> None:
         """Show a clear in-flight state while the selected save is probed."""
         self.detail_cloud_status.setText(
-            "<font color='#6F7682'><b>Cloud Save: Checking…</b></font>"
+            "<font color='#71717A'><b>Cloud Save: Checking…</b></font>"
         )
         self.detail_cloud_status.setToolTip("Checking the configured cloud backend and save status…")
         if hasattr(self, "detail_cloud_metadata"):
@@ -6494,7 +6489,7 @@ class MainWindow(QMainWindow):
         self.local_version_by_game_id[game_id] = (local_build_id, local_build_date)
         self.lbl_detail_update.setText("Checking Steam…" if network_allowed else "Offline mode")
         self._render_update_date_detail(0, 0, False)
-        self.lbl_detail_update.setStyleSheet("background: #1f2937; color: #d1d5db; border: 1px solid #4b5563; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
+        self.lbl_detail_update.setStyleSheet("background: #202024; color: #F4F4F5; border: 1px solid #2A2A2E; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
         self.lbl_detail_versions.setText(
             "Checking current and Steam versions…"
             if network_allowed else "Offline mode — cached data only"
@@ -6666,7 +6661,7 @@ class MainWindow(QMainWindow):
             and game_id not in self.running_game_ids
         ):
             self.btn_detail_launch.setText("Syncing Cloud Save…")
-            self.btn_detail_launch.setIcon(get_icon("ph.arrows-clockwise-bold", color="#6F7682"))
+            self.btn_detail_launch.setIcon(get_icon("ph.arrows-clockwise-bold", color="#71717A"))
             self.btn_detail_launch.setIconSize(QSize(15, 15))
             self.btn_detail_launch.setEnabled(False)
             self.btn_detail_launch.setToolTip(
@@ -6695,13 +6690,13 @@ class MainWindow(QMainWindow):
                     text-align: center;
                 }
                 QPushButton#detailLaunch:hover {
-                    background-color: #F87171;
-                    border-color: #F87171;
+                    background-color: #F05D6C;
+                    border-color: #F05D6C;
                 }
                 QPushButton#detailLaunch:disabled {
-                    background-color: #1A1E26;
-                    color: #6F7682;
-                    border-color: #252A33;
+                    background-color: #202024;
+                    color: #71717A;
+                    border-color: #2A2A2E;
                 }
             """)
         else:
@@ -6728,9 +6723,9 @@ class MainWindow(QMainWindow):
                     background-color: #2789D0;
                 }
                 QPushButton#detailLaunch:disabled {
-                    background-color: #1A1E26;
-                    color: #6F7682;
-                    border-color: #252A33;
+                    background-color: #202024;
+                    color: #71717A;
+                    border-color: #2A2A2E;
                 }
             """)
 
@@ -7256,13 +7251,13 @@ class MainWindow(QMainWindow):
                         b_lbl.setAccessibleName(ach.get("display_name") or ach.get("api_name") or "Achievement badge")
                         b_lbl.setAccessibleDescription(ach.get("description") or "Unlocked achievement")
                         source = "Steam verified" if ach.get("verified") else "Local source · unverified"
-                        source_color = "#30D158" if ach.get("verified") else "#FF9F0A"
-                        b_lbl.setToolTip(f"<div style='background: #1C1C1E; color: #FFF; padding: 3px;'><b>{d_name}</b><br/><span style='color: #A1A1A6; font-size: 11px;'>{d_desc}</span><br/><span style='color: {source_color}; font-size: 10px;'>{source}</span></div>")
+                        source_color = "#35C98A" if ach.get("verified") else "#E5A93D"
+                        b_lbl.setToolTip(f"<div style='background: #1C1C1E; color: #FFF; padding: 3px;'><b>{d_name}</b><br/><span style='color: #A1A1AA; font-size: 11px;'>{d_desc}</span><br/><span style='color: {source_color}; font-size: 10px;'>{source}</span></div>")
                         self.detail_ach_badges_layout.addWidget(b_lbl)
                     self.detail_ach_badges_layout.addStretch()
                 else:
                     lbl_no_yet = QLabel("No badges unlocked yet")
-                    lbl_no_yet.setStyleSheet("color: #636366; font-size: 10px; background: transparent;")
+                    lbl_no_yet.setStyleSheet("color: #71717A; font-size: 10px; background: transparent;")
                     self.detail_ach_badges_layout.addWidget(lbl_no_yet)
                     self.detail_ach_badges_layout.addStretch()
             else:
@@ -7283,7 +7278,7 @@ class MainWindow(QMainWindow):
                     unavailable.setMinimumWidth(0)
                     unavailable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
                     unavailable.setToolTip(unavailable.text())
-                    unavailable.setStyleSheet("color: #FF9F0A; font-size: 10px; background: transparent;")
+                    unavailable.setStyleSheet("color: #E5A93D; font-size: 10px; background: transparent;")
                     self.detail_ach_badges_layout.addWidget(unavailable)
                     self.detail_ach_badges_layout.addStretch()
                 elif resolution is not None and availability == "available":

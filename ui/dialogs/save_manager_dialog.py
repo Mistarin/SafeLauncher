@@ -130,11 +130,11 @@ class SaveManagerDialog(PopupDialog):
 
         info_title = QLabel(f"<b>{game_name}</b>")
         info_title.setFont(QFont("Arial", 12))
-        info_title.setStyleSheet("color: #F5F7FA;")
+        info_title.setStyleSheet("color: #F4F4F5;")
         h_layout.addWidget(info_title)
 
         source_note = "Ludusavi CLI Engine" if LudusaviDetector.is_cli_available() else "Heuristic Wine/UMU Prefix Detector"
-        self.lbl_status = QLabel(f"<font color='#6F7682'>Discovery Engine:</font> <font color='#3B9FE8'>{source_note}</font>")
+        self.lbl_status = QLabel(f"<font color='#71717A'>Discovery Engine:</font> <font color='#3B9FE8'>{source_note}</font>")
         self.lbl_status.setStyleSheet("font-size: 11px;")
         set_accessible_status(
             self.lbl_status,
@@ -206,7 +206,7 @@ class SaveManagerDialog(PopupDialog):
             }
             QTabBar::tab {
                 background: #18181B;
-                color: #A7ADB8;
+                color: #A1A1AA;
                 border: none;
                 border-bottom: 2px solid transparent;
                 border-top-left-radius: 6px;
@@ -217,8 +217,8 @@ class SaveManagerDialog(PopupDialog):
                 font-weight: 500;
             }
             QTabBar::tab:selected {
-                background: #1E293B;
-                color: #F5F7FA;
+                background: #202024;
+                color: #F4F4F5;
                 border-bottom-color: #3B9FE8;
             }
         """)
@@ -232,7 +232,7 @@ class SaveManagerDialog(PopupDialog):
         list_header = QHBoxLayout()
         list_lbl = QLabel("Detected Save Locations")
         list_lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        list_lbl.setStyleSheet("color: #F5F7FA;")
+        list_lbl.setStyleSheet("color: #F4F4F5;")
         list_header.addWidget(list_lbl)
         list_header.addStretch()
 
@@ -247,20 +247,20 @@ class SaveManagerDialog(PopupDialog):
         list_header.addWidget(details_toggle)
 
         btn_rescan = QPushButton("Rescan")
-        btn_rescan.setIcon(get_icon("ph.arrows-clockwise-bold", color="#A7ADB8"))
+        btn_rescan.setIcon(get_icon("ph.arrows-clockwise-bold", color="#A1A1AA"))
         btn_rescan.setIconSize(QSize(12, 12))
         btn_rescan.setFixedHeight(24)
         btn_rescan.setStyleSheet("""
             QPushButton {
-                background: #1A1E26;
-                color: #A7ADB8;
-                border: 1px solid #252A33;
+                background: #202024;
+                color: #A1A1AA;
+                border: 1px solid #2A2A2E;
                 border-radius: 4px;
                 padding: 0 8px;
                 font-size: 11px;
             }
             QPushButton:hover {
-                color: #F5F7FA;
+                color: #F4F4F5;
                 border-color: #3B9FE8;
             }
         """)
@@ -297,16 +297,16 @@ class SaveManagerDialog(PopupDialog):
         btn_import.setFixedHeight(36)
         btn_import.setStyleSheet("""
             QPushButton {
-                background: #1A1E26;
-                color: #F5F7FA;
-                border: 1px solid #252A33;
+                background: #202024;
+                color: #F4F4F5;
+                border: 1px solid #2A2A2E;
                 border-radius: 6px;
                 padding: 0 16px;
                 font-weight: 500;
                 font-size: 12px;
             }
             QPushButton:hover {
-                background: #252A33;
+                background: #2A2A2E;
                 border-color: #3B9FE8;
             }
         """)
@@ -331,7 +331,7 @@ class SaveManagerDialog(PopupDialog):
             }
             QPushButton:disabled {
                 background: #21262d;
-                color: #6F7682;
+                color: #71717A;
                 border-color: #30363d;
             }
         """)
@@ -353,25 +353,25 @@ class SaveManagerDialog(PopupDialog):
         history_header = QHBoxLayout()
         lbl_hist = QLabel("Cloud save versions by device & local backups")
         lbl_hist.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        lbl_hist.setStyleSheet("color: #F5F7FA;")
+        lbl_hist.setStyleSheet("color: #F4F4F5;")
         history_header.addWidget(lbl_hist)
         history_header.addStretch()
 
         btn_refresh_hist = QPushButton("Refresh")
-        btn_refresh_hist.setIcon(get_icon("ph.arrows-clockwise-bold", color="#A7ADB8"))
+        btn_refresh_hist.setIcon(get_icon("ph.arrows-clockwise-bold", color="#A1A1AA"))
         btn_refresh_hist.setIconSize(QSize(12, 12))
         btn_refresh_hist.setFixedHeight(24)
         btn_refresh_hist.setStyleSheet("""
             QPushButton {
-                background: #1A1E26;
-                color: #A7ADB8;
-                border: 1px solid #252A33;
+                background: #202024;
+                color: #A1A1AA;
+                border: 1px solid #2A2A2E;
                 border-radius: 4px;
                 padding: 0 8px;
                 font-size: 11px;
             }
             QPushButton:hover {
-                color: #F5F7FA;
+                color: #F4F4F5;
                 border-color: #3B9FE8;
             }
         """)
@@ -410,18 +410,18 @@ class SaveManagerDialog(PopupDialog):
             QPushButton {
                 background: #3B9FE8;
                 color: #FFFFFF;
-                border: 1px solid #2563EB;
+                border: 1px solid #3B9FE8;
                 border-radius: 6px;
                 padding: 0 18px;
                 font-weight: bold;
                 font-size: 12px;
             }
             QPushButton:hover {
-                background: #2563EB;
+                background: #3B9FE8;
             }
             QPushButton:disabled {
                 background: #21262d;
-                color: #6F7682;
+                color: #71717A;
                 border-color: #30363d;
             }
         """)
@@ -713,7 +713,7 @@ class SaveManagerDialog(PopupDialog):
         if not self.save_locations:
             empty_lbl = QLabel("No save files found yet for this title.\nThey will appear once the game is launched and creates its initial save.")
             empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_lbl.setStyleSheet("color: #6F7682; padding: 40px; font-size: 12px;")
+            empty_lbl.setStyleSheet("color: #71717A; padding: 40px; font-size: 12px;")
             self.scroll_layout.insertWidget(0, empty_lbl)
             self.btn_export.setEnabled(False)
             self.btn_export.setText("Choose saves to export")
@@ -730,13 +730,13 @@ class SaveManagerDialog(PopupDialog):
             card = QFrame()
             card.setStyleSheet("""
                 QFrame {
-                    background: #1B1B1F;
+                    background: #18181B;
                     border: none;
                     border-radius: 8px;
                     padding: 8px;
                 }
                 QFrame:hover {
-                    background: #222228;
+                    background: #202024;
                 }
             """)
             c_layout = QHBoxLayout(card)
@@ -761,7 +761,7 @@ class SaveManagerDialog(PopupDialog):
 
             name_row = QHBoxLayout()
             lbl_name = QLabel(f"<b>{loc.display_name}</b>")
-            lbl_name.setStyleSheet("color: #F5F7FA; font-size: 12px;")
+            lbl_name.setStyleSheet("color: #F4F4F5; font-size: 12px;")
             name_row.addWidget(lbl_name)
 
             size_str = format_bytes(loc.total_size_bytes)
@@ -791,7 +791,7 @@ class SaveManagerDialog(PopupDialog):
 
             # Path & Date
             date_str = format_datetime_timestamp(loc.last_modified, "%H:%M", fallback="Unknown")
-            lbl_path = QLabel(f"<font color='#6F7682'>{loc.path}</font> <font color='#555'>· Modified: {date_str}</font>")
+            lbl_path = QLabel(f"<font color='#71717A'>{loc.path}</font> <font color='#555'>· Modified: {date_str}</font>")
             lbl_path.setStyleSheet("font-size: 10px;")
             lbl_path.setWordWrap(True)
             lbl_path.setVisible(self._show_file_details)

@@ -16,7 +16,7 @@ from core.artwork_resource_service import ArtworkResourceService
 from core.archive_extractor import executable_sort_key
 from core.launch_diagnostics import persist_diagnostics
 from core.date_formatting import qt_date_format
-from ui.icons import get_app_icon, get_icon, LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap
+from ui.icons import get_app_icon, get_icon, get_app_icon_pixmap, get_icon_pixmap, icon_pixmap, LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap
 from ui.threads import BannerFetcher, BannerDownloader, ArchiveExtractorThread, SafeLaunchLogReader
 from ui.components.sidebar import DialogTitleBar, add_soft_shadow
 from ui.components.popup_shell import PopupDialog
@@ -143,7 +143,7 @@ class AddGameDialog(PopupDialog):
         # Main Body Widget (2-Column Grid Layout)
         body_widget = QWidget()
         body_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        body_widget.setStyleSheet("background: #0D0F14;")
+        body_widget.setStyleSheet("background: #121214;")
         body_layout = QHBoxLayout(body_widget)
         body_layout.setContentsMargins(20, 18, 20, 18)
         body_layout.setSpacing(16)
@@ -370,18 +370,18 @@ class AddGameDialog(PopupDialog):
         bottom_shell_layout.addWidget(bottom_frame)
         root_layout.addWidget(bottom_shell)
         self.setStyleSheet("""
-            QDialog { background: #0D0F14; border: none; border-radius: 8px; }
+            QDialog { background: #121214; border: none; border-radius: 8px; }
             QLabel { color: #F4F4F5; font-size: 12px; }
-            QLineEdit { background: #161A22; color: #F4F4F5; border: none; padding: 6px 10px; border-radius: 6px; }
-            QLineEdit:focus { border: none; background: #1A1F28; }
-            QPushButton { background: #161A22; color: #F4F4F5; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 600; }
-            QPushButton:hover { background: #202633; }
-            QComboBox { background: #161A22; color: #F4F4F5; border: none; padding: 6px 10px; border-radius: 6px; }
+            QLineEdit { background: #18181B; color: #F4F4F5; border: none; padding: 6px 10px; border-radius: 6px; }
+            QLineEdit:focus { border: none; background: #202024; }
+            QPushButton { background: #18181B; color: #F4F4F5; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 600; }
+            QPushButton:hover { background: #202024; }
+            QComboBox { background: #18181B; color: #F4F4F5; border: none; padding: 6px 10px; border-radius: 6px; }
             QComboBox::drop-down { border: none; }
             QListWidget { background: #18181B; color: #F4F4F5; border: none; border-radius: 8px; }
             QListWidget::item { padding: 6px; }
-            QListWidget::item:selected { background: #202633; color: #55ACED; }
-            QListWidget::item:hover { background: #1A1F28; }
+            QListWidget::item:selected { background: #202024; color: #55ACED; }
+            QListWidget::item:hover { background: #202024; }
         """)
 
     def closeEvent(self, event):
@@ -615,7 +615,7 @@ class AddGameDialog(PopupDialog):
                 font-size: 12px;
             }
             QMenu::item:selected {
-                background-color: #1e293b;
+                background-color: #202024;
                 color: #64b5f6;
             }
         """)
@@ -721,11 +721,11 @@ class AddGameDialog(PopupDialog):
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(0, 0, target_size.width(), target_size.height(), 10, 10)
         else:
-            p.setBrush(QColor("#141822"))
+            p.setBrush(QColor("#18181B"))
             p.setPen(QColor(255, 255, 255, 20))
             p.drawRoundedRect(0, 0, target_size.width(), target_size.height(), 10, 10)
             
-            ico = get_icon("ph.image-bold", color="#4A5568").pixmap(48, 48)
+            ico = get_icon_pixmap("ph.image-bold", 48, color="#4A5568")
             p.drawPixmap((target_size.width() - 48) // 2, (target_size.height() // 2) - 36, ico)
             
             p.setPen(QColor("#71717A"))
@@ -810,12 +810,12 @@ class AddGameDialog(PopupDialog):
     def _set_form_error(self, message: str, widget: QWidget | None = None) -> None:
         """Keep invalid forms open and explain the correction inline."""
         self.status_label.setStyleSheet(
-            "color: #F87171; background: transparent; border: none; "
+            "color: #F05D6C; background: transparent; border: none; "
             "font-weight: bold; font-size: 11px; padding: 0px;"
         )
         self.status_label.setText(message)
         if widget is not None:
-            widget.setStyleSheet("border: 1px solid #EF4444;")
+            widget.setStyleSheet("border: 1px solid #F05D6C;")
             widget.setFocus()
 
     def _validate_form(self) -> bool:
@@ -1127,7 +1127,7 @@ class LaunchOptionsDialog(PopupDialog):
                 font-size: 13px;
             }
             QPushButton:hover {
-                background: #1e293b;
+                background: #202024;
                 border-color: #737780;
                 color: #ffffff;
             }
@@ -1188,7 +1188,7 @@ class SafeLaunchDialog(PopupDialog):
 
         self.setStyleSheet("""
             QDialog {
-                background-color: #121215;
+                background-color: #121214;
                 border: 2px solid #27272a;
                 border-radius: 16px;
             }
@@ -2014,7 +2014,7 @@ class MissingDependencyDialog(PopupDialog):
         header_layout.setSpacing(12)
 
         icon_label = QLabel()
-        icon_pix = QIcon.fromTheme("dialog-warning").pixmap(36, 36)
+        icon_pix = icon_pixmap(QIcon.fromTheme("dialog-warning"), 36)
         if not icon_pix.isNull():
             icon_label.setPixmap(icon_pix)
         header_layout.addWidget(icon_label)
@@ -2059,13 +2059,13 @@ class MissingDependencyDialog(PopupDialog):
             QPushButton {
                 background-color: #27272a;
                 color: #ffffff;
-                border: 1px solid #3f3f46;
+                border: 1px solid #2A2A2E;
                 border-radius: 6px;
                 padding: 8px 14px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #3f3f46;
+                background-color: #2A2A2E;
             }
         """)
         copy_btn.clicked.connect(self._copy_command)
@@ -2092,7 +2092,7 @@ class MissingDependencyDialog(PopupDialog):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #3f3f46;
+                background-color: #2A2A2E;
                 color: #ffffff;
             }
         """)
@@ -2156,7 +2156,7 @@ class ToastNotification(QFrame):
         
         icon_name = "library" if is_error else "shield"
         icon_label = QLabel()
-        icon_label.setPixmap(get_app_icon(icon_name).pixmap(16, 16))
+        icon_label.setPixmap(get_app_icon_pixmap(icon_name, 16))
         layout.addWidget(icon_label)
         
         text_label = QLabel(message)
@@ -2188,12 +2188,12 @@ class CustomRemoveDialog(PopupDialog):
         self.setFixedWidth(460)
         self.setStyleSheet("""
             QDialog {
-                background-color: #14171D;
-                border: 1px solid #252A33;
+                background-color: #18181B;
+                border: 1px solid #2A2A2E;
                 border-radius: 8px;
             }
             QLabel {
-                color: #F5F7FA;
+                color: #F4F4F5;
             }
             QPushButton {
                 padding: 10px 16px;
@@ -2214,7 +2214,7 @@ class CustomRemoveDialog(PopupDialog):
 
         msg_label = QLabel(f"Choose what to do with '<b>{game_name}</b>':")
         msg_label.setWordWrap(True)
-        msg_label.setStyleSheet("color: #A7ADB8; font-size: 13px;")
+        msg_label.setStyleSheet("color: #A1A1AA; font-size: 13px;")
         layout.addWidget(msg_label)
 
         btn_box = QVBoxLayout()
@@ -2229,9 +2229,9 @@ class CustomRemoveDialog(PopupDialog):
         )
         btn_uninstall.setStyleSheet("""
             QPushButton {
-                background-color: #1A1E26;
+                background-color: #202024;
                 color: #E5A93D;
-                border: 1px solid #252A33;
+                border: 1px solid #2A2A2E;
             }
             QPushButton:hover {
                 background-color: rgba(229, 169, 61, 0.15);
@@ -2266,14 +2266,14 @@ class CustomRemoveDialog(PopupDialog):
         btn_cancel = QPushButton("Cancel")
         btn_cancel.setStyleSheet("""
             QPushButton {
-                background-color: #1A1E26;
-                color: #A7ADB8;
-                border: 1px solid #252A33;
+                background-color: #202024;
+                color: #A1A1AA;
+                border: 1px solid #2A2A2E;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #252A33;
-                color: #F5F7FA;
+                background-color: #2A2A2E;
+                color: #F4F4F5;
             }
         """)
         btn_cancel.clicked.connect(self.reject)
@@ -2353,7 +2353,7 @@ class ManageCollectionGamesDialog(PopupDialog):
             }
             QCheckBox::indicator:checked {
                 background: #0284c7;
-                border-color: #38bdf8;
+                border-color: #3B9FE8;
             }
             QPushButton {
                 background: #27272a;
@@ -2363,7 +2363,7 @@ class ManageCollectionGamesDialog(PopupDialog):
                 font-weight: bold;
                 font-size: 12px;
             }
-            QPushButton:hover { background: #3f3f46; }
+            QPushButton:hover { background: #2A2A2E; }
         """)
 
         layout = self.popup_layout(margins=(20, 18, 20, 18), spacing=12)
@@ -2372,7 +2372,7 @@ class ManageCollectionGamesDialog(PopupDialog):
 
         header = QLabel(f"Manage Collection: {collection_name}")
         header.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        header.setStyleSheet("color: #38bdf8;")
+        header.setStyleSheet("color: #3B9FE8;")
         layout.addWidget(header)
 
         sub = QLabel("Select which games should belong to this collection:")
@@ -2501,7 +2501,7 @@ class CreateCollectionDialog(PopupDialog):
                 font-size: 12px;
                 text-align: center;
             }
-            QPushButton:hover { background: #334155; color: #ffffff; }
+            QPushButton:hover { background: #2A2A2E; color: #ffffff; }
         """)
         btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(btn_cancel)

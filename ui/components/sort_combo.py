@@ -31,7 +31,7 @@ class SortComboBox(QComboBox):
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             pen = QPen(
-                QColor("#8E8E93"),
+                QColor("#A1A1AA"),
                 1.35,
                 Qt.PenStyle.SolidLine,
                 Qt.PenCapStyle.RoundCap,

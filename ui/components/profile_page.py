@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
     QPlainTextEdit,
     QProgressBar, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
-    QInputDialog,
 )
 
 from core.profile_models import (
@@ -53,8 +52,9 @@ from ui.resource_binding import (
 )
 from ui.icons import get_icon
 from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
+from ui.dialogs.profile_username_dialog import ProfileUsernameDialog
 from ui.theme import (
-    ACCENT_PRIMARY, BORDER, SEMANTIC_ERROR, SEMANTIC_SUCCESS,
+    ACCENT_PRIMARY, ACCENT_HOVER, ACCENT_PRESSED, BORDER, SEMANTIC_ERROR, SEMANTIC_SUCCESS,
     SURFACE, SURFACE_ELEVATED, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 )
 from ui.profile_theme import get_profile_theme, normalize_profile_theme, profile_theme_choices, theme_rgba
@@ -447,6 +447,21 @@ class ProfilePageWidget(QWidget):
             QFrame#profileSection {{ background: {SURFACE}; border: none; }}
             QPushButton#profileBannerEdit {{ background: transparent; border: none; border-radius: 6px; }}
             QPushButton#profileBannerEdit:hover {{ background: rgba(255, 255, 255, 0.10); }}
+            QPushButton#profileSecondary {{
+                background: {SURFACE_ELEVATED}; color: {TEXT_PRIMARY}; border: none;
+                border-radius: 6px; padding: 0 12px; min-height: 32px; max-height: 32px;
+                font-size: 12px; font-weight: 600;
+            }}
+            QPushButton#profileSecondary:hover {{ background: {BORDER}; }}
+            QPushButton#profileSecondary:pressed {{ background: {ACCENT_PRIMARY}; }}
+            QPushButton#profileSecondary:disabled {{ background: {SURFACE}; color: {TEXT_MUTED}; }}
+            QPushButton#profilePrimary {{
+                background: {ACCENT_PRIMARY}; color: #FFFFFF; border: none;
+                border-radius: 6px; padding: 0 14px; min-height: 32px; max-height: 32px;
+                font-size: 12px; font-weight: 600;
+            }}
+            QPushButton#profilePrimary:hover {{ background: {ACCENT_HOVER}; }}
+            QPushButton#profilePrimary:pressed {{ background: {ACCENT_PRESSED}; }}
             QFrame#profileGameCard {{ background: {SURFACE_ELEVATED}; border: none; border-radius: 8px; }}
             QFrame#profileGameCard:hover {{ background: #252A34; }}
             QFrame#profileSeeMoreCard {{ background: {SURFACE}; border: 1px dashed {BORDER}; border-radius: 8px; }}
@@ -457,6 +472,7 @@ class ProfilePageWidget(QWidget):
             QLabel#profileHandle {{ color: {TEXT_SECONDARY}; font-size: 12px; }}
             QLabel#profileBio {{ color: {TEXT_PRIMARY}; font-size: 13px; }}
             QLabel#profileMuted {{ color: {TEXT_SECONDARY}; font-size: 12px; }}
+            QLabel#profileEditorLabel {{ color: {TEXT_SECONDARY}; font-size: 12px; font-weight: 600; }}
             QLabel#profileStatValue {{ color: {TEXT_PRIMARY}; font-size: 20px; font-weight: 700; }}
             QLabel#profileStatCaption {{ color: {TEXT_MUTED}; font-size: 11px; }}
             QListWidget#profileList {{ background: {SURFACE}; color: {TEXT_PRIMARY}; border: none; outline: none; }}
@@ -575,21 +591,41 @@ class ProfilePageWidget(QWidget):
         self.editor.setObjectName("profileSection")
         editor_layout = QVBoxLayout(self.editor)
         editor_layout.setContentsMargins(18, 16, 18, 16)
-        editor_layout.setSpacing(10)
+        editor_layout.setSpacing(12)
+
+        def editor_label(text: str, *, top: bool = False) -> QLabel:
+            label = QLabel(text)
+            label.setObjectName("profileEditorLabel")
+            label.setFixedWidth(112)
+            label.setAlignment(
+                Qt.AlignmentFlag.AlignRight
+                | (Qt.AlignmentFlag.AlignTop if top else Qt.AlignmentFlag.AlignVCenter)
+            )
+            return label
+
+        def style_editor_button(button: QPushButton, object_name: str, width: int) -> None:
+            button.setObjectName(object_name)
+            button.setFixedSize(width, 32)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+
         editor_title = QLabel("Edit profile")
         editor_title.setStyleSheet(f"color:{TEXT_PRIMARY}; font-size:14px; font-weight:700;")
         editor_layout.addWidget(editor_title)
         name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Display name"))
+        name_row.setSpacing(12)
+        name_row.addWidget(editor_label("Display name"))
         self.name_edit = QLineEdit()
         self.name_edit.setObjectName("profileEditorInput")
+        self.name_edit.setFixedHeight(32)
         self.name_edit.setMaxLength(64)
         name_row.addWidget(self.name_edit, 1)
         editor_layout.addLayout(name_row)
         handle_row = QHBoxLayout()
-        handle_row.addWidget(QLabel("Username"))
+        handle_row.setSpacing(12)
+        handle_row.addWidget(editor_label("Username"))
         self.handle_edit = QLineEdit()
         self.handle_edit.setObjectName("profileEditorInput")
+        self.handle_edit.setFixedHeight(32)
         self.handle_edit.setMaxLength(40)
         self.handle_edit.setPlaceholderText("username")
         self.handle_edit.textChanged.connect(self._schedule_handle_availability)
@@ -600,7 +636,8 @@ class ProfilePageWidget(QWidget):
         self.handle_hint.setWordWrap(True)
         editor_layout.addWidget(self.handle_hint)
         bio_row = QHBoxLayout()
-        bio_row.addWidget(QLabel("Bio"), 0, Qt.AlignmentFlag.AlignTop)
+        bio_row.setSpacing(12)
+        bio_row.addWidget(editor_label("Bio", top=True), 0, Qt.AlignmentFlag.AlignTop)
         bio_column = QVBoxLayout()
         self.bio_edit = QPlainTextEdit()
         self.bio_edit.setObjectName("profileEditorInput")
@@ -616,11 +653,14 @@ class ProfilePageWidget(QWidget):
         bio_row.addLayout(bio_column, 1)
         editor_layout.addLayout(bio_row)
         avatar_row = QHBoxLayout()
-        avatar_row.addWidget(QLabel("Avatar"))
+        avatar_row.setSpacing(8)
+        avatar_row.addWidget(editor_label("Avatar"))
         self.btn_avatar = QPushButton("Choose profile picture")
+        style_editor_button(self.btn_avatar, "profileSecondary", 174)
         self.btn_avatar.clicked.connect(self._choose_avatar)
         avatar_row.addWidget(self.btn_avatar)
         self.btn_remove_avatar = QPushButton("Use initials")
+        style_editor_button(self.btn_remove_avatar, "profileSecondary", 112)
         self.btn_remove_avatar.clicked.connect(self._remove_avatar)
         avatar_row.addWidget(self.btn_remove_avatar)
         self.avatar_selection_label = QLabel("Cloud catalog")
@@ -629,9 +669,11 @@ class ProfilePageWidget(QWidget):
         avatar_row.addStretch()
         editor_layout.addLayout(avatar_row)
         background_row = QHBoxLayout()
-        background_row.addWidget(QLabel("Background"))
+        background_row.setSpacing(8)
+        background_row.addWidget(editor_label("Background"))
         self.background_combo = QComboBox()
         self.background_combo.setObjectName("profileEditorInput")
+        self.background_combo.setFixedHeight(32)
         self.background_combo.addItem("Midnight", "midnight")
         self.background_combo.addItem("Ember", "ember")
         self.background_combo.addItem("Forest", "forest")
@@ -642,14 +684,17 @@ class ProfilePageWidget(QWidget):
         self.background_combo.currentIndexChanged.connect(self._on_background_mode_changed)
         background_row.addWidget(self.background_combo, 1)
         self.btn_custom_color = QPushButton("Color")
+        style_editor_button(self.btn_custom_color, "profileSecondary", 78)
         self.btn_custom_color.clicked.connect(self._choose_color)
         background_row.addWidget(self.btn_custom_color)
         editor_layout.addLayout(background_row)
 
         panel_theme_row = QHBoxLayout()
-        panel_theme_row.addWidget(QLabel("Panel visuals"))
+        panel_theme_row.setSpacing(8)
+        panel_theme_row.addWidget(editor_label("Panel visuals"))
         self.panel_theme_combo = QComboBox()
         self.panel_theme_combo.setObjectName("profileEditorInput")
+        self.panel_theme_combo.setFixedHeight(32)
         for label, key in profile_theme_choices():
             self.panel_theme_combo.addItem(label, key)
         self.panel_theme_combo.currentIndexChanged.connect(self._on_panel_theme_changed)
@@ -663,9 +708,11 @@ class ProfilePageWidget(QWidget):
         self.background_hero_controls = QWidget()
         hero_background_row = QHBoxLayout(self.background_hero_controls)
         hero_background_row.setContentsMargins(0, 0, 0, 0)
-        hero_background_row.addWidget(QLabel("Hero AppID"))
+        hero_background_row.setSpacing(8)
+        hero_background_row.addWidget(editor_label("Hero AppID"))
         self.background_app_id_edit = QLineEdit()
         self.background_app_id_edit.setObjectName("profileEditorInput")
+        self.background_app_id_edit.setFixedHeight(32)
         self.background_app_id_edit.setMaxLength(16)
         self.background_app_id_edit.setPlaceholderText("e.g. 1321440")
         self.background_app_id_edit.setToolTip("Enter a Steam AppID to use its hero artwork as your profile background.")
@@ -673,21 +720,39 @@ class ProfilePageWidget(QWidget):
         self.background_app_id_edit.editingFinished.connect(self._preview_steam_hero_from_app_id)
         hero_background_row.addWidget(self.background_app_id_edit, 1)
         self.btn_use_hero_background = QPushButton("Use hero")
+        style_editor_button(self.btn_use_hero_background, "profileSecondary", 96)
         self.btn_use_hero_background.clicked.connect(self._use_steam_hero_background)
         hero_background_row.addWidget(self.btn_use_hero_background)
         editor_layout.addWidget(self.background_hero_controls)
         self.background_hero_controls.setVisible(False)
-        self.editor_hint = QLabel("Only the information shown on your public profile is shared. Private launcher data stays private.")
+        self.editor_hint = QLabel(
+            "Only the information shown on your public profile is shared. Private launcher data stays private. "
+            "Public publishing is separate from private game-save cloud synchronization."
+        )
         self.editor_hint.setObjectName("profileMuted")
         self.editor_hint.setWordWrap(True)
         editor_layout.addWidget(self.editor_hint)
+        editor_profile_actions = QHBoxLayout()
+        self.btn_editor_publish = QPushButton("Publish profile")
+        style_editor_button(self.btn_editor_publish, "profileSecondary", 158)
+        self.btn_editor_publish.setIcon(get_icon("ph.upload-simple-bold", color=TEXT_PRIMARY))
+        self.btn_editor_publish.setIconSize(QSize(15, 15))
+        self.btn_editor_publish.setToolTip("Publish this profile or remove it from the public service")
+        self.btn_editor_publish.clicked.connect(self._publish_from_editor)
+        editor_profile_actions.addWidget(self.btn_editor_publish)
+        self.editor_profile_status = QLabel()
+        self.editor_profile_status.setObjectName("profileMuted")
+        self.editor_profile_status.setWordWrap(True)
+        editor_profile_actions.addWidget(self.editor_profile_status, 1)
+        editor_layout.addLayout(editor_profile_actions)
         editor_actions = QHBoxLayout()
         editor_actions.addStretch()
         self.btn_cancel_edit = QPushButton("Cancel")
+        style_editor_button(self.btn_cancel_edit, "profileSecondary", 104)
         self.btn_cancel_edit.clicked.connect(self._cancel_edit)
         editor_actions.addWidget(self.btn_cancel_edit)
         self.btn_save_edit = QPushButton("Save changes")
-        self.btn_save_edit.setObjectName("profilePrimary")
+        style_editor_button(self.btn_save_edit, "profilePrimary", 128)
         self.btn_save_edit.clicked.connect(self._save_edit)
         editor_actions.addWidget(self.btn_save_edit)
         editor_layout.addLayout(editor_actions)
@@ -999,6 +1064,8 @@ class ProfilePageWidget(QWidget):
 
     @staticmethod
     def _social_cache_value_is_valid(value: Any) -> bool:
+        if isinstance(value, dict) and "social" in value:
+            value = value.get("social")
         return normalize_social_snapshot(value) is not None
 
     def _local_owner_identity(self) -> tuple[str, str, str]:
@@ -1035,6 +1102,11 @@ class ProfilePageWidget(QWidget):
         )
 
     def _emit_profile_action_state(self) -> None:
+        self._update_editor_publish_control(
+            self._mode == "owner",
+            self.central_auth.signed_in,
+            bool(self._profile_settings.get("published")),
+        )
         self.profile_action_state_changed.emit(*self.profile_action_state())
 
     def _set_profile_action_status(self, message: str, error: bool = False) -> None:
@@ -1055,6 +1127,14 @@ class ProfilePageWidget(QWidget):
         """Publish or unpublish the owner's public profile."""
         self._publish()
 
+    def _publish_from_editor(self) -> None:
+        """Commit editor changes before publishing the public projection."""
+        if self._editing and not bool(self._profile_settings.get("published")):
+            self._save_edit()
+            if self._editing:
+                return
+        self.publish_profile()
+
     def resync_profile(self) -> None:
         """Force a private profile metadata resynchronization."""
         self._resync_private()
@@ -1063,8 +1143,28 @@ class ProfilePageWidget(QWidget):
         signed_in = self.central_auth.signed_in
         published = bool(self._profile_settings.get("published"))
         self.btn_banner_edit.setVisible(enabled and not self._editing)
+        self._update_editor_publish_control(enabled, signed_in, published)
         self._update_social_controls(enabled, published, signed_in)
         self._emit_profile_action_state()
+
+    def _update_editor_publish_control(self, owner_enabled: bool, signed_in: bool, published: bool) -> None:
+        """Keep the editor's public-visibility action in sync with account state."""
+        if not hasattr(self, "btn_editor_publish"):
+            return
+        busy = bool(self._auth_in_flight or self._publishing or self._resyncing_private)
+        self.btn_editor_publish.setVisible(owner_enabled and self._editing)
+        self.btn_editor_publish.setEnabled(owner_enabled and not busy)
+        self.btn_editor_publish.setText("Unpublish profile" if published else "Publish profile")
+        self.btn_editor_publish.setIcon(get_icon(
+            "ph.eye-slash-bold" if published else "ph.upload-simple-bold",
+            color=TEXT_PRIMARY,
+        ))
+        if not signed_in:
+            self.editor_profile_status.setText("Sign in is required before publishing.")
+        elif published:
+            self.editor_profile_status.setText("Public profile is live. Game-save cloud sync is separate.")
+        else:
+            self.editor_profile_status.setText("This profile is private until you publish it.")
 
     def _background_style(self, background: dict[str, Any]) -> str:
         # The shared backdrop is painted once by ProfilePageWidget. Keeping
@@ -1395,7 +1495,7 @@ class ProfilePageWidget(QWidget):
             current = self._editor_background()
             if current.get("kind") != "solid":
                 stops = current.get("stops")
-                color = stops[0] if isinstance(stops, list) and stops else "#20242C"
+                color = stops[0] if isinstance(stops, list) and stops else "#202024"
                 current = {"kind": "solid", "color": color}
             self._preview_editor_background(current)
         elif selected == "steam_hero" and self._editor_background().get("kind") == "steam_hero":
@@ -1536,7 +1636,7 @@ class ProfilePageWidget(QWidget):
                 else "Published · Public" if published
                 else "Unpublished · Private"
             )
-            self.footer_status.setText("Public publishing is separate from private game-save cloud synchronization.")
+            self.footer_status.clear()
             if not self._editing:
                 self._populate_editor()
         else:
@@ -2112,7 +2212,7 @@ class ProfilePageWidget(QWidget):
             self.settings,
             fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
         )
-        if not bool(local_settings.get("published")) or not handle or not self.central_auth.signed_in:
+        if not handle or not self.central_auth.signed_in:
             self._social_snapshot = self._empty_social_snapshot()
             self._social_handle = ""
             self._render_social()
@@ -2127,8 +2227,10 @@ class ProfilePageWidget(QWidget):
         self._update_social_controls(True, True, True)
         self.friends_status.setText("Loading friends…")
         def _fetch_social():
-            return self.profile_resources.get_social(handle, service_url)
-        if self._start_managed_remote(
+            return self.profile_resources.get_owner_social(service_url)
+        # A false local flag may be stale after private-cloud reconciliation;
+        # force the public service to confirm the owner before using cache.
+        managed = self._start_managed_remote(
             self._profile_resource_key("profile-social", handle),
             _fetch_social,
             lambda result, expected_handle=handle: self._social_refresh_done(result, expected_handle),
@@ -2137,7 +2239,8 @@ class ProfilePageWidget(QWidget):
             ),
             cache_policy_name="profile-social",
             cache_validator=self._social_cache_value_is_valid,
-        ) is not None:
+        ) if bool(local_settings.get("published")) else None
+        if managed is not None:
             return
         worker = self._tasks.start(
             "SafeLauncher-RefreshFriends", _fetch_social,
@@ -2152,19 +2255,41 @@ class ProfilePageWidget(QWidget):
         if self._mode != "owner":
             return
         handle, _, _ = self._local_owner_identity()
-        if expected_handle and (handle != expected_handle or self._social_handle != expected_handle):
+        owner_handle = (
+            str(result.get("profile", {}).get("handle", "") or "").strip().lower()
+            if isinstance(result, dict) and isinstance(result.get("profile"), dict)
+            else ""
+        )
+        if expected_handle and not owner_handle and (handle != expected_handle or self._social_handle != expected_handle):
             return
-        self._update_social_controls(True, bool(self._profile_settings.get("published")), self.central_auth.signed_in)
         pending = self._pending_social_success_message
         self._pending_social_success_message = ""
         if isinstance(result, Exception):
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
-            self.friends_status.setText(
-                f"{pending} The list could not be refreshed: {result}"
-                if pending else f"Friends could not be refreshed: {result}"
+            message = (
+                "Your public profile is not available for this account. Publish it again before using Friends."
+                if getattr(result, "code", "") == "profile_required" else
+                f"The list could not be refreshed: {result}"
             )
+            self.friends_status.setText(f"{pending} {message}" if pending else f"Friends could not be refreshed: {message}")
+            self._update_social_controls(True, bool(self._profile_settings.get("published")), self.central_auth.signed_in)
             return
-        snapshot = normalize_social_snapshot(result)
+        owner = result.get("profile") if isinstance(result, dict) else None
+        social = result.get("social") if isinstance(result, dict) and "social" in result else result
+        if isinstance(owner, dict):
+            owner_handle = str(owner.get("handle", "") or "").strip().lower()
+            if owner_handle:
+                local_settings = load_profile_settings(
+                    self.settings,
+                    fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+                )
+                self._profile_settings = save_profile_settings(
+                    self.settings,
+                    {**local_settings, "public_handle": owner_handle, "published": True},
+                    mark_changed=False,
+                )
+                self._social_handle = owner_handle
+        snapshot = normalize_social_snapshot(social)
         if snapshot is None:
             self.friends_status.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.friends_status.setText(
@@ -2173,7 +2298,8 @@ class ProfilePageWidget(QWidget):
             )
             return
         self._social_snapshot = snapshot
-        self._social_handle = handle
+        self._social_handle = owner_handle or handle
+        self._update_social_controls(True, bool(self._profile_settings.get("published")), self.central_auth.signed_in)
         self.friends_status.setStyleSheet("")
         self._render_social()
         if pending:
@@ -2449,7 +2575,7 @@ class ProfilePageWidget(QWidget):
         pixmap = self._avatar_pixmaps.get(avatar_id) if avatar_id else None
         if pixmap is not None and not pixmap.isNull():
             self.avatar.setPixmap(pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
-            self.avatar.setStyleSheet("border-radius:64px; background:#20242C;")
+            self.avatar.setStyleSheet("border-radius:64px; background:#202024;")
             self._cache_avatar_pixmap(avatar_id, pixmap)
             self._emit_owner_avatar(pixmap)
             return
@@ -2914,22 +3040,13 @@ class ProfilePageWidget(QWidget):
             return True
         suggestion = profile_username_suggestion(identity)
         while True:
-            value, accepted = QInputDialog.getText(
-                self,
-                "Choose your profile username",
-                "This username appears in your public profile URL. You can change it later; old links keep working:",
-                text=suggestion,
-            )
-            if not accepted:
+            dialog = ProfileUsernameDialog(suggestion, self)
+            if dialog.exec() != dialog.DialogCode.Accepted:
                 return False
-            handle = normalize_username_handle(value)
+            handle = normalize_username_handle(dialog.value)
             if not handle:
-                QMessageBox.warning(
-                    self,
-                    "Invalid profile username",
-                    "Use at least 3 characters: lowercase letters, numbers, dots, underscores, or hyphens.",
-                )
-                continue
+                return False
+            suggestion = handle
             display_name = str(local.get("display_name", "Player") or "Player")
             identity_name = str(identity.get("name") or identity.get("nickname") or "").strip()
             if display_name == "Player" and identity_name:
@@ -3074,6 +3191,7 @@ class ProfilePageWidget(QWidget):
         self.editor.setVisible(True)
         self.btn_edit.setVisible(False)
         self._populate_editor()
+        self._update_editor_publish_control(True, self.central_auth.signed_in, bool(self._profile_settings.get("published")))
 
     def _cancel_edit(self) -> None:
         self._editing = False
@@ -3126,7 +3244,7 @@ class ProfilePageWidget(QWidget):
                 stops = background.get("stops")
                 background = {
                     "kind": "solid",
-                    "color": stops[0] if isinstance(stops, list) and stops else "#20242C",
+                    "color": stops[0] if isinstance(stops, list) and stops else "#202024",
                 }
         else:
             background = BACKGROUND_PRESETS.get(selected, BACKGROUND_PRESETS["midnight"])
@@ -3272,7 +3390,7 @@ class ProfilePageWidget(QWidget):
 
     def _choose_color(self) -> None:
         current = self._editor_background()
-        initial = QColor(str(current.get("color") or current.get("stops", ["#20242C"])[0]))
+        initial = QColor(str(current.get("color") or current.get("stops", ["#202024"])[0]))
         color = QColorDialog.getColor(initial, self, "Choose profile background")
         if color.isValid():
             with QSignalBlocker(self.background_combo):

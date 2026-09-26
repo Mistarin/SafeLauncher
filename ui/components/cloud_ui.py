@@ -56,7 +56,7 @@ class CloudStatusPanel(QFrame):
         self.setObjectName("cloudStatusPanel")
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet(
-            "QFrame#cloudStatusPanel { background: #18181B; border: 1px solid #27272A; border-radius: 10px; }"
+            "QFrame#cloudStatusPanel { background: #18181B; border: 1px solid #202024; border-radius: 10px; }"
         )
 
         layout = QHBoxLayout(self)
@@ -71,7 +71,7 @@ class CloudStatusPanel(QFrame):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(2)
         self.lbl_status = QLabel()
-        self.lbl_status.setStyleSheet("font-size: 13px; font-weight: 700; color: #F5F7FA;")
+        self.lbl_status.setStyleSheet("font-size: 13px; font-weight: 700; color: #F4F4F5;")
         set_accessible_status(
             self.lbl_status,
             "Cloud status",

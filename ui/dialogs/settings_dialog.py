@@ -35,12 +35,13 @@ from core.plugins.gpu_screen_recorder import (
     WlScreenrecService, WlScreenrecConfig,
     DEFAULT_RECORDINGS_DIR
 )
-from ui.icons import get_icon, get_app_icon
+from ui.icons import get_icon, get_app_icon, get_icon_pixmap
 from typing import Any, Optional
 from ui.icons import LOGO_PATH
 from ui.components.sidebar import DialogTitleBar
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
+from ui.components.sort_combo import SortComboBox
 from ui.maintenance_dialogs import RuntimeInventoryDialog
 from ui.dialogs.game_dialogs import ensure_sandbox_dir
 from ui.dialogs.save_conflict_dialog import format_bytes
@@ -162,10 +163,10 @@ class UserSettingsDialog(PopupDialog):
                 min-height: 20px;
             }
             QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QKeySequenceEdit {
-                background: #15181E;
+                background: #1C1C1F;
                 color: #FFFFFF;
                 border: none;
-                border-bottom: 1px solid #29313B;
+                border-bottom: 1px solid #303036;
                 border-radius: 6px;
                 padding: 0 11px;
                 min-height: 36px;
@@ -174,17 +175,17 @@ class UserSettingsDialog(PopupDialog):
             QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
             QComboBox:focus, QSpinBox:focus, QKeySequenceEdit:focus {
                 border-color: #4B9FFF;
-                background: #1A2028;
+                background: #242428;
                 border-bottom-color: #3B9FE8;
             }
             QLineEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled,
             QComboBox:disabled, QSpinBox:disabled, QKeySequenceEdit:disabled {
-                background: #101216;
-                color: #777C86;
-                border-bottom-color: #20252C;
+                background: #161619;
+                color: #71717A;
+                border-bottom-color: #252529;
             }
             QComboBox QAbstractItemView {
-                background: #1B1B1F;
+                background: #18181B;
                 color: #FFFFFF;
                 border: 1px solid #303037;
                 border-radius: 6px;
@@ -195,19 +196,8 @@ class UserSettingsDialog(PopupDialog):
                 border: none;
                 background: transparent;
             }
-            QComboBox::down-arrow {
-                image: none;
-                width: 0;
-                height: 0;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid #A1A1AA;
-            }
-            QComboBox::down-arrow:hover {
-                border-top-color: #FFFFFF;
-            }
             QPushButton {
-                background: #171A20;
+                background: #18181B;
                 color: #FFFFFF;
                 border: none;
                 border-radius: 6px;
@@ -217,27 +207,26 @@ class UserSettingsDialog(PopupDialog):
                 font-weight: 500;
             }
             QPushButton:hover {
-                background: #202633;
-                background: #202633;
+                background: #202024;
             }
             QPushButton:pressed {
-                background: #10141B;
+                background: #121214;
             }
             QPushButton:disabled {
-                background: #12151A;
-                color: #777C86;
+                background: #121214;
+                color: #71717A;
                 border: none;
             }
             QCheckBox {
                 spacing: 9px;
-                color: #D4D4D8;
+                color: #F4F4F5;
                 padding: 5px 0;
             }
             QCheckBox::indicator {
                 width: 17px; height: 17px;
                 border-radius: 5px;
                 border: 1px solid #4A4A54;
-                background: #1B1B1F;
+                background: #18181B;
             }
             QCheckBox::indicator:checked {
                 background: #3B9FE8;
@@ -253,13 +242,13 @@ class UserSettingsDialog(PopupDialog):
                 background: transparent;
             }
             QLabel#propertyHintText {
-                color: #858A95;
+                color: #71717A;
                 background: transparent;
                 font-size: 11px;
             }
             QToolButton#propertyInfo {
                 background: transparent;
-                color: #777C86;
+                color: #71717A;
                 border: none;
                 padding: 0;
                 margin: 0;
@@ -373,10 +362,11 @@ class UserSettingsDialog(PopupDialog):
         self.btn_save = btn_save
         btn_save.setStyleSheet("""
             QPushButton {
-                background: #2563eb; color: #ffffff; border: none;
-                border-radius: 4px; padding: 7px 18px; font-weight: bold;
+                background: #3B9FE8; color: #ffffff; border: none;
+                border-radius: 6px; min-height: 36px; padding: 0 18px;
+                font-size: 12px; font-weight: 700;
             }
-            QPushButton:hover { background: #1d4ed8; }
+            QPushButton:hover { background: #2789D0; }
         """)
         btn_save.clicked.connect(self._save)
         bottom_bar.addWidget(btn_save)
@@ -404,11 +394,11 @@ class UserSettingsDialog(PopupDialog):
         )
         field_style = (
             "QLineEdit, QComboBox, QSpinBox, QKeySequenceEdit { "
-            "background: #15181E; color: #FFFFFF; border: none; "
-            "border-bottom: 1px solid #29313B; border-radius: 6px; "
+            "background: #1C1C1F; color: #FFFFFF; border: none; "
+            "border-bottom: 1px solid #303036; border-radius: 6px; "
             "padding: 0 11px; min-height: 36px; } "
             "QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QKeySequenceEdit:focus { "
-            "background: #1A2028; border-bottom-color: #3B9FE8; }"
+            "background: #242428; border-bottom-color: #3B9FE8; }"
         )
         property_style = (
             "QLabel#propertyLabel, QLabel#propertyValue { "
@@ -416,16 +406,17 @@ class UserSettingsDialog(PopupDialog):
             "border-radius: 0; padding: 4px 0; min-height: 20px; }"
         )
         button_style = (
-            "QPushButton { background: #171A20; color: #F4F4F5; "
+            "QPushButton { background: #18181B; color: #F4F4F5; "
             "border: none; border-radius: 6px; padding: 0 14px; "
             "min-height: 36px; font-size: 12px; font-weight: 600; } "
-            "QPushButton:hover { background: #202633; } "
-            "QPushButton:pressed { background: #10141B; } "
-            "QPushButton:disabled { background: #12151A; color: #777C86; border: none; }"
+            "QPushButton:hover { background: #202024; } "
+            "QPushButton:pressed { background: #121214; } "
+            "QPushButton:disabled { background: #121214; color: #71717A; border: none; }"
         )
         primary_button_style = (
             "QPushButton { background: #3B9FE8; color: #FFFFFF; border: none; "
-            "border-radius: 7px; padding: 8px 18px; font-weight: 700; } "
+            "border-radius: 6px; min-height: 36px; padding: 0 18px; "
+            "font-size: 12px; font-weight: 700; } "
             "QPushButton:hover { background: #55ACED; } "
             "QPushButton:pressed { background: #2789D0; }"
         )
@@ -435,14 +426,14 @@ class UserSettingsDialog(PopupDialog):
             "padding: 0 14px; font-size: 12px; font-weight: 600; } "
             "QPushButton:hover { background: #542027; color: #FFFFFF; } "
             "QPushButton:pressed { background: #2A1014; } "
-            "QPushButton:disabled { background: #21171A; color: #80696C; border-color: #4A292E; }"
+            "QPushButton:disabled { background: #21171A; color: #80696C; border: none; }"
         )
         navigation_button_style = (
             "QPushButton { background: transparent; color: #A1A1AA; "
-            "border: 1px solid transparent; border-radius: 7px; "
+            "border: none; border-radius: 7px; "
             "padding: 8px 12px; font-size: 12px; font-weight: 600; } "
             "QPushButton:hover { background: transparent; color: #FFFFFF; } "
-            "QPushButton:checked { background: #2A2A31; color: #FFFFFF; border-color: #42424D; }"
+            "QPushButton:checked { background: #2A2A31; color: #FFFFFF; }"
         )
         divider_style = (
             "QFrame#settingsDivider { background: #252A31; border: none; "
@@ -453,10 +444,12 @@ class UserSettingsDialog(PopupDialog):
             self.page_general, self.page_security, self.page_storage,
             self.page_cloud, self.page_plugins,
         ):
+            page_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             page_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
             page = page_scroll.widget()
             if page is None:
                 continue
+            page.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             page.setStyleSheet(page_style)
             for section in page.findChildren(QFrame, "settingsSection"):
                 section.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -474,7 +467,7 @@ class UserSettingsDialog(PopupDialog):
             for hint_text in page.findChildren(QLabel, "propertyHintText"):
                 hint_text.setStyleSheet(
                     "QLabel#propertyHintText { background: transparent; "
-                    "color: #858A95; font-size: 11px; }"
+                    "color: #71717A; font-size: 11px; }"
                 )
             for widget_type in (QLineEdit, QComboBox, QSpinBox, QKeySequenceEdit):
                 for field in page.findChildren(widget_type):
@@ -485,7 +478,7 @@ class UserSettingsDialog(PopupDialog):
                 elif label.objectName() == "profileActionStatus":
                     label.setStyleSheet(
                         "QLabel#profileActionStatus { background: transparent; "
-                        "color: #858A95; font-size: 12px; }"
+                        "color: #71717A; font-size: 12px; }"
                     )
                 elif label.objectName() == "settingsStatus":
                     label.setStyleSheet(
@@ -539,6 +532,17 @@ class UserSettingsDialog(PopupDialog):
         form.setVerticalSpacing(12)
         form.setHorizontalSpacing(16)
         self.polish_property_form(form)
+        for row in range(form.rowCount()):
+            field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+            field = field_item.widget() if field_item is not None else None
+            if field is not None:
+                field.setMinimumWidth(0)
+            elif field_item is not None and field_item.layout() is not None:
+                for index in range(field_item.layout().count()):
+                    child_item = field_item.layout().itemAt(index)
+                    child = child_item.widget() if child_item is not None else None
+                    if child is not None:
+                        child.setMinimumWidth(0)
 
     def _polish_settings_grid(self, grid: QGridLayout) -> None:
         """Align a Settings diagnostic grid with the shared property system."""
@@ -690,7 +694,7 @@ class UserSettingsDialog(PopupDialog):
         """Show the latest account operation result while Settings is open."""
         self._profile_action_status_custom = True
         self.lbl_profile_action_status.setStyleSheet(
-            f"color: {'#F87171' if error else '#A1A1AA'}; font-size: 12px;"
+            f"color: {'#F05D6C' if error else '#A1A1AA'}; font-size: 12px;"
         )
         self.lbl_profile_action_status.setText(str(message or ""))
 
@@ -759,7 +763,7 @@ class UserSettingsDialog(PopupDialog):
         date_form = QFormLayout()
         date_form.setSpacing(10)
         date_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.combo_date_format = QComboBox()
+        self.combo_date_format = SortComboBox()
         for key, _python_format, _qt_format in date_format_choices():
             self.combo_date_format.addItem(key, key)
         date_index = self.combo_date_format.findData(self.date_format)
@@ -818,13 +822,13 @@ class UserSettingsDialog(PopupDialog):
         layout.addWidget(sec_startup)
         self._add_section_divider(layout)
 
-        self.chk_welcome = QCheckBox("Show introduction wizard on startup")
-        self.chk_welcome.setChecked(self.show_welcome_wizard)
-        layout.addWidget(self.chk_welcome)
-
         self.chk_launch_startup = QCheckBox("Launch SafeLauncher when I sign in")
         self.chk_launch_startup.setChecked(is_startup_enabled())
         layout.addWidget(self.chk_launch_startup)
+
+        self.chk_welcome = QCheckBox("Show introduction wizard on startup")
+        self.chk_welcome.setChecked(self.show_welcome_wizard)
+        layout.addWidget(self.chk_welcome)
 
         sec_achievements = QLabel("Achievement Tracking & Notifications")
         sec_achievements.setFont(QFont("Arial", 12, QFont.Weight.Bold))
@@ -863,7 +867,7 @@ class UserSettingsDialog(PopupDialog):
 
         self.lbl_update_status = QLabel("")
         self.lbl_update_status.setWordWrap(True)
-        self.lbl_update_status.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        self.lbl_update_status.setStyleSheet("color: #A1A1AA; font-size: 12px;")
         layout.addWidget(self.lbl_update_status)
 
         layout.addStretch()
@@ -1072,7 +1076,7 @@ class UserSettingsDialog(PopupDialog):
             "SafeLauncher-StorageCalc", _calc_sandbox, self._on_sandbox_size_ready
         )
 
-        self.combo_screenshot_screen = QComboBox()
+        self.combo_screenshot_screen = SortComboBox()
         screens = get_available_screens()
         selected_ss_idx = 0
         for i, (s_val, s_lbl) in enumerate(screens):
@@ -1162,7 +1166,7 @@ class UserSettingsDialog(PopupDialog):
         form_mode = QFormLayout()
         form_mode.setSpacing(10)
 
-        self.combo_cloud_mode = QComboBox()
+        self.combo_cloud_mode = SortComboBox()
         self.combo_cloud_mode.addItem("Local folder sync", "local")
         self.combo_cloud_mode.addItem("Private Convex Cloud (SafeLauncherCloud)", "convex")
         self.combo_cloud_mode.setCurrentIndex(
@@ -1274,7 +1278,7 @@ class UserSettingsDialog(PopupDialog):
         form_mode.addRow("This Device Name:", self.edit_device_name)
 
         self.lbl_connected_devices = QLabel("1 active device (this machine)")
-        self.lbl_connected_devices.setStyleSheet("color: #38BDF8; font-weight: bold;")
+        self.lbl_connected_devices.setStyleSheet("color: #3B9FE8; font-weight: bold;")
         form_mode.addRow("Concurrent Devices:", self.lbl_connected_devices)
 
         self.spin_sync_workers = QSpinBox()
@@ -1303,7 +1307,7 @@ class UserSettingsDialog(PopupDialog):
         self.bar_quota_settings.setRange(0, 1000)
         self.bar_quota_settings.setValue(0)
         self.bar_quota_settings.setStyleSheet("""
-            QProgressBar { background: #18181B; border: 1px solid #27272A; border-radius: 7px; }
+            QProgressBar { background: #18181B; border: 1px solid #202024; border-radius: 7px; }
             QProgressBar::chunk {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 #3B9FE8, stop:1 #7C5CFF);
@@ -1353,7 +1357,7 @@ class UserSettingsDialog(PopupDialog):
         self.card_backend_health.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
-                border: 1px solid #27272A;
+                border: 1px solid #202024;
                 border-radius: 8px;
                 padding: 12px;
                 margin-top: 6px;
@@ -1371,7 +1375,7 @@ class UserSettingsDialog(PopupDialog):
 
         self.lbl_health_latency = QLabel("-- ms")
         self.lbl_health_latency.setStyleSheet("""
-            background: #27272A;
+            background: #202024;
             color: #A1A1AA;
             padding: 3px 8px;
             border-radius: 4px;
@@ -1396,12 +1400,12 @@ class UserSettingsDialog(PopupDialog):
         bh_grid.setSpacing(6)
         bh_grid.addWidget(QLabel("Connection Status:"), 0, 0)
         self.lbl_health_status = QLabel("Probing…")
-        self.lbl_health_status.setStyleSheet("color: #9CA3AF; font-weight: 500;")
+        self.lbl_health_status.setStyleSheet("color: #A1A1AA; font-weight: 500;")
         bh_grid.addWidget(self.lbl_health_status, 0, 1)
 
         bh_grid.addWidget(QLabel("Backend Version:"), 1, 0)
         self.lbl_health_version = QLabel("Checking…")
-        self.lbl_health_version.setStyleSheet("color: #9CA3AF; font-weight: 500;")
+        self.lbl_health_version.setStyleSheet("color: #A1A1AA; font-weight: 500;")
         bh_grid.addWidget(self.lbl_health_version, 1, 1)
         bh_layout.addLayout(bh_grid)
         self._polish_settings_grid(bh_grid)
@@ -1514,14 +1518,14 @@ class UserSettingsDialog(PopupDialog):
                     pct = min(1.0, used / total)
                     bar = self.bar_quota_settings
                     from core.cloud_backend import BASE_FREE_QUOTA_BYTES
-                    color = "#F59E0B" if used > BASE_FREE_QUOTA_BYTES else (
-                        "#3B9FE8" if pct < 0.75 else ("#EAB308" if pct < 0.92 else "#EF4444")
+                    color = "#E5A93D" if used > BASE_FREE_QUOTA_BYTES else (
+                        "#3B9FE8" if pct < 0.75 else ("#E5A93D" if pct < 0.92 else "#F05D6C")
                     )
                     self.lbl_account_status.setStyleSheet(
-                        f"color: {'#F59E0B' if used > BASE_FREE_QUOTA_BYTES else '#9ca3af'};"
+                        f"color: {'#E5A93D' if used > BASE_FREE_QUOTA_BYTES else '#9ca3af'};"
                     )
                     style = (
-                        "QProgressBar { background: #18181B; border: 1px solid #27272A;"
+                        "QProgressBar { background: #18181B; border: 1px solid #202024;"
                         " border-radius: 7px; }\n"
                         f"QProgressBar::chunk {{ background: {color}; border-radius: 6px; }}"
                     )
@@ -1586,15 +1590,24 @@ class UserSettingsDialog(PopupDialog):
             bg_col = "#9a3412"
             status_text = "No recorder backend found. Install gpu-screen-recorder via paru, yay, or flatpak to enable hardware NVENC recording."
 
-        banner = QLabel(status_text)
-        banner.setWordWrap(True)
-        banner.setStyleSheet(f"background-color: {bg_col}; color: #ffffff; padding: 10px 12px; font-weight: 600; font-size: 11px;")
-        layout.addWidget(banner)
+        status_hint = self.info_hint(
+            status_text,
+            tooltip="Recorder backend detection status. SafeLauncher uses the available local recorder only.",
+        )
+        status_label = status_hint.findChild(QLabel, "propertyHintText")
+        if status_label is not None:
+            status_label.setObjectName("settingsPluginStatus")
+            status_label.setStyleSheet(
+                f"QLabel#settingsPluginStatus {{ background: transparent; color: {bg_col}; "
+                "font-size: 11px; font-weight: 600; }}"
+            )
+        layout.addWidget(status_hint)
 
         # Installation Helper (if gpu-screen-recorder not installed)
         if backend != "gpu-screen-recorder":
             install_row = QHBoxLayout()
-            self.install_option_combo = QComboBox()
+            self.install_option_combo = SortComboBox()
+            self.install_option_combo.setMinimumWidth(0)
             for label, cmd in WlScreenrecService.get_install_options():
                 self.install_option_combo.addItem(label, cmd)
             self.install_option_combo.currentIndexChanged.connect(self._on_install_option_changed)
@@ -1602,6 +1615,7 @@ class UserSettingsDialog(PopupDialog):
 
             self.install_cmd_box = QLineEdit(WlScreenrecService.get_install_options()[0][1])
             self.install_cmd_box.setReadOnly(True)
+            self.install_cmd_box.setMinimumWidth(0)
             install_row.addWidget(self.install_cmd_box)
 
             btn_copy_cmd = QPushButton("Copy Command")
@@ -1610,7 +1624,7 @@ class UserSettingsDialog(PopupDialog):
 
             btn_install_now = QPushButton("Install via Helper")
             btn_install_now.setProperty("settingsButtonRole", "primary")
-            btn_install_now.setStyleSheet("QPushButton { background: #2563eb; color: #ffffff; border: none; } QPushButton:hover { background: #1d4ed8; }")
+            btn_install_now.setStyleSheet("QPushButton { background: #3B9FE8; color: #ffffff; border: none; } QPushButton:hover { background: #2789D0; }")
             btn_install_now.clicked.connect(self._open_install_notice)
             install_row.addWidget(btn_install_now)
 
@@ -1621,7 +1635,7 @@ class UserSettingsDialog(PopupDialog):
         form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        self.combo_mode = QComboBox()
+        self.combo_mode = SortComboBox()
         self.combo_mode.addItem("Manual (Record on Hotkey / Button)", "manual")
         self.combo_mode.addItem("Automatic (Record While Playing)", "auto_game")
         self.combo_mode.addItem("Instant Replay Buffer (Shadowplay)", "replay_buffer")
@@ -1630,7 +1644,7 @@ class UserSettingsDialog(PopupDialog):
             self.combo_mode.setCurrentIndex(idx_m)
         form.addRow("Recording Mode:", self.combo_mode)
 
-        self.combo_recording_monitor = QComboBox()
+        self.combo_recording_monitor = SortComboBox()
         monitors = GpuRecorderService.get_available_monitors()
         selected_rm_idx = 0
         cur_target_screen = getattr(self.gpu_config, "target_screen", "screen") or "screen"
@@ -1641,7 +1655,7 @@ class UserSettingsDialog(PopupDialog):
         self.combo_recording_monitor.setCurrentIndex(selected_rm_idx)
         form.addRow("Recording Screen / Display:", self.combo_recording_monitor)
 
-        self.combo_replay = QComboBox()
+        self.combo_replay = SortComboBox()
         self.combo_replay.addItem("30 Seconds", 30)
         self.combo_replay.addItem("60 Seconds (Default)", 60)
         self.combo_replay.addItem("120 Seconds (2 min)", 120)
@@ -1651,7 +1665,7 @@ class UserSettingsDialog(PopupDialog):
             self.combo_replay.setCurrentIndex(idx_r)
         form.addRow("Replay Buffer Size:", self.combo_replay)
 
-        self.combo_bitrate = QComboBox()
+        self.combo_bitrate = SortComboBox()
         self.combo_bitrate.addItem("8 Mbps (Compact 1080p)", "8M")
         self.combo_bitrate.addItem("12 Mbps (Standard 1080p 60fps)", "12M")
         self.combo_bitrate.addItem("20 Mbps (High Quality 1440p)", "20M")
@@ -1661,7 +1675,7 @@ class UserSettingsDialog(PopupDialog):
             self.combo_bitrate.setCurrentIndex(idx_b)
         form.addRow("Video Bitrate:", self.combo_bitrate)
 
-        self.combo_codec = QComboBox()
+        self.combo_codec = SortComboBox()
         self.combo_codec.addItem("Auto (Hardware Detect)", "auto")
         self.combo_codec.addItem("H.264 / AVC (Broadest Compatibility)", "avc")
         self.combo_codec.addItem("HEVC / H.265 (Efficient)", "hevc")
@@ -1676,7 +1690,7 @@ class UserSettingsDialog(PopupDialog):
         self.chk_audio.setChecked(self.gpu_config.audio)
         form.addRow("Audio Master:", self.chk_audio)
 
-        self.combo_audio_output = QComboBox()
+        self.combo_audio_output = SortComboBox()
         out_devices = GpuRecorderService.get_audio_output_devices()
         selected_out_idx = 0
         current_out = getattr(self.gpu_config, "audio_device", "default") or "default"
@@ -1687,7 +1701,7 @@ class UserSettingsDialog(PopupDialog):
         self.combo_audio_output.setCurrentIndex(selected_out_idx)
         form.addRow("Audio Output (Game / Desktop):", self.combo_audio_output)
 
-        self.combo_audio_input = QComboBox()
+        self.combo_audio_input = SortComboBox()
         in_devices = GpuRecorderService.get_audio_input_devices()
         selected_in_idx = 0
         current_in = getattr(self.gpu_config, "microphone_device", "") or ""
@@ -1699,23 +1713,26 @@ class UserSettingsDialog(PopupDialog):
         form.addRow("Audio Input (Microphone):", self.combo_audio_input)
 
         # ── Hotkeys (custom key sequence) ──────────────────────────────────
-        capture_hint = QLabel("Click a field and press the key combination you want to bind")
-        capture_hint.setStyleSheet("color: #71717a; font-size: 10px; margin-bottom: 2px;")
+        capture_hint = self.info_hint(
+            "Click a field and press the key combination you want to bind",
+            tooltip="Keyboard shortcuts are captured by the field below and saved with the recorder settings.",
+        )
         form.addRow("", capture_hint)
 
         self.edit_hotkey = QKeySequenceEdit()
         self.edit_hotkey.setKeySequence(QKeySequence(self.gpu_config.capture_hotkey or "F9"))
         self.edit_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #15181E; color: #ffffff; border: none;"
-            " border-bottom: 1px solid #29313B; border-radius: 6px;"
+            "QKeySequenceEdit { background: #1C1C1F; color: #ffffff; border: none;"
+            " border-bottom: 1px solid #303036; border-radius: 6px;"
             " padding: 0 11px; min-height: 36px; font-size: 12px; }"
         )
-        capture_mode_hint = QLabel()
+        capture_mode_hint = self.info_hint("")
+        capture_mode_label = capture_mode_hint.findChild(QLabel, "propertyHintText")
         if self.gpu_config.mode == "replay_buffer":
-            capture_mode_hint.setText("Saves an instant replay clip of the last buffered minutes")
+            capture_mode_label.setText("Saves an instant replay clip of the last buffered minutes")
         else:
-            capture_mode_hint.setText("Starts / stops manual video recording")
-        capture_mode_hint.setStyleSheet("color: #71717a; font-size: 10px;")
+            capture_mode_label.setText("Starts / stops manual video recording")
+        capture_mode_label.setToolTip("Explains what the selected recording shortcut does.")
         capture_vbox = QVBoxLayout()
         capture_vbox.setSpacing(3)
         capture_vbox.addWidget(self.edit_hotkey)
@@ -1725,8 +1742,8 @@ class UserSettingsDialog(PopupDialog):
         self.edit_screenshot_hotkey = QKeySequenceEdit()
         self.edit_screenshot_hotkey.setKeySequence(QKeySequence(self.screenshot_hotkey or "F12"))
         self.edit_screenshot_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #15181E; color: #ffffff; border: none;"
-            " border-bottom: 1px solid #29313B; border-radius: 6px;"
+            "QKeySequenceEdit { background: #1C1C1F; color: #ffffff; border: none;"
+            " border-bottom: 1px solid #303036; border-radius: 6px;"
             " padding: 0 11px; min-height: 36px; font-size: 12px; }"
         )
         form.addRow("Screenshot Hotkey:", self.edit_screenshot_hotkey)
@@ -1834,6 +1851,8 @@ class UserSettingsDialog(PopupDialog):
             self.lbl_desktop_status.setText("Not installed in the Applications menu.")
             self.btn_desktop_entry.setText("Add to Applications menu")
             self.btn_desktop_entry.setProperty("settingsButtonRole", "primary")
+        if hasattr(self, "page_security"):
+            self._apply_settings_surfaces()
         self.btn_desktop_entry.style().unpolish(self.btn_desktop_entry)
         self.btn_desktop_entry.style().polish(self.btn_desktop_entry)
 
@@ -1851,8 +1870,8 @@ class UserSettingsDialog(PopupDialog):
         display_name = self.name_input.text().strip()
         if not display_name:
             self.name_input.setFocus()
-            self.name_input.setStyleSheet("border: 1px solid #EF4444;")
-            self.lbl_profile_action_status.setStyleSheet("color: #F87171; font-size: 12px;")
+            self.name_input.setStyleSheet("border: 1px solid #F05D6C;")
+            self.lbl_profile_action_status.setStyleSheet("color: #F05D6C; font-size: 12px;")
             self.lbl_profile_action_status.setText("Display name cannot be empty.")
             self._switch_tab(0)
             return
@@ -2234,7 +2253,7 @@ class UserSettingsDialog(PopupDialog):
 
         self.lbl_health_status.setText("Probing backend…")
         self.lbl_health_latency.setText("...")
-        self.lbl_health_latency.setStyleSheet("background: #27272A; color: #A1A1AA; padding: 3px 8px; border-radius: 4px; font-size: 11px;")
+        self.lbl_health_latency.setStyleSheet("background: #202024; color: #A1A1AA; padding: 3px 8px; border-radius: 4px; font-size: 11px;")
 
         def _worker():
             return self.cloud_account_service.health(url, key)
@@ -2258,7 +2277,7 @@ class UserSettingsDialog(PopupDialog):
         min_ver = health.get("min_version", MIN_CONVEX_BACKEND_VERSION)
 
         if lat >= 0:
-            color = "#34D399" if lat < 150 else ("#FBBF24" if lat < 400 else "#F87171")
+            color = "#35C98A" if lat < 150 else ("#E5A93D" if lat < 400 else "#F05D6C")
             self.lbl_health_latency.setText(f"{lat} ms")
             self.lbl_health_latency.setStyleSheet(
                 f"background: #1F2937; color: {color}; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold;"
@@ -2266,21 +2285,21 @@ class UserSettingsDialog(PopupDialog):
         else:
             self.lbl_health_latency.setText("-- ms")
             self.lbl_health_latency.setStyleSheet(
-                "background: #27272A; color: #6B7280; padding: 3px 8px; border-radius: 4px; font-size: 11px;"
+                "background: #202024; color: #6B7280; padding: 3px 8px; border-radius: 4px; font-size: 11px;"
             )
 
         if status == "connected":
-            self.lbl_health_status.setText("<font color='#10B981'>● Connected & Healthy</font>")
+            self.lbl_health_status.setText("<font color='#35C98A'>● Connected & Healthy</font>")
         elif status == "legacy":
-            self.lbl_health_status.setText("<font color='#F59E0B'>● Legacy Backend (Missing /api/health)</font>")
+            self.lbl_health_status.setText("<font color='#E5A93D'>● Legacy Backend (Missing /api/health)</font>")
         elif status == "unauthorized":
-            self.lbl_health_status.setText("<font color='#EF4444'>● Unauthorized (Secret Key required or invalid)</font>")
+            self.lbl_health_status.setText("<font color='#F05D6C'>● Unauthorized (Secret Key required or invalid)</font>")
         elif status == "unconfigured":
-            self.lbl_health_status.setText("<font color='#9CA3AF'>● Not Configured</font>")
+            self.lbl_health_status.setText("<font color='#A1A1AA'>● Not Configured</font>")
         else:
             err = str(health.get("error") or "The configured backend could not be reached.")
             self.lbl_health_status.setText(
-                "<font color='#EF4444'>● Unreachable</font>"
+                "<font color='#F05D6C'>● Unreachable</font>"
             )
             self.lbl_health_status.setToolTip(err)
 
@@ -2288,7 +2307,7 @@ class UserSettingsDialog(PopupDialog):
             self.lbl_health_version.setText(f"v{ver}")
             if is_outdated:
                 self.lbl_version_warning.setText(
-                    f"<font color='#F59E0B'>Backend update required: installed <b>v{ver}</b> is older than minimum supported <b>v{min_ver}</b>. "
+                    f"<font color='#E5A93D'>Backend update required: installed <b>v{ver}</b> is older than minimum supported <b>v{min_ver}</b>. "
                     "Redeploy the latest SafeLauncher backend to restore full cloud features.</font>"
                 )
                 self.btn_redeploy.setVisible(True)
@@ -2304,11 +2323,11 @@ class UserSettingsDialog(PopupDialog):
                 )
                 self.lbl_version_warning.setText(
                     (
-                        f"<font color='#10B981'>Backend functions are up to date (v{ver} >= v{min_ver}). "
+                        f"<font color='#35C98A'>Backend functions are up to date (v{ver} >= v{min_ver}). "
                         "Cloud Save is ready.</font>"
                     ) if cloud_key_configured else (
-                        f"<font color='#10B981'>Backend functions are up to date (v{ver} >= v{min_ver}).</font> "
-                        "<font color='#FBBF24'>Cloud Save still needs its Secret Access Key in this app.</font>"
+                        f"<font color='#35C98A'>Backend functions are up to date (v{ver} >= v{min_ver}).</font> "
+                        "<font color='#E5A93D'>Cloud Save still needs its Secret Access Key in this app.</font>"
                     )
                 )
                 self.btn_redeploy.setVisible(True)
@@ -2332,11 +2351,11 @@ class UserSettingsDialog(PopupDialog):
             if saved_cloud_secret and not self.edit_cloud_secret_key.text().strip():
                 self.edit_cloud_secret_key.setText(saved_cloud_secret)
             if self.edit_cloud_secret_key.text().strip() or saved_cloud_secret:
-                self.lbl_version_warning.setText(f"<font color='#10B981'>{message}</font>")
+                self.lbl_version_warning.setText(f"<font color='#35C98A'>{message}</font>")
             else:
                 self.lbl_version_warning.setText(
-                    f"<font color='#10B981'>{message}</font> "
-                    "<font color='#FBBF24'>Cloud Save still needs the Secret Access Key in Settings → Cloud.</font>"
+                    f"<font color='#35C98A'>{message}</font> "
+                    "<font color='#E5A93D'>Cloud Save still needs the Secret Access Key in Settings → Cloud.</font>"
                 )
             self._refresh_backend_health()
         else:
@@ -2349,7 +2368,7 @@ class UserSettingsDialog(PopupDialog):
                 if sensitive:
                     message = message.replace(sensitive, "[redacted]")
             self.lbl_version_warning.setText(
-                f"<font color='#EF4444'>{html.escape(message).replace(chr(10), '<br>')}</font>"
+                f"<font color='#F05D6C'>{html.escape(message).replace(chr(10), '<br>')}</font>"
             )
             QMessageBox.critical(
                 self,
@@ -2388,7 +2407,7 @@ class UserSettingsDialog(PopupDialog):
         )
         if reply == QMessageBox.StandardButton.Yes:
             from core.cloud_cli_wizard import deploy_latest_convex_backend
-            self.lbl_version_warning.setText("<font color='#3B82F6'>Deploying backend functions…</font>")
+            self.lbl_version_warning.setText("<font color='#3B9FE8'>Deploying backend functions…</font>")
             self.btn_redeploy.setEnabled(False)
 
             def _worker():
@@ -2427,11 +2446,11 @@ class UserSettingsDialog(PopupDialog):
         """Manual trigger to check for SafeLauncher application updates."""
         if not self._dialog_network_allowed():
             self.lbl_update_status.setText(
-                "<font color='#9CA3AF'>Offline mode — update checks are disabled.</font>"
+                "<font color='#A1A1AA'>Offline mode — update checks are disabled.</font>"
             )
             return
         self.btn_check_app_updates.setEnabled(False)
-        self.lbl_update_status.setText("<font color='#3B82F6'>Checking GitHub Releases for updates…</font>")
+        self.lbl_update_status.setText("<font color='#3B9FE8'>Checking GitHub Releases for updates…</font>")
 
         def _worker():
             return check_for_updates()
@@ -2444,13 +2463,13 @@ class UserSettingsDialog(PopupDialog):
         """Handle result of manual update check."""
         self.btn_check_app_updates.setEnabled(True)
         if info.get("error"):
-            self.lbl_update_status.setText(f"<font color='#EF4444'>Update check failed: {info['error']}</font>")
+            self.lbl_update_status.setText(f"<font color='#F05D6C'>Update check failed: {info['error']}</font>")
             return
 
         latest = info.get("latest_version", "")
         if info.get("update_available"):
             self.lbl_update_status.setText(
-                f"<font color='#10B981'><b>Update available:</b> v{latest} (Current: v{info['current_version']})</font>"
+                f"<font color='#35C98A'><b>Update available:</b> v{latest} (Current: v{info['current_version']})</font>"
             )
             if info.get("is_appimage") and info.get("appimage_asset"):
                 reply = QMessageBox.question(
@@ -2467,17 +2486,17 @@ class UserSettingsDialog(PopupDialog):
                 )
         else:
             self.lbl_update_status.setText(
-                f"<font color='#10B981'>SafeLauncher is up to date (v{info['current_version']}).</font>"
+                f"<font color='#35C98A'>SafeLauncher is up to date (v{info['current_version']}).</font>"
             )
 
     def _start_appimage_download(self, asset_url: str):
         """Download new AppImage in background thread with progress reporting."""
         if not self._dialog_network_allowed():
             self.lbl_update_status.setText(
-                "<font color='#9CA3AF'>Offline mode — update downloads are disabled.</font>"
+                "<font color='#A1A1AA'>Offline mode — update downloads are disabled.</font>"
             )
             return
-        self.lbl_update_status.setText("<font color='#3B82F6'>Downloading update…</font>")
+        self.lbl_update_status.setText("<font color='#3B9FE8'>Downloading update…</font>")
 
         def _worker():
             try:
@@ -2504,11 +2523,11 @@ class UserSettingsDialog(PopupDialog):
         if total > 0:
             pct = int((downloaded / total) * 100)
             self.lbl_update_status.setText(
-                f"<font color='#3B82F6'>Downloading update: {pct}% ({downloaded // (1024*1024)} MB / {total // (1024*1024)} MB)…</font>"
+                f"<font color='#3B9FE8'>Downloading update: {pct}% ({downloaded // (1024*1024)} MB / {total // (1024*1024)} MB)…</font>"
             )
 
     def _on_app_download_finished(self, target_path: str):
-        self.lbl_update_status.setText("<font color='#10B981'><b>Update Ready!</b> Restart required.</font>")
+        self.lbl_update_status.setText("<font color='#35C98A'><b>Update Ready!</b> Restart required.</font>")
         reply = QMessageBox.question(
             self, "Update Installed",
             "The update has been downloaded and verified.\n\nRestart SafeLauncher now to apply the update?",
@@ -2518,7 +2537,7 @@ class UserSettingsDialog(PopupDialog):
             restart_application()
 
     def _on_app_download_failed(self, error: str):
-        self.lbl_update_status.setText(f"<font color='#EF4444'>Download failed: {error}</font>")
+        self.lbl_update_status.setText(f"<font color='#F05D6C'>Download failed: {error}</font>")
         QMessageBox.critical(self, "Update Failed", f"Failed to download AppImage update:\n{error}")
 
     def get_cloud_saves_dir(self) -> str:
@@ -2605,12 +2624,12 @@ class PluginInstallNoticeDialog(PopupDialog):
         self.setStyleSheet("""
             QDialog { background: #121214; color: #ffffff; }
             QLabel { color: #d4d4d8; font-size: 12px; }
-            QLineEdit { background: #1c1c20; color: #38bdf8; border: 1px solid #333338; border-radius: 4px; padding: 6px; }
+            QLineEdit { background: #1c1c20; color: #3B9FE8; border: 1px solid #333338; border-radius: 4px; padding: 6px; }
             QPushButton {
-                background: #27272a; color: #ffffff; border: 1px solid #3f3f46;
+                background: #27272a; color: #ffffff; border: 1px solid #2A2A2E;
                 border-radius: 4px; padding: 8px 16px; font-weight: bold; font-size: 12px;
             }
-            QPushButton:hover { background: #3f3f46; }
+            QPushButton:hover { background: #2A2A2E; }
         """)
 
         layout = self.popup_layout(margins=(20, 18, 20, 18), spacing=14)
@@ -2634,7 +2653,7 @@ class PluginInstallNoticeDialog(PopupDialog):
         msg.setStyleSheet("color: #a1a1aa;")
         layout.addWidget(msg)
 
-        self.notice_option_combo = QComboBox()
+        self.notice_option_combo = SortComboBox()
         for label, cmd in WlScreenrecService.get_install_options():
             self.notice_option_combo.addItem(label, cmd)
         layout.addWidget(self.notice_option_combo)
@@ -2660,7 +2679,7 @@ class PluginInstallNoticeDialog(PopupDialog):
         btn_box.addWidget(btn_copy)
 
         btn_install = QPushButton("Install via Terminal")
-        btn_install.setStyleSheet("QPushButton { background: #2563eb; color: #ffffff; border: none; } QPushButton:hover { background: #1d4ed8; }")
+        btn_install.setStyleSheet("QPushButton { background: #3B9FE8; color: #ffffff; border: none; } QPushButton:hover { background: #2789D0; }")
         btn_install.clicked.connect(self._launch_install)
         btn_box.addWidget(btn_install)
 
@@ -2705,7 +2724,7 @@ class ScreenshotLightboxDialog(PopupDialog):
 
         btn_open_folder = QPushButton(" Open Folder")
         btn_open_folder.setIcon(get_icon("ph.folder-open-bold"))
-        btn_open_folder.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 6px 12px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
+        btn_open_folder.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #2A2A2E; border-radius: 4px; padding: 6px 12px; font-weight: 600; } QPushButton:hover { background: #2A2A2E; }")
         btn_open_folder.clicked.connect(self._open_current_folder)
         h_layout.addWidget(btn_open_folder)
 
@@ -2716,7 +2735,7 @@ class ScreenshotLightboxDialog(PopupDialog):
         h_layout.addWidget(btn_delete)
 
         btn_close = QPushButton("✕ Close")
-        btn_close.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; border-radius: 4px; padding: 6px 12px; font-weight: 600; } QPushButton:hover { background: #3f3f46; }")
+        btn_close.setStyleSheet("QPushButton { background: #27272a; color: #ffffff; border: 1px solid #2A2A2E; border-radius: 4px; padding: 6px 12px; font-weight: 600; } QPushButton:hover { background: #2A2A2E; }")
         btn_close.clicked.connect(self.accept)
         h_layout.addWidget(btn_close)
 
@@ -2731,7 +2750,7 @@ class ScreenshotLightboxDialog(PopupDialog):
 
         self.btn_prev = QPushButton("◀")
         self.btn_prev.setFixedSize(44, 80)
-        self.btn_prev.setStyleSheet("QPushButton { background: rgba(39, 39, 42, 0.6); color: #ffffff; border: 1px solid #3f3f46; border-radius: 6px; font-size: 16px; font-weight: bold; } QPushButton:hover { background: rgba(63, 63, 70, 0.9); }")
+        self.btn_prev.setStyleSheet("QPushButton { background: rgba(39, 39, 42, 0.6); color: #ffffff; border: 1px solid #2A2A2E; border-radius: 6px; font-size: 16px; font-weight: bold; } QPushButton:hover { background: rgba(63, 63, 70, 0.9); }")
         self.btn_prev.clicked.connect(self._prev_image)
         b_layout.addWidget(self.btn_prev)
 
@@ -2742,7 +2761,7 @@ class ScreenshotLightboxDialog(PopupDialog):
 
         self.btn_next = QPushButton("▶")
         self.btn_next.setFixedSize(44, 80)
-        self.btn_next.setStyleSheet("QPushButton { background: rgba(39, 39, 42, 0.6); color: #ffffff; border: 1px solid #3f3f46; border-radius: 6px; font-size: 16px; font-weight: bold; } QPushButton:hover { background: rgba(63, 63, 70, 0.9); }")
+        self.btn_next.setStyleSheet("QPushButton { background: rgba(39, 39, 42, 0.6); color: #ffffff; border: 1px solid #2A2A2E; border-radius: 6px; font-size: 16px; font-weight: bold; } QPushButton:hover { background: rgba(63, 63, 70, 0.9); }")
         self.btn_next.clicked.connect(self._next_image)
         b_layout.addWidget(self.btn_next)
 
@@ -2850,7 +2869,7 @@ class ScreenshotGalleryDialog(PopupDialog):
         # Grid scroll area for screenshots
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("QScrollArea { background: #0D0F14; border: none; }")
+        scroll_area.setStyleSheet("QScrollArea { background: #121214; border: none; }")
 
         self.grid_widget = QWidget()
         self.grid_widget.setObjectName("screenshotGrid")
@@ -2866,13 +2885,13 @@ class ScreenshotGalleryDialog(PopupDialog):
         
         btn_capture = QPushButton("Capture Screen")
         btn_capture.setIcon(get_icon("ph.camera-bold"))
-        btn_capture.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        btn_capture.setStyleSheet("QPushButton { background: #18181B; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #202024; }")
         btn_capture.clicked.connect(self._capture_screen)
         action_layout.addWidget(btn_capture)
 
         btn_open_folder = QPushButton("Open Directory")
         btn_open_folder.setIcon(get_icon("ph.folder-open-bold"))
-        btn_open_folder.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        btn_open_folder.setStyleSheet("QPushButton { background: #18181B; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #202024; }")
         btn_open_folder.clicked.connect(self._open_folder)
         action_layout.addWidget(btn_open_folder)
 
@@ -2880,7 +2899,7 @@ class ScreenshotGalleryDialog(PopupDialog):
 
         btn_close = QPushButton("Close")
         btn_close.setMinimumWidth(80)
-        btn_close.setStyleSheet("QPushButton { background: #161A22; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 16px; font-weight: 600; } QPushButton:hover { background: #202633; }")
+        btn_close.setStyleSheet("QPushButton { background: #18181B; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 16px; font-weight: 600; } QPushButton:hover { background: #202024; }")
         btn_close.clicked.connect(self.accept)
         action_layout.addWidget(btn_close)
 
@@ -2961,7 +2980,7 @@ class ScreenshotGalleryDialog(PopupDialog):
             btn_del = QPushButton("Delete")
             btn_del.setObjectName("screenshotDelete")
             btn_del.setFixedHeight(28)
-            btn_del.setStyleSheet("QPushButton { background: #2A1212; color: #EF4444; border: none; border-radius: 6px; font-size: 11px; padding: 4px; } QPushButton:hover { background: #7F1D1D; color: white; }")
+            btn_del.setStyleSheet("QPushButton { background: #2A1212; color: #F05D6C; border: none; border-radius: 6px; font-size: 11px; padding: 4px; } QPushButton:hover { background: #7F1D1D; color: white; }")
             btn_del.clicked.connect(lambda _, p=filepath: self._delete_screenshot(p))
             c_layout.addWidget(btn_del)
 
@@ -3090,7 +3109,7 @@ class VideoGalleryDialog(PopupDialog):
             layout.setContentsMargins(12, 10, 12, 10)
             icon = QLabel()
             icon.setObjectName("videoIcon")
-            icon.setPixmap(get_icon("ph.video-camera-bold").pixmap(28, 28))
+            icon.setPixmap(get_icon_pixmap("ph.video-camera-bold", 28))
             layout.addWidget(icon)
             info = QVBoxLayout()
             info.setSpacing(3)
@@ -3193,13 +3212,13 @@ class DiskManagerDialog(PopupDialog):
             f"{format_size(used_drive)} used · {format_size(free_drive)} free"
         )
         self.drive_bar.setStyleSheet("""
-            QProgressBar { background: #202026; border: none; border-radius: 4px; }
+            QProgressBar { background: #202024; border: none; border-radius: 4px; }
             QProgressBar::chunk { background: #4B9FFF; border-radius: 4px; }
         """)
         body_layout.addWidget(self.drive_bar)
 
         path_label = QLabel(f"Sandbox root: {sandbox_dir}")
-        path_label.setStyleSheet("color: #8E8E93; font-size: 11px;")
+        path_label.setStyleSheet("color: #A1A1AA; font-size: 11px;")
         path_label.setToolTip(sandbox_dir)
         path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         body_layout.addWidget(path_label)
@@ -3220,7 +3239,7 @@ class DiskManagerDialog(PopupDialog):
 
         lbl_wait = QLabel("Calculating game sizes…")
         lbl_wait.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_wait.setStyleSheet("color: #8E8E93; font-size: 12px; padding: 22px;")
+        lbl_wait.setStyleSheet("color: #A1A1AA; font-size: 12px; padding: 22px;")
         self._game_rows_layout.addWidget(lbl_wait)
         self._placeholder_row = lbl_wait
 
@@ -3287,12 +3306,12 @@ class DiskManagerDialog(PopupDialog):
         self.setStyleSheet("""
             QDialog#safeLauncherPopup QWidget#diskUsageList { background: #18181B; }
             QDialog#safeLauncherPopup QFrame#diskUsageRow {
-                background: #202026;
+                background: #202024;
                 border: none;
                 border-radius: 6px;
             }
             QDialog#safeLauncherPopup QPushButton#popupSecondary {
-                background: #222228;
+                background: #202024;
                 color: #F4F4F5;
                 border: 1px solid #34343C;
                 border-radius: 6px;
@@ -3306,7 +3325,7 @@ class DiskManagerDialog(PopupDialog):
     @staticmethod
     def _summary_label(text: str) -> QLabel:
         label = QLabel(text.upper())
-        label.setStyleSheet("color: #8E8E93; font-size: 10px; font-weight: 700;")
+        label.setStyleSheet("color: #A1A1AA; font-size: 10px; font-weight: 700;")
         return label
 
     @staticmethod
@@ -3329,7 +3348,7 @@ class DiskManagerDialog(PopupDialog):
             if not results:
                 empty = QLabel("No installed sandbox game directories found.")
                 empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                empty.setStyleSheet("color: #8E8E93; padding: 24px;")
+                empty.setStyleSheet("color: #A1A1AA; padding: 24px;")
                 self._game_rows_layout.addWidget(empty)
                 return
             for name, path, sz in results:

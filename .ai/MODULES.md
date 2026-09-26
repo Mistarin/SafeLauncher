@@ -58,7 +58,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Cloud save operations | [`core/cloud_save_sync.py`](../core/cloud_save_sync.py), [`core/cloud_operations.py`](../core/cloud_operations.py) | `CloudSaveSyncEngine`, coordinators | active |
 | Central profile authentication | [`core/central_auth.py`](../core/central_auth.py) | `CentralAuthSession` | active |
 | Public profile client | [`core/profile_service.py`](../core/profile_service.py) | `ProfileServiceClient` | active |
-| Public profile resource boundary | [`core/profile_resource_service.py`](../core/profile_resource_service.py) | `ProfileResourceService` | active |
+| Public profile resource boundary | [`core/profile_resource_service.py`](../core/profile_resource_service.py) | `ProfileResourceService`, `get_owner_social()` | active; owner/social reads verify the authoritative public profile before using Friends data |
 | Public profile backend | [`services/profile_cloud/convex/http.ts`](../services/profile_cloud/convex/http.ts) | HTTP dispatcher and validation | active |
 | Profile gateway | [`services/profile_gateway/api/gateway.ts`](../services/profile_gateway/api/gateway.ts) | gateway proxy | active |
 
@@ -79,6 +79,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 ## UI entrypoints
 
 - Main shell: [`ui/main_window.py`](../ui/main_window.py)
+- Shared icons: [`ui/icons.py`](../ui/icons.py) (`get_icon`, `get_icon_pixmap`, `get_app_icon_pixmap`, `icon_pixmap`; DPI-aware QIcon-to-QPixmap rendering)
 - Shared sort control: [`ui/components/sort_combo.py`](../ui/components/sort_combo.py) (`SortComboBox` uses a platform-independent chevron and native popup)
 - Library views: [`ui/library_list.py`](../ui/library_list.py), [`ui/components/library_view_host.py`](../ui/components/library_view_host.py), [`ui/components/compact_game_page.py`](../ui/components/compact_game_page.py), [`ui/components/virtual_grid.py`](../ui/components/virtual_grid.py)
 - The virtualized grid publishes combined cloud/update tooltip text through model tooltip and accessibility roles because its badges are delegate-painted; newer local saves are uploaded automatically by the managed cloud lifecycle.

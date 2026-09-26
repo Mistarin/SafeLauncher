@@ -80,7 +80,7 @@ BACKGROUND_PRESETS = {
     "ember": {"kind": "gradient", "stops": ["#5C2630", "#171417"], "angle": 135},
     "forest": {"kind": "gradient", "stops": ["#17483F", "#101817"], "angle": 135},
     "violet": {"kind": "gradient", "stops": ["#3D2A67", "#14131D"], "angle": 135},
-    "slate": {"kind": "solid", "color": "#20242C"},
+    "slate": {"kind": "solid", "color": "#202024"},
 }
 
 

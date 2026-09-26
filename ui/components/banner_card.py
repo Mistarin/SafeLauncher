@@ -22,7 +22,7 @@ class UpdatePulsingDotWidget(QWidget):
         self.setToolTip("Game Update: a newer game version is available")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._pulse_phase = 0.0
-        self._color = QColor("#34D399")
+        self._color = QColor("#35C98A")
 
         self._anim = QVariantAnimation(self)
         self._anim.setStartValue(0.0)
@@ -37,7 +37,7 @@ class UpdatePulsingDotWidget(QWidget):
 
     def set_color(self, color: str) -> None:
         """Use a muted color for cached results and a bright one for live results."""
-        candidate = QColor(str(color or "#34D399"))
+        candidate = QColor(str(color or "#35C98A"))
         if candidate.isValid():
             self._color = candidate
             self.update()
@@ -164,18 +164,18 @@ class GameBannerWidget(QFrame):
         self.btn_card_play.setToolTip(f"Launch {self.name}")
         self.btn_card_play.setStyleSheet("""
             QPushButton {
-                background: #0A84FF;
+                background: #3B9FE8;
                 color: #FFFFFF;
                 border: 1px solid rgba(255, 255, 255, 0.22);
                 border-radius: 22px;
                 padding: 0;
             }
             QPushButton:hover {
-                background: #0071E3;
+                background: #55ACED;
                 border-color: rgba(255, 255, 255, 0.45);
             }
             QPushButton:pressed {
-                background: #005BB5;
+                background: #2789D0;
             }
         """)
         self.btn_card_play.clicked.connect(lambda: self.launchClicked.emit(self.game_id))
@@ -235,14 +235,14 @@ class GameBannerWidget(QFrame):
         self.name_label.setWordWrap(True)
         self.name_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.name_label.setStyleSheet("color: #F5F7FA; background: transparent;")
+        self.name_label.setStyleSheet("color: #F4F4F5; background: transparent;")
         footer_layout.addWidget(self.name_label)
 
         # Playtime label — small, muted, centered below the title
         self.playtime_label = QLabel(self._format_playtime(playtime_seconds))
         self.playtime_label.setFont(QFont("Arial", 9))
         self.playtime_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.playtime_label.setStyleSheet("color: #A7ADB8; background: transparent;")
+        self.playtime_label.setStyleSheet("color: #A1A1AA; background: transparent;")
         footer_layout.addWidget(self.playtime_label)
 
         layout.addWidget(self.footer_widget)
@@ -409,13 +409,13 @@ class GameBannerWidget(QFrame):
         
         if self.is_missing:
             self.name_label.setText(self.name)
-            self.name_label.setStyleSheet("padding: 2px 6px; color: #6F7682; font-weight: 600;")
+            self.name_label.setStyleSheet("padding: 2px 6px; color: #71717A; font-weight: 600;")
         elif self.selected:
             self.name_label.setText(self.name)
-            self.name_label.setStyleSheet("padding: 2px 6px; background: rgba(10, 132, 255, 0.18); color: #38BDF8; font-weight: 600; border-radius: 6px;")
+            self.name_label.setStyleSheet("padding: 2px 6px; background: rgba(10, 132, 255, 0.18); color: #3B9FE8; font-weight: 600; border-radius: 6px;")
         else:
             self.name_label.setText(self.name)
-            self.name_label.setStyleSheet("padding: 2px 6px; color: #F5F7FA; font-weight: 600;")
+            self.name_label.setStyleSheet("padding: 2px 6px; color: #F4F4F5; font-weight: 600;")
 
         self.render_frame(self._hover_progress)
 
@@ -424,7 +424,7 @@ class GameBannerWidget(QFrame):
         self.is_favorite = is_favorite
         try:
             self.favorite_button.setChecked(is_favorite)
-            icon = get_icon("ph.heart-fill" if is_favorite else "ph.heart-bold", color="#FF453A" if is_favorite else "#6F7682")
+            icon = get_icon("ph.heart-fill" if is_favorite else "ph.heart-bold", color="#FF453A" if is_favorite else "#71717A")
             self.favorite_button.setIcon(icon)
             self.favorite_button.setText("" if not icon.isNull() else "*")
             self.favorite_button.setToolTip("Remove from Favorites" if is_favorite else "Add to Favorites")

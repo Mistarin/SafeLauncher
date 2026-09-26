@@ -67,7 +67,7 @@ class SaveConflictDialog(PopupDialog):
         lbl_info = QLabel(info_msg)
         # Qt stylesheets do not support CSS line-height; QLabel word wrapping
         # already provides the required layout behavior here.
-        lbl_info.setStyleSheet("color: #F5F7FA; font-size: 12px;")
+        lbl_info.setStyleSheet("color: #F4F4F5; font-size: 12px;")
         lbl_info.setWordWrap(True)
         body_layout.addWidget(lbl_info)
 
@@ -85,8 +85,8 @@ class SaveConflictDialog(PopupDialog):
         """
         normal_style = """
             QFrame {
-                background: #14171D;
-                border: 1px solid #252A33;
+                background: #18181B;
+                border: 1px solid #2A2A2E;
                 border-radius: 8px;
                 padding: 12px;
             }
@@ -99,20 +99,20 @@ class SaveConflictDialog(PopupDialog):
         cc_layout.setSpacing(6)
 
         cloud_tag_text = "CLOUD SAVE (OLDER)" if self.local_is_newer else "CLOUD SAVE (NEWER)"
-        cloud_tag_color = "#A7ADB8" if self.local_is_newer else "#3B9FE8"
+        cloud_tag_color = "#A1A1AA" if self.local_is_newer else "#3B9FE8"
         tag_cloud = QLabel(cloud_tag_text)
         tag_cloud.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         tag_cloud.setStyleSheet(f"color: {cloud_tag_color};")
         cc_layout.addWidget(tag_cloud)
 
         cloud_date = format_datetime_timestamp(cloud_stats.last_modified, "%H:%M:%S", fallback="Unknown")
-        cloud_date_color = "#A7ADB8" if self.local_is_newer else "#35C98A"
+        cloud_date_color = "#A1A1AA" if self.local_is_newer else "#35C98A"
         lbl_cd = QLabel(f"<b>Edited:</b><br><font color='{cloud_date_color}'>{cloud_date}</font>")
-        lbl_cd.setStyleSheet("font-size: 11px; color: #F5F7FA;")
+        lbl_cd.setStyleSheet("font-size: 11px; color: #F4F4F5;")
         cc_layout.addWidget(lbl_cd)
 
         lbl_cs = QLabel(f"Size: {format_bytes(cloud_stats.size_bytes)}<br>Versions kept: {cloud_stats.file_count}")
-        lbl_cs.setStyleSheet("font-size: 11px; color: #A7ADB8;")
+        lbl_cs.setStyleSheet("font-size: 11px; color: #A1A1AA;")
         lbl_cs.setToolTip("Older cloud save versions are retained and can be recovered.")
         cc_layout.addWidget(lbl_cs)
 
@@ -125,20 +125,20 @@ class SaveConflictDialog(PopupDialog):
         lc_layout.setSpacing(6)
 
         local_tag_text = "LOCAL SAVE (NEWER)" if self.local_is_newer else "LOCAL SAVE (OLDER)"
-        local_tag_color = "#3B9FE8" if self.local_is_newer else "#A7ADB8"
+        local_tag_color = "#3B9FE8" if self.local_is_newer else "#A1A1AA"
         tag_local = QLabel(local_tag_text)
         tag_local.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         tag_local.setStyleSheet(f"color: {local_tag_color};")
         lc_layout.addWidget(tag_local)
 
         local_date = format_datetime_timestamp(local_stats.last_modified, "%H:%M:%S", fallback="Unknown")
-        local_date_color = "#35C98A" if self.local_is_newer else "#A7ADB8"
+        local_date_color = "#35C98A" if self.local_is_newer else "#A1A1AA"
         lbl_ld = QLabel(f"<b>Edited:</b><br><font color='{local_date_color}'>{local_date}</font>")
-        lbl_ld.setStyleSheet("font-size: 11px; color: #F5F7FA;")
+        lbl_ld.setStyleSheet("font-size: 11px; color: #F4F4F5;")
         lc_layout.addWidget(lbl_ld)
 
         lbl_ls = QLabel(f"Size: {format_bytes(local_stats.size_bytes)}<br>Files: {local_stats.file_count}")
-        lbl_ls.setStyleSheet("font-size: 11px; color: #6F7682;")
+        lbl_ls.setStyleSheet("font-size: 11px; color: #71717A;")
         lc_layout.addWidget(lbl_ls)
 
         cards_row.addWidget(local_card, 1)
@@ -146,7 +146,7 @@ class SaveConflictDialog(PopupDialog):
 
         # Always keep newer checkbox
         self.cb_always_newer = QCheckBox("Always automatically choose the newer save without prompting")
-        self.cb_always_newer.setStyleSheet("QCheckBox { color: #A7ADB8; font-size: 11px; }")
+        self.cb_always_newer.setStyleSheet("QCheckBox { color: #A1A1AA; font-size: 11px; }")
         body_layout.addWidget(self.cb_always_newer)
 
         # Buttons Footer
@@ -169,17 +169,17 @@ class SaveConflictDialog(PopupDialog):
         """
         secondary_btn_style = """
             QPushButton {
-                background: #1A1E26;
-                color: #A7ADB8;
-                border: 1px solid #252A33;
+                background: #202024;
+                color: #A1A1AA;
+                border: 1px solid #2A2A2E;
                 border-radius: 6px;
                 padding: 0 14px;
                 font-weight: 500;
                 font-size: 12px;
             }
             QPushButton:hover {
-                background: #252A33;
-                color: #F5F7FA;
+                background: #2A2A2E;
+                color: #F4F4F5;
             }
         """
 
@@ -218,8 +218,8 @@ class SaveConflictDialog(PopupDialog):
 
         self.setStyleSheet("""
             QDialog {
-                background-color: #0D0F14;
-                border: 1px solid #252A33;
+                background-color: #121214;
+                border: 1px solid #2A2A2E;
                 border-radius: 10px;
             }
         """)

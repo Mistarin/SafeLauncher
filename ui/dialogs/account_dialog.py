@@ -113,11 +113,11 @@ class AccountDialog(PopupDialog):
         ident_col.setSpacing(2)
         self.lbl_email = QLabel("Not signed in")
         self.lbl_email.setFont(QFont("Arial", 13, QFont.Weight.Bold))
-        self.lbl_email.setStyleSheet("color: #F5F7FA;")
+        self.lbl_email.setStyleSheet("color: #F4F4F5;")
         set_accessible_status(self.lbl_email, "Cloud account identity")
         ident_col.addWidget(self.lbl_email)
         self.lbl_subject = QLabel("")
-        self.lbl_subject.setStyleSheet("color: #6F7682; font-size: 11px;")
+        self.lbl_subject.setStyleSheet("color: #71717A; font-size: 11px;")
         set_accessible_status(self.lbl_subject, "Cloud account details")
         ident_col.addWidget(self.lbl_subject)
         header_row.addLayout(ident_col)
@@ -139,14 +139,14 @@ class AccountDialog(PopupDialog):
         self.btn_account_details.setArrowType(Qt.ArrowType.RightArrow)
         self.btn_account_details.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_account_details.setStyleSheet(
-            "QToolButton { color: #A7ADB8; background: transparent; border: none; "
+            "QToolButton { color: #A1A1AA; background: transparent; border: none; "
             "padding: 2px 0; font-size: 11px; font-weight: 600; text-align: left; }"
-            "QToolButton:hover { color: #F5F7FA; }"
+            "QToolButton:hover { color: #F4F4F5; }"
         )
         self.btn_account_details.setAccessibleName("Show cloud account technical details")
         body_layout.addWidget(self.btn_account_details)
         self.lbl_endpoint_details = QLabel("Endpoint: —")
-        self.lbl_endpoint_details.setStyleSheet("color: #6F7682; font-size: 10px; font-family: monospace;")
+        self.lbl_endpoint_details.setStyleSheet("color: #71717A; font-size: 10px; font-family: monospace;")
         self.lbl_endpoint_details.setWordWrap(True)
         self.lbl_endpoint_details.setVisible(False)
         set_accessible_status(self.lbl_endpoint_details, "Cloud account endpoint")
@@ -176,7 +176,7 @@ class AccountDialog(PopupDialog):
         self.bar_quota.setStyleSheet("""
             QProgressBar {
                 background: #18181B;
-                border: 1px solid #27272A;
+                border: 1px solid #202024;
                 border-radius: 7px;
             }
             QProgressBar::chunk {
@@ -187,7 +187,7 @@ class AccountDialog(PopupDialog):
         """)
         quota_layout.addWidget(self.bar_quota)
         self.lbl_quota_text = QLabel("Connect an account to see cloud usage.")
-        self.lbl_quota_text.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        self.lbl_quota_text.setStyleSheet("color: #A1A1AA; font-size: 11px;")
         set_accessible_status(self.lbl_quota_text, "Cloud storage usage")
         quota_layout.addWidget(self.lbl_quota_text)
         body_layout.addWidget(quota_box)
@@ -203,7 +203,7 @@ class AccountDialog(PopupDialog):
         self.lst_devices = QListWidget()
         self.lst_devices.setMaximumHeight(86)
         self.lst_devices.setStyleSheet(
-            "QListWidget { background:#121214; border:1px solid #27272A; border-radius:6px; color:#E5E7EB; }"
+            "QListWidget { background:#121214; border:1px solid #202024; border-radius:6px; color:#E5E7EB; }"
             "QListWidget::item { padding:5px; }"
             "QListWidget::item:selected { background:#3B9FE8; color:white; }"
         )
@@ -211,7 +211,7 @@ class AccountDialog(PopupDialog):
 
         self.btn_revoke_device = QPushButton("Revoke Selected")
         self.btn_revoke_device.setStyleSheet(
-            "QPushButton { background:#27272A; color:#F05D6C; border:1px solid #3F3F46;"
+            "QPushButton { background:#202024; color:#F05D6C; border:1px solid #2A2A2E;"
             "border-radius:5px; padding:6px 12px; }"
             "QPushButton:hover { border-color:#F05D6C; }"
         )
@@ -236,7 +236,7 @@ class AccountDialog(PopupDialog):
         self.lst_games = QListWidget()
         self.lst_games.currentRowChanged.connect(self._on_game_selected)
         self.lst_games.setStyleSheet(
-            "QListWidget { background:#121214; border:1px solid #27272A; border-radius:6px; color:#E5E7EB; }"
+            "QListWidget { background:#121214; border:1px solid #202024; border-radius:6px; color:#E5E7EB; }"
             "QListWidget::item { padding:7px; }"
             "QListWidget::item:selected { background:#3B9FE8; color:white; }"
         )
@@ -258,9 +258,9 @@ class AccountDialog(PopupDialog):
         ver_btn_row.setSpacing(6)
         self.btn_restore = QPushButton("Restore selected version")
         self.btn_restore.setStyleSheet(
-            "QPushButton { background:#3B9FE8; color:#FFFFFF; border:1px solid #2563EB;"
+            "QPushButton { background:#3B9FE8; color:#FFFFFF; border:1px solid #3B9FE8;"
             "border-radius:5px; padding:6px 12px; font-weight:bold; }"
-            "QPushButton:hover { background:#2563EB; }"
+            "QPushButton:hover { background:#3B9FE8; }"
         )
         self.btn_restore.clicked.connect(self._restore_selected_version)
         self.btn_restore.setAccessibleName("Restore selected cloud save version")
@@ -268,7 +268,7 @@ class AccountDialog(PopupDialog):
 
         self.btn_delete_generation = QPushButton("Delete selected version")
         self.btn_delete_generation.setStyleSheet(
-            "QPushButton { background:#27272A; color:#F05D6C; border:1px solid #3F3F46;"
+            "QPushButton { background:#202024; color:#F05D6C; border:1px solid #2A2A2E;"
             "border-radius:5px; padding:6px 12px; }"
             "QPushButton:hover { border-color:#F05D6C; }"
         )
@@ -586,11 +586,11 @@ class AccountDialog(PopupDialog):
         self.bar_quota.setValue(int(pct * 1000))
         from core.cloud_backend import BASE_FREE_QUOTA_BYTES
         over_free_tier = used_bytes > BASE_FREE_QUOTA_BYTES
-        chunk_color = "#F59E0B" if over_free_tier else (
-            "#3B9FE8" if pct < 0.75 else ("#EAB308" if pct < 0.92 else "#EF4444")
+        chunk_color = "#E5A93D" if over_free_tier else (
+            "#3B9FE8" if pct < 0.75 else ("#E5A93D" if pct < 0.92 else "#F05D6C")
         )
         quota_style = self.bar_quota.styleSheet()
-        for old_color in ("#3B9FE8", "#EAB308", "#EF4444", "#F59E0B"):
+        for old_color in ("#3B9FE8", "#E5A93D", "#F05D6C", "#E5A93D"):
             quota_style = quota_style.replace(f"stop:0 {old_color}", f"stop:0 {chunk_color}")
         self.bar_quota.setStyleSheet(quota_style)
         free = total_bytes - used_bytes
@@ -599,7 +599,7 @@ class AccountDialog(PopupDialog):
             if over_free_tier else " · 1 GB free — referrals can expand storage"
         )
         self.lbl_quota_text.setStyleSheet(
-            f"color: {'#F59E0B' if over_free_tier else '#9CA3AF'}; font-size: 11px;"
+            f"color: {'#E5A93D' if over_free_tier else '#A1A1AA'}; font-size: 11px;"
         )
         self.lbl_quota_text.setText(
             f"{format_bytes(used_bytes)} of {format_bytes(total_bytes)} "
@@ -953,7 +953,7 @@ class AccountDialog(PopupDialog):
 
     def _style_avatar(self, text: str, ok: bool):
         self.lbl_avatar.setText(text)
-        color = "#3B9FE8" if ok else "#4B5563"
+        color = "#3B9FE8" if ok else "#71717A"
         self.lbl_avatar.setStyleSheet(
             "QLabel { background: %s; border-radius: 22px; color: white; "
             "font-size: 18px; font-weight: bold; }" % color

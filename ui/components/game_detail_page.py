@@ -19,7 +19,7 @@ from PyQt6.QtGui import (
     QPixmap, QColor, QPainter, QFont, QIcon, QPainterPath, QLinearGradient
 )
 
-from ui.icons import get_icon
+from ui.icons import get_icon, get_icon_pixmap
 from ui.dialogs.achievements_dialog import create_rounded_pixmap
 from core.date_formatting import format_timestamp, format_datetime_timestamp
 from core.disk_utils import format_size, peek_dir_size
@@ -186,7 +186,7 @@ class GameDetailPageWidget(QWidget):
         self.banner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.banner_label.setStyleSheet("""
             QLabel {
-                background-color: #161A22;
+                background-color: #18181B;
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 14px;
             }
@@ -215,7 +215,7 @@ class GameDetailPageWidget(QWidget):
         title_box.addWidget(self.lbl_title)
 
         self.lbl_collection = QLabel("")
-        self.lbl_collection.setStyleSheet("color: #0A84FF; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; background: transparent;")
+        self.lbl_collection.setStyleSheet("color: #3B9FE8; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; background: transparent;")
         self.lbl_collection.setVisible(False)
         title_box.addWidget(self.lbl_collection)
 
@@ -244,7 +244,7 @@ class GameDetailPageWidget(QWidget):
         self.btn_launch.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_launch.setStyleSheet("""
             QPushButton#detailPrimaryLaunch {
-                background-color: #0A84FF;
+                background-color: #3B9FE8;
                 color: #FFFFFF;
                 font-weight: 700;
                 font-size: 14px;
@@ -255,10 +255,10 @@ class GameDetailPageWidget(QWidget):
                 letter-spacing: 0.2px;
             }
             QPushButton#detailPrimaryLaunch:hover {
-                background-color: #0071E3;
+                background-color: #55ACED;
             }
             QPushButton#detailPrimaryLaunch:pressed {
-                background-color: #005BB5;
+                background-color: #2789D0;
             }
         """)
         self.btn_launch.clicked.connect(self._on_launch_clicked)
@@ -268,7 +268,7 @@ class GameDetailPageWidget(QWidget):
         sec_btn_style = """
             QPushButton {
                 background-color: #1A1F2C;
-                color: #D1D5DB;
+                color: #F4F4F5;
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 8px;
                 padding: 0 12px;
@@ -291,7 +291,7 @@ class GameDetailPageWidget(QWidget):
         sec_grid.setSpacing(8)
 
         self.btn_edit = QPushButton("Edit Game")
-        self.btn_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#0A84FF"))
+        self.btn_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#3B9FE8"))
         self.btn_edit.setIconSize(QSize(14, 14))
         self.btn_edit.setFixedHeight(34)
         self.btn_edit.setStyleSheet(sec_btn_style)
@@ -300,7 +300,7 @@ class GameDetailPageWidget(QWidget):
         sec_grid.addWidget(self.btn_edit, 0, 0)
 
         self.btn_properties = QPushButton("Properties")
-        self.btn_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#8E8E93"))
+        self.btn_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#A1A1AA"))
         self.btn_properties.setIconSize(QSize(14, 14))
         self.btn_properties.setFixedHeight(34)
         self.btn_properties.setStyleSheet(sec_btn_style)
@@ -309,7 +309,7 @@ class GameDetailPageWidget(QWidget):
         sec_grid.addWidget(self.btn_properties, 0, 1)
 
         self.btn_saves = QPushButton("Local Saves")
-        self.btn_saves.setIcon(get_icon("ph.floppy-disk-bold", color="#8E8E93"))
+        self.btn_saves.setIcon(get_icon("ph.floppy-disk-bold", color="#A1A1AA"))
         self.btn_saves.setIconSize(QSize(14, 14))
         self.btn_saves.setFixedHeight(34)
         self.btn_saves.setStyleSheet(sec_btn_style)
@@ -318,7 +318,7 @@ class GameDetailPageWidget(QWidget):
         sec_grid.addWidget(self.btn_saves, 0, 2)
 
         self.btn_folder = QPushButton("Game Folder")
-        self.btn_folder.setIcon(get_icon("ph.folder-open-bold", color="#8E8E93"))
+        self.btn_folder.setIcon(get_icon("ph.folder-open-bold", color="#A1A1AA"))
         self.btn_folder.setIconSize(QSize(14, 14))
         self.btn_folder.setFixedHeight(34)
         self.btn_folder.setStyleSheet(sec_btn_style)
@@ -327,7 +327,7 @@ class GameDetailPageWidget(QWidget):
         sec_grid.addWidget(self.btn_folder, 1, 0)
 
         self.btn_screenshots = QPushButton("Screenshots")
-        self.btn_screenshots.setIcon(get_icon("ph.image-bold", color="#8E8E93"))
+        self.btn_screenshots.setIcon(get_icon("ph.image-bold", color="#A1A1AA"))
         self.btn_screenshots.setIconSize(QSize(14, 14))
         self.btn_screenshots.setFixedHeight(34)
         self.btn_screenshots.setStyleSheet(sec_btn_style)
@@ -372,7 +372,7 @@ class GameDetailPageWidget(QWidget):
         desc_box.setSpacing(6)
 
         lbl_desc_hdr = QLabel("ABOUT THIS GAME")
-        lbl_desc_hdr.setStyleSheet("color: #8E8E93; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
+        lbl_desc_hdr.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
         desc_box.addWidget(lbl_desc_hdr)
 
         self.lbl_description = QLabel("No description available.")
@@ -380,7 +380,7 @@ class GameDetailPageWidget(QWidget):
         self.lbl_description.setTextFormat(Qt.TextFormat.RichText)
         self.lbl_description.setStyleSheet("""
             QLabel {
-                color: #D1D5DB;
+                color: #F4F4F5;
                 font-size: 13px;
                 line-height: 1.5;
                 background: rgba(255, 255, 255, 0.03);
@@ -397,7 +397,7 @@ class GameDetailPageWidget(QWidget):
         self.spec_card.setObjectName("detailSpecsCard")
         self.spec_card.setStyleSheet("""
             QFrame#detailSpecsCard {
-                background-color: #141822;
+                background-color: #18181B;
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 12px;
             }
@@ -409,43 +409,43 @@ class GameDetailPageWidget(QWidget):
 
         # Column 0: Playtime & Last Played
         lbl_pt_h = QLabel("PLAYTIME")
-        lbl_pt_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_pt_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_pt_h, 0, 0)
         self.lbl_playtime = QLabel("--")
-        self.lbl_playtime.setStyleSheet("color: #F5F7FA; font-size: 12px; font-weight: 600; background: transparent;")
+        self.lbl_playtime.setStyleSheet("color: #F4F4F5; font-size: 12px; font-weight: 600; background: transparent;")
         spec_layout.addWidget(self.lbl_playtime, 1, 0)
 
         lbl_lp_h = QLabel("LAST PLAYED")
-        lbl_lp_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_lp_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_lp_h, 2, 0)
         self.lbl_last_played = QLabel("--")
-        self.lbl_last_played.setStyleSheet("color: #F5F7FA; font-size: 12px; font-weight: 600; background: transparent;")
+        self.lbl_last_played.setStyleSheet("color: #F4F4F5; font-size: 12px; font-weight: 600; background: transparent;")
         spec_layout.addWidget(self.lbl_last_played, 3, 0)
 
         # Column 1: Disk Size & Cloud Save
         lbl_ds_h = QLabel("DISK SIZE")
-        lbl_ds_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_ds_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_ds_h, 0, 1)
         self.lbl_disk_size = QLabel("--")
-        self.lbl_disk_size.setStyleSheet("color: #A1A1A6; font-size: 12px; font-weight: 500; background: transparent;")
+        self.lbl_disk_size.setStyleSheet("color: #A1A1AA; font-size: 12px; font-weight: 500; background: transparent;")
         spec_layout.addWidget(self.lbl_disk_size, 1, 1)
 
         lbl_cs_h = QLabel("CLOUD SAVE")
-        lbl_cs_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_cs_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_cs_h, 2, 1)
 
         cloud_row = QHBoxLayout()
         cloud_row.setContentsMargins(0, 0, 0, 0)
         cloud_row.setSpacing(6)
         self.lbl_cloud_status = QLabel("--")
-        self.lbl_cloud_status.setStyleSheet("color: #A1A1A6; font-size: 12px; font-weight: 500; background: transparent;")
+        self.lbl_cloud_status.setStyleSheet("color: #A1A1AA; font-size: 12px; font-weight: 500; background: transparent;")
         cloud_row.addWidget(self.lbl_cloud_status)
 
         self.btn_cloud_action = QPushButton("Sync")
         self.btn_cloud_action.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cloud_action.setStyleSheet("""
             QPushButton {
-                background: #2563EB;
+                background: #3B9FE8;
                 color: #FFFFFF;
                 border: none;
                 border-radius: 4px;
@@ -454,7 +454,7 @@ class GameDetailPageWidget(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background: #3B82F6;
+                background: #3B9FE8;
             }
         """)
         self.btn_cloud_action.setVisible(False)
@@ -465,7 +465,7 @@ class GameDetailPageWidget(QWidget):
 
         self.lbl_cloud_metadata = QLabel("")
         self.lbl_cloud_metadata.setStyleSheet(
-            "color: #6F7682; font-size: 10px; font-weight: 500; background: transparent;"
+            "color: #71717A; font-size: 10px; font-weight: 500; background: transparent;"
         )
         self.lbl_cloud_metadata.setAccessibleName("Cloud save time and device")
         self.lbl_cloud_metadata.setVisible(False)
@@ -473,17 +473,17 @@ class GameDetailPageWidget(QWidget):
 
         # Column 2: Launch Mode & Executable
         lbl_mode_h = QLabel("LAUNCH MODE")
-        lbl_mode_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_mode_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_mode_h, 0, 2)
         self.lbl_mode = QLabel("--")
-        self.lbl_mode.setStyleSheet("color: #A1A1A6; font-size: 12px; font-weight: 500; background: transparent;")
+        self.lbl_mode.setStyleSheet("color: #A1A1AA; font-size: 12px; font-weight: 500; background: transparent;")
         spec_layout.addWidget(self.lbl_mode, 1, 2)
 
         lbl_exe_h = QLabel("EXECUTABLE")
-        lbl_exe_h.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
+        lbl_exe_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
         spec_layout.addWidget(lbl_exe_h, 2, 2)
         self.lbl_exe = QLabel("--")
-        self.lbl_exe.setStyleSheet("color: #A1A1A6; font-size: 12px; font-weight: 500; background: transparent;")
+        self.lbl_exe.setStyleSheet("color: #A1A1AA; font-size: 12px; font-weight: 500; background: transparent;")
         spec_layout.addWidget(self.lbl_exe, 3, 2)
 
         right_column.addWidget(self.spec_card)
@@ -493,7 +493,7 @@ class GameDetailPageWidget(QWidget):
         self.ach_card.setObjectName("detailAchCard")
         self.ach_card.setStyleSheet("""
             QFrame#detailAchCard {
-                background-color: #141822;
+                background-color: #18181B;
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 12px;
             }
@@ -512,12 +512,12 @@ class GameDetailPageWidget(QWidget):
         ach_hdr = QHBoxLayout()
         ach_hdr.setContentsMargins(0, 0, 0, 0)
         ach_title = QLabel("ACHIEVEMENTS")
-        ach_title.setStyleSheet("color: #636366; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
+        ach_title.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
         ach_hdr.addWidget(ach_title)
         ach_hdr.addStretch()
 
         self.lbl_ach_ratio = QLabel("0 / 0 (0%)")
-        self.lbl_ach_ratio.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700; background: transparent;")
+        self.lbl_ach_ratio.setStyleSheet("color: #35C98A; font-size: 11px; font-weight: 700; background: transparent;")
         ach_hdr.addWidget(self.lbl_ach_ratio)
         ach_layout.addLayout(ach_hdr)
 
@@ -528,12 +528,12 @@ class GameDetailPageWidget(QWidget):
         self.ach_progress.setValue(0)
         self.ach_progress.setStyleSheet("""
             QProgressBar {
-                background-color: #1A1F28;
+                background-color: #202024;
                 border: none;
                 border-radius: 2px;
             }
             QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #30D158, stop:1 #34C759);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #35C98A, stop:1 #35C98A);
                 border-radius: 2px;
             }
         """)
@@ -618,7 +618,7 @@ class GameDetailPageWidget(QWidget):
             p.drawRoundedRect(1, 1, target_size.width() - 2, target_size.height() - 2, 14, 14)
             
             # Controller icon centered
-            ico_pix = get_icon("ph.game-controller-bold", color="#4A5568").pixmap(64, 64)
+            ico_pix = get_icon_pixmap("ph.game-controller-bold", 64, color="#4A5568")
             ico_x = (target_size.width() - 64) // 2
             ico_y = (target_size.height() // 2) - 50
             p.drawPixmap(ico_x, ico_y, ico_pix)
@@ -679,7 +679,7 @@ class GameDetailPageWidget(QWidget):
             badge.setStyleSheet("""
                 QLabel {
                     background: rgba(255, 255, 255, 0.07);
-                    color: #98989D;
+                    color: #A1A1AA;
                     border: 1px solid rgba(255, 255, 255, 0.08);
                     border-radius: 6px;
                     padding: 3px 10px;
@@ -765,7 +765,7 @@ class GameDetailPageWidget(QWidget):
         if is_favorite:
             self.btn_fav.setIcon(get_icon("ph.heart-fill", color="#FF453A"))
         else:
-            self.btn_fav.setIcon(get_icon("ph.heart-bold", color="#8E8E93"))
+            self.btn_fav.setIcon(get_icon("ph.heart-bold", color="#A1A1AA"))
         self.btn_fav.setIconSize(QSize(16, 16))
 
     def _on_favorite_clicked(self):

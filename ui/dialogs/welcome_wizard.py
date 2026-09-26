@@ -51,14 +51,14 @@ class WelcomeWizardDialog(PopupDialog):
             QPushButton {
                 background: #27272a;
                 color: #ffffff;
-                border: 1px solid #3f3f46;
+                border: 1px solid #2A2A2E;
                 border-radius: 4px;
                 padding: 8px 18px;
                 font-size: 12px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background: #3f3f46;
+                background: #2A2A2E;
             }
             QCheckBox {
                 color: #a1a1aa;
@@ -138,10 +138,10 @@ class WelcomeWizardDialog(PopupDialog):
         btn_start.setMinimumHeight(38)
         btn_start.setStyleSheet("""
             QPushButton {
-                background: #2563eb; color: #ffffff; border: none;
+                background: #3B9FE8; color: #ffffff; border: none;
                 border-radius: 4px; padding: 8px 24px; font-weight: bold; font-size: 13px;
             }
-            QPushButton:hover { background: #1d4ed8; }
+            QPushButton:hover { background: #2789D0; }
         """)
         btn_start.clicked.connect(self._finish)
         body_layout.addWidget(btn_start)

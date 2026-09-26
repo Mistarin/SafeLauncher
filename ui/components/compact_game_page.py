@@ -31,7 +31,7 @@ from PyQt6.QtGui import (
     QPixmap, QColor, QPainter, QLinearGradient, QFont, QIcon, QPainterPath
 )
 
-from ui.icons import get_icon
+from ui.icons import get_icon, get_icon_pixmap
 from ui.components.sort_combo import SortComboBox
 from core.cloud_models import SyncStatus
 from core.library_controller import LibrarySnapshot
@@ -312,7 +312,7 @@ class CompactActionBar(QFrame):
         cloud_row.setSpacing(6)
         cloud_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.cloud_icon_lbl = QLabel()
-        self.cloud_icon_lbl.setPixmap(get_icon("ph.cloud-check-fill", color="#3CD070").pixmap(14, 14))
+        self.cloud_icon_lbl.setPixmap(get_icon_pixmap("ph.cloud-check-fill", 14, color="#3CD070"))
         self.cloud_icon_lbl.setStyleSheet("background: transparent;")
         cloud_row.addWidget(self.cloud_icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -524,10 +524,10 @@ class CompactActionBar(QFrame):
                     letter-spacing: 0.5px;
                 }
                 QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3B82F6, stop:1 #2563EB);
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3B9FE8, stop:1 #3B9FE8);
                 }
                 QPushButton:pressed {
-                    background: #1D4ED8;
+                    background: #2789D0;
                 }
             """)
         elif state_lower in ("stopping", "terminating"):
@@ -617,12 +617,12 @@ class CompactActionBar(QFrame):
                 source=getattr(self, "_update_source", "live"),
                 checked_at=getattr(self, "_update_checked_at", 0.0),
             )
-            self.update_dot.setPixmap(get_icon(update_meta.icon, color=update_meta.color).pixmap(12, 12))
+            self.update_dot.setPixmap(get_icon_pixmap(update_meta.icon, 12, color=update_meta.color))
             self.update_dot.setToolTip(update_meta.tooltip)
             self.update_text_lbl.setText(update_meta.label)
 
         cloud_meta = cloud_indicator(status)
-        self.cloud_icon_lbl.setPixmap(get_icon(cloud_meta.icon, color=cloud_meta.color).pixmap(14, 14))
+        self.cloud_icon_lbl.setPixmap(get_icon_pixmap(cloud_meta.icon, 14, color=cloud_meta.color))
         self.cloud_text_lbl.setText(cloud_meta.label)
         self.cloud_text_lbl.setToolTip(cloud_meta.tooltip)
         self.cloud_text_lbl.setStyleSheet(
@@ -863,7 +863,7 @@ class CompactActivityTimelineCard(QFrame):
 
             icon_lbl = QLabel()
             icon_lbl.setFixedSize(36, 36)
-            icon_lbl.setStyleSheet("background-color: #27272A; border-radius: 4px; border: none;")
+            icon_lbl.setStyleSheet("background-color: #202024; border-radius: 4px; border: none;")
             icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             icon_path = ach.get("icon_path", "")
@@ -872,9 +872,9 @@ class CompactActivityTimelineCard(QFrame):
                 if not pix.isNull():
                     icon_lbl.setPixmap(_create_rounded_icon(pix, QSize(36, 36), radius=4))
                 else:
-                    icon_lbl.setPixmap(get_icon("ph.trophy-fill", color="#FFD60A").pixmap(20, 20))
+                    icon_lbl.setPixmap(get_icon_pixmap("ph.trophy-fill", 20, color="#FFD60A"))
             else:
-                icon_lbl.setPixmap(get_icon("ph.trophy-fill", color="#FFD60A").pixmap(20, 20))
+                icon_lbl.setPixmap(get_icon_pixmap("ph.trophy-fill", 20, color="#FFD60A"))
 
             r_layout.addWidget(icon_lbl)
 
@@ -980,7 +980,7 @@ class CompactAchievementsShowcaseWidget(QFrame):
 
         self.recent_icon = QLabel()
         self.recent_icon.setFixedSize(42, 42)
-        self.recent_icon.setStyleSheet("background-color: #27272A; border-radius: 4px; border: none;")
+        self.recent_icon.setStyleSheet("background-color: #202024; border-radius: 4px; border: none;")
         self.recent_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rc_layout.addWidget(self.recent_icon)
 
@@ -1017,7 +1017,7 @@ class CompactAchievementsShowcaseWidget(QFrame):
         self.btn_view_all.setStyleSheet("""
             QPushButton {
                 background-color: #202024;
-                color: #D4D4D8;
+                color: #F4F4F5;
                 border: none;
                 border-radius: 4px;
                 font-size: 11px;
@@ -1028,7 +1028,7 @@ class CompactAchievementsShowcaseWidget(QFrame):
                 color: #FFFFFF;
             }
             QPushButton:pressed {
-                background-color: #1C1C20;
+                background-color: #202024;
             }
         """)
         self.btn_view_all.clicked.connect(self.view_all_clicked.emit)
@@ -1043,7 +1043,7 @@ class CompactAchievementsShowcaseWidget(QFrame):
             desc_text = "No achievements configured for this game"
             self.recent_title.setText(title_text)
             self.recent_desc.setText(desc_text)
-            self.recent_icon.setPixmap(get_icon("ph.trophy-bold", color="#71717A").pixmap(20, 20))
+            self.recent_icon.setPixmap(get_icon_pixmap("ph.trophy-bold", 20, color="#71717A"))
             self.btn_view_all.setEnabled(False)
         elif recent_unlocked:
             first = recent_unlocked[0]
@@ -1057,9 +1057,9 @@ class CompactAchievementsShowcaseWidget(QFrame):
                 if not pix.isNull():
                     self.recent_icon.setPixmap(_create_rounded_icon(pix, QSize(42, 42), radius=4))
                 else:
-                    self.recent_icon.setPixmap(get_icon("ph.trophy-fill", color="#FFD60A").pixmap(20, 20))
+                    self.recent_icon.setPixmap(get_icon_pixmap("ph.trophy-fill", 20, color="#FFD60A"))
             else:
-                self.recent_icon.setPixmap(get_icon("ph.trophy-fill", color="#FFD60A").pixmap(20, 20))
+                    self.recent_icon.setPixmap(get_icon_pixmap("ph.trophy-fill", 20, color="#FFD60A"))
             self.recent_card.setVisible(True)
             self.btn_view_all.setEnabled(True)
         else:
@@ -1067,7 +1067,7 @@ class CompactAchievementsShowcaseWidget(QFrame):
             desc_text = "Keep playing to unlock your first achievements!"
             self.recent_title.setText(title_text)
             self.recent_desc.setText(desc_text)
-            self.recent_icon.setPixmap(get_icon("ph.trophy-bold", color="#71717A").pixmap(20, 20))
+            self.recent_icon.setPixmap(get_icon_pixmap("ph.trophy-bold", 20, color="#71717A"))
             self.btn_view_all.setEnabled(True)
 
         self.recent_title.setToolTip(str(title_text))
@@ -1091,9 +1091,9 @@ class CompactAchievementsShowcaseWidget(QFrame):
                 if not p.isNull():
                     thumb.setPixmap(_create_rounded_icon(p, QSize(32, 32), radius=4))
                 else:
-                    thumb.setPixmap(get_icon("ph.lock-simple-bold", color="#71717A").pixmap(14, 14))
+                    thumb.setPixmap(get_icon_pixmap("ph.lock-simple-bold", 14, color="#71717A"))
             else:
-                thumb.setPixmap(get_icon("ph.lock-simple-bold", color="#71717A").pixmap(14, 14))
+                thumb.setPixmap(get_icon_pixmap("ph.lock-simple-bold", 14, color="#71717A"))
             thumb.setToolTip(ach.get("display_name") or "Locked achievement")
             self.thumbs_row.addWidget(thumb)
 
@@ -1166,7 +1166,7 @@ class CompactMediaShowcaseWidget(QFrame):
         action_layout.setSpacing(6)
 
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(get_icon(icon_name, color="#FFFFFF").pixmap(14, 14))
+        icon_lbl.setPixmap(get_icon_pixmap(icon_name, 14, color="#FFFFFF"))
         action_layout.addWidget(icon_lbl)
 
         text_lbl = QLabel(label)
@@ -1174,7 +1174,7 @@ class CompactMediaShowcaseWidget(QFrame):
         action_layout.addWidget(text_lbl)
 
         count_lbl = QLabel(str(count))
-        count_lbl.setStyleSheet("color: #8E8E93; font-size: 11px; font-weight: 600;")
+        count_lbl.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 600;")
         action_layout.addWidget(count_lbl)
         action_layout.addStretch()
         action.mousePressEvent = lambda _event: callback()
@@ -1226,7 +1226,7 @@ class CompactMediaShowcaseWidget(QFrame):
             top_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
             icon_lbl = QLabel()
-            icon_lbl.setPixmap(get_icon("ph.video-camera-slash-bold", color="#71717A").pixmap(20, 20))
+            icon_lbl.setPixmap(get_icon_pixmap("ph.video-camera-slash-bold", 20, color="#71717A"))
             icon_lbl.setStyleSheet("background: transparent;")
             top_row.addWidget(icon_lbl)
 
@@ -1349,7 +1349,7 @@ class CompactMediaShowcaseWidget(QFrame):
             top_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
             icon_lbl = QLabel()
-            icon_lbl.setPixmap(get_icon("ph.camera-bold", color="#71717A").pixmap(18, 18))
+            icon_lbl.setPixmap(get_icon_pixmap("ph.camera-bold", 18, color="#71717A"))
             icon_lbl.setStyleSheet("background: transparent;")
             top_row.addWidget(icon_lbl)
 
@@ -1976,7 +1976,7 @@ class CompactSidebarListItemWidget(QWidget):
         # 2. Game Title
         self.title_lbl = QLabel(self.name)
         self.title_lbl.setFont(QFont("Arial", 11, QFont.Weight.Medium))
-        title_color = "#FF9F0A" if self.is_missing else "#E4E4E7"
+        title_color = "#E5A93D" if self.is_missing else "#E4E4E7"
         self.title_lbl.setStyleSheet(f"color: {title_color}; background: transparent;")
         if self.is_missing:
             self.title_lbl.setToolTip("Installation or executable is missing")
@@ -2002,7 +2002,7 @@ class CompactSidebarListItemWidget(QWidget):
         layout.addWidget(self.update_lbl)
 
         self.missing_lbl = QLabel()
-        self.missing_lbl.setPixmap(get_icon("ph.warning-circle-fill", color="#FF9F0A").pixmap(12, 12))
+        self.missing_lbl.setPixmap(get_icon_pixmap("ph.warning-circle-fill", 12, color="#E5A93D"))
         self.missing_lbl.setToolTip("Installation or executable is missing")
         self.missing_lbl.setStyleSheet("background: transparent;")
         self.missing_lbl.setVisible(bool(self.is_missing))
@@ -2017,7 +2017,7 @@ class CompactSidebarListItemWidget(QWidget):
     def _set_cloud_icon(self):
         from core.game_status import cloud_indicator
         meta = cloud_indicator(self.cloud_status)
-        self.cloud_lbl.setPixmap(get_icon(meta.icon, color=meta.color).pixmap(12, 12))
+        self.cloud_lbl.setPixmap(get_icon_pixmap(meta.icon, 12, color=meta.color))
         self.cloud_lbl.setToolTip(meta.tooltip)
 
     def set_favorite(self, is_favorite: bool) -> None:
@@ -2028,7 +2028,7 @@ class CompactSidebarListItemWidget(QWidget):
         self.favorite_lbl.setVisible(self.is_favorite)
         if self.is_favorite:
             self.favorite_lbl.setPixmap(
-                get_icon("ph.heart-fill", color="#FF453A").pixmap(12, 12)
+                get_icon_pixmap("ph.heart-fill", 12, color="#FF453A")
             )
         else:
             self.favorite_lbl.clear()
@@ -2044,12 +2044,12 @@ class CompactSidebarListItemWidget(QWidget):
         )
         self.update_lbl.setVisible(self.is_update_available)
         self.update_lbl.setToolTip(meta.tooltip)
-        self.update_lbl.setPixmap(get_icon(meta.icon, color=meta.color).pixmap(13, 13))
+        self.update_lbl.setPixmap(get_icon_pixmap(meta.icon, 13, color=meta.color))
 
     def _load_icon(self):
         if self.is_archived:
             self.icon_lbl.setPixmap(
-                get_icon("ph.archive-bold", color="#6F7682").pixmap(20, 20)
+                get_icon_pixmap("ph.archive-bold", 20, color="#71717A")
             )
             return
         pix: Optional[QPixmap] = None
@@ -2101,7 +2101,7 @@ class CompactSidebarListItemWidget(QWidget):
                     pass
 
         if pix is None:
-            pix = get_icon("ph.game-controller-bold", color="#3B9FE8").pixmap(24, 24)
+            pix = get_icon_pixmap("ph.game-controller-bold", 24, color="#3B9FE8")
 
         self.icon_lbl.setPixmap(_create_rounded_icon(pix, QSize(24, 24), radius=4))
 
@@ -2132,7 +2132,7 @@ class CompactSidebarListWidget(QFrame):
 
         self.setStyleSheet("""
             QFrame#compactSidebarList {
-                background-color: #161618;
+                background-color: #18181B;
                 border: none;
             }
         """)
@@ -2145,7 +2145,7 @@ class CompactSidebarListWidget(QFrame):
         filter_bar = QFrame()
         filter_bar.setStyleSheet("""
             QFrame {
-                background-color: #1C1C20;
+                background-color: #202024;
                 border: none;
                 border-radius: 6px;
             }
@@ -2224,7 +2224,7 @@ class CompactSidebarListWidget(QFrame):
         self.search_edit.setFixedHeight(30)
         self.search_edit.setStyleSheet("""
             QLineEdit {
-                background-color: #1C1C20;
+                background-color: #202024;
                 color: #FFFFFF;
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 6px;
@@ -2233,7 +2233,7 @@ class CompactSidebarListWidget(QFrame):
             }
             QLineEdit:focus {
                 border-color: #3B9FE8;
-                background-color: #222228;
+                background-color: #202024;
             }
         """)
         self.search_edit.textChanged.connect(self._on_search_changed)
@@ -2276,7 +2276,7 @@ class CompactSidebarListWidget(QFrame):
                 height: 0px;
             }
             QComboBox QAbstractItemView {
-                background-color: #1C1C20;
+                background-color: #202024;
                 color: #FFFFFF;
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 selection-background-color: rgba(255, 255, 255, 0.12);
@@ -2318,7 +2318,7 @@ class CompactSidebarListWidget(QFrame):
                 border-left: 3px solid transparent;
             }
             QListWidget::item:hover {
-                background-color: #202026;
+                background-color: #202024;
             }
             QListWidget::item:selected {
                 background-color: #272730;
@@ -2535,7 +2535,7 @@ class CompactSidebarListWidget(QFrame):
                 if isinstance(widget, CompactSidebarListItemWidget):
                     widget.is_missing = bool(is_missing)
                     widget.title_lbl.setStyleSheet(
-                        f"color: {'#FF9F0A' if widget.is_missing else '#E4E4E7'}; background: transparent;"
+                        f"color: {'#E5A93D' if widget.is_missing else '#E4E4E7'}; background: transparent;"
                     )
                     widget.missing_lbl.setVisible(widget.is_missing)
                     if widget.is_missing:

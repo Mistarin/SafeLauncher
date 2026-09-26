@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QPointF
 from PyQt6.QtGui import QFont, QColor, QPixmap, QPainter, QPainterPath, QPen, QIcon
 
-from ui.icons import get_app_icon, get_icon, LOGO_PATH
+from ui.icons import get_app_icon, get_icon, get_icon_pixmap, draw_folder_pixmap, LOGO_PATH
 from ui.theme import BG_APP, SURFACE_ELEVATED, TEXT_PRIMARY, TEXT_SECONDARY, ACCENT_PRIMARY
 
 
@@ -32,7 +32,7 @@ class _ProfileMenuButton(QToolButton):
             return
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            painter.setPen(QPen(QColor("#8E8E93"), 1.25, Qt.PenStyle.SolidLine,
+            painter.setPen(QPen(QColor("#A1A1AA"), 1.25, Qt.PenStyle.SolidLine,
                                 Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
             x = float(self.width() - 10)
             y = float(self.height() / 2)
@@ -61,7 +61,7 @@ class LeftSidebarWidget(QFrame):
 
         self.setStyleSheet("""
             QFrame {
-                background: #161618;
+                background: #18181B;
                 border: none;
             }
         """)
@@ -79,7 +79,7 @@ class LeftSidebarWidget(QFrame):
         self.btn_collapse.setStyleSheet("""
             QPushButton {
                 background: transparent;
-                color: #A1A1A6;
+                color: #A1A1AA;
                 border: none;
                 border-radius: 6px;
                 padding: 0;
@@ -88,7 +88,7 @@ class LeftSidebarWidget(QFrame):
                 font-weight: 500;
             }
             QPushButton:hover {
-                background: #171B23;
+                background: #18181B;
                 color: #FFFFFF;
             }
         """)
@@ -106,7 +106,7 @@ class LeftSidebarWidget(QFrame):
         nav_style = """
             QPushButton {
                 background: transparent;
-                color: #D4D4D8;
+                color: #F4F4F5;
                 text-align: left;
                 padding: 6px 10px;
                 border: none;
@@ -116,7 +116,7 @@ class LeftSidebarWidget(QFrame):
                 min-height: 18px;
             }
             QPushButton:hover {
-                background: #171B23;
+                background: #18181B;
                 color: #FFFFFF;
             }
             QPushButton:checked {
@@ -242,7 +242,7 @@ class LeftSidebarWidget(QFrame):
         self.size_slider.setCursor(Qt.CursorShape.PointingHandCursor)
         self.size_slider.setStyleSheet("""
             QSlider::groove:horizontal { height: 3px; background: rgba(255, 255, 255, 0.08); border-radius: 1.5px; }
-            QSlider::sub-page:horizontal { background: #3F3F46; border-radius: 1.5px; }
+            QSlider::sub-page:horizontal { background: #2A2A2E; border-radius: 1.5px; }
             QSlider::handle:horizontal { background: #FFFFFF; width: 12px; height: 12px; margin: -4.5px 0; border-radius: 6px; }
             QSlider::handle:horizontal:hover { background: #E5E5EA; }
         """)
@@ -334,11 +334,16 @@ class LeftSidebarWidget(QFrame):
             btn_layout.setSpacing(6)
 
             icon_lbl = QLabel()
-            icon_lbl.setPixmap(get_icon("ph.folder-simple-bold", color="#FFFFFF").pixmap(15, 15))
+            icon_lbl.setFixedSize(15, 15)
+            # QIcon#setIconSize is DPI-aware, but converting the icon to a
+            # QLabel pixmap manually is not. Request a device-pixel-sized
+            # pixmap and preserve its DPR or compact-mode icons become tiny
+            # grey squares on a scaled display.
+            icon_lbl.setPixmap(draw_folder_pixmap(15, color="#FFFFFF"))
             icon_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
             name_lbl = QLabel(name)
-            name_lbl.setStyleSheet("color: #D4D4D8; font-size: 12px; font-weight: 500; background: transparent;")
+            name_lbl.setStyleSheet("color: #F4F4F5; font-size: 12px; font-weight: 500; background: transparent;")
             name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
             count_lbl = QLabel(str(count))
@@ -373,7 +378,7 @@ class LeftSidebarWidget(QFrame):
                 margin-top: 4px;
             }
             QPushButton:hover {
-                background: #1A1F28;
+                background: #202024;
                 color: #FFFFFF;
             }
         """)
@@ -515,7 +520,7 @@ class HeaderBar(QFrame):
                 text-align: center;
             }
             QPushButton:hover {
-                background: #1A1F28;
+                background: #202024;
                 color: #FFFFFF;
             }
             QPushButton::menu-indicator { image: none; }
@@ -570,12 +575,6 @@ class HeaderBar(QFrame):
         act_lib_fav.triggered.connect(lambda: self.filter_requested.emit("favorites"))
         act_lib_arch = self.lib_menu.addAction(get_icon("ph.archive-bold", color="#FFFFFF"), "Not installed")
         act_lib_arch.triggered.connect(lambda: self.filter_requested.emit("archived"))
-
-        act_profile = self.view_menu.addAction(get_icon("ph.user-circle-bold", color="#30D158"), "Profile")
-        act_profile.triggered.connect(self.profile_requested.emit)
-
-        act_friends = self.view_menu.addAction(get_icon("ph.users-three-bold", color="#C4C4C8"), "Friends")
-        act_friends.triggered.connect(self.friends_requested.emit)
 
         self.btn_view.setMenu(self.view_menu)
         layout.addWidget(self.btn_view)
@@ -635,22 +634,20 @@ class HeaderBar(QFrame):
         self.btn_tools.setMenu(self.tools_menu)
         layout.addWidget(self.btn_tools)
 
-        # Identity menu stays adjacent to the window controls. Social page
-        # navigation lives in View, so this menu only contains account-wide
-        # utilities and settings instead of duplicating Profile/Friends.
+        # Identity menu owns identity and social navigation. Cloud and
+        # application settings belong to their dedicated header/tools entry
+        # points and should not be mixed into a profile menu.
         self.profile_menu = QMenu(self)
         self.profile_menu.setStyleSheet(menu_style)
-        act_cloud_center = self.profile_menu.addAction(get_icon("ph.cloud-bold", color="#FFFFFF"), "Cloud Center")
-        act_cloud_center.triggered.connect(self.cloud_center_requested.emit)
-        act_profile_settings = self.profile_menu.addAction(get_icon("ph.gear-bold", color="#FFFFFF"), "Settings…")
-        act_profile_settings.triggered.connect(
-            lambda _checked=False: QTimer.singleShot(0, self.settings_requested.emit)
-        )
+        act_profile = self.profile_menu.addAction(get_icon("ph.user-circle-bold", color="#C4C4C8"), "Profile")
+        act_profile.triggered.connect(self.profile_requested.emit)
+        act_friends = self.profile_menu.addAction(get_icon("ph.users-three-bold", color="#C4C4C8"), "Friends")
+        act_friends.triggered.connect(self.friends_requested.emit)
 
         profile_control_style = """
             QToolButton {
                 background: transparent;
-                color: #8E8E93;
+                color: #A1A1AA;
                 border: none;
                 border-radius: 6px;
                 padding: 0 8px;
@@ -661,7 +658,7 @@ class HeaderBar(QFrame):
                 image: none;
             }
             QToolButton:hover {
-                background: #202633;
+                background: #202024;
                 color: #FFFFFF;
             }
         """
@@ -691,7 +688,7 @@ class HeaderBar(QFrame):
         # text-oriented path; this button also gives us a place to reflect the
         # last known connection state without exposing any credentials.
         self.btn_cloud_center = QToolButton()
-        self.btn_cloud_center.setIcon(get_icon("ph.cloud-bold", color="#8E8E93"))
+        self.btn_cloud_center.setIcon(get_icon("ph.cloud-bold", color="#A1A1AA"))
         self.btn_cloud_center.setIconSize(QSize(17, 17))
         self.btn_cloud_center.setFixedSize(30, 30)
         self.btn_cloud_center.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -705,7 +702,7 @@ class HeaderBar(QFrame):
         # controls. Keeping the avatar, display name, and menu on the same
         # button avoids the old dead-label/active-icon split hit target.
         self.btn_profile = _ProfileMenuButton()
-        self.btn_profile.setIcon(get_icon("ph.user-circle-bold", color="#8E8E93"))
+        self.btn_profile.setIcon(get_icon("ph.user-circle-bold", color="#A1A1AA"))
         self.btn_profile.setIconSize(QSize(17, 17))
         self.btn_profile.setText("Player")
         self.btn_profile.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -725,7 +722,7 @@ class HeaderBar(QFrame):
         control_style = """
             QPushButton {
                 background: transparent;
-                color: #8E8E93;
+                color: #A1A1AA;
                 border: none;
                 border-radius: 6px;
                 padding: 0;
@@ -734,7 +731,7 @@ class HeaderBar(QFrame):
                 font-weight: 500;
             }
             QPushButton:hover {
-                background: #202633;
+                background: #202024;
                 color: #FFFFFF;
             }
             QPushButton#windowClose:hover {
@@ -745,7 +742,7 @@ class HeaderBar(QFrame):
 
         self.btn_min = QPushButton()
         self.btn_min.setObjectName("windowMinimize")
-        self.btn_min.setIcon(get_app_icon("minimize", color="#8E8E93"))
+        self.btn_min.setIcon(get_app_icon("minimize", color="#A1A1AA"))
         self.btn_min.setIconSize(QSize(11, 11))
         self.btn_min.setFixedSize(30, 30)
         self.btn_min.setToolTip("Minimize window")
@@ -755,7 +752,7 @@ class HeaderBar(QFrame):
 
         self.btn_max = QPushButton()
         self.btn_max.setObjectName("windowMaximize")
-        self.btn_max.setIcon(get_app_icon("maximize", color="#8E8E93"))
+        self.btn_max.setIcon(get_app_icon("maximize", color="#A1A1AA"))
         self.btn_max.setIconSize(QSize(11, 11))
         self.btn_max.setFixedSize(30, 30)
         self.btn_max.setToolTip("Maximize window")
@@ -765,7 +762,7 @@ class HeaderBar(QFrame):
 
         self.btn_close = QPushButton()
         self.btn_close.setObjectName("windowClose")
-        self.btn_close.setIcon(get_app_icon("close", color="#8E8E93"))
+        self.btn_close.setIcon(get_app_icon("close", color="#A1A1AA"))
         self.btn_close.setIconSize(QSize(11, 11))
         self.btn_close.setFixedSize(30, 30)
         self.btn_close.setToolTip("Close SafeLauncher")
@@ -777,9 +774,9 @@ class HeaderBar(QFrame):
         """Reflect the last known private-cloud state in the header icon."""
         colors = {
             "ready": "#35C98A",
-            "local": "#8E8E93",
-            "offline": "#F59E0B",
-            "setup_required": "#F59E0B",
+            "local": "#A1A1AA",
+            "offline": "#E5A93D",
+            "setup_required": "#E5A93D",
         }
         color = colors.get(str(connection or ""), "#F05D6C")
         icon_name = "ph.cloud-check-bold" if connection == "ready" else "ph.cloud-bold"
@@ -807,7 +804,7 @@ class HeaderBar(QFrame):
     def set_profile_avatar(self, pixmap: QPixmap | None = None) -> None:
         """Show the decoded local profile avatar in the identity control."""
         if pixmap is None or pixmap.isNull():
-            self.btn_profile.setIcon(get_icon("ph.user-circle-bold", color="#8E8E93"))
+            self.btn_profile.setIcon(get_icon("ph.user-circle-bold", color="#A1A1AA"))
             self.btn_profile.setIconSize(QSize(17, 17))
             return
 

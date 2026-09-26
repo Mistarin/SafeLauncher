@@ -66,7 +66,7 @@ def update_indicator(
                 "Game Update: Unavailable offline",
                 "No online game-version check is available while offline.",
                 "ph.wifi-slash-bold",
-                "#6F7682",
+                "#71717A",
                 visible=False,
             )
         return StatusIndicator(
@@ -85,7 +85,7 @@ def update_indicator(
                 "A newer game version was seen previously. "
                 f"Last checked online: {checked_text}. Reconnect to verify the current version.",
                 "ph.arrow-circle-up-fill",
-                "#8493A7",
+                "#71717A",
             )
         return StatusIndicator(
             "Game Update: Available",
@@ -102,7 +102,7 @@ def update_indicator(
             "No newer version was found in the last online comparison. "
             f"Last checked online: {checked_text}. Reconnect to verify.",
             "ph.check-circle-fill",
-            "#8493A7",
+            "#71717A",
             visible=False,
         )
     return StatusIndicator(
@@ -129,12 +129,12 @@ def cloud_indicator(status: SyncStatus | None) -> StatusIndicator:
             "ph.key-bold",
             "#E5A93D",
         ),
-        SyncStatus.CLOUD_OFFLINE: ("Cloud Save: Offline", "Offline mode is enabled; cloud status will be checked again when online.", "ph.cloud-slash-bold", "#6F7682"),
+        SyncStatus.CLOUD_OFFLINE: ("Cloud Save: Offline", "Offline mode is enabled; cloud status will be checked again when online.", "ph.cloud-slash-bold", "#71717A"),
         SyncStatus.CLOUD_UNAVAILABLE: ("Cloud Save: Unavailable", "Online mode is enabled, but the cloud backend could not be reached.", "ph.cloud-slash-bold", "#E5A93D"),
     }
     label, tooltip, icon, color = values.get(
         status,
-        ("Cloud Save: Checking", "Cloud save status has not been checked yet.", "ph.cloud-bold", "#6F7682"),
+        ("Cloud Save: Checking", "Cloud save status has not been checked yet.", "ph.cloud-bold", "#71717A"),
     )
     return StatusIndicator(label, tooltip, icon, color)
 

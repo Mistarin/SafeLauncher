@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 from PyQt6.QtCore import QSettings, QTimer, QSize, Qt
 from PyQt6.QtGui import QColor, QImage, QPixmap
-from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QPushButton
+from PyQt6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox, QPushButton
 
 from core.profile_avatar_catalog import (
     is_valid_avatar_bytes,
@@ -50,6 +50,7 @@ from ui.components.profile_page import ProfilePageWidget
 from ui.library_list import LibraryListItemWidget
 from ui.components.compact_game_page import CompactSidebarListItemWidget
 from ui.dialogs.profile_avatar_dialog import ProfileAvatarCatalogDialog
+from ui.dialogs.profile_username_dialog import ProfileUsernameDialog
 from ui.dialogs.friends_dialog import FriendsDialog
 from ui.dialogs.game_dialogs import CustomRemoveDialog, EditGameDialog
 from ui.dialogs.settings_dialog import UserSettingsDialog
@@ -58,6 +59,26 @@ from ui.profile_theme import get_profile_theme, normalize_profile_theme, profile
 
 
 class ProfileModelTests(unittest.TestCase):
+    def test_private_cloud_merge_cannot_overwrite_public_publication_state(self):
+        merged = _merge_profiles(
+            {
+                "profile": {
+                    "public_handle": "owner",
+                    "published": True,
+                    "display_name": "Owner",
+                }
+            },
+            {
+                "profile": {
+                    "public_handle": "stale-owner",
+                    "published": False,
+                    "display_name": "Older Owner",
+                }
+            },
+        )
+        self.assertEqual(merged["profile"]["public_handle"], "owner")
+        self.assertTrue(merged["profile"]["published"])
+
     def test_cloud_library_materializes_history_and_reuses_it_on_install(self):
         db = GameDatabase(":memory:")
         try:
@@ -1045,6 +1066,30 @@ class ProfilePageTests(unittest.TestCase):
             dialog.deleteLater()
             self.app.processEvents()
 
+    def test_profile_username_dialog_uses_themed_shell_and_inline_validation(self):
+        dialog = ProfileUsernameDialog("martin_42")
+        try:
+            self.assertEqual(dialog.objectName(), "safeLauncherPopup")
+            self.assertTrue(dialog.windowFlags() & Qt.WindowType.FramelessWindowHint)
+            self.assertEqual(dialog.windowTitle(), "Choose profile username")
+            self.assertEqual(dialog.username_edit.text(), "martin_42")
+            self.assertEqual(dialog.cancel_button.height(), 34)
+            self.assertEqual(dialog.continue_button.height(), 34)
+
+            dialog.username_edit.setText("!!")
+            dialog._accept_username()
+            self.assertFalse(dialog.error_label.isHidden())
+            self.assertEqual(dialog.result(), 0)
+
+            dialog.username_edit.setText("Martin 42")
+            dialog._accept_username()
+            self.assertEqual(dialog.result(), dialog.DialogCode.Accepted)
+            self.assertEqual(dialog.value, "martin-42")
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+            self.app.processEvents()
+
     def test_avatar_decode_removes_only_bad_iccp_chunk(self):
         signature = b"\x89PNG\r\n\x1a\n"
 
@@ -1200,6 +1245,21 @@ class ProfilePageTests(unittest.TestCase):
 
                 page._start_edit()
                 self.assertTrue(page.btn_banner_edit.isHidden())
+                self.assertEqual(page.btn_editor_publish.text(), "Publish profile")
+                self.assertFalse(page.btn_editor_publish.isHidden())
+                self.assertEqual(
+                    {button.height() for button in (
+                        page.btn_avatar,
+                        page.btn_remove_avatar,
+                        page.btn_custom_color,
+                        page.btn_use_hero_background,
+                        page.btn_editor_publish,
+                        page.btn_cancel_edit,
+                        page.btn_save_edit,
+                    )},
+                    {32},
+                )
+                self.assertEqual(page.findChild(QLabel, "profileEditorLabel").width(), 112)
                 page.panel_theme_combo.setCurrentIndex(page.panel_theme_combo.findData("sunset"))
                 self.assertEqual(page.profile_theme(), "sunset")
                 page._cancel_edit()
@@ -1291,7 +1351,7 @@ class ProfilePageTests(unittest.TestCase):
             self.assertEqual(header.btn_profile.iconSize(), QSize(17, 17))
             self.assertEqual(header.btn_friends.text(), "Friends")
             actions = [action.text() for action in header.profile_menu.actions() if not action.isSeparator()]
-            self.assertEqual(actions, ["Cloud Center", "Settings…"])
+            self.assertEqual(actions, ["Profile", "Friends"])
             window.title_bar = header
             MainWindow._sync_window_controls(window)
             self.assertFalse(header.btn_min.isHidden())

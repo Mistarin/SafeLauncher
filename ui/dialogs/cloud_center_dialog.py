@@ -118,7 +118,7 @@ class CloudCenterDialog(PopupDialog):
             card = QFrame()
             card.setObjectName("cloudCenterSummaryCard")
             card.setStyleSheet(
-                "QFrame#cloudCenterSummaryCard { background: #18181B; border: 1px solid #27272A; border-radius: 8px; }"
+                "QFrame#cloudCenterSummaryCard { background: #18181B; border: 1px solid #202024; border-radius: 8px; }"
             )
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(12, 10, 12, 10)
@@ -126,7 +126,7 @@ class CloudCenterDialog(PopupDialog):
             label = QLabel(title.upper())
             label.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px;")
             value = QLabel("—")
-            value.setStyleSheet("color: #F5F7FA; font-size: 16px; font-weight: 700;")
+            value.setStyleSheet("color: #F4F4F5; font-size: 16px; font-weight: 700;")
             card_layout.addWidget(label)
             card_layout.addWidget(value)
             summary.addWidget(card, index // 2, index % 2)
@@ -161,7 +161,7 @@ class CloudCenterDialog(PopupDialog):
         self.device_list.setMinimumHeight(76)
         self.device_list.setMaximumHeight(120)
         self.device_list.setStyleSheet(
-            "QListWidget { background: #18181B; border: 1px solid #27272A; border-radius: 8px; color: #E5E7EB; }"
+            "QListWidget { background: #18181B; border: 1px solid #202024; border-radius: 8px; color: #E5E7EB; }"
             "QListWidget::item { padding: 7px 8px; }"
         )
         self.device_list.setAccessibleName("Devices using this private cloud")
@@ -182,7 +182,7 @@ class CloudCenterDialog(PopupDialog):
         self.advanced_frame = QFrame()
         self.advanced_frame.setObjectName("cloudCenterAdvanced")
         self.advanced_frame.setStyleSheet(
-            "QFrame#cloudCenterAdvanced { background: #18181B; border: 1px solid #27272A; border-radius: 8px; }"
+            "QFrame#cloudCenterAdvanced { background: #18181B; border: 1px solid #202024; border-radius: 8px; }"
         )
         advanced_layout = QVBoxLayout(self.advanced_frame)
         advanced_layout.setContentsMargins(12, 10, 12, 10)
@@ -389,9 +389,9 @@ class CloudCenterDialog(PopupDialog):
     def _render_overview(self, overview: CloudOverview, *, stale: bool = False) -> None:
         labels = {
             "ready": ("Cloud connected", "#35C98A"),
-            "local": ("Local sync active", "#8E8E93"),
-            "setup_required": ("Cloud setup required", "#F59E0B"),
-            "offline": ("Cloud offline", "#F59E0B"),
+            "local": ("Local sync active", "#A1A1AA"),
+            "setup_required": ("Cloud setup required", "#E5A93D"),
+            "offline": ("Cloud offline", "#E5A93D"),
         }
         title, color = labels.get(overview.connection, ("Cloud unavailable", "#F05D6C"))
         if stale and overview.connection == "ready":

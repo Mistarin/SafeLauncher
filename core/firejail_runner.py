@@ -1,4 +1,6 @@
 import os
+import hashlib
+import re
 import shlex
 import shutil
 import subprocess
@@ -35,6 +37,31 @@ _GPU_CACHE_PATHS = [
     "~/.cache/vkd3d_shader_cache",
     "~/.cache/dxvk-cache",
 ]
+
+
+def _sandbox_name_for_path(game_path: str) -> str:
+    """Return a Firejail-compatible, stable name for a game directory.
+
+    Firejail rejects names ending in a separator.  Truncating a slug after
+    sanitizing it can create exactly that shape (for example, a long folder
+    ending at ``...keeper-``), so trimming must happen after truncation.  A
+    short path digest also keeps long folder names distinct when their visible
+    prefixes are identical.
+    """
+    raw_name = os.path.basename(os.path.normpath(str(game_path or ""))).casefold()
+    slug = re.sub(r"[^a-z0-9_-]+", "_", raw_name)
+    slug = re.sub(r"[-_]{2,}", "-", slug).strip("-_") or "game"
+
+    prefix = "safelauncher-"
+    max_length = 32
+    if len(prefix) + len(slug) <= max_length:
+        return prefix + slug
+
+    digest = hashlib.sha256(os.path.realpath(str(game_path)).encode("utf-8", "replace")).hexdigest()[:6]
+    suffix = f"-{digest}"
+    visible_length = max_length - len(prefix) - len(suffix)
+    visible = slug[:visible_length].rstrip("-_") or "game"
+    return f"{prefix}{visible}{suffix}"[:max_length].rstrip("-_")
 
 
 class FirejailSandboxRunner(ISandboxRunner):
@@ -241,8 +268,7 @@ class FirejailSandboxRunner(ISandboxRunner):
         firejail_audit = ""
 
         # Sandbox name for reliable container discovery & termination
-        sandbox_id = f"safelauncher-{os.path.basename(os.path.normpath(game_path)).lower()}"
-        sandbox_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in sandbox_id)[:32]
+        sandbox_id = _sandbox_name_for_path(game_path)
         sandbox_name_flag = f"--name={sandbox_id} " if has_firejail else ""
 
         # Build Firejail security hardening options

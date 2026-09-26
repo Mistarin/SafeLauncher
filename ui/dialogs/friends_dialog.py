@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.network_policy import automatic_network_allowed
-from core.profile_models import HANDLE_RE, load_profile_settings, normalize_social_snapshot
+from core.profile_models import HANDLE_RE, load_profile_settings, normalize_social_snapshot, save_profile_settings
 from core.profile_service import ProfileServiceError, get_profile_service_url
 from core.profile_resource_service import ProfileResourceService
 from core.cache_policy import cache_policy
@@ -200,8 +200,11 @@ class FriendsDialog(PopupDialog):
         published = bool(profile.get("published"))
         signed_in = bool(getattr(self.auth_session, "signed_in", False))
         configured = get_profile_service_url().startswith(("http://", "https://"))
-        ready = bool(self._handle and published and signed_in and configured and automatic_network_allowed(self.settings))
-        self.btn_refresh.setEnabled(ready and not self._social_loading and not self._social_mutating)
+        service_ready = bool(self._handle and signed_in and configured and automatic_network_allowed(self.settings))
+        ready = bool(service_ready and published)
+        # Refresh is also allowed when the local publication flag is stale so
+        # the authoritative public-profile service can repair the local cache.
+        self.btn_refresh.setEnabled(service_ready and not self._social_loading and not self._social_mutating)
         self.btn_add.setEnabled(ready and not self._social_loading and not self._social_mutating)
         self.btn_find.setEnabled(bool(automatic_network_allowed(self.settings)))
         for button in self._social_action_buttons:
@@ -211,7 +214,7 @@ class FriendsDialog(PopupDialog):
         elif not signed_in:
             message = "Sign in from My profile to manage friends."
         elif not published or not self._handle:
-            message = "Publish your profile from My profile to manage friends."
+            message = "Public profile status will be checked when you refresh."
         elif not configured:
             message = "The central profile service is not configured."
         else:
@@ -357,9 +360,15 @@ class FriendsDialog(PopupDialog):
         service_url = get_profile_service_url()
 
         def work():
-            return self.profile_resources.get_social(handle, service_url)
+            return self.profile_resources.get_owner_social(service_url)
 
-        if self._start_managed_remote(
+        profile = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        # When the local publication flag is false/stale, bypass any cached
+        # social snapshot and ask the public service for the owner profile.
+        managed = self._start_managed_remote(
             self.profile_resources.request_spec(
                 self.profile_resources.request_key(
                     "profile-social", handle, service_url=service_url
@@ -372,8 +381,9 @@ class FriendsDialog(PopupDialog):
             self._refresh_done,
             lambda error: self._refresh_done(ProfileServiceError(str(error), "social_refresh_failed")),
             cache_policy_name="profile-social",
-            cache_validator=normalize_social_snapshot,
-        ) is not None:
+            cache_validator=self._social_cache_value_is_valid,
+        ) if bool(profile.get("published")) else None
+        if managed is not None:
             return
 
         worker = self._tasks.start("SafeLauncher-FriendsDialogRefresh", work, self._refresh_done)
@@ -394,7 +404,22 @@ class FriendsDialog(PopupDialog):
         self._pending_success_message = ""
         self.status_label.setStyleSheet("")
         self._clear_technical_error()
-        self._snapshot = normalize_social_snapshot(result)
+        owner = result.get("profile") if isinstance(result, dict) else None
+        social = result.get("social") if isinstance(result, dict) and "social" in result else result
+        if isinstance(owner, dict):
+            owner_handle = str(owner.get("handle", "") or "").strip().lower()
+            if owner_handle:
+                profile = load_profile_settings(
+                    self.settings,
+                    fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+                )
+                profile = {**profile, "public_handle": owner_handle, "published": True}
+                save_profile_settings(self.settings, profile, mark_changed=False)
+                self._handle = owner_handle
+                self.identity_label.setText(
+                    f"{profile.get('display_name', 'Player')}  ·  @{owner_handle}"
+                )
+        self._snapshot = normalize_social_snapshot(social)
         if self._snapshot is None:
             self.status_label.setStyleSheet(f"color:{SEMANTIC_ERROR};")
             self.status_label.setText("Friends could not be refreshed because the service response was invalid.")
@@ -566,6 +591,8 @@ class FriendsDialog(PopupDialog):
             return "Offline mode is enabled. Connect to refresh friends."
         if code in {"not_signed_in", "owner_token_missing"}:
             return "Sign in to SafeLauncher to use friends."
+        if code == "profile_required":
+            return "Your public profile is not available for this account. Publish it again before using Friends."
         if code == "unconfigured":
             return "The profile service is not configured yet."
         if code in {"unreachable", "social_refresh_failed", "social_operation_failed"}:
@@ -583,6 +610,12 @@ class FriendsDialog(PopupDialog):
     def _set_technical_error(self, error: Exception) -> None:
         self._technical_error = str(error)
         self.btn_copy_technical.setVisible(bool(self._technical_error))
+
+    @staticmethod
+    def _social_cache_value_is_valid(value: Any) -> bool:
+        if isinstance(value, dict) and "social" in value:
+            value = value.get("social")
+        return normalize_social_snapshot(value) is not None
 
     def _clear_technical_error(self) -> None:
         self._technical_error = ""

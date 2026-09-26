@@ -47,7 +47,7 @@ PROFILE_THEMES: tuple[ProfileTheme, ...] = (
     ),
     ProfileTheme(
         5, "glassmorphism", "Glassmorphism", ("#121316", "#202329", "#101114"),
-        ("#FFFFFF", "#D4D4D8", "#A1A1AA"), (28, 28, 34), 214, 178, 48, "#B9C2D0", True,
+        ("#FFFFFF", "#F4F4F5", "#A1A1AA"), (28, 28, 34), 214, 178, 48, "#B9C2D0", True,
     ),
 )
 

@@ -39,7 +39,7 @@ class CloudWizardDialog(PopupDialog):
                 font-family: 'Segoe UI', system-ui, sans-serif;
             }
             QLabel {
-                color: #D1D5DB;
+                color: #F4F4F5;
                 font-size: 13px;
             }
             QLineEdit {
@@ -51,11 +51,11 @@ class CloudWizardDialog(PopupDialog):
                 font-size: 13px;
             }
             QLineEdit:focus {
-                border: 1px solid #3B82F6;
+                border: 1px solid #3B9FE8;
             }
             QPushButton {
-                background-color: #27272A;
-                border: 1px solid #3F3F46;
+                background-color: #202024;
+                border: 1px solid #2A2A2E;
                 border-radius: 6px;
                 padding: 8px 16px;
                 color: #FFFFFF;
@@ -66,11 +66,11 @@ class CloudWizardDialog(PopupDialog):
                 background-color: #323238;
             }
             QPushButton#primaryBtn {
-                background-color: #2563EB;
-                border: 1px solid #3B82F6;
+                background-color: #3B9FE8;
+                border: 1px solid #3B9FE8;
             }
             QPushButton#primaryBtn:hover {
-                background-color: #1D4ED8;
+                background-color: #2789D0;
             }
             QRadioButton {
                 color: #FFFFFF;
@@ -98,7 +98,7 @@ class CloudWizardDialog(PopupDialog):
         self.layout.addWidget(self.title_lbl)
 
         self.subtitle_lbl = QLabel("Choose your setup mode")
-        self.subtitle_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        self.subtitle_lbl.setStyleSheet("color: #A1A1AA; font-size: 13px;")
         self.layout.addWidget(self.subtitle_lbl)
 
         # Stacked Pages
@@ -161,7 +161,7 @@ class CloudWizardDialog(PopupDialog):
             banner_box.setStyleSheet("""
                 QFrame {
                     background-color: rgba(16, 185, 129, 0.12);
-                    border: 1px solid #10B981;
+                    border: 1px solid #35C98A;
                     border-radius: 8px;
                 }
             """)
@@ -171,7 +171,7 @@ class CloudWizardDialog(PopupDialog):
             banner_box.setStyleSheet("""
                 QFrame {
                     background-color: rgba(245, 158, 11, 0.12);
-                    border: 1px solid #F59E0B;
+                    border: 1px solid #E5A93D;
                     border-radius: 8px;
                 }
             """)
@@ -182,7 +182,7 @@ class CloudWizardDialog(PopupDialog):
             banner_box.setStyleSheet("""
                 QFrame {
                     background-color: rgba(59, 130, 246, 0.12);
-                    border: 1px solid #3B82F6;
+                    border: 1px solid #3B9FE8;
                     border-radius: 8px;
                 }
             """)
@@ -205,12 +205,12 @@ class CloudWizardDialog(PopupDialog):
         frame_connect.setStyleSheet("""
             QFrame#optionBox {
                 background-color: #18181B;
-                border: 1px solid #27272A;
+                border: 1px solid #202024;
                 border-radius: 8px;
                 padding: 14px;
             }
             QFrame#optionBox:hover {
-                border: 1px solid #3B82F6;
+                border: 1px solid #3B9FE8;
             }
         """)
         f1_layout = QVBoxLayout(frame_connect)
@@ -218,7 +218,7 @@ class CloudWizardDialog(PopupDialog):
         f1_layout.setSpacing(6)
 
         self.radio_connect = QRadioButton("Connect to an already created cloud database")
-        self.radio_connect.setStyleSheet("font-weight: bold; font-size: 14px; color: #38BDF8;")
+        self.radio_connect.setStyleSheet("font-weight: bold; font-size: 14px; color: #3B9FE8;")
         self.radio_connect.setChecked(True)
         self.mode_group.addButton(self.radio_connect, 0)
         f1_layout.addWidget(self.radio_connect)
@@ -257,12 +257,12 @@ class CloudWizardDialog(PopupDialog):
         frame_new.setStyleSheet("""
             QFrame#optionBox {
                 background-color: #18181B;
-                border: 1px solid #27272A;
+                border: 1px solid #202024;
                 border-radius: 8px;
                 padding: 14px;
             }
             QFrame#optionBox:hover {
-                border: 1px solid #3B82F6;
+                border: 1px solid #3B9FE8;
             }
         """)
         f2_layout = QVBoxLayout(frame_new)
@@ -270,7 +270,7 @@ class CloudWizardDialog(PopupDialog):
         f2_layout.setSpacing(6)
 
         self.radio_new = QRadioButton("Set up a new private cloud database from scratch")
-        self.radio_new.setStyleSheet("font-weight: bold; font-size: 14px; color: #10B981;")
+        self.radio_new.setStyleSheet("font-weight: bold; font-size: 14px; color: #35C98A;")
         self.mode_group.addButton(self.radio_new, 1)
         f2_layout.addWidget(self.radio_new)
 
@@ -288,14 +288,14 @@ class CloudWizardDialog(PopupDialog):
         self.frame_redeploy = QFrame()
         self.frame_redeploy.setObjectName("optionBox")
         self.frame_redeploy.setStyleSheet(
-            "QFrame#optionBox { background-color: #18181B; border: 1px solid #F59E0B; "
+            "QFrame#optionBox { background-color: #18181B; border: 1px solid #E5A93D; "
             "border-radius: 8px; padding: 14px; }"
         )
         f3_layout = QVBoxLayout(self.frame_redeploy)
         f3_layout.setContentsMargins(4, 4, 4, 4)
         f3_layout.setSpacing(6)
         self.radio_redeploy = QRadioButton("Redeploy the existing backend to get the newer version")
-        self.radio_redeploy.setStyleSheet("font-weight: bold; font-size: 14px; color: #FBBF24;")
+        self.radio_redeploy.setStyleSheet("font-weight: bold; font-size: 14px; color: #E5A93D;")
         self.mode_group.addButton(self.radio_redeploy, 3)
         f3_layout.addWidget(self.radio_redeploy)
         self.redeploy_desc = QLabel(
@@ -324,7 +324,7 @@ class CloudWizardDialog(PopupDialog):
         guide.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
-                border: 1px solid #3F3F46;
+                border: 1px solid #2A2A2E;
                 border-radius: 8px;
                 padding: 12px;
             }
@@ -342,10 +342,10 @@ class CloudWizardDialog(PopupDialog):
             "<b>4.</b> Click <b>Done — continue</b>. SafeLauncher will test the connection next."
         )
         self.deploy_guide_steps.setWordWrap(True)
-        self.deploy_guide_steps.setStyleSheet("color: #D1D5DB; font-size: 12px;")
+        self.deploy_guide_steps.setStyleSheet("color: #F4F4F5; font-size: 12px;")
         guide_layout.addWidget(self.deploy_guide_steps)
         self.deploy_status_lbl = QLabel("Not deployed yet")
-        self.deploy_status_lbl.setStyleSheet("color: #FBBF24; font-size: 12px;")
+        self.deploy_status_lbl.setStyleSheet("color: #E5A93D; font-size: 12px;")
         guide_layout.addWidget(self.deploy_status_lbl)
         self.btn_deploy_done = QPushButton("Done — continue")
         self.btn_deploy_done.setObjectName("primaryBtn")
@@ -359,7 +359,7 @@ class CloudWizardDialog(PopupDialog):
         web_card.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
-                border: 1px solid #2563EB;
+                border: 1px solid #3B9FE8;
                 border-radius: 8px;
                 padding: 12px;
             }
@@ -369,7 +369,7 @@ class CloudWizardDialog(PopupDialog):
         wc_layout.setSpacing(8)
 
         wc_title = QLabel("<b>Browser setup (no terminal on this device)</b>")
-        wc_title.setStyleSheet("color: #60A5FA; font-size: 13px;")
+        wc_title.setStyleSheet("color: #55ACED; font-size: 13px;")
         wc_layout.addWidget(wc_title)
 
         wc_desc = QLabel(
@@ -377,7 +377,7 @@ class CloudWizardDialog(PopupDialog):
             "then return here and click Done.<br>"
             "• 100% Free · 1 GB Storage · No credit card required on this device."
         )
-        wc_desc.setStyleSheet("color: #D1D5DB; font-size: 12px;")
+        wc_desc.setStyleSheet("color: #F4F4F5; font-size: 12px;")
         wc_desc.setWordWrap(True)
         wc_layout.addWidget(wc_desc)
 
@@ -395,7 +395,7 @@ class CloudWizardDialog(PopupDialog):
             "or you can run manual commands:"
         )
         desc_cli.setWordWrap(True)
-        desc_cli.setStyleSheet("color: #D1D5DB; font-size: 12px; margin-top: 4px;")
+        desc_cli.setStyleSheet("color: #F4F4F5; font-size: 12px; margin-top: 4px;")
         layout.addWidget(desc_cli)
 
         btn_auto = QPushButton("Launch Automated Setup Terminal…")
@@ -412,12 +412,12 @@ class CloudWizardDialog(PopupDialog):
         )
         cmd_box.setStyleSheet("""
             background-color: #18181B;
-            border: 1px solid #27272A;
+            border: 1px solid #202024;
             border-radius: 6px;
             padding: 12px;
             font-family: 'JetBrains Mono', 'Fira Code', monospace;
             font-size: 12px;
-            color: #10B981;
+            color: #35C98A;
         """)
         layout.addWidget(cmd_box)
 
@@ -430,7 +430,7 @@ class CloudWizardDialog(PopupDialog):
         nvm_card.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
-                border: 1px solid #3F3F46;
+                border: 1px solid #2A2A2E;
                 border-radius: 6px;
                 padding: 10px;
             }
@@ -440,14 +440,14 @@ class CloudWizardDialog(PopupDialog):
         nc_layout.setSpacing(6)
 
         nc_title = QLabel("<b>Steam Deck / Immutable OS NVM Fallback</b>")
-        nc_title.setStyleSheet("color: #FBBF24; font-size: 12px;")
+        nc_title.setStyleSheet("color: #E5A93D; font-size: 12px;")
         nc_layout.addWidget(nc_title)
 
         nc_desc = QLabel(
             "To use the CLI on Steam Deck without modifying the read-only partition, "
             "install Node.js into your user profile via NVM:"
         )
-        nc_desc.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        nc_desc.setStyleSheet("color: #A1A1AA; font-size: 11px;")
         nc_desc.setWordWrap(True)
         nc_layout.addWidget(nc_desc)
 
@@ -455,12 +455,12 @@ class CloudWizardDialog(PopupDialog):
         lbl_nvm = QLabel(nvm_cmd)
         lbl_nvm.setStyleSheet("""
             background-color: #121214;
-            border: 1px solid #27272A;
+            border: 1px solid #202024;
             border-radius: 4px;
             padding: 8px;
             font-family: monospace;
             font-size: 11px;
-            color: #34D399;
+            color: #35C98A;
         """)
         lbl_nvm.setWordWrap(True)
         nc_layout.addWidget(lbl_nvm)
@@ -471,7 +471,7 @@ class CloudWizardDialog(PopupDialog):
         layout.addWidget(nvm_card)
 
         self.deploy_hint = QLabel("After deploying, click 'Next' to enter your Convex Site URL.")
-        self.deploy_hint.setStyleSheet("color: #FBBF24; font-size: 12px;")
+        self.deploy_hint.setStyleSheet("color: #E5A93D; font-size: 12px;")
         self.deploy_hint.setWordWrap(True)
         layout.addWidget(self.deploy_hint)
 
@@ -486,7 +486,7 @@ class CloudWizardDialog(PopupDialog):
         )
         self.radio_redeploy.setChecked(True)
         self.status_lbl.setText(
-            f"<font color='#FBBF24'>Backend v{backend_version} is outdated. "
+            f"<font color='#E5A93D'>Backend v{backend_version} is outdated. "
             "Choose the redeploy option to update it.</font>"
         )
         self.pages.setCurrentIndex(0)
@@ -562,7 +562,7 @@ class CloudWizardDialog(PopupDialog):
         self.deploy_status_lbl.setText(
             "Deployment instructions opened. Finish them, then click Done — continue."
         )
-        self.deploy_status_lbl.setStyleSheet("color: #60A5FA; font-size: 12px;")
+        self.deploy_status_lbl.setStyleSheet("color: #55ACED; font-size: 12px;")
         self.btn_deploy_done.setEnabled(True)
 
     def _confirm_deployment(self):
@@ -579,7 +579,7 @@ class CloudWizardDialog(PopupDialog):
         if discovered_url and not self.edit_url.text().strip():
             self.edit_url.setText(discovered_url)
         self.deploy_status_lbl.setText("Deployment marked complete. Continue to connection test.")
-        self.deploy_status_lbl.setStyleSheet("color: #34D399; font-size: 12px;")
+        self.deploy_status_lbl.setStyleSheet("color: #35C98A; font-size: 12px;")
         self.btn_next.setEnabled(True)
 
     def _create_connect_page(self) -> QWidget:
@@ -610,8 +610,8 @@ class CloudWizardDialog(PopupDialog):
         secret_box.setStyleSheet("""
             QFrame {
                 background-color: #18181B;
-                border: 1px solid #27272A;
-                border-left: 3px solid #F59E0B;
+                border: 1px solid #202024;
+                border-left: 3px solid #E5A93D;
                 border-radius: 6px;
                 padding: 8px 10px;
             }
@@ -621,18 +621,18 @@ class CloudWizardDialog(PopupDialog):
         sb_layout.setSpacing(4)
 
         sb_title = QLabel("<b>Secret Access Key</b> (Required)")
-        sb_title.setStyleSheet("color: #FBBF24; font-size: 13px;")
+        sb_title.setStyleSheet("color: #E5A93D; font-size: 13px;")
         sb_layout.addWidget(sb_title)
 
         sb_desc = QLabel(
             "Acts as a private password for your server endpoint. It stops anyone else on the internet "
             "who discovers your public <code>.convex.site</code> URL from uploading files and filling up your 1 GB storage quota.<br>"
-            "<span style='color: #9CA3AF; font-size: 11px;'>• Set <code>SAFELAUNCHER_SECRET_KEY</code> on your backend and enter the same value below.<br>"
+            "<span style='color: #A1A1AA; font-size: 11px;'>• Set <code>SAFELAUNCHER_SECRET_KEY</code> on your backend and enter the same value below.<br>"
             "• On a machine with the backend checkout and Convex login, SafeLauncher detects an existing value or creates one automatically.<br>"
             "• The current SafeLauncherCloud backend rejects requests without this key.</span>"
         )
         sb_desc.setWordWrap(True)
-        sb_desc.setStyleSheet("color: #D1D5DB; font-size: 12px;")
+        sb_desc.setStyleSheet("color: #F4F4F5; font-size: 12px;")
         sb_layout.addWidget(sb_desc)
         layout.addWidget(secret_box)
 
@@ -717,7 +717,7 @@ class CloudWizardDialog(PopupDialog):
         elif cur == 1:
             if not self._deployment_confirmed:
                 self.deploy_status_lbl.setText("Finish deployment, then click Done — continue.")
-                self.deploy_status_lbl.setStyleSheet("color: #FBBF24; font-size: 12px;")
+                self.deploy_status_lbl.setStyleSheet("color: #E5A93D; font-size: 12px;")
                 return
             self.pages.setCurrentIndex(2)
             self.subtitle_lbl.setText("Connect to your cloud database")
@@ -731,7 +731,7 @@ class CloudWizardDialog(PopupDialog):
         key = self.edit_key.text().strip()
 
         if not url:
-            self.status_lbl.setText("<font color='#EF4444'>Please enter your Convex Site URL.</font>")
+            self.status_lbl.setText("<font color='#F05D6C'>Please enter your Convex Site URL.</font>")
             return
 
         if not url.startswith("http://") and not url.startswith("https://"):
@@ -741,20 +741,20 @@ class CloudWizardDialog(PopupDialog):
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             self.status_lbl.setText(
-                "<font color='#EF4444'>Enter a valid Convex Site URL, for example "
+                "<font color='#F05D6C'>Enter a valid Convex Site URL, for example "
                 "your Convex deployment URL.</font>"
             )
             return
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             self.status_lbl.setText(
-                "<font color='#EF4444'>Use only the Convex Site URL. Remove credentials, "
+                "<font color='#F05D6C'>Use only the Convex Site URL. Remove credentials, "
                 "query parameters, or fragments.</font>"
             )
             return
 
         self.btn_next.setEnabled(False)
         self.btn_back.setEnabled(False)
-        self.status_lbl.setText("<font color='#3B82F6'>Connecting to backend...</font>")
+        self.status_lbl.setText("<font color='#3B9FE8'>Connecting to backend...</font>")
         self._test_generation += 1
         generation = self._test_generation
         test_key = key
@@ -817,8 +817,8 @@ class CloudWizardDialog(PopupDialog):
             else:
                 delete_secret("cloud_secret_key")
 
-            self.status_lbl.setText(f"<font color='#10B981'>{message}</font>")
+            self.status_lbl.setText(f"<font color='#35C98A'>{message}</font>")
             QMessageBox.information(self, "Cloud Connected", "SafeLauncher is now connected to your private cloud backend.")
             self.accept()
         else:
-            self.status_lbl.setText(f"<font color='#EF4444'>Connection failed: {message}</font>")
+            self.status_lbl.setText(f"<font color='#F05D6C'>Connection failed: {message}</font>")

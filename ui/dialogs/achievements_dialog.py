@@ -32,7 +32,7 @@ from core.achievement_resource_service import AchievementResourceService, Achiev
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
 from core.request_contracts import RequestKey, RequestPriority, ResourceResult, ResourceStatus
-from ui.icons import get_icon
+from ui.icons import get_icon, get_icon_pixmap
 from ui.components.popup_shell import PopupDialog
 from ui.resource_binding import ResourceBinding, bind_request
 
@@ -78,18 +78,18 @@ def create_rounded_pixmap(src_pixmap: QPixmap, size: QSize, radius: int = 12) ->
 
 class MetricCard(QFrame):
     """Apple-styled frosted glass metric counter card."""
-    def __init__(self, title: str, value: str, subtext: str, accent_color: str = "#30D158", parent=None):
+    def __init__(self, title: str, value: str, subtext: str, accent_color: str = "#35C98A", parent=None):
         super().__init__(parent)
         self.setObjectName("metricCard")
         self.setStyleSheet(f"""
             QFrame#metricCard {{
-                background-color: #161A22;
+                background-color: #18181B;
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 12px;
                 padding: 10px 14px;
             }}
             QFrame#metricCard:hover {{
-                background-color: #1A1F28;
+                background-color: #202024;
                 border-color: rgba(255, 255, 255, 0.14);
             }}
         """)
@@ -107,7 +107,7 @@ class MetricCard(QFrame):
         header_layout.addWidget(dot)
 
         self.title_lbl = QLabel(title.upper())
-        self.title_lbl.setStyleSheet("color: #8E8E93; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
+        self.title_lbl.setStyleSheet("color: #A1A1AA; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
         header_layout.addWidget(self.title_lbl)
         header_layout.addStretch()
 
@@ -118,7 +118,7 @@ class MetricCard(QFrame):
         layout.addWidget(self.val_lbl)
 
         self.sub_lbl = QLabel(subtext)
-        self.sub_lbl.setStyleSheet("color: #636366; font-size: 11px; background: transparent;")
+        self.sub_lbl.setStyleSheet("color: #71717A; font-size: 11px; background: transparent;")
         layout.addWidget(self.sub_lbl)
 
     def update_values(self, value: str, subtext: str):
@@ -156,7 +156,7 @@ class AppleAchievementCard(QFrame):
                 border-radius: 12px;
             }}
             QFrame#appleAchievementCard:hover {{
-                background-color: #171B23;
+                background-color: #18181B;
                 border: 1px solid {hover_border_css};
             }}
         """)
@@ -186,12 +186,12 @@ class AppleAchievementCard(QFrame):
             painter = QPainter(fallback)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setBrush(QColor("#063D24" if unlocked else "#1C1C1E"))
-            painter.setPen(QColor("#30D158" if unlocked else "#3A3A3C"))
+            painter.setPen(QColor("#35C98A" if unlocked else "#3A3A3C"))
             painter.drawRoundedRect(1, 1, 50, 50, 10, 10)
             if unlocked:
-                ico = get_icon("ph.trophy-fill", color="#30D158").pixmap(26, 26)
+                ico = get_icon_pixmap("ph.trophy-fill", 26, color="#35C98A")
             else:
-                ico = get_icon("ph.lock-simple-bold", color="#636366").pixmap(24, 24)
+                ico = get_icon_pixmap("ph.lock-simple-bold", 24, color="#71717A")
             painter.drawPixmap((52 - ico.width()) // 2, (52 - ico.height()) // 2, ico)
             painter.end()
             self.icon_lbl.setPixmap(fallback)
@@ -224,20 +224,20 @@ class AppleAchievementCard(QFrame):
         # Status Pill
         if unlocked and not verified:
             status_text = "UNVERIFIED"
-            pill_style = "background-color: rgba(255, 159, 10, 0.15); color: #FF9F0A; border: 1px solid rgba(255, 159, 10, 0.3);"
+            pill_style = "background-color: rgba(255, 159, 10, 0.15); color: #E5A93D; border: 1px solid rgba(255, 159, 10, 0.3);"
         elif unlocked and unlock_time > 1000:
             dt_str = format_datetime_timestamp(unlock_time, "%H:%M")
             status_text = f"UNLOCKED {dt_str}"
-            pill_style = "background-color: rgba(48, 209, 88, 0.15); color: #30D158; border: 1px solid rgba(48, 209, 88, 0.3);"
+            pill_style = "background-color: rgba(48, 209, 88, 0.15); color: #35C98A; border: 1px solid rgba(48, 209, 88, 0.3);"
         elif unlocked:
             status_text = "UNLOCKED"
-            pill_style = "background-color: rgba(48, 209, 88, 0.15); color: #30D158; border: 1px solid rgba(48, 209, 88, 0.3);"
+            pill_style = "background-color: rgba(48, 209, 88, 0.15); color: #35C98A; border: 1px solid rgba(48, 209, 88, 0.3);"
         elif hidden and not self.revealed:
             status_text = "SECRET"
-            pill_style = "background-color: rgba(10, 132, 255, 0.12); color: #0A84FF; border: 1px solid rgba(10, 132, 255, 0.25);"
+            pill_style = "background-color: rgba(10, 132, 255, 0.12); color: #3B9FE8; border: 1px solid rgba(10, 132, 255, 0.25);"
         else:
             status_text = "LOCKED"
-            pill_style = "background-color: #171B23; color: #8E8E93; border: 1px solid rgba(255, 255, 255, 0.08);"
+            pill_style = "background-color: #18181B; color: #A1A1AA; border: 1px solid rgba(255, 255, 255, 0.08);"
 
         self.pill_lbl = QLabel(f" {status_text} ")
         self.pill_lbl.setStyleSheet(f"{pill_style} font-size: 9px; font-weight: 700; border-radius: 4px; padding: 2px 6px; letter-spacing: 0.5px;")
@@ -255,7 +255,7 @@ class AppleAchievementCard(QFrame):
             desc_text = description
 
         self.desc_lbl = QLabel(desc_text)
-        self.desc_lbl.setStyleSheet("color: #8E8E93; font-size: 11px; background: transparent;")
+        self.desc_lbl.setStyleSheet("color: #A1A1AA; font-size: 11px; background: transparent;")
         self.desc_lbl.setWordWrap(True)
         self.desc_lbl.setMinimumWidth(0)
         self.desc_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -270,8 +270,8 @@ class AppleAchievementCard(QFrame):
             self.btn_reveal.setFixedHeight(26)
             self.btn_reveal.setStyleSheet("""
                 QPushButton {
-                    background-color: #202633;
-                    color: #0A84FF;
+                    background-color: #202024;
+                    color: #3B9FE8;
                     border: 1px solid rgba(10, 132, 255, 0.3);
                     border-radius: 13px;
                     padding: 0 12px;
@@ -300,22 +300,22 @@ class AppleAchievementCard(QFrame):
         if unlocked and unlock_time > 1000:
             dt_str = format_datetime_timestamp(unlock_time, "%H:%M:%S")
             source_text = "Steam verified" if self.ach.get("verified") else "Local source · unverified"
-            source_color = "#30D158" if self.ach.get("verified") else "#FF9F0A"
+            source_color = "#35C98A" if self.ach.get("verified") else "#E5A93D"
             time_line = f"<p style='color: {source_color}; font-weight: bold; margin-top: 6px;'>Unlocked on {dt_str} · {source_text}</p>"
         elif unlocked:
             source_text = "Steam verified" if self.ach.get("verified") else "Local source · unverified"
-            source_color = "#30D158" if self.ach.get("verified") else "#FF9F0A"
+            source_color = "#35C98A" if self.ach.get("verified") else "#E5A93D"
             time_line = f"<p style='color: {source_color}; font-weight: bold; margin-top: 6px;'>Unlocked · {source_text}</p>"
         elif hidden:
-            time_line = "<p style='color: #0A84FF; font-weight: bold; margin-top: 6px;'>Secret Achievement</p>"
+            time_line = "<p style='color: #3B9FE8; font-weight: bold; margin-top: 6px;'>Secret Achievement</p>"
         else:
-            time_line = "<p style='color: #8E8E93; font-weight: bold; margin-top: 6px;'>Locked</p>"
+            time_line = "<p style='color: #A1A1AA; font-weight: bold; margin-top: 6px;'>Locked</p>"
 
         tip_html = f"""
         <div style='background-color: #1C1C1E; color: #FFFFFF; font-family: sans-serif; padding: 4px;'>
             <b style='font-size: 13px; color: #F5F5F7;'>{html.escape(display_name)}</b>
-            <p style='color: #A1A1A6; font-size: 11px; margin: 4px 0 0 0;'>{html.escape(description)}</p>
-            <p style='color: #636366; font-size: 9px; margin: 4px 0 0 0;'>API Name: <code>{html.escape(api_name)}</code></p>
+            <p style='color: #A1A1AA; font-size: 11px; margin: 4px 0 0 0;'>{html.escape(description)}</p>
+            <p style='color: #71717A; font-size: 9px; margin: 4px 0 0 0;'>API Name: <code>{html.escape(api_name)}</code></p>
             {time_line}
         </div>
         """
@@ -335,8 +335,8 @@ class AppleAchievementCard(QFrame):
                 self.btn_reveal.setText("Hide")
                 self.btn_reveal.setStyleSheet("""
                     QPushButton {
-                        background-color: #171B23;
-                        color: #8E8E93;
+                        background-color: #18181B;
+                        color: #A1A1AA;
                         border: 1px solid rgba(255, 255, 255, 0.1);
                         border-radius: 13px;
                         padding: 0 12px;
@@ -357,8 +357,8 @@ class AppleAchievementCard(QFrame):
                 self.btn_reveal.setText("Reveal")
                 self.btn_reveal.setStyleSheet("""
                     QPushButton {
-                        background-color: #202633;
-                        color: #0A84FF;
+                        background-color: #202024;
+                        color: #3B9FE8;
                         border: 1px solid rgba(10, 132, 255, 0.3);
                         border-radius: 13px;
                         padding: 0 12px;
@@ -459,7 +459,7 @@ class AchievementsDialog(PopupDialog):
                 height: 0px;
             }
             QLineEdit {
-                background-color: #171B23;
+                background-color: #18181B;
                 border: 1px solid rgba(255, 255, 255, 0.09);
                 border-radius: 10px;
                 padding: 7px 14px;
@@ -467,11 +467,11 @@ class AchievementsDialog(PopupDialog):
                 font-size: 13px;
             }
             QLineEdit:focus {
-                background-color: #202633;
-                border: 1px solid #0A84FF;
+                background-color: #202024;
+                border: 1px solid #3B9FE8;
             }
             QComboBox {
-                background-color: #171B23;
+                background-color: #18181B;
                 border: 1px solid rgba(255, 255, 255, 0.09);
                 border-radius: 10px;
                 padding: 6px 12px;
@@ -486,7 +486,7 @@ class AchievementsDialog(PopupDialog):
             QComboBox QAbstractItemView {
                 background-color: #1C1C1E;
                 border: 1px solid rgba(255, 255, 255, 0.1);
-                selection-background-color: #0A84FF;
+                selection-background-color: #3B9FE8;
                 color: #FFFFFF;
                 border-radius: 8px;
                 padding: 4px;
@@ -553,16 +553,16 @@ class AchievementsDialog(PopupDialog):
         verified = getattr(resolution, "state_provenance", "") == "steam_verified"
         if schema_available and state_available and state:
             text = " Steam verified " if verified else " Local state · unverified "
-            style = "background: rgba(48, 209, 88, 0.12); color: #30D158; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;" if verified else "background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+            style = "background: rgba(48, 209, 88, 0.12); color: #35C98A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;" if verified else "background: rgba(255, 159, 10, 0.15); color: #E5A93D; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
         elif schema_available and state_available and pending:
             text = " State found · records need validation "
-            style = "background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+            style = "background: rgba(255, 159, 10, 0.15); color: #E5A93D; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
         elif schema_available:
             text = " Definitions available · no state " if state_available else " Definitions available · state unavailable "
             style = "background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
         elif state:
             text = " Local state · schema unavailable "
-            style = "background: rgba(255, 159, 10, 0.15); color: #FF9F0A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+            style = "background: rgba(255, 159, 10, 0.15); color: #E5A93D; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
         else:
             text = " Achievement data unavailable "
             style = "background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
@@ -606,7 +606,7 @@ class AchievementsDialog(PopupDialog):
             painter.setBrush(QColor("#1C1C1E"))
             painter.setPen(QColor(255, 255, 255, 25))
             painter.drawRoundedRect(0, 0, 48, 64, 6, 6)
-            ico = get_icon("ph.game-controller-bold", color="#636366").pixmap(24, 24)
+            ico = get_icon_pixmap("ph.game-controller-bold", 24, color="#71717A")
             painter.drawPixmap(12, 20, ico)
             painter.end()
             self.cover_lbl.setPixmap(fb)
@@ -631,11 +631,11 @@ class AchievementsDialog(PopupDialog):
 
         if self.game_steam_id:
             appid_pill = QLabel(f" Steam AppID: {self.game_steam_id} ")
-            appid_pill.setStyleSheet("background: #1A1F28; color: #8E8E93; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+            appid_pill.setStyleSheet("background: #202024; color: #A1A1AA; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
             sub_row.addWidget(appid_pill)
 
         self.status_tag = QLabel(" Synchronized ")
-        self.status_tag.setStyleSheet("background: rgba(48, 209, 88, 0.12); color: #30D158; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+        self.status_tag.setStyleSheet("background: rgba(48, 209, 88, 0.12); color: #35C98A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
         sub_row.addWidget(self.status_tag)
         sub_row.addStretch()
 
@@ -649,7 +649,7 @@ class AchievementsDialog(PopupDialog):
         self.btn_refresh.setFixedHeight(34)
         self.btn_refresh.setStyleSheet("""
             QPushButton {
-                background-color: #202633;
+                background-color: #202024;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
                 padding: 0 16px;
@@ -662,7 +662,7 @@ class AchievementsDialog(PopupDialog):
                 border-color: rgba(255, 255, 255, 0.22);
             }
             QPushButton:pressed {
-                background-color: #171B23;
+                background-color: #18181B;
             }
         """)
         self.btn_refresh.clicked.connect(lambda: self._load_and_sync_achievements(force=True))
@@ -677,9 +677,9 @@ class AchievementsDialog(PopupDialog):
         metrics_layout.setContentsMargins(0, 0, 0, 0)
         metrics_layout.setSpacing(12)
 
-        self.card_unlocked = MetricCard("Unlocked", "0", "0 of 0 Badges", accent_color="#30D158")
-        self.card_progress = MetricCard("Progress", "0%", "Completion Rate", accent_color="#0A84FF")
-        self.card_locked = MetricCard("Locked", "0", "Remaining Badges", accent_color="#8E8E93")
+        self.card_unlocked = MetricCard("Unlocked", "0", "0 of 0 Badges", accent_color="#35C98A")
+        self.card_progress = MetricCard("Progress", "0%", "Completion Rate", accent_color="#3B9FE8")
+        self.card_locked = MetricCard("Locked", "0", "Remaining Badges", accent_color="#A1A1AA")
 
         metrics_layout.addWidget(self.card_unlocked)
         metrics_layout.addWidget(self.card_progress)
@@ -695,12 +695,12 @@ class AchievementsDialog(PopupDialog):
         self.progress_bar.setValue(0)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
-                background-color: #1A1F28;
+                background-color: #202024;
                 border: none;
                 border-radius: 3px;
             }
             QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #30D158, stop:1 #34C759);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #35C98A, stop:1 #35C98A);
                 border-radius: 3px;
             }
         """)
@@ -717,7 +717,7 @@ class AchievementsDialog(PopupDialog):
         seg_container = QFrame()
         seg_container.setStyleSheet("""
             QFrame {
-                background-color: #171B23;
+                background-color: #18181B;
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 9px;
                 padding: 2px;
@@ -787,7 +787,7 @@ class AchievementsDialog(PopupDialog):
         footer_layout.setContentsMargins(0, 0, 0, 0)
 
         self.stats_footer_lbl = QLabel("")
-        self.stats_footer_lbl.setStyleSheet("color: #636366; font-size: 11px;")
+        self.stats_footer_lbl.setStyleSheet("color: #71717A; font-size: 11px;")
         footer_layout.addWidget(self.stats_footer_lbl)
         footer_layout.addStretch()
 
@@ -795,7 +795,7 @@ class AchievementsDialog(PopupDialog):
         btn_close.setFixedHeight(34)
         btn_close.setStyleSheet("""
             QPushButton {
-                background-color: #0A84FF;
+                background-color: #3B9FE8;
                 border: none;
                 border-radius: 8px;
                 padding: 0 24px;
@@ -804,10 +804,10 @@ class AchievementsDialog(PopupDialog):
                 font-weight: 700;
             }
             QPushButton:hover {
-                background-color: #0071E3;
+                background-color: #55ACED;
             }
             QPushButton:pressed {
-                background-color: #005BB5;
+                background-color: #2789D0;
             }
         """)
         btn_close.clicked.connect(self.accept)
@@ -823,7 +823,7 @@ class AchievementsDialog(PopupDialog):
         btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
-                color: #8E8E93;
+                color: #A1A1AA;
                 border: none;
                 border-radius: 7px;
                 padding: 0 12px;
@@ -876,7 +876,7 @@ class AchievementsDialog(PopupDialog):
         if db_achs:
             self.achievements = db_achs
             self.status_tag.setText(" Cached · offline ")
-            self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #0A84FF; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+            self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #3B9FE8; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
             self._render_cards()
 
         from core.network_policy import automatic_network_allowed
@@ -887,7 +887,7 @@ class AchievementsDialog(PopupDialog):
             return
 
         self.status_tag.setText(" Resolving achievement data… ")
-        self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #0A84FF; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+        self.status_tag.setStyleSheet("background: rgba(10, 132, 255, 0.15); color: #3B9FE8; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
 
         if self.request_manager is not None:
             target = AchievementTarget(
@@ -1081,7 +1081,7 @@ class AchievementsDialog(PopupDialog):
             no_match = QFrame()
             no_match.setStyleSheet("""
                 QFrame {
-                    background-color: #10141B;
+                    background-color: #121214;
                     border: 1px dashed rgba(255, 255, 255, 0.08);
                     border-radius: 12px;
                     padding: 30px;
@@ -1096,7 +1096,7 @@ class AchievementsDialog(PopupDialog):
             no_layout.addWidget(lbl_msg)
 
             lbl_sub = QLabel("Try adjusting your filter or search query.")
-            lbl_sub.setStyleSheet("color: #8E8E93; font-size: 12px;")
+            lbl_sub.setStyleSheet("color: #A1A1AA; font-size: 12px;")
             lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
             no_layout.addWidget(lbl_sub)
 

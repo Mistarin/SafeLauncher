@@ -13,7 +13,7 @@ from PyQt6.QtGui import QFont, QPixmap, QPainter, QColor, QIcon
 from core.disk_utils import dir_size_display
 from core.library_controller import LibrarySnapshot
 from core.game_status import update_indicator
-from ui.icons import get_app_icon, get_icon
+from ui.icons import get_app_icon, get_icon, get_app_icon_pixmap, get_icon_pixmap
 
 
 def _format_playtime_str(seconds: int) -> str:
@@ -81,7 +81,7 @@ class LibraryListItemWidget(QWidget):
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.icon_label.setStyleSheet("""
             QLabel {
-                background: #14171E;
+                background: #18181B;
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 8px;
             }
@@ -101,7 +101,7 @@ class LibraryListItemWidget(QWidget):
         self.title_lbl = QLabel(self.name)
         self.title_lbl.setFont(QFont("Arial", 11, QFont.Weight.Bold))
         if self.is_missing:
-            self.title_lbl.setStyleSheet("color: #636366; font-weight: 600; background: transparent;")
+            self.title_lbl.setStyleSheet("color: #71717A; font-weight: 600; background: transparent;")
         else:
             self.title_lbl.setStyleSheet("color: #FFFFFF; font-weight: 600; background: transparent;")
         top_line.addWidget(self.title_lbl)
@@ -111,8 +111,8 @@ class LibraryListItemWidget(QWidget):
             ver_badge.setFont(QFont("Arial", 8, QFont.Weight.Bold))
             ver_badge.setStyleSheet("""
                 QLabel {
-                    background: #171B23;
-                    color: #A1A1A6;
+                    background: #18181B;
+                    color: #A1A1AA;
                     border: none;
                     border-radius: 4px;
                     padding: 1px 6px;
@@ -155,7 +155,7 @@ class LibraryListItemWidget(QWidget):
 
         playtime_lbl = QLabel(_format_playtime_str(self.playtime_seconds))
         playtime_lbl.setFont(QFont("Arial", 9))
-        playtime_lbl.setStyleSheet("color: #A7ADB8; background: transparent;")
+        playtime_lbl.setStyleSheet("color: #A1A1AA; background: transparent;")
         top_line.addWidget(playtime_lbl)
 
         info_layout.addLayout(top_line)
@@ -169,7 +169,7 @@ class LibraryListItemWidget(QWidget):
         mode_lbl.setStyleSheet("""
             QLabel {
                 background: rgba(10, 132, 255, 0.12);
-                color: #0A84FF;
+                color: #3B9FE8;
                 border: none;
                 border-radius: 4px;
                 padding: 1px 6px;
@@ -188,7 +188,7 @@ class LibraryListItemWidget(QWidget):
 
         meta_lbl = QLabel("  •  ".join(meta_items))
         meta_lbl.setFont(QFont("Arial", 9))
-        meta_lbl.setStyleSheet("color: #8E8E93; background: transparent;")
+        meta_lbl.setStyleSheet("color: #A1A1AA; background: transparent;")
         bottom_line.addWidget(meta_lbl)
         bottom_line.addStretch()
 
@@ -202,7 +202,7 @@ class LibraryListItemWidget(QWidget):
             self.btn_row_launch.setCursor(Qt.CursorShape.PointingHandCursor)
             self.btn_row_launch.setStyleSheet("""
                 QPushButton {
-                    background-color: #0A84FF;
+                    background-color: #3B9FE8;
                     color: #FFFFFF;
                     border: none;
                     border-radius: 6px;
@@ -212,10 +212,10 @@ class LibraryListItemWidget(QWidget):
                     text-align: center;
                 }
                 QPushButton:hover {
-                    background-color: #0071E3;
+                    background-color: #55ACED;
                 }
                 QPushButton:pressed {
-                    background-color: #005BB5;
+                    background-color: #2789D0;
                 }
             """)
             self.btn_row_launch.clicked.connect(lambda: self.launch_requested.emit(self.game_id))
@@ -248,7 +248,7 @@ class LibraryListItemWidget(QWidget):
         self.favorite_lbl.setVisible(self.is_favorite)
         if self.is_favorite:
             self.favorite_lbl.setPixmap(
-                get_icon("ph.heart-fill", color="#FF453A").pixmap(13, 13)
+                get_icon_pixmap("ph.heart-fill", 13, color="#FF453A")
             )
             self.favorite_lbl.setToolTip("Favorite")
         else:
@@ -294,7 +294,7 @@ class LibraryListItemWidget(QWidget):
         """Refresh installation state without recreating the list row."""
         self.is_missing = bool(is_missing)
         if hasattr(self, "title_lbl"):
-            color = "#636366" if self.is_missing else "#FFFFFF"
+            color = "#71717A" if self.is_missing else "#FFFFFF"
             self.title_lbl.setStyleSheet(f"color: {color}; font-weight: 600; background: transparent;")
         if hasattr(self, "icon_label"):
             self._load_game_icon()
@@ -306,7 +306,7 @@ class LibraryListItemWidget(QWidget):
         """Render the authentic game .exe icon on the left of each row in list view."""
         if self.is_archived:
             self.icon_label.setPixmap(
-                get_icon("ph.archive-bold", color="#6F7682").pixmap(40, 40)
+                get_icon_pixmap("ph.archive-bold", 40, color="#71717A")
             )
             return
         pix: Optional[QPixmap] = None
@@ -356,8 +356,8 @@ class LibraryListItemWidget(QWidget):
 
         # 4. Fallback vector controller icon
         if pix is None:
-            icon_color = "#475569" if self.is_missing else "#38bdf8"
-            pix = get_app_icon("library", color=icon_color).pixmap(40, 40)
+            icon_color = "#71717A" if self.is_missing else "#3B9FE8"
+            pix = get_app_icon_pixmap("library", 40, color=icon_color)
 
         # Scale and render with rounded 52x52 appearance
         target_size = 44
@@ -401,19 +401,19 @@ class LibraryListView(QListWidget):
         self.setStyleSheet("""
             QListWidget {
                 background: transparent;
-                color: #F5F7FA;
+                color: #F4F4F5;
                 border: none;
                 padding: 4px;
             }
             QListWidget::item {
-                background: #11141A;
+                background: #121214;
                 border: 1px solid rgba(255, 255, 255, 0.04);
                 border-radius: 8px;
                 margin-bottom: 4px;
                 padding: 0;
             }
             QListWidget::item:hover {
-                    background: #161A22;
+                    background: #18181B;
                 border-color: rgba(255, 255, 255, 0.08);
             }
             QListWidget::item:selected {

@@ -170,7 +170,7 @@ class GameCardItemDelegate(QStyledItemDelegate):
             heart_icon = get_icon("ph.heart-fill", color="#FF453A")
             heart_icon.paint(painter, fav_icon_rect)
         elif is_hovered:
-            heart_icon = get_icon("ph.heart-bold", color="#6F7682")
+            heart_icon = get_icon("ph.heart-bold", color="#71717A")
             heart_icon.paint(painter, fav_icon_rect)
 
         # Quick-launch play button (center, on hover)
@@ -198,10 +198,10 @@ class GameCardItemDelegate(QStyledItemDelegate):
             badge_path = QPainterPath()
             badge_path.addRoundedRect(QRectF(badge_rect), 4.0, 4.0)
             painter.fillPath(badge_path, QColor(20, 23, 29, 225))
-            painter.setPen(QColor("#252A33"))
+            painter.setPen(QColor("#2A2A2E"))
             painter.drawPath(badge_path)
 
-            painter.setPen(QColor("#A7ADB8"))
+            painter.setPen(QColor("#A1A1AA"))
             painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, version)
 
         # Cloud sync badge (bottom-right of cover)
@@ -227,15 +227,15 @@ class GameCardItemDelegate(QStyledItemDelegate):
             pill_path = QPainterPath()
             pill_path.addRoundedRect(pill_rect, 5.0, 5.0)
             painter.fillPath(pill_path, QColor(10, 132, 255, 45))
-            painter.setPen(QColor("#38BDF8"))
+            painter.setPen(QColor("#3B9FE8"))
         elif is_missing:
-            painter.setPen(QColor("#6F7682"))
+            painter.setPen(QColor("#71717A"))
         else:
-            painter.setPen(QColor("#F5F7FA"))
+            painter.setPen(QColor("#F4F4F5"))
         painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, elided_title)
 
         painter.setFont(self._font_subtitle)
-        painter.setPen(QColor("#A7ADB8"))
+        painter.setPen(QColor("#A1A1AA"))
         playtime_str = _format_playtime_str(playtime_seconds)
         painter.drawText(playtime_rect, Qt.AlignmentFlag.AlignCenter, playtime_str)
 

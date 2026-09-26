@@ -103,15 +103,15 @@ class SettingsButtonSurfaceTests(unittest.TestCase):
             dialog.show()
             self.app.processEvents()
 
-            self.assertIn("#171A20", dialog.btn_profile_resync.styleSheet())
-            self.assertIn("#202633", dialog.btn_profile_resync.styleSheet())
+            self.assertIn("#18181B", dialog.btn_profile_resync.styleSheet())
+            self.assertIn("#202024", dialog.btn_profile_resync.styleSheet())
             self.assertIn("#3B9FE8", dialog.btn_save.styleSheet())
             self.assertIn("#3A171B", dialog.btn_logout.styleSheet())
             self.assertIn("transparent", dialog.tab_buttons[0].styleSheet())
 
             dialog.btn_profile_resync.setEnabled(False)
-            self.assertIn("#12151A", dialog.btn_profile_resync.styleSheet())
-            self.assertIn("#777C86", dialog.btn_profile_resync.styleSheet())
+            self.assertIn("#121214", dialog.btn_profile_resync.styleSheet())
+            self.assertIn("#71717A", dialog.btn_profile_resync.styleSheet())
         finally:
             dialog.close()
             dialog.deleteLater()
