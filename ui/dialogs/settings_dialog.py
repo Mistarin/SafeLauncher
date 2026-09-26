@@ -17,7 +17,14 @@ from PyQt6.QtWidgets import QKeySequenceEdit
 from core.disk_utils import get_dir_size, get_disk_usage, format_size
 from core.host_process import host_process_env
 from database import _APP_DATA_DIR
-from core.desktop_integration import install_safelauncher_desktop_entry, is_desktop_entry_installed
+from core.desktop_integration import (
+    install_safelauncher_desktop_entry,
+    remove_safelauncher_desktop_entry,
+    is_desktop_entry_installed,
+    is_desktop_shortcut_installed,
+    is_startup_enabled,
+    set_startup_enabled,
+)
 from core.security_diagnostics import inspect_security_health, run_live_sandbox_verification
 from core.launch_diagnostics import diagnostics_directory
 from core.runtime_diagnostics import build_runtime_diagnostics, export_runtime_diagnostics
@@ -126,17 +133,15 @@ class UserSettingsDialog(PopupDialog):
             QDialog {
                 background: #111113;
                 color: #FFFFFF;
-                border: 1px solid #2A2A2E;
+                border: none;
                 border-radius: 12px;
             }
             QWidget#settingsPage {
-                background: #15171C;
+                background: #121214;
             }
             QFrame#settingsSection {
-                background: #1B1E24;
-                border: 1px solid #292E37;
-                border-top-color: #3A404B;
-                border-bottom-color: #242931;
+                background: #18181B;
+                border: none;
                 border-radius: 10px;
             }
             QLabel#settingsSectionTitle {
@@ -150,39 +155,33 @@ class UserSettingsDialog(PopupDialog):
                 color: #E4E4E7;
             }
             QLabel#propertyLabel, QLabel#propertyValue {
-                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
-                    stop: 0 #232730, stop: 0.90 #20242C, stop: 1 rgba(32, 36, 44, 0));
-                color: #D4D4D8;
-                border: 1px solid #2A2E36;
-                border-top-color: #3A3F49;
-                border-bottom-color: #242830;
-                border-radius: 7px;
-                padding: 7px 10px;
-                min-height: 18px;
-            }
-            QLabel#propertyValue {
-                background: #20242C;
+                background: transparent;
+                color: #A1A1AA;
+                border: none;
+                padding: 4px 0;
+                min-height: 20px;
             }
             QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QKeySequenceEdit {
-                background: #20242C;
+                background: #15181E;
                 color: #FFFFFF;
-                border: 1px solid #30353F;
-                border-top-color: #414752;
-                border-bottom-color: #252A32;
-                border-radius: 7px;
-                padding: 8px 10px;
+                border: none;
+                border-bottom: 1px solid #29313B;
+                border-radius: 6px;
+                padding: 0 11px;
+                min-height: 36px;
                 font-size: 12px;
             }
             QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
             QComboBox:focus, QSpinBox:focus, QKeySequenceEdit:focus {
                 border-color: #4B9FFF;
-                background: #20242C;
+                background: #1A2028;
+                border-bottom-color: #3B9FE8;
             }
             QLineEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled,
             QComboBox:disabled, QSpinBox:disabled, QKeySequenceEdit:disabled {
-                background: #15171B;
+                background: #101216;
                 color: #777C86;
-                border-color: #252830;
+                border-bottom-color: #20252C;
             }
             QComboBox QAbstractItemView {
                 background: #1B1B1F;
@@ -210,15 +209,16 @@ class UserSettingsDialog(PopupDialog):
             QPushButton {
                 background: #171A20;
                 color: #FFFFFF;
-                border: 1px solid #30353F;
-                border-radius: 7px;
-                padding: 8px 14px;
+                border: none;
+                border-radius: 6px;
+                padding: 0 14px;
+                min-height: 36px;
                 font-size: 12px;
                 font-weight: 500;
             }
             QPushButton:hover {
                 background: #202633;
-                border-color: #4B5563;
+                background: #202633;
             }
             QPushButton:pressed {
                 background: #10141B;
@@ -226,7 +226,7 @@ class UserSettingsDialog(PopupDialog):
             QPushButton:disabled {
                 background: #12151A;
                 color: #777C86;
-                border-color: #252A32;
+                border: none;
             }
             QCheckBox {
                 spacing: 9px;
@@ -244,7 +244,7 @@ class UserSettingsDialog(PopupDialog):
                 border-color: #3B9FE8;
             }
             QFrame#settingsDivider {
-                background: #2B2F38;
+                background: #252A31;
                 border: none;
                 min-height: 1px;
                 max-height: 1px;
@@ -283,7 +283,7 @@ class UserSettingsDialog(PopupDialog):
         # Navigation Bar
         nav_frame = QFrame()
         nav_frame.setObjectName("settingsNav")
-        nav_frame.setStyleSheet("QFrame#settingsNav { background: #18181B; border: 1px solid #2A2A2E; border-radius: 9px; }")
+        nav_frame.setStyleSheet("QFrame#settingsNav { background: #18181B; border: none; border-radius: 9px; }")
         nav_bar = QHBoxLayout(nav_frame)
         nav_bar.setContentsMargins(5, 5, 5, 5)
         nav_bar.setSpacing(4)
@@ -322,7 +322,7 @@ class UserSettingsDialog(PopupDialog):
                 QPushButton:checked {
                     background: #2A2A31;
                     color: #FFFFFF;
-                    border: 1px solid #42424D;
+                    border: none;
                 }
             """)
             btn.clicked.connect(lambda _, i=idx: self._switch_tab(i))
@@ -397,32 +397,31 @@ class UserSettingsDialog(PopupDialog):
         after the shared popup normalization keeps every page visually
         identical on all supported Qt styles.
         """
-        page_style = "QWidget#settingsPage { background: #15171C; }"
+        page_style = "QWidget#settingsPage { background: #121214; }"
         section_style = (
-            "QFrame#settingsSection { background: #1B1E24; "
-            "border: 1px solid #292E37; border-top-color: #3A404B; "
-            "border-bottom-color: #242931; border-radius: 10px; }"
+            "QFrame#settingsSection { background: #18181B; border: none; "
+            "border-radius: 10px; }"
         )
         field_style = (
             "QLineEdit, QComboBox, QSpinBox, QKeySequenceEdit { "
-            "background: #20242C; color: #FFFFFF; border: 1px solid #30353F; "
-            "border-top-color: #414752; border-bottom-color: #252A32; "
-            "border-radius: 7px; padding: 8px 10px; }"
+            "background: #15181E; color: #FFFFFF; border: none; "
+            "border-bottom: 1px solid #29313B; border-radius: 6px; "
+            "padding: 0 11px; min-height: 36px; } "
+            "QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QKeySequenceEdit:focus { "
+            "background: #1A2028; border-bottom-color: #3B9FE8; }"
         )
         property_style = (
             "QLabel#propertyLabel, QLabel#propertyValue { "
-            "background: #20242C; color: #D4D4D8; border: 1px solid #2A2E36; "
-            "border-top-color: #3A3F49; border-bottom-color: #242830; "
-            "border-radius: 7px; padding: 7px 10px; }"
+            "background: transparent; color: #A1A1AA; border: none; "
+            "border-radius: 0; padding: 4px 0; min-height: 20px; }"
         )
         button_style = (
             "QPushButton { background: #171A20; color: #F4F4F5; "
-            "border: 1px solid #30353F; border-top-color: #414752; "
-            "border-bottom-color: #252A32; border-radius: 7px; "
-            "padding: 8px 14px; font-size: 12px; font-weight: 600; } "
-            "QPushButton:hover { background: #202633; border-color: #4B5563; } "
+            "border: none; border-radius: 6px; padding: 0 14px; "
+            "min-height: 36px; font-size: 12px; font-weight: 600; } "
+            "QPushButton:hover { background: #202633; } "
             "QPushButton:pressed { background: #10141B; } "
-            "QPushButton:disabled { background: #12151A; color: #777C86; border-color: #252A32; }"
+            "QPushButton:disabled { background: #12151A; color: #777C86; border: none; }"
         )
         primary_button_style = (
             "QPushButton { background: #3B9FE8; color: #FFFFFF; border: none; "
@@ -432,9 +431,9 @@ class UserSettingsDialog(PopupDialog):
         )
         destructive_button_style = (
             "QPushButton { background: #3A171B; color: #FFB4AE; "
-            "border: 1px solid #7F2D35; border-radius: 7px; "
-            "padding: 8px 14px; font-size: 12px; font-weight: 600; } "
-            "QPushButton:hover { background: #542027; border-color: #A63A45; color: #FFFFFF; } "
+            "border: none; border-radius: 6px; min-height: 36px; "
+            "padding: 0 14px; font-size: 12px; font-weight: 600; } "
+            "QPushButton:hover { background: #542027; color: #FFFFFF; } "
             "QPushButton:pressed { background: #2A1014; } "
             "QPushButton:disabled { background: #21171A; color: #80696C; border-color: #4A292E; }"
         )
@@ -446,7 +445,7 @@ class UserSettingsDialog(PopupDialog):
             "QPushButton:checked { background: #2A2A31; color: #FFFFFF; border-color: #42424D; }"
         )
         divider_style = (
-            "QFrame#settingsDivider { background: #3A404B; border: none; "
+            "QFrame#settingsDivider { background: #252A31; border: none; "
             "min-height: 1px; max-height: 1px; }"
         )
 
@@ -488,6 +487,16 @@ class UserSettingsDialog(PopupDialog):
                         "QLabel#profileActionStatus { background: transparent; "
                         "color: #858A95; font-size: 12px; }"
                     )
+                elif label.objectName() == "settingsStatus":
+                    label.setStyleSheet(
+                        "QLabel#settingsStatus { background: transparent; color: #A1A1AA; "
+                        "font-size: 12px; padding: 0; }"
+                    )
+                elif label.objectName() == "settingsMetaValue":
+                    label.setStyleSheet(
+                        "QLabel#settingsMetaValue { background: transparent; color: #A1A1AA; "
+                        "font-size: 13px; padding: 0; }"
+                    )
             for button in page.findChildren(QPushButton):
                 role = button.property("settingsButtonRole")
                 if button.objectName() == "settingsTab" or role == "navigation":
@@ -527,6 +536,8 @@ class UserSettingsDialog(PopupDialog):
 
     def _polish_settings_form(self, form: QFormLayout) -> None:
         """Apply the shared popup property treatment to a Settings form."""
+        form.setVerticalSpacing(12)
+        form.setHorizontalSpacing(16)
         self.polish_property_form(form)
 
     def _polish_settings_grid(self, grid: QGridLayout) -> None:
@@ -790,32 +801,16 @@ class UserSettingsDialog(PopupDialog):
         layout.addWidget(sec_desktop)
         self._add_section_divider(layout)
 
-        is_installed = is_desktop_entry_installed()
-        btn_start_screen = QPushButton(
-            "Installed in Start Screen & App Menu" if is_installed else "Add to Start Screen & App Menu"
-        )
-        # This button has a stateful green/blue treatment that communicates
-        # installation status, so it is intentionally outside the neutral
-        # secondary-action surface.
-        btn_start_screen.setProperty("settingsButtonRole", "accent")
-        btn_start_screen.setEnabled(not is_installed)
-        if is_installed:
-            btn_start_screen.setStyleSheet("""
-                QPushButton {
-                    background: #14532d; color: #86efac; border: 1px solid #166534;
-                    border-radius: 4px; padding: 8px 12px; font-weight: bold;
-                }
-            """)
-        else:
-            btn_start_screen.setStyleSheet("""
-                QPushButton {
-                    background: #1e293b; color: #38bdf8; border: 1px solid #0284c7;
-                    border-radius: 4px; padding: 8px 12px; font-weight: bold;
-                }
-                QPushButton:hover { background: #0369a1; color: #ffffff; }
-            """)
-        btn_start_screen.clicked.connect(lambda: self._add_to_start_screen(btn_start_screen))
-        layout.addWidget(btn_start_screen)
+        desktop_row = QHBoxLayout()
+        self.lbl_desktop_status = QLabel()
+        self.lbl_desktop_status.setObjectName("settingsStatus")
+        desktop_row.addWidget(self.lbl_desktop_status, 1)
+        self.btn_desktop_entry = QPushButton()
+        self.btn_desktop_entry.setObjectName("settingsActionButton")
+        self.btn_desktop_entry.clicked.connect(self._toggle_desktop_entry)
+        desktop_row.addWidget(self.btn_desktop_entry)
+        layout.addLayout(desktop_row)
+        self._refresh_desktop_integration_controls()
 
         sec_startup = QLabel("Startup Preferences")
         sec_startup.setFont(QFont("Arial", 12, QFont.Weight.Bold))
@@ -826,6 +821,10 @@ class UserSettingsDialog(PopupDialog):
         self.chk_welcome = QCheckBox("Show introduction wizard on startup")
         self.chk_welcome.setChecked(self.show_welcome_wizard)
         layout.addWidget(self.chk_welcome)
+
+        self.chk_launch_startup = QCheckBox("Launch SafeLauncher when I sign in")
+        self.chk_launch_startup.setChecked(is_startup_enabled())
+        layout.addWidget(self.chk_launch_startup)
 
         sec_achievements = QLabel("Achievement Tracking & Notifications")
         sec_achievements.setFont(QFont("Arial", 12, QFont.Weight.Bold))
@@ -853,7 +852,7 @@ class UserSettingsDialog(PopupDialog):
 
         update_row = QHBoxLayout()
         lbl_version_info = QLabel(f"Current SafeLauncher Version: <b>v{APP_VERSION}</b>")
-        lbl_version_info.setStyleSheet("color: #A1A1AA; font-size: 13px;")
+        lbl_version_info.setObjectName("settingsMetaValue")
         update_row.addWidget(lbl_version_info)
         update_row.addStretch()
 
@@ -1707,9 +1706,9 @@ class UserSettingsDialog(PopupDialog):
         self.edit_hotkey = QKeySequenceEdit()
         self.edit_hotkey.setKeySequence(QKeySequence(self.gpu_config.capture_hotkey or "F9"))
         self.edit_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #20242C; color: #ffffff; border: 1px solid #30353F;"
-            " border-top-color: #414752; border-bottom-color: #252A32; border-radius: 7px;"
-            " padding: 8px 10px; font-size: 12px; }"
+            "QKeySequenceEdit { background: #15181E; color: #ffffff; border: none;"
+            " border-bottom: 1px solid #29313B; border-radius: 6px;"
+            " padding: 0 11px; min-height: 36px; font-size: 12px; }"
         )
         capture_mode_hint = QLabel()
         if self.gpu_config.mode == "replay_buffer":
@@ -1726,9 +1725,9 @@ class UserSettingsDialog(PopupDialog):
         self.edit_screenshot_hotkey = QKeySequenceEdit()
         self.edit_screenshot_hotkey.setKeySequence(QKeySequence(self.screenshot_hotkey or "F12"))
         self.edit_screenshot_hotkey.setStyleSheet(
-            "QKeySequenceEdit { background: #20242C; color: #ffffff; border: 1px solid #30353F;"
-            " border-top-color: #414752; border-bottom-color: #252A32; border-radius: 7px;"
-            " padding: 8px 10px; font-size: 12px; }"
+            "QKeySequenceEdit { background: #15181E; color: #ffffff; border: none;"
+            " border-bottom: 1px solid #29313B; border-radius: 6px;"
+            " padding: 0 11px; min-height: 36px; font-size: 12px; }"
         )
         form.addRow("Screenshot Hotkey:", self.edit_screenshot_hotkey)
 
@@ -1821,19 +1820,32 @@ class UserSettingsDialog(PopupDialog):
             "Runtime diagnostics were exported without credentials, game paths, or resource contents.",
         )
 
-    def _add_to_start_screen(self, button: QPushButton):
-        success, msg = install_safelauncher_desktop_entry()
-        if success:
-            button.setText("Installed in Start Screen & App Menu")
-            button.setEnabled(False)
-            button.setStyleSheet("""
-                QPushButton {
-                    background: #14532d; color: #86efac; border: 1px solid #166534;
-                    border-radius: 4px; padding: 8px 12px; font-weight: bold;
-                }
-            """)
+    def _refresh_desktop_integration_controls(self):
+        installed = is_desktop_entry_installed()
+        shortcut = is_desktop_shortcut_installed()
+        if installed:
+            location = "Applications menu"
+            if shortcut:
+                location += " + Desktop shortcut"
+            self.lbl_desktop_status.setText(f"Installed in {location}.")
+            self.btn_desktop_entry.setText("Remove integration")
+            self.btn_desktop_entry.setProperty("settingsButtonRole", "destructive")
         else:
-            button.setText(f"Error: {msg}")
+            self.lbl_desktop_status.setText("Not installed in the Applications menu.")
+            self.btn_desktop_entry.setText("Add to Applications menu")
+            self.btn_desktop_entry.setProperty("settingsButtonRole", "primary")
+        self.btn_desktop_entry.style().unpolish(self.btn_desktop_entry)
+        self.btn_desktop_entry.style().polish(self.btn_desktop_entry)
+
+    def _toggle_desktop_entry(self):
+        if is_desktop_entry_installed():
+            success, message = remove_safelauncher_desktop_entry()
+        else:
+            success, message = install_safelauncher_desktop_entry()
+        if not success:
+            QMessageBox.warning(self, "Desktop Integration", message)
+            return
+        self._refresh_desktop_integration_controls()
 
     def _save(self):
         display_name = self.name_input.text().strip()
@@ -1881,6 +1893,10 @@ class UserSettingsDialog(PopupDialog):
                 settings.setValue("achievement_notifications_enabled", self.chk_achievement_notifications.isChecked())
             if hasattr(self, "chk_achievement_desktop"):
                 settings.setValue("achievement_desktop_notifications", self.chk_achievement_desktop.isChecked())
+            startup_success, startup_message = set_startup_enabled(self.chk_launch_startup.isChecked())
+            if not startup_success:
+                QMessageBox.warning(self, "Startup Integration", startup_message)
+                return
             if hasattr(self, "combo_date_format"):
                 self.date_format = self.combo_date_format.currentData() or get_date_format_key()
                 settings.setValue("date_format", self.date_format)
