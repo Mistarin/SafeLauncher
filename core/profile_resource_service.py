@@ -272,10 +272,6 @@ class ProfileResourceService:
                 try:
                     return writer(document)
                 except ProfileServiceError as exc:
-                    # The public gateway may lag the desktop release during a
-                    # rolling deployment. Only downgrade for the exact schema
-                    # validation response; never hide handle, avatar, or
-                    # arbitrary profile validation failures.
                     if exc.code != "invalid_profile" or "schema" not in str(exc).casefold():
                         raise
                     compatible = dict(document)

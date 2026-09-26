@@ -79,7 +79,6 @@ class _RenameClient(_FakeClient):
 
 class _SchemaCompatibilityClient(_FakeClient):
     def create_profile(self, document):
-        self.calls.append(("create_profile", document["schema_version"]))
         if document["schema_version"] == 4:
             raise ProfileServiceError("Profile schema or handle is invalid.", "invalid_profile", 400)
         return {"handle": document["handle"], "revision": 1}
@@ -217,9 +216,7 @@ class ProfileResourceServiceTests(unittest.TestCase):
     def test_publish_retries_schema_four_once_for_an_older_gateway(self):
         service = ProfileResourceService(client_factory=_SchemaCompatibilityClient)
         document = {"schema_version": 4, "handle": "new-name", "display_name": "Player"}
-
         result = service.publish(document, "new-name", service_url="https://profile.example")
-
         self.assertEqual(result["document"]["schema_version"], 3)
 
 
