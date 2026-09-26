@@ -222,6 +222,111 @@ class ProfileSeeMoreCard(QFrame):
         super().mousePressEvent(event)
 
 
+class ProfileGameRow(QFrame):
+    """Compact one-line game entry used by the expanded profile library."""
+
+    clicked = pyqtSignal(dict)
+
+    def __init__(self, game: dict[str, Any], parent=None):
+        super().__init__(parent)
+        self.game = dict(game)
+        self._pixmap = QPixmap()
+        self.setObjectName("profileGameRow")
+        self.setFixedHeight(76)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Open game profile")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 7, 12, 7)
+        layout.setSpacing(12)
+
+        self.artwork = QLabel("Steam hero")
+        self.artwork.setObjectName("profileGameRowArtwork")
+        self.artwork.setFixedSize(108, 60)
+        self.artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.artwork.setStyleSheet(f"background:{SURFACE}; color:{TEXT_MUTED}; border:none; font-size:10px;")
+        self.artwork.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(self.artwork)
+
+        info = QVBoxLayout()
+        info.setContentsMargins(0, 0, 0, 0)
+        info.setSpacing(3)
+        self.name = QLabel(str(self.game.get("name", "Game")))
+        self.name.setObjectName("profileGameRowName")
+        self.name.setTextFormat(Qt.TextFormat.PlainText)
+        self.name.setWordWrap(False)
+        self.name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        info.addWidget(self.name)
+
+        app_id = str(self.game.get("app_id", "") or "")
+        self.app_id = QLabel(f"Steam AppID {app_id}" if app_id else "Steam game")
+        self.app_id.setObjectName("profileGameRowAppId")
+        self.app_id.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        info.addWidget(self.app_id)
+
+        achievement = self.game.get("achievements") if isinstance(self.game.get("achievements"), dict) else {}
+        unlocked = max(0, int(achievement.get("unlocked_count", 0) or 0))
+        total = max(unlocked, int(achievement.get("total_count", 0) or 0))
+        playtime = max(0, int(self.game.get("playtime_seconds", 0) or 0))
+        self.meta = QLabel(
+            f"{ProfileGameCard._format_hours(playtime)}  ·  "
+            f"{unlocked}/{total} achievements" if total else
+            f"{ProfileGameCard._format_hours(playtime)}  ·  No achievements"
+        )
+        self.meta.setObjectName("profileGameRowMeta")
+        self.meta.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        info.addWidget(self.meta)
+        layout.addLayout(info, 1)
+
+        arrow = QLabel("›")
+        arrow.setObjectName("profileGameRowArrow")
+        arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(arrow)
+
+        for child in (self.artwork, self.name, self.app_id, self.meta, arrow):
+            child.installEventFilter(self)
+
+    def set_artwork_bytes(self, data: bytes) -> None:
+        pixmap = QPixmap()
+        if data:
+            pixmap.loadFromData(data)
+        if not pixmap.isNull():
+            self.set_artwork_pixmap(pixmap)
+
+    def set_artwork_pixmap(self, pixmap: QPixmap) -> None:
+        self._pixmap = pixmap
+        self.artwork.setText("")
+        self._refresh_artwork()
+
+    def _refresh_artwork(self) -> None:
+        if self._pixmap.isNull():
+            return
+        self.artwork.setPixmap(self._pixmap.scaled(
+            self.artwork.size(),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        ))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._refresh_artwork()
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(dict(self.game))
+            return True
+        return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(dict(self.game))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class ProfilePageWidget(QWidget):
     """Persistent profile page with an explicit owner/public mode boundary."""
 
@@ -385,6 +490,8 @@ class ProfilePageWidget(QWidget):
             QFrame#profileSection {{ background: {panel_soft}; border: 1px solid {border}; border-radius: 16px; }}
             QFrame#profileGameCard {{ background: {game_card}; border: 1px solid {card_border}; border-radius: 12px; }}
             QFrame#profileGameCard:hover {{ background: {hover_surface}; border-color: {theme.accent}; }}
+            QFrame#profileGameRow {{ background: {game_card}; border: 1px solid {card_border}; border-radius: 10px; }}
+            QFrame#profileGameRow:hover {{ background: {hover_surface}; border-color: {theme.accent}; }}
             QFrame#profileSeeMoreCard {{ background: {see_more}; border: 1px dashed {border}; border-radius: 12px; }}
             QFrame#profileSeeMoreCard:hover {{ background: {hover_surface}; border-color: {theme.accent}; }}
             QListWidget#profileList {{ background: {list_surface}; border: none; }}
@@ -464,6 +571,14 @@ class ProfilePageWidget(QWidget):
             QPushButton#profilePrimary:pressed {{ background: {ACCENT_PRESSED}; }}
             QFrame#profileGameCard {{ background: {SURFACE_ELEVATED}; border: none; border-radius: 8px; }}
             QFrame#profileGameCard:hover {{ background: #252A34; }}
+            QFrame#profileGameRow {{ background: {SURFACE_ELEVATED}; border: none; border-radius: 8px; }}
+            QFrame#profileGameRow:hover {{ background: #252A34; }}
+            QLabel#profileGameRowName {{ color: {TEXT_PRIMARY}; font-size: 13px; font-weight: 700; }}
+            QLabel#profileGameRowAppId {{ color: {TEXT_MUTED}; font-size: 10px; }}
+            QLabel#profileGameRowMeta {{ color: {TEXT_SECONDARY}; font-size: 11px; }}
+            QLabel#profileGameRowArrow {{ color: {TEXT_MUTED}; font-size: 24px; font-weight: 400; min-width: 16px; }}
+            QLineEdit#profileGamesSearch {{ background: {SURFACE_ELEVATED}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER}; border-radius: 6px; padding: 0 10px; min-height: 34px; max-height: 34px; }}
+            QLineEdit#profileGamesSearch:focus {{ border-color: {ACCENT_PRIMARY}; }}
             QFrame#profileSeeMoreCard {{ background: {SURFACE}; border: 1px dashed {BORDER}; border-radius: 8px; }}
             QFrame#profileSeeMoreCard:hover {{ background: {SURFACE_ELEVATED}; border-color: {ACCENT_PRIMARY}; }}
             QFrame#profileHero {{ border: none; }}
@@ -809,11 +924,22 @@ class ProfilePageWidget(QWidget):
         all_toolbar.addWidget(self.games_all_title)
         all_toolbar.addStretch()
         all_layout.addLayout(all_toolbar)
-        self.games_all_grid = QGridLayout()
-        self.games_all_grid.setContentsMargins(0, 0, 0, 0)
-        self.games_all_grid.setHorizontalSpacing(10)
-        self.games_all_grid.setVerticalSpacing(10)
-        all_layout.addLayout(self.games_all_grid)
+        self.games_all_search = QLineEdit()
+        self.games_all_search.setObjectName("profileGamesSearch")
+        self.games_all_search.setPlaceholderText("Search games by name or Steam AppID…")
+        self.games_all_search.setClearButtonEnabled(True)
+        self.games_all_search.textChanged.connect(self._filter_all_games)
+        all_layout.addWidget(self.games_all_search)
+        self.games_all_rows = QVBoxLayout()
+        self.games_all_rows.setContentsMargins(0, 0, 0, 0)
+        self.games_all_rows.setSpacing(8)
+        all_layout.addLayout(self.games_all_rows)
+        self.games_all_empty = QLabel("No games match your search.")
+        self.games_all_empty.setObjectName("profileMuted")
+        self.games_all_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.games_all_empty.setVisible(False)
+        all_layout.addWidget(self.games_all_empty)
+        all_layout.addStretch()
         self.games_stack.addWidget(self.games_all_page)
 
         self.game_detail = QWidget()
@@ -1650,7 +1776,7 @@ class ProfilePageWidget(QWidget):
         self._render_social()
 
     @staticmethod
-    def _clear_grid(layout: QGridLayout) -> None:
+    def _clear_grid(layout) -> None:
         while layout.count():
             item = layout.takeAt(0)
             widget = item.widget()
@@ -1662,8 +1788,9 @@ class ProfilePageWidget(QWidget):
         self._selected_profile_game = None
         self.games_stack.setCurrentIndex(0)
         self._clear_grid(self.games_grid)
-        self._clear_grid(self.games_all_grid)
+        self._clear_grid(self.games_all_rows)
         self._game_cards = {}
+        self._game_rows = []
         raw_games = document.get("games", []) if isinstance(document.get("games"), list) else []
         games = [game for game in raw_games if isinstance(game, dict) and str(game.get("app_id", ""))]
         self._profile_games = games
@@ -1686,7 +1813,6 @@ class ProfilePageWidget(QWidget):
             self.games_grid.addWidget(see_more, row, column)
         for column in range(3):
             self.games_grid.setColumnStretch(column, 1)
-            self.games_all_grid.setColumnStretch(column, 1)
         # The preview is the initial viewport. Full-library artwork is lazy
         # loaded when the user opens "See more", preventing a large profile
         # from starting dozens of image requests during navigation.
@@ -1747,11 +1873,50 @@ class ProfilePageWidget(QWidget):
         if self._all_games_populated:
             return
         self._all_games_populated = True
-        self._clear_grid(self.games_all_grid)
+        self._clear_grid(self.games_all_rows)
+        self._game_rows = []
         pending: dict[str, str] = {}
-        for index, game in enumerate(self._profile_games):
-            self._add_game_card(game, index, self.games_all_grid, pending)
+        for game in self._profile_games:
+            self._add_game_row(game, pending)
+        self._filter_all_games(self.games_all_search.text())
         self._queue_artwork_download(pending)
+
+    def _add_game_row(self, game: dict[str, Any], pending: dict[str, str] | None = None) -> None:
+        app_id = str(game.get("app_id", ""))
+        row = ProfileGameRow(game)
+        row.clicked.connect(self._open_game_detail)
+        self._game_rows.append(row)
+        self._game_cards.setdefault(app_id, []).append(row)
+        self.games_all_rows.addWidget(row)
+        url = str(game.get("artwork_url", "") or "")
+        if not url:
+            return
+        presentation = self._presentation_artwork(url)
+        if presentation is not None:
+            row.set_artwork_bytes(presentation)
+        elif self.resource_cache is not None:
+            cached = self._profile_cache_entry(self._profile_artwork_key(url), self._profile_artwork_cache_value_is_valid)
+            if cached is not None:
+                self._remember_presentation_artwork(url, cached.value, stored_at=cached.stored_at)
+                row.set_artwork_bytes(cached.value)
+                if not cached.is_fresh(cache_policy("profile-artwork").max_age_seconds) and pending is not None and url not in self._artwork_inflight:
+                    pending[app_id] = url
+            elif pending is not None and url not in self._artwork_inflight:
+                pending[app_id] = url
+        elif pending is not None and url not in self._artwork_inflight:
+            pending[app_id] = url
+
+    def _filter_all_games(self, text: str) -> None:
+        needle = str(text or "").strip().casefold()
+        visible = 0
+        for row in getattr(self, "_game_rows", []):
+            game = row.game
+            searchable = f"{game.get('name', '')} {game.get('app_id', '')}".casefold()
+            matches = not needle or needle in searchable
+            row.setVisible(matches)
+            visible += int(matches)
+        if hasattr(self, "games_all_empty"):
+            self.games_all_empty.setVisible(bool(getattr(self, "_game_rows", [])) and visible == 0)
 
     def _queue_artwork_download(self, pending: dict[str, str]) -> None:
         if not pending or not automatic_network_allowed(self.settings):

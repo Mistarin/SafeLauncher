@@ -1325,11 +1325,16 @@ class ProfilePageTests(unittest.TestCase):
                     for index in range(page.games_grid.count())
                 }
                 self.assertEqual(len(card_heights), 1)
-                self.assertEqual(page.games_all_grid.count(), 0)  # populated on demand
+                self.assertEqual(page.games_all_rows.count(), 0)  # populated on demand
                 page.games_grid.itemAt(5).widget().clicked.emit()
                 self.assertEqual(page.games_stack.currentIndex(), 1)
-                self.assertEqual(page.games_all_grid.count(), 6)
-                page.games_all_grid.itemAt(0).widget().clicked.emit(games[0])
+                self.assertEqual(page.games_all_rows.count(), 6)
+                page.games_all_search.setText("1000")
+                self.assertEqual(sum(not row.isHidden() for row in page._game_rows), 1)
+                page.games_all_search.setText("Game 1")
+                self.assertEqual(sum(not row.isHidden() for row in page._game_rows), 1)
+                page.games_all_search.clear()
+                page._game_rows[0].clicked.emit(games[0])
                 self.assertEqual(page.games_stack.currentIndex(), 2)
                 page.btn_games_back.click()
                 self.assertEqual(page.games_stack.currentIndex(), 1)
