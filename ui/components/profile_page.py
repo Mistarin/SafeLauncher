@@ -327,6 +327,42 @@ class ProfileGameRow(QFrame):
         super().mousePressEvent(event)
 
 
+class ProfileAdaptiveStack(QStackedWidget):
+    """Stack whose size follows the active profile-library page."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.currentChanged.connect(self._active_page_changed)
+
+    def _active_page_changed(self, _index: int) -> None:
+        QTimer.singleShot(0, self.sync_to_current)
+
+    def sync_to_current(self) -> None:
+        current = self.currentWidget()
+        if current is not None:
+            current.updateGeometry()
+            current.adjustSize()
+            self.setFixedHeight(max(1, current.sizeHint().height()))
+        self.updateGeometry()
+        parent = self.parentWidget()
+        if parent is not None:
+            parent.updateGeometry()
+
+    def sizeHint(self) -> QSize:
+        current = self.currentWidget()
+        if current is not None:
+            hint = current.sizeHint()
+            return QSize(max(0, hint.width()), max(0, hint.height()))
+        return super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        current = self.currentWidget()
+        if current is not None:
+            hint = current.minimumSizeHint()
+            return QSize(max(0, hint.width()), max(0, hint.height()))
+        return super().minimumSizeHint()
+
+
 class ProfilePageWidget(QWidget):
     """Persistent profile page with an explicit owner/public mode boundary."""
 
@@ -900,7 +936,7 @@ class ProfilePageWidget(QWidget):
         self.games_section = self._section("Games library")
         games_layout = self.games_section.layout()
         games_layout.setContentsMargins(18, 14, 18, 14)
-        self.games_stack = QStackedWidget()
+        self.games_stack = ProfileAdaptiveStack()
 
         self.games_library = QWidget()
         self.games_library.setObjectName("profileGamesLibrary")
@@ -1771,6 +1807,7 @@ class ProfilePageWidget(QWidget):
             self.status_label.setText(f"Published · Public · @{handle}" if handle else "Published · Public")
             self.footer_status.setText("This is a public projection. Private launcher data is not shown.")
         self._render_games(document)
+        self.games_stack.sync_to_current()
         self._fill_list(self.favorite_list, document.get("favorite_games"), lambda item: f"♥  {item.get('name', 'Favorite game')}")
         self._fill_list(self.achievement_list, document.get("recent_achievements"), lambda item: f"★  {item.get('name', 'Achievement')}  ·  {item.get('game', 'Game')}")
         self._render_social()
