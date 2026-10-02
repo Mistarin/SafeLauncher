@@ -5,7 +5,7 @@ from PyQt6.QtGui import QIcon
 
 from core.logger import get_logger
 from core.bootstrap import setup_application_environment, check_already_running, create_single_instance_server
-from database import GameDatabase
+from database import DatabaseRecoveryError, GameDatabase
 from core.firejail_runner import FirejailSandboxRunner
 from core.zip_backup import ZipBackupManager
 from core.dependency_checker import install_requirements, missing_requirements
@@ -122,7 +122,16 @@ def main():
 
     # 2. Initialize core services via DIP contracts
     logger.info("Initializing core database and sandbox runners...")
-    db = GameDatabase()
+    try:
+        db = GameDatabase()
+    except DatabaseRecoveryError as error:
+        logger.critical("SafeLauncher could not recover its local library: %s", error)
+        QMessageBox.critical(
+            None,
+            "Could not open game library",
+            f"{error}\n\nSafeLauncher will close without changing your library data.",
+        )
+        return
     runner = FirejailSandboxRunner()
     backup = ZipBackupManager()
 

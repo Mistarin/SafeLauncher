@@ -324,8 +324,18 @@ class RequestManagerTests(unittest.TestCase):
 
     def test_projection_maps_shared_source_and_deduplicates_consumers(self):
         manager = RequestManager(max_workers=1)
+        source_started = threading.Event()
+        release_source = threading.Event()
+
+        def load_source(_token):
+            source_started.set()
+            if not release_source.wait(2):
+                raise TimeoutError("test did not release the source request")
+            return {"value": 7}
+
         try:
-            source = manager.request(RequestKey("source", "account"), lambda _token: {"value": 7})
+            source = manager.request(RequestKey("source", "account"), load_source)
+            self.assertTrue(source_started.wait(2))
             first = manager.project(
                 source,
                 RequestKey("projection", "one"),
@@ -336,12 +346,14 @@ class RequestManagerTests(unittest.TestCase):
                 RequestKey("projection", "one"),
                 lambda value: value["value"] * 3,
             )
+            release_source.set()
             result = first.future.result(timeout=2)
             self.assertEqual(first.request_id, second.request_id)
             self.assertEqual(result.status, ResourceStatus.READY)
             self.assertEqual(result.value, 14)
             self.assertEqual(manager.state(first.key).value, 14)
         finally:
+            release_source.set()
             manager.shutdown()
 
     def test_projection_mapper_failure_is_a_managed_error(self):

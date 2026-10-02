@@ -14,6 +14,7 @@ from ui.components.cloud_ui import (
 )
 from ui.components.loading_spinner import LoadingSpinner
 from ui.components.save_history_timeline import SaveHistoryTimeline
+from ui.dialogs.account_dialog import AccountDialog
 
 
 class _FakeRestoreMessage:
@@ -293,6 +294,37 @@ class CloudUiPresentationTests(unittest.TestCase):
         self.assertIs(dialog._cloud_initial_focus, refresh)
         self.assertIsNot(dialog._cloud_initial_focus, restore)
         dialog.deleteLater()
+
+    def test_account_quota_view_renders_without_legacy_tier_state(self):
+        class CloudServiceStub:
+            @staticmethod
+            def mode():
+                return "convex"
+
+        with patch.object(AccountDialog, "reload", return_value=None), patch(
+            "core.cloud_backend.get_site_url", return_value="https://cloud.example.test"
+        ):
+            dialog = AccountDialog(cloud_account_service=CloudServiceStub())
+            try:
+                dialog._apply_data({
+                    "ok": {
+                        "overview": {
+                            "concurrentDevices": 1,
+                            "devices": [],
+                            "maxSaveBytes": 500,
+                            "keepVersions": 5,
+                        },
+                        "listing": {
+                            "bytesUsed": 250,
+                            "quotaBytes": 1000,
+                            "games": [],
+                        },
+                    }
+                })
+                self.assertIn("250 B of 1000 B used", dialog.lbl_quota_text.text())
+                self.assertIn("#A1A1AA", dialog.lbl_quota_text.styleSheet())
+            finally:
+                dialog.close()
 
 
 if __name__ == "__main__":

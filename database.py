@@ -7,6 +7,7 @@ import uuid
 import re
 import threading
 import math
+import tempfile
 from core.logger import get_logger
 from core.game_names import (
     MAX_GAME_NAME_LENGTH,
@@ -47,6 +48,10 @@ def _migrate_legacy_db(new_path: str) -> None:
 _BACKUP_CREATED: set = set()
 _SCHEMA_INITIALIZED: set = set()
 _DUPLICATE_REPAIR_DONE: set = set()
+
+
+class DatabaseRecoveryError(RuntimeError):
+    """Raised when the local library and its recovery copy are unusable."""
 
 
 def _create_database_backup(db_path: str, source_connection=None, *, force: bool = False) -> None:
@@ -205,7 +210,7 @@ class GameDatabase:
             _create_database_backup(db_path, self.conn)
 
     def _connect_with_retry(self):
-        """Connect to SQLite database with self-healing restore from .bak on corruption."""
+        """Open a consistent database or restore a verified backup atomically."""
         def _is_consistent(conn) -> bool:
             # sqlite3.connect does not touch data pages; corruption only surfaces
             # on the first real query, so force an explicit integrity check.
@@ -229,25 +234,77 @@ class GameDatabase:
                 raise sqlite3.DatabaseError(f"Integrity check failed for {self.db_path}")
         except sqlite3.DatabaseError as e:
             logger.error(f"Failed to open SQLite database {self.db_path}: {e}")
+            if self.conn is not None:
+                try:
+                    self.conn.close()
+                except sqlite3.DatabaseError:
+                    pass
             self.conn = None
             bak_path = f"{self.db_path}.bak"
             if os.path.isfile(bak_path):
                 logger.warning(f"Attempting self-healing recovery from backup: {bak_path}")
+                candidate_path = None
                 try:
-                    shutil.copy2(bak_path, self.db_path)
-                    conn = sqlite3.connect(self.db_path, timeout=5)
+                    descriptor, candidate_path = tempfile.mkstemp(
+                        prefix=".safelauncher-db-restore-",
+                        suffix=".tmp",
+                        dir=os.path.dirname(self.db_path) or ".",
+                    )
+                    os.close(descriptor)
+                    shutil.copy2(bak_path, candidate_path)
+                    candidate = sqlite3.connect(candidate_path, timeout=5)
+                    try:
+                        candidate.execute("PRAGMA busy_timeout = 5000")
+                        candidate_is_consistent = _is_consistent(candidate)
+                    finally:
+                        candidate.close()
+                    if not candidate_is_consistent:
+                        raise sqlite3.DatabaseError("Recovery copy failed its integrity check.")
+
+                    # Do not replace the active database until the copied
+                    # recovery file has passed an integrity check. Discard
+                    # sidecars from the corrupt database so they cannot be
+                    # replayed against the restored snapshot.
+                    for suffix in ("-wal", "-shm"):
+                        try:
+                            os.unlink(f"{self.db_path}{suffix}")
+                        except FileNotFoundError:
+                            pass
+                    os.replace(candidate_path, self.db_path)
+                    candidate_path = None
+                    conn = sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
                     conn.execute("PRAGMA busy_timeout = 5000")
-                    if _is_consistent(conn):
-                        self.conn = conn
-                        logger.info("Successfully restored database from backup.")
-                        return
-                    conn.close()
-                    logger.error("Restored backup also failed its integrity check.")
+                    conn.execute("PRAGMA foreign_keys = ON")
+                    try:
+                        conn.execute("PRAGMA journal_mode = WAL")
+                        conn.execute("PRAGMA synchronous = NORMAL")
+                    except sqlite3.DatabaseError:
+                        pass
+                    if not _is_consistent(conn):
+                        conn.close()
+                        raise sqlite3.DatabaseError("Restored database failed its integrity check.")
+                    self.conn = conn
+                    logger.info("Successfully restored database from backup.")
+                    return
                 except Exception as restore_err:
                     logger.error(f"Backup restore failed: {restore_err}")
-            # If all fails, fall back to in-memory database to prevent launcher crash
-            logger.critical("Falling back to fresh in-memory database instance.")
-            self.conn = sqlite3.connect(":memory:")
+                finally:
+                    if candidate_path is not None:
+                        try:
+                            os.unlink(candidate_path)
+                        except OSError:
+                            pass
+
+            # Never present an empty in-memory library as if it were the
+            # user's persistent database. Startup handles this error visibly.
+            message = (
+                f"Could not open the SafeLauncher library at {self.db_path}. "
+                "Automatic recovery failed; no temporary in-memory library was created, "
+                "and the recovery copy was preserved. "
+                "Check their permissions or restore a known-good backup before retrying."
+            )
+            logger.critical(message)
+            raise DatabaseRecoveryError(message) from e
 
     def _create_table(self):
         """Create/migrate the shared schema without racing worker connections."""

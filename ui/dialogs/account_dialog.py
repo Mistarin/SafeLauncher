@@ -591,7 +591,7 @@ class AccountDialog(PopupDialog):
         self.bar_quota.setStyleSheet(quota_style)
         free = total_bytes - used_bytes
         self.lbl_quota_text.setStyleSheet(
-            f"color: {'#E5A93D' if over_free_tier else '#A1A1AA'}; font-size: 11px;"
+            f"color: {'#E5A93D' if pct >= 0.92 else '#A1A1AA'}; font-size: 11px;"
         )
         self.lbl_quota_text.setText(
             f"{format_bytes(used_bytes)} of {format_bytes(total_bytes)} "
