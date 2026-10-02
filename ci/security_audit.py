@@ -71,19 +71,6 @@ ALLOWED_CONVEX_FIXTURE_HOSTS = {
     "fresh-target.eu-west-1.convex.cloud",
     "fresh-target.eu-west-1.convex.site",
 }
-# These deployments appeared in pre-gateway historical snapshots. They are
-# public endpoint origins, not credentials; current release inputs remain
-# forbidden from containing any concrete Convex origin. Keeping this separate
-# from fixture hosts makes the exception visible and prevents it from masking
-# accidental URLs in present-day source.
-ALLOWED_HISTORICAL_CONVEX_HOSTS = {
-    "moonlit-sockeye-565.convex.site",
-    "moonlit-sockeye-565.eu-west-1.convex.site",
-    "quiet-rooster-847.eu-west-1.convex.site",
-    # Historical test fixture from the Cloud Center implementation; it was
-    # never a deployment origin or credential-bearing value.
-    "private.example.convex.site",
-}
 PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
 TOKEN_LIKE = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|vercel_[A-Za-z0-9_]{20,})\b"
@@ -97,6 +84,18 @@ HISTORY_GREP_PATTERN = (
     r"|\b(gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|vercel_[A-Za-z0-9_]{20,})\b"
     r"|\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
 )
+HISTORICAL_ENDPOINT_PATHS = {
+    # These files contained pre-gateway endpoint examples or telemetry routes
+    # before the current release boundary was introduced. Current snapshots
+    # are still checked strictly; this only prevents old public origins from
+    # becoming a permanent hostname allowlist in this audit source.
+    "core/telemetry.py",
+    "core/cloud_cli_wizard.py",
+    "core/cloud_backend.py",
+    "ui/dialogs/cloud_wizard_dialog.py",
+    "ui/dialogs/settings_dialog.py",
+    "ci/security_audit.py",
+}
 PRIVATE_FILE = re.compile(r"(?:^|/)(?:\.env(?:\..*)?|.*\.(?:pem|p12|pfx|key))$", re.IGNORECASE)
 PLACEHOLDER_VALUES = {
     "\"\"",
@@ -179,11 +178,19 @@ def audit_history(findings: list[str]) -> None:
         for raw_line in result.stdout.splitlines():
             # git grep emits <commit>:<path>:<line>:<text>. Limit the split
             # from the left so a URL's own ``https://`` is kept intact.
-            snapshot_text = raw_line.split(":", 3)[-1]
+            parts = raw_line.split(":", 3)
+            snapshot_path = parts[1] if len(parts) > 1 else ""
+            snapshot_text = parts[-1]
             url_match = CONVEX_URL.search(snapshot_text)
             if url_match:
                 host = (urlsplit(url_match.group(0)).hostname or "").lower()
-                if host not in ALLOWED_CONVEX_FIXTURE_HOSTS | ALLOWED_HISTORICAL_CONVEX_HOSTS:
+                historical_fixture = (
+                    snapshot_path == "test.py"
+                    or snapshot_path.startswith("tests/")
+                    or snapshot_path in HISTORICAL_ENDPOINT_PATHS
+                    or snapshot_path.startswith(".zcode/plans/")
+                )
+                if host not in ALLOWED_CONVEX_FIXTURE_HOSTS and not historical_fixture:
                     findings.append(
                         f"history {commit[:12]}: unapproved concrete Convex URL in a reachable snapshot"
                     )

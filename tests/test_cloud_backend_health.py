@@ -97,13 +97,13 @@ class CloudBackendHealthTests(unittest.TestCase):
         response = _Response(200, {"version": MIN_CONVEX_BACKEND_VERSION})
         with patch("core.cloud_backend.requests.get", return_value=response) as get:
             result = check_backend_health(
-                "https://deployment.eu-west-1.convex.cloud/",
+                "https://test-deployment.eu-west-1.convex.cloud/",
                 "test-secret",
             )
 
         self.assertEqual(result["status"], "connected")
         get.assert_called_once_with(
-            "https://deployment.eu-west-1.convex.site/api/health",
+            "https://test-deployment.eu-west-1.convex.site/api/health",
             headers={
                 "Authorization": "Bearer test-secret",
                 "X-SafeLauncher-Key": "test-secret",
