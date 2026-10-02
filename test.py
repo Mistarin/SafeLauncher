@@ -74,7 +74,7 @@ try:
     )
     assert mixed_status.update_indicator.label == "Game Update: Available"
     assert mixed_status.cloud_indicator.label == "Cloud Save: Synced"
-    assert cloud_indicator(SyncStatus.LOCAL_NEWER).label == "Cloud Save: Ready to upload"
+    assert cloud_indicator(SyncStatus.LOCAL_NEWER).label == "Cloud Save: Upload pending"
     assert cloud_indicator(SyncStatus.CLOUD_AUTH_REQUIRED).label == "Cloud Save: Setup required"
     assert update_indicator(False).visible is False
     snapshot = LibraryController().build_snapshot(
@@ -1242,10 +1242,10 @@ try:
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.json = lambda: {
-                    "tag_name": "v0.9.0",
-                    "name": "Release 0.9.0",
+                    "tag_name": "v0.9.1",
+                    "name": "Release 0.9.1",
                     "body": "Bugfixes",
-                    "html_url": "https://github.com/Mistarin/SafeLauncher/releases/tag/v0.9.0",
+                    "html_url": "https://github.com/Mistarin/SafeLauncher/releases/tag/v0.9.1",
                     "assets": [
                         {"name": "SafeLauncher-arm64.AppImage", "browser_download_url": "https://arm64.url", "size": 50000000},
                         {"name": "SafeLauncher-x86_64.AppImage", "browser_download_url": "https://x86_64.url", "size": 52000000},
@@ -1256,7 +1256,7 @@ try:
             with patch("requests.get", side_effect=mock_release_assets):
                 update_info = check_for_updates()
                 assert update_info["update_available"] is True
-                assert update_info["latest_version"] == "v0.9.0"
+                assert update_info["latest_version"] == "v0.9.1"
 
                 assert update_info["appimage_asset"] is not None
                 assert update_info["appimage_asset"]["name"] == "SafeLauncher-x86_64.AppImage"
@@ -2082,9 +2082,11 @@ try:
 
         # E. Test SaveManagerDialog.btn_cloud persistence and state
         save_dlg = SaveManagerDialog(game_id=888, game_name="TestDualKeyGame", game_path=td)
-        assert hasattr(save_dlg, "btn_cloud")
-        assert hasattr(save_dlg, "btn_upload")
-        assert save_dlg.btn_cloud.isEnabled()
+        # Cloud history is exposed through the shared status panel; the save
+        # manager no longer owns legacy per-dialog cloud action buttons.
+        assert not hasattr(save_dlg, "btn_cloud")
+        assert not hasattr(save_dlg, "btn_upload")
+        assert hasattr(save_dlg, "btn_export")
         save_dlg.close()
 
         # F. Test inspect_system_compatibility returns clean dictionary
@@ -2129,8 +2131,8 @@ try:
         # I. Test GamePropertiesDialog manual sync signals and SaveManagerDialog history signal
         from ui.dialogs.game_properties_dialog import GamePropertiesDialog
         prop_dlg = GamePropertiesDialog(dummy_game)
-        assert hasattr(prop_dlg, "_manual_sync_up_done")
         assert hasattr(prop_dlg, "_manual_sync_down_done")
+        assert hasattr(prop_dlg, "btn_sync_down")
         prop_dlg.close()
 
         assert hasattr(save_dlg, "_history_loaded")

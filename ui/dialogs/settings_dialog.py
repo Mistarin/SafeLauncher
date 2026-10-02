@@ -1599,7 +1599,7 @@ class UserSettingsDialog(PopupDialog):
             status_label.setObjectName("settingsPluginStatus")
             status_label.setStyleSheet(
                 f"QLabel#settingsPluginStatus {{ background: transparent; color: {bg_col}; "
-                "font-size: 11px; font-weight: 600; }}"
+                "font-size: 11px; font-weight: 600; }"
             )
         layout.addWidget(status_hint)
 
