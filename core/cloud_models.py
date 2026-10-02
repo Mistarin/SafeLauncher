@@ -34,4 +34,18 @@ class SaveStats:
     device_name: str = ""
 
 
-__all__ = ["SaveStats", "SyncStatus"]
+@dataclass(frozen=True)
+class CloudQuota:
+    """Authoritative account quota returned by the configured cloud backend."""
+
+    used_bytes: int = 0
+    quota_bytes: int = 0
+    max_save_bytes: int = 0
+    bonus_bytes: int = 0
+
+    @property
+    def available_bytes(self) -> int:
+        return max(0, self.quota_bytes - self.used_bytes)
+
+
+__all__ = ["CloudQuota", "SaveStats", "SyncStatus"]

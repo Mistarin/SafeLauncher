@@ -39,6 +39,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ui.components.loading_spinner import LoadingSpinner
+
 from ui.components.sidebar import DialogTitleBar
 from ui.theme import (
     ACCENT_PRIMARY,
@@ -900,9 +902,12 @@ class OperationDialog(PopupDialog):
         self.message_label.setObjectName("popupHint")
         self.message_label.setWordWrap(True)
         body.addWidget(self.message_label)
+        self.spinner = LoadingSpinner(self, size=28)
+        body.addWidget(self.spinner, 0, Qt.AlignmentFlag.AlignCenter)
         self.progress = QProgressBar()
         self.progress.setObjectName("popupProgress")
         self.progress.setRange(0, 0)
+        self.progress.setVisible(False)
         body.addWidget(self.progress)
         body.addStretch()
         footer = QHBoxLayout()
@@ -914,16 +919,20 @@ class OperationDialog(PopupDialog):
         self.cancel_button.clicked.connect(self.reject)
         footer.addWidget(self.cancel_button)
         body.addLayout(footer)
+        self.spinner.start()
 
     def set_message(self, message: str):
         self.message_label.setText(message)
 
     def set_progress(self, current: int, total: int):
+        self.spinner.stop()
+        self.progress.setVisible(True)
         self.progress.setRange(0, max(1, total))
         self.progress.setValue(current)
 
     def finish(self, success: bool, message: str):
         self.set_message(message)
+        self.spinner.stop()
         self.progress.setVisible(False)
         self.cancel_button.setVisible(False)
         self.setWindowTitle("Completed" if success else "Operation failed")

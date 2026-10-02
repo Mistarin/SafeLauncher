@@ -33,11 +33,11 @@ from core.save_models import SaveOperationCancelled
 
 logger = get_logger("CloudBackend")
 
-QUOTA_BYTES = 1024 * 1024 * 1024    # 1 GB free tier per private deployment
-BASE_FREE_QUOTA_BYTES = QUOTA_BYTES
-# A single archive may use the complete free-tier allocation. Larger storage
-# is an account/referral entitlement, not an artificial 50 MB per-save cap.
-MAX_SAVE_BYTES = QUOTA_BYTES
+# Compatibility fallbacks for older backends. Current deployments must return
+# quotaBytes/maxSaveBytes from their account and listing responses.
+BASE_FREE_QUOTA_BYTES = 1024 * 1024 * 1024
+QUOTA_BYTES = BASE_FREE_QUOTA_BYTES
+MAX_SAVE_BYTES = BASE_FREE_QUOTA_BYTES
 _DOWNLOAD_STREAM_TIMEOUT = (10, 60)
 
 
@@ -118,15 +118,14 @@ def describe_cloud_error(error: Exception) -> str:
         )
     if status == 413 or code in ("payload_too_large", "save_too_large"):
         return (
-            "The cloud backend rejected this save because it is too large. "
-            "Older deployments still enforce the former 50 MB limit; choose "
-            "Setup Cloud → Redeploy existing backend and deploy SafeLauncherCloud "
-            "v1.7.0 or newer. The current free-tier limit is 1 GB total storage."
+            "The cloud backend rejected this save because it exceeds the current "
+            "per-save limit. Refresh cloud account information and deploy the "
+            "latest backend if the limit is stale."
         )
     if status == 507 or code == "quota_exceeded":
         return (
-            "Cloud storage quota exceeded. The free tier is 1 GB; remove old cloud "
-            "generations or use the referral expansion option before uploading again."
+            "Cloud storage quota exceeded. Remove old cloud generations or increase "
+            "the account quota through the configured referral/entitlement system."
         )
     return str(error)
 
@@ -368,6 +367,10 @@ class ConvexSaveBackend:
     def list_games(self) -> dict:
         return self._check(self._request("GET", "/api/games", timeout=6), "Listing")
 
+    def quota(self) -> dict:
+        """Return the backend-owned account quota without local assumptions."""
+        return self._check(self._request("GET", "/api/me", timeout=6), "Quota fetch")
+
     def get_game_metadata(self, name_key: str) -> dict:
         """Fetch the separate encrypted SafeLauncher metadata record."""
         response = self._check(
@@ -459,6 +462,11 @@ class ConvexSaveBackend:
         """Encrypt + upload a zipped save archive; returns confirm result."""
         if cancel_check and cancel_check():
             raise SaveOperationCancelled()
+        # The backend is authoritative for account/referral capacity. Fetch
+        # the listing before scanning so old clients do not reject an account
+        # whose quota is larger than the historical 1 GiB fallback.
+        listing = existing_listing if existing_listing is not None else self.list_games()
+        max_save_bytes = int(listing.get("maxSaveBytes") or listing.get("quotaBytes") or MAX_SAVE_BYTES)
         plain_sha = hashlib.sha256()
         plain_size = 0
         try:
@@ -470,9 +478,9 @@ class ConvexSaveBackend:
                     if not chunk:
                         break
                     plain_size += len(chunk)
-                    if plain_size > MAX_SAVE_BYTES:
+                    if plain_size > max_save_bytes:
                         raise CloudBackendError(
-                            f"Save archive ({plain_size / (1024*1024):.1f} MB) exceeds the maximum allowed size ({MAX_SAVE_BYTES / (1024*1024):.0f} MB).",
+                            f"Save archive ({plain_size / (1024*1024):.1f} MB) exceeds the maximum allowed size ({max_save_bytes / (1024*1024):.0f} MB).",
                             "payload_too_large", 413,
                         )
                     plain_sha.update(chunk)
@@ -485,10 +493,6 @@ class ConvexSaveBackend:
         plain_sha = plain_sha.hexdigest()
         device_id, device_name, device_platform = get_device_identity()
 
-        # Name-key resolution normally fetched this listing already. Reusing
-        # it avoids a second serialized cloud request on every upload; direct
-        # backend callers still get the safe fallback request.
-        listing = existing_listing if existing_listing is not None else self.list_games()
         existing = next((g for g in listing.get("games", []) if g.get("nameKey") == name_key), None)
         if existing and existing.get("versions"):
             matched = next((v for v in existing["versions"] if v.get("plainSha256") == plain_sha), None)
@@ -510,7 +514,7 @@ class ConvexSaveBackend:
                     plaintext_zip_path,
                     envelope_path,
                     self.data_key_b64(),
-                    max_plaintext_bytes=MAX_SAVE_BYTES,
+                    max_plaintext_bytes=max_save_bytes,
                     cancel_check=cancel_check,
                 )
             except SaveOperationCancelled:
@@ -622,6 +626,10 @@ class ConvexSaveBackend:
             self._request("GET", f"/api/games/{requests.utils.quote(name_key)}/download{query}"),
             "Download resolve",
         )
+        quota_info = self.list_games()
+        max_save_bytes = int(
+            quota_info.get("maxSaveBytes") or quota_info.get("quotaBytes") or MAX_SAVE_BYTES
+        )
 
         uid = os.getuid() if hasattr(os, "getuid") else "u"
         dest_dir = os.path.join(tempfile.gettempdir(), f"safelauncher-dl-{uid}")
@@ -640,7 +648,7 @@ class ConvexSaveBackend:
                         raise CloudBackendError("Blob fetch failed.", "download_failed",
                                                 resp.status_code)
                     total = 0
-                    limit = MAX_SAVE_BYTES * 2
+                    limit = max_save_bytes * 2
                     expected = int(resp.headers.get("Content-Length", 0) or 0)
                     with os.fdopen(fd, "wb") as out:
                         fd_closed = True
@@ -675,7 +683,7 @@ class ConvexSaveBackend:
                 enc_path,
                 plain_path,
                 self.data_key_b64(),
-                max_plaintext_bytes=MAX_SAVE_BYTES,
+                max_plaintext_bytes=max_save_bytes,
                 cancel_check=cancel_check,
             )
             return plain_path, {

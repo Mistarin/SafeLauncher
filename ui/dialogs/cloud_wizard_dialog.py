@@ -275,8 +275,9 @@ class CloudWizardDialog(PopupDialog):
         f2_layout.addWidget(self.radio_new)
 
         desc2 = QLabel(
-            "<b>First-time setup</b>: Deploy a brand new private Convex cloud backend "
-            "(1 GB free cloud storage without monthly fees). Supports 1-click web deployment or local automated CLI setup."
+            "<b>First-time setup</b>: Deploy a brand new private Convex cloud backend. "
+            "The available storage is reported by the backend and may include account or referral entitlements. "
+            "Supports 1-click web deployment or local automated CLI setup."
         )
         desc2.setWordWrap(True)
         desc2.setStyleSheet("color: #A1A1AA; font-size: 12px; margin-left: 24px;")
@@ -375,7 +376,7 @@ class CloudWizardDialog(PopupDialog):
         wc_desc = QLabel(
             "Open the backend setup instructions in your browser. Complete the Convex steps there, "
             "then return here and click Done.<br>"
-            "• 100% Free · 1 GB Storage · No credit card required on this device."
+            "• Storage capacity is determined by the connected backend account."
         )
         wc_desc.setStyleSheet("color: #F4F4F5; font-size: 12px;")
         wc_desc.setWordWrap(True)
@@ -626,7 +627,7 @@ class CloudWizardDialog(PopupDialog):
 
         sb_desc = QLabel(
             "Acts as a private password for your server endpoint. It stops anyone else on the internet "
-            "who discovers your public <code>.convex.site</code> URL from uploading files and filling up your 1 GB storage quota.<br>"
+            "who discovers your public <code>.convex.site</code> URL from uploading files and filling up your account storage quota.<br>"
             "<span style='color: #A1A1AA; font-size: 11px;'>• Set <code>SAFELAUNCHER_SECRET_KEY</code> on your backend and enter the same value below.<br>"
             "• On a machine with the backend checkout and Convex login, SafeLauncher detects an existing value or creates one automatically.<br>"
             "• The current SafeLauncherCloud backend rejects requests without this key.</span>"

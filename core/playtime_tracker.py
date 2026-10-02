@@ -1,3 +1,5 @@
+import os
+import signal
 import subprocess
 import shutil
 import time
@@ -25,6 +27,51 @@ def _shutdown_firejail_sandbox(sandbox_name: str = None, pid: int = None):
         )
     except Exception as e:
         logger.debug(f"Firejail shutdown cleanup notice: {e}")
+
+
+def terminate_game_process(process, sandbox_name: str = None, graceful_timeout: float = 2.0) -> bool:
+    """Stop one launch process and its descendants without touching the host.
+
+    Firejail/UMU/Wine are launched in a dedicated process session. We first
+    request sandbox shutdown and SIGTERM the session, then escalate to SIGKILL
+    only when the owned process group refuses to exit.
+    """
+    if process is None:
+        return True
+    if process.poll() is not None:
+        _shutdown_firejail_sandbox(sandbox_name=sandbox_name)
+        return True
+
+    _shutdown_firejail_sandbox(sandbox_name=sandbox_name)
+    try:
+        pgid = os.getpgid(process.pid)
+    except (OSError, AttributeError):
+        pgid = None
+    own_group = pgid is not None and pgid != os.getpgrp()
+    try:
+        if own_group:
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            process.terminate()
+    except (OSError, ProcessLookupError) as exc:
+        logger.debug("Graceful game cleanup signal failed for PID %s: %s", getattr(process, "pid", "?"), exc)
+
+    try:
+        process.wait(timeout=graceful_timeout)
+    except (subprocess.TimeoutExpired, AttributeError):
+        try:
+            if own_group:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                process.kill()
+            process.wait(timeout=graceful_timeout)
+            logger.warning("Escalated game cleanup to SIGKILL for PID %s", getattr(process, "pid", "?"))
+        except (OSError, ProcessLookupError, subprocess.TimeoutExpired, AttributeError) as exc:
+            logger.error("Game cleanup failed for PID %s: %s", getattr(process, "pid", "?"), exc)
+            return False
+    finally:
+        _shutdown_firejail_sandbox(sandbox_name=sandbox_name)
+    return process.poll() is not None
 
 
 class PlaytimeTrackerThread(SafeQThread):

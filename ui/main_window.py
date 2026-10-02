@@ -105,6 +105,7 @@ from ui.components.virtual_grid import BannerProxy
 from ui.components.library_view_host import LibraryViewHost
 from ui.components.hero_background import HeroBackgroundWidget
 from ui.components.extraction_spinner import ExtractionSpinner
+from ui.components.loading_spinner import LoadingSpinner
 from ui.components.sort_combo import SortComboBox
 from ui.components.sidebar import LeftSidebarWidget, CustomTitleBar, DialogTitleBar, add_soft_shadow
 from ui.dialogs.proton_dialogs import ProtonSetupWizard, ProtonManagerDialog, UmuRuntimeManagerDialog
@@ -128,7 +129,7 @@ from ui.theme import (
 
 
 import getpass
-from core.playtime_tracker import PlaytimeTrackerThread, _shutdown_firejail_sandbox
+from core.playtime_tracker import PlaytimeTrackerThread, terminate_game_process
 from core.game_session import GameSessionManager
 from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
 from core.operation_registry import OperationRegistry
@@ -839,6 +840,8 @@ class MainWindow(QMainWindow):
         cloud_status_row.setContentsMargins(0, 0, 0, 0)
         cloud_status_row.setSpacing(6)
 
+        self.detail_cloud_spinner = LoadingSpinner(cloud_box, size=14)
+        cloud_status_row.addWidget(self.detail_cloud_spinner)
         self.detail_cloud_status = QLabel("--")
         self.detail_cloud_status.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 500; background: transparent;")
         cloud_status_row.addWidget(self.detail_cloud_status)
@@ -878,6 +881,9 @@ class MainWindow(QMainWindow):
         self.detail_update_layout.setContentsMargins(0, 0, 0, 0)
         self.detail_update_layout.setSpacing(4)
         self.detail_update_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.detail_update_spinner = LoadingSpinner(self.detail_update_widget, size=14)
+        self.detail_update_layout.addWidget(self.detail_update_spinner, 0, Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_detail_update = QLabel("")
         self.lbl_detail_update.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -5203,6 +5209,8 @@ class MainWindow(QMainWindow):
                     else ""
                 )
                 steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
+                if hasattr(self, "detail_update_spinner"):
+                    self.detail_update_spinner.stop()
                 self.lbl_detail_update.setText("Steam check unavailable")
                 self._render_update_date_detail(0, local_date, False)
                 self.lbl_detail_update.setStyleSheet("background: #2A2A2E; color: #d4d4d8; border: 1px solid #71717a; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
@@ -5327,6 +5335,8 @@ class MainWindow(QMainWindow):
             error=reason_text,
         )
         if self.selected_game and self.selected_game[0] == game_id:
+            if hasattr(self, "detail_update_spinner"):
+                self.detail_update_spinner.stop()
             self.lbl_detail_update.setText("Steam check failed")
             self._render_update_date_detail(0, 0, False)
             steam_app_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else "Not linked"
@@ -5395,6 +5405,8 @@ class MainWindow(QMainWindow):
             error="offline",
         )
         if self.selected_game and self.selected_game[0] == game_id:
+            if hasattr(self, "detail_update_spinner"):
+                self.detail_update_spinner.stop()
             self.lbl_detail_update.setText("<font color='#71717A'>Offline — update check not performed</font>")
             self._render_update_date_detail(0, 0, False)
             self.lbl_detail_update.setStyleSheet("background: #202024; color: #A1A1AA; border: 1px solid #2A2A2E; border-radius: 4px; padding: 2px 8px; font-size: 10px; font-weight: 500;")
@@ -5633,6 +5645,8 @@ class MainWindow(QMainWindow):
 
 
         if self.selected_game and self.selected_game[0] == game_id:
+            if hasattr(self, "detail_cloud_spinner"):
+                self.detail_cloud_spinner.stop()
             label = indicator.label + (" · Cached" if stale else "")
             self.detail_cloud_status.setText(
                 f"<font color='{indicator.color}'><b>{label}</b></font>"
@@ -5687,6 +5701,8 @@ class MainWindow(QMainWindow):
 
     def _set_detail_cloud_checking(self) -> None:
         """Show a clear in-flight state while the selected save is probed."""
+        if hasattr(self, "detail_cloud_spinner"):
+            self.detail_cloud_spinner.start()
         self.detail_cloud_status.setText(
             "<font color='#71717A'><b>Cloud Save: Checking…</b></font>"
         )
@@ -6445,9 +6461,13 @@ class MainWindow(QMainWindow):
             )
         else:
             if not network_allowed:
+                if hasattr(self, "detail_cloud_spinner"):
+                    self.detail_cloud_spinner.stop()
                 self.detail_cloud_status.setText("Cloud Save: Offline mode")
                 self.detail_cloud_status.setToolTip("Offline mode is enabled; using local/cached data only.")
             else:
+                if hasattr(self, "detail_cloud_spinner"):
+                    self.detail_cloud_spinner.start()
                 self.detail_cloud_status.setText("Cloud Save: Checking...")
                 self.detail_cloud_status.setToolTip("Checking save sync status...")
             if hasattr(self, "detail_cloud_metadata"):
@@ -6488,6 +6508,11 @@ class MainWindow(QMainWindow):
             self.library_service.set_build_reference(game_id, local_build_id, local_build_date)
         self.local_version_by_game_id[game_id] = (local_build_id, local_build_date)
         self.lbl_detail_update.setText("Checking Steam…" if network_allowed else "Offline mode")
+        if hasattr(self, "detail_update_spinner"):
+            if network_allowed:
+                self.detail_update_spinner.start()
+            else:
+                self.detail_update_spinner.stop()
         self._render_update_date_detail(0, 0, False)
         self.lbl_detail_update.setStyleSheet("background: #202024; color: #F4F4F5; border: 1px solid #2A2A2E; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: bold;")
         self.lbl_detail_versions.setText(
@@ -6749,15 +6774,11 @@ class MainWindow(QMainWindow):
         self.game_sessions.mark_stopping(game_id)
         for tracker in self.launch_session_coordinator.trackers():
             if tracker.game_id == game_id:
-                if tracker.process and tracker.process.poll() is None:
-                    try:
-                        tracker.process.terminate()
-                        stopped = True
-                    except Exception as e:
-                        logger.warning(f"Error terminating game process {game_id}: {e}")
-                if hasattr(tracker, "sandbox_name") and tracker.sandbox_name:
-                    _shutdown_firejail_sandbox(sandbox_name=tracker.sandbox_name)
-                    stopped = True
+                if tracker.process:
+                    stopped = terminate_game_process(
+                        tracker.process,
+                        sandbox_name=getattr(tracker, "sandbox_name", None),
+                    ) or stopped
         if stopped:
             self._show_toast("Stopping game container...")
             logger.info(f"Stop signal sent to Game ID {game_id}")
@@ -6875,6 +6896,9 @@ class MainWindow(QMainWindow):
                     )
                     if not result.success:
                         payload.update({"error": result.error, "guidance": result.guidance})
+                        if result.category == "quota":
+                            payload["quota_blocked"] = True
+                            payload["quota_details"] = result.payload or {}
                 elif value.get("needs_cloud_only_prompt"):
                     payload["needs_cloud_only_prompt"] = True
                 elif value.get("needs_conflict"):
@@ -6957,6 +6981,32 @@ class MainWindow(QMainWindow):
 
         ctx = payload.get("ctx", {})
         game_name = ctx.get("game_name", "")
+
+        if payload.get("quota_blocked"):
+            details = payload.get("quota_details") or {}
+            requested = format_size(int(details.get("requested_bytes", 0) or 0))
+            available = format_size(int(details.get("available_bytes", 0) or 0))
+            quota = format_size(int(details.get("quota_bytes", 0) or 0))
+            dialog = QMessageBox(self)
+            dialog.setIcon(QMessageBox.Icon.Warning)
+            dialog.setWindowTitle("Cloud storage limit reached")
+            dialog.setText(f"The save for '{game_name}' cannot be uploaded right now.")
+            dialog.setInformativeText(
+                f"Save size: {requested}\nAvailable cloud space: {available}\n"
+                f"Account quota: {quota}\n\nYour local save was not changed."
+            )
+            launch_button = dialog.addButton("Launch with local saves", QMessageBox.ButtonRole.AcceptRole)
+            dialog.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            cloud_button = dialog.addButton("Open Cloud Center", QMessageBox.ButtonRole.ActionRole)
+            dialog.exec()
+            clicked = dialog.clickedButton()
+            if clicked is launch_button:
+                self._continue_launch(ctx)
+            elif clicked is cloud_button:
+                self._open_cloud_center()
+            else:
+                self._show_toast(f"Launch cancelled — cloud storage is insufficient for '{game_name}'.")
+            return
 
         if payload.get("needs_conflict"):
             conflict_dlg = SaveConflictDialog(game_name, payload["local_stats"], payload["cloud_stats"], parent=self)
@@ -8936,13 +8986,11 @@ class MainWindow(QMainWindow):
             if fetcher.isRunning() and hasattr(fetcher, "requestInterruption"):
                 fetcher.requestInterruption()
         for tracker in list(self.playtime_trackers):
-            if tracker.process and tracker.process.poll() is None:
-                try:
-                    tracker.process.terminate()
-                except Exception:
-                    pass
-                if getattr(tracker, "sandbox_name", None):
-                    _shutdown_firejail_sandbox(sandbox_name=tracker.sandbox_name)
+            if tracker.process:
+                terminate_game_process(
+                    tracker.process,
+                    sandbox_name=getattr(tracker, "sandbox_name", None),
+                )
             tracker.stop()
 
         # WorkerSupervisor is the authoritative registry. Semantic lists are

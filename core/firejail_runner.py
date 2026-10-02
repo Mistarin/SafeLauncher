@@ -371,6 +371,7 @@ class FirejailSandboxRunner(ISandboxRunner):
             process = subprocess.Popen(
                 ["/bin/sh", "-c", cmd],
                 shell=False,
+                start_new_session=True,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 env=host_process_env(),

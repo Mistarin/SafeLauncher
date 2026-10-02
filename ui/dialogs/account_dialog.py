@@ -584,27 +584,19 @@ class AccountDialog(PopupDialog):
         total_bytes = self._quota["total"]
         pct = min(1.0, used_bytes / max(1, total_bytes))
         self.bar_quota.setValue(int(pct * 1000))
-        from core.cloud_backend import BASE_FREE_QUOTA_BYTES
-        over_free_tier = used_bytes > BASE_FREE_QUOTA_BYTES
-        chunk_color = "#E5A93D" if over_free_tier else (
-            "#3B9FE8" if pct < 0.75 else ("#E5A93D" if pct < 0.92 else "#F05D6C")
-        )
+        chunk_color = "#3B9FE8" if pct < 0.75 else ("#E5A93D" if pct < 0.92 else "#F05D6C")
         quota_style = self.bar_quota.styleSheet()
         for old_color in ("#3B9FE8", "#E5A93D", "#F05D6C", "#E5A93D"):
             quota_style = quota_style.replace(f"stop:0 {old_color}", f"stop:0 {chunk_color}")
         self.bar_quota.setStyleSheet(quota_style)
         free = total_bytes - used_bytes
-        tier_note = (
-            " · Free tier exceeded — referrals can expand storage"
-            if over_free_tier else " · 1 GB free — referrals can expand storage"
-        )
         self.lbl_quota_text.setStyleSheet(
             f"color: {'#E5A93D' if over_free_tier else '#A1A1AA'}; font-size: 11px;"
         )
         self.lbl_quota_text.setText(
             f"{format_bytes(used_bytes)} of {format_bytes(total_bytes)} "
             f"used ({format_bytes(max(0, free))} free) · max {format_bytes(overview.get('maxSaveBytes', 0))} per save · "
-            f"keeping the last {overview.get('keepVersions', '?')} versions{tier_note}"
+            f"keeping the last {overview.get('keepVersions', '?')} versions"
         )
 
         self.btn_auth_toggle.setText("Disconnect")

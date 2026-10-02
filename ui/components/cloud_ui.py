@@ -21,6 +21,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ui.components.loading_spinner import LoadingSpinner
+
 
 class CloudStatusPanel(QFrame):
     """Shared, text-readable status surface for cloud workflows.
@@ -63,6 +65,8 @@ class CloudStatusPanel(QFrame):
         layout.setContentsMargins(12 if compact else 16, 10 if compact else 14,
                                   12 if compact else 16, 10 if compact else 14)
         layout.setSpacing(10)
+        self.loading_spinner = LoadingSpinner(self, size=24)
+        layout.addWidget(self.loading_spinner)
         self.lbl_status_icon = QLabel("…")
         self.lbl_status_icon.setFixedSize(28, 28)
         self.lbl_status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -106,6 +110,13 @@ class CloudStatusPanel(QFrame):
             state = "error"
         self.state = state
         color = self._STATE_COLORS[state]
+        if state == "loading":
+            self.lbl_status_icon.hide()
+            self.loading_spinner.set_color(color)
+            self.loading_spinner.start()
+        else:
+            self.loading_spinner.stop()
+            self.lbl_status_icon.show()
         self.lbl_status_icon.setText(self._STATE_SYMBOLS[state])
         self.lbl_status_icon.setStyleSheet(
             f"color: {color}; font-size: 18px; font-weight: 700;"
@@ -276,6 +287,15 @@ def set_accessible_status(widget, name: str, description: str = "") -> None:
 def cloud_progress(parent: QWidget, message: str) -> QProgressDialog:
     """Create the standard modal indeterminate cloud-operation indicator."""
     progress = QProgressDialog(message, None, 0, 0, parent)
+    label = QLabel()
+    label_layout = QHBoxLayout(label)
+    label_layout.setContentsMargins(0, 0, 0, 0)
+    label_layout.setSpacing(8)
+    spinner = LoadingSpinner(label, size=18)
+    spinner.start()
+    label_layout.addWidget(spinner)
+    label_layout.addWidget(QLabel(message, label), 1)
+    progress.setLabel(label)
     progress.setWindowModality(Qt.WindowModality.WindowModal)
     progress.setCancelButton(None)
     progress.setMinimumDuration(0)

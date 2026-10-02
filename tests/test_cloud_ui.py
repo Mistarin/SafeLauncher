@@ -12,6 +12,7 @@ from ui.components.cloud_ui import (
     set_cloud_focus_order,
     set_cloud_initial_focus,
 )
+from ui.components.loading_spinner import LoadingSpinner
 from ui.components.save_history_timeline import SaveHistoryTimeline
 
 
@@ -261,7 +262,18 @@ class CloudUiPresentationTests(unittest.TestCase):
             self.assertEqual(panel.btn_action.text(), action)
             self.assertEqual(panel.lbl_status.accessibleName(), "Cloud status")
             self.assertTrue(panel.lbl_status.accessibleDescription())
+            self.assertEqual(panel.loading_spinner.running, expected == "loading")
         panel.deleteLater()
+
+    def test_loading_spinner_starts_stops_and_has_accessible_metadata(self):
+        spinner = LoadingSpinner(size=20)
+        self.assertFalse(spinner.running)
+        spinner.start()
+        self.assertTrue(spinner.running)
+        self.assertEqual(spinner.accessibleName(), "Loading")
+        spinner.stop()
+        self.assertFalse(spinner.running)
+        spinner.deleteLater()
 
     def test_cloud_focus_order_is_explicit_and_recorded(self):
         dialog = QDialog()

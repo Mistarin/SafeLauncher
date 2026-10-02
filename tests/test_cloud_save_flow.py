@@ -10,9 +10,34 @@ from core.cloud_models import SaveStats, SyncStatus
 from core.cloud_save_sync import CloudSaveSyncEngine, resolve_name_key
 from core.cloud_repository import CloudSaveRepository
 from core.save_crypto import decrypt_save_file, encrypt_save_file, generate_data_key_b64
+from core.ludusavi_detector import SaveLocation
 
 
 class CloudSaveFlowTests(unittest.TestCase):
+    def test_upload_rejects_against_backend_reported_quota_before_packaging(self):
+        with tempfile.TemporaryDirectory() as root:
+            save_path = os.path.join(root, "save.dat")
+            with open(save_path, "wb") as handle:
+                handle.write(b"x" * 32)
+            location = SaveLocation("Save", save_path, False)
+            with patch("core.cloud_save_sync.backend_active", return_value=True), \
+                 patch("core.cloud_save_sync._cloud_auth_configured", return_value=True), \
+                 patch("core.cloud_save_sync.resolve_cloud_game_ref", return_value=type(
+                     "CloudRef", (), {"name_key": "example-game"}
+                 )()), \
+                 patch("core.cloud_save_sync._get_cloud_listing", return_value={
+                     "games": [], "bytesUsed": 90, "quotaBytes": 100, "maxSaveBytes": 100,
+                 }), \
+                 patch("core.cloud_save_sync.ZipBackupManager.export_save_locations") as export:
+                result = CloudSaveSyncEngine.sync_local_to_cloud(
+                    "Example Game", root, locations=[location]
+                )
+
+            self.assertFalse(result.success)
+            self.assertEqual(result.category, "quota")
+            self.assertEqual(result.payload["available_bytes"], 10)
+            export.assert_not_called()
+
     def test_upload_body_uses_content_length_without_chunked_transfer(self):
         with tempfile.NamedTemporaryFile() as handle:
             payload = b"encrypted-save"

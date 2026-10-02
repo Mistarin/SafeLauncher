@@ -745,6 +745,38 @@ class CloudSaveSyncEngine:
             logger.info(f"No local save files to upload for '{game_name}'")
             return SaveOperationResult(False, "Cloud upload", game_name, error=cls._last_sync_error, category="local_save_missing")
 
+        if backend_active():
+            listing = _get_cloud_listing()
+            quota_bytes = int(listing.get("quotaBytes") or 0)
+            used_bytes = int(listing.get("bytesUsed") or 0)
+            max_save_bytes = int(listing.get("maxSaveBytes") or quota_bytes or 0)
+            if max_save_bytes and local_stats.size_bytes > max_save_bytes:
+                error = (
+                    f"Local save is {local_stats.size_bytes} bytes, but the cloud "
+                    f"allows at most {max_save_bytes} bytes per save."
+                )
+                cls._last_sync_error = error
+                return SaveOperationResult(
+                    False, "Cloud upload", game_name, error=error, category="quota",
+                    guidance="Launch with local saves or increase the account cloud quota.",
+                    payload={"quota_bytes": quota_bytes, "used_bytes": used_bytes,
+                             "available_bytes": max(0, quota_bytes - used_bytes),
+                             "requested_bytes": local_stats.size_bytes},
+                )
+            if quota_bytes and used_bytes + local_stats.size_bytes > quota_bytes:
+                error = (
+                    f"Cloud quota is insufficient: {used_bytes} bytes used of "
+                    f"{quota_bytes}; this save needs {local_stats.size_bytes} bytes."
+                )
+                cls._last_sync_error = error
+                return SaveOperationResult(
+                    False, "Cloud upload", game_name, error=error, category="quota",
+                    guidance="Launch with local saves or increase the account cloud quota.",
+                    payload={"quota_bytes": quota_bytes, "used_bytes": used_bytes,
+                             "available_bytes": max(0, quota_bytes - used_bytes),
+                             "requested_bytes": local_stats.size_bytes},
+                )
+
         snapshot = snapshot.with_phase(SaveSnapshotPhase.PACKAGING)
         if progress_callback is not None:
             progress_callback(0.30)
@@ -839,10 +871,18 @@ class CloudSaveSyncEngine:
                 from core.cloud_backend import describe_cloud_error
                 cls._last_sync_error = describe_cloud_error(e)
                 logger.warning(f"Cloud upload failed ({e.code}); save kept locally.")
+                quota_failure = e.status in (413, 507) or e.code in {
+                    "payload_too_large", "save_too_large", "quota_exceeded"
+                }
                 return SaveOperationResult(
                     False, "Cloud upload", game_name, error=cls._last_sync_error,
-                    category="backend_unavailable",
-                    payload={"snapshot": snapshot.with_phase(SaveSnapshotPhase.FAILED)},
+                    category="quota" if quota_failure else "backend_unavailable",
+                    guidance=(
+                        "Launch with local saves or increase the account cloud quota."
+                        if quota_failure else "Check the cloud connection and retry."
+                    ),
+                    payload={"snapshot": snapshot.with_phase(SaveSnapshotPhase.FAILED),
+                             **(e.extra if quota_failure else {})},
                 )
             finally:
                 try:

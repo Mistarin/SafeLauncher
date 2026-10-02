@@ -1142,7 +1142,7 @@ def run_cloud_setup_wizard() -> int:
 
     # Step 1: Choose Setup Mode
     banner("[1/3] Choose Setup Mode", CYAN)
-    print("  SafeLauncher stores game saves encrypted on your personal Convex cloud (1 GB free storage).\n")
+    print("  SafeLauncher stores game saves encrypted on your personal Convex cloud.\n")
 
     compat = inspect_system_compatibility()
     if compat["is_steamos"] or compat["is_immutable"]:
@@ -1202,7 +1202,7 @@ def run_cloud_setup_wizard() -> int:
         else:
             banner("[1b/3] Backend Setup & Download", CYAN)
             print("  SafeLauncher stores encrypted game saves on your private Convex cloud.")
-            print("  Convex provides 1 GB free cloud storage without monthly fees.\n")
+            print("  Storage capacity is reported by the connected backend account.\n")
             print(f"  {YELLOW}● SafeLauncherDatabase files not found on this system.{RESET}")
             download_choice = input(f"  {CYAN}{BOLD}➜{RESET} Download SafeLauncherDatabase now? [Y/n]: ").strip().lower()
             if download_choice not in ("n", "no"):
@@ -1247,7 +1247,7 @@ def run_cloud_setup_wizard() -> int:
     print(f"\n  {BOLD}Secret Access Key (Required for the current backend):{RESET}")
     print(f"     {DIM}Acts as a private password for your server endpoint. It stops anyone else{RESET}")
     print(f"     {DIM}who finds your public .convex.site URL from uploading files and filling{RESET}")
-    print(f"     {DIM}up your 1 GB free Convex storage quota.{RESET}")
+    print(f"     {DIM}up your backend-reported Convex storage quota.{RESET}")
     print(f"     {DIM}• Enter the same value configured as SAFELAUNCHER_SECRET_KEY on the server.{RESET}")
     print(f"     {DIM}• If this is a new setup, enter a passphrase to configure it on Convex now.{RESET}")
     print(f"     {DIM}• When a local backend is available, leaving this blank detects an existing key or generates one.{RESET}")
