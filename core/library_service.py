@@ -62,6 +62,47 @@ class LibraryService:
         return tuple(self.database.get_all_games())
 
     @property
+    def database_path(self) -> str | None:
+        """Expose the configured local database location to managed services."""
+        return getattr(self.database, "db_path", None)
+
+    def game_achievements(self, game_id: int) -> list[dict]:
+        """Read one game's achievement projection for presentation callers."""
+        return self.database.get_game_achievements(int(game_id))
+
+    def save_achievement_schema(self, game_id: int, app_id: str, schema: list[dict]) -> int:
+        """Persist resolver definitions through the local library boundary."""
+        return int(self.database.save_achievement_schema(int(game_id), str(app_id), schema))
+
+    def persist_achievement_resolution(self, game_id: int, app_id: str, resolution) -> int:
+        """Persist a resolved achievement snapshot through the library boundary."""
+        from core.achievement_persistence import persist_resolution
+
+        return int(persist_resolution(self.database, int(game_id), str(app_id), resolution))
+
+    def profile_unlocks(self) -> dict:
+        return self.database.get_profile_unlocks()
+
+    def profile_unlock_records(self, *, include_pending: bool = True) -> dict:
+        return self.database.get_profile_unlock_records(include_pending=include_pending)
+
+    def profile_games(self) -> list[dict]:
+        return self.database.get_profile_games()
+
+    def sync_profile_in_worker(self, *, force: bool = True):
+        """Run profile reconciliation using a worker-owned SQLite connection."""
+        from database import GameDatabase
+        from core.cloud_metadata_sync import CloudMetadataSync
+
+        worker_database = (
+            GameDatabase(self.database_path) if self.database_path else GameDatabase()
+        )
+        try:
+            return CloudMetadataSync.sync_profile(worker_database, force=force)
+        finally:
+            worker_database.close()
+
+    @property
     def selected_ids(self) -> set[int]:
         return self.state_store.selected_ids
 

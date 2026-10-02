@@ -21,6 +21,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Local database | [`database.py`](../database.py) | `GameDatabase`, `GameRecord` | active |
 | Portable game naming | [`core/game_names.py`](../core/game_names.py) | `meaningful_game_name`, `preferred_game_name`, `local_profile_identity`, `display_name_key`, placeholder/fallback rules | active |
 | Library application service | [`core/library_service.py`](../core/library_service.py) | `LibraryService`, `LibraryProjection`, archive/remove/purge actions | active |
+| Game lifecycle service | [`core/game_lifecycle_service.py`](../core/game_lifecycle_service.py) | `GameLifecycleService`, `GameLifecycleResult`; stages filesystem changes with local library mutations | active |
 | Library metadata presentation state | [`core/library_metadata_state.py`](../core/library_metadata_state.py) | `LibraryMetadataState` | active; local projection and legacy migration adapter |
 | Cloud sync queue | [`core/cloud_sync_queue.py`](../core/cloud_sync_queue.py) | `PendingCloudSyncQueue` | active |
 | Cloud context/status service | [`core/cloud_context.py`](../core/cloud_context.py), [`core/cloud_status_service.py`](../core/cloud_status_service.py) | `CloudContext`, `CloudStatusService`, `CloudStatusTarget`, `CloudStatusPlan` | active |
@@ -79,6 +80,7 @@ Status values: `active` is a normal production path; `compatibility` is retained
 ## UI entrypoints
 
 - Main shell: [`ui/main_window.py`](../ui/main_window.py)
+- Main window public profile/friends workflows: [`ui/main_window_profile.py`](../ui/main_window_profile.py) (`MainWindowProfileMixin`)
 - Shared icons: [`ui/icons.py`](../ui/icons.py) (`get_icon`, `get_icon_pixmap`, `get_app_icon_pixmap`, `icon_pixmap`; DPI-aware QIcon-to-QPixmap rendering)
 - Shared sort control: [`ui/components/sort_combo.py`](../ui/components/sort_combo.py) (`SortComboBox` uses a platform-independent chevron and native popup)
 - Library views: [`ui/library_list.py`](../ui/library_list.py), [`ui/components/library_view_host.py`](../ui/components/library_view_host.py), [`ui/components/compact_game_page.py`](../ui/components/compact_game_page.py), [`ui/components/virtual_grid.py`](../ui/components/virtual_grid.py)

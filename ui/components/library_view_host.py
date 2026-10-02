@@ -11,7 +11,7 @@ from typing import Optional, Set
 
 from PyQt6 import sip
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint
-from PyQt6.QtWidgets import QLabel, QStackedWidget
+from PyQt6.QtWidgets import QLabel, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
 from core.library_controller import LibrarySnapshot
 from ui.components.banner_card import GameBannerWidget
@@ -76,7 +76,9 @@ class LibraryViewHost(QStackedWidget):
         self._connect_renderer_events()
         self.snapshot: Optional[LibrarySnapshot] = None
         self.selected_ids: set[int] = set()
+        self._empty_widget: Optional[QWidget] = None
         self._empty_label: Optional[QLabel] = None
+        self._empty_add_button: Optional[QPushButton] = None
 
     def _connect_renderer_events(self) -> None:
         self.virtual_grid.game_clicked.connect(self.game_selected.emit)
@@ -145,18 +147,32 @@ class LibraryViewHost(QStackedWidget):
 
     def set_grid_widgets(self, widgets: list) -> None:
         """Set standard-grid widgets without exposing the stack to callers."""
-        if self._empty_label is not None and self._empty_label not in widgets:
+        if self._empty_widget is not None and self._empty_widget not in widgets:
+            self._empty_widget = None
             self._empty_label = None
+            self._empty_add_button = None
         self.grid_container.set_banner_widgets(widgets)
 
     def set_empty_grid_message(self, message: str, show_add: bool = False) -> None:
-        """Render an empty state in the standard grid renderer."""
-        if self._empty_label is None or sip.isdeleted(self._empty_label):
-            self._empty_label = QLabel(self.grid_container)
+        """Render an empty state and optional Add Game action in the grid."""
+        if self._empty_widget is None or sip.isdeleted(self._empty_widget):
+            self._empty_widget = QWidget(self.grid_container)
+            layout = QVBoxLayout(self._empty_widget)
+            layout.setContentsMargins(24, 24, 24, 24)
+            layout.setSpacing(12)
+            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._empty_label = QLabel(self._empty_widget)
             self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._empty_label.setWordWrap(True)
             self._empty_label.setStyleSheet("color: #777777; font-size: 14px; padding: 40px;")
+            layout.addWidget(self._empty_label)
+            self._empty_add_button = QPushButton("Add Game", self._empty_widget)
+            self._empty_add_button.setAccessibleName("Add a game to your library")
+            self._empty_add_button.clicked.connect(self.add_game_requested.emit)
+            layout.addWidget(self._empty_add_button, 0, Qt.AlignmentFlag.AlignHCenter)
         self._empty_label.setText(message)
-        self.set_grid_widgets([self._empty_label])
+        self._empty_add_button.setVisible(bool(show_add))
+        self.set_grid_widgets([self._empty_widget])
 
     def set_mode(self, mode: str, use_virtual: bool = False) -> int:
         """Select the renderer for a logical mode and return its index."""

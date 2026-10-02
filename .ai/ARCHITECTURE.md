@@ -14,6 +14,8 @@ main.py
           │       ├─ ArtworkClient ── SteamGridDBClient
           │       └─ Profile/resource adapters
           ├─ library/state/view components
+          ├─ GameLifecycleService ── LibraryService
+          ├─ MainWindowProfileMixin (profile/friends workflows)
           ├─ launch/session/sandbox services
           └─ compatibility workers and dialogs
 ```
@@ -54,6 +56,12 @@ backend deployment checkout, not the client's local SQLite database. See
 - `ResourceCache` owns reusable resource retention and freshness.
 - Transport clients own HTTP sessions, authentication headers, encryption transport, response validation, and parsing.
 - UI owns presentation and subscriptions, not remote request lifecycles.
+- `GameLifecycleService` stages installation files and coordinates archive,
+  removal, and restore transitions through `LibraryService`; the window shell
+  applies the resulting UI updates.
+- `MainWindowProfileMixin` owns public profile and friends navigation plus
+  private profile reconciliation callbacks, keeping those workflows out of
+  the library and game-session methods on `MainWindow`.
 - Compatibility workers remain for manager-less dialogs, plugins, tests, and older integrations.
 
 Details: [ownership-and-boundaries.md](architecture/ownership-and-boundaries.md), [manager-ownership-map.md](maps/manager-ownership-map.md).

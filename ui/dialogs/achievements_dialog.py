@@ -381,7 +381,15 @@ class AchievementsDialog(PopupDialog):
     Apple macOS styled Game Achievements Viewer.
     Features frosted glass metric cards, segmented filter pills, search, and rich tooltips.
     """
-    def __init__(self, game: Any, db: GameDatabase, parent: Optional[QWidget] = None, request_manager=None):
+    def __init__(
+        self,
+        game: Any,
+        db: GameDatabase,
+        parent: Optional[QWidget] = None,
+        request_manager=None,
+        *,
+        library_service=None,
+    ):
         initial_name = (
             game[1] if isinstance(game, (tuple, list)) else
             game.get("name", "Achievements") if isinstance(game, dict) else
@@ -390,6 +398,7 @@ class AchievementsDialog(PopupDialog):
         super().__init__(f"Achievements - {initial_name}", parent)
         self.game = game
         self.db = db
+        self.library_service = library_service or getattr(parent, "library_service", None)
         self.request_manager = request_manager
         self.achievement_resource_service = getattr(
             parent, "achievement_resource_service", None
@@ -872,7 +881,7 @@ class AchievementsDialog(PopupDialog):
 
         # Show the last known schema immediately, but always let the shared
         # resolver reconcile it with local state and authenticated Steam.
-        db_achs = self.db.get_game_achievements(self.game_id)
+        db_achs = self._read_game_achievements()
         if db_achs:
             self.achievements = db_achs
             self.status_tag.setText(" Cached · offline ")
@@ -898,7 +907,11 @@ class AchievementsDialog(PopupDialog):
             )
             spec = self.achievement_resource_service.status_spec(
                 target,
-                db_path=getattr(self.db, "db_path", None),
+                db_path=(
+                    self.library_service.database_path
+                    if self.library_service is not None
+                    else getattr(self.db, "db_path", None)
+                ),
                 priority=RequestPriority.NORMAL,
                 tag="achievement_dialog",
                 download_icons=True,
@@ -970,6 +983,11 @@ class AchievementsDialog(PopupDialog):
         if binding is not None:
             binding.close()
 
+    def _read_game_achievements(self) -> list[dict]:
+        if self.library_service is not None:
+            return self.library_service.game_achievements(self.game_id)
+        return self.db.get_game_achievements(self.game_id)
+
     def _release_fetch_worker(self, worker) -> None:
         """Release completed resolver workers so refreshes do not accumulate children."""
         if self.fetch_worker is worker:
@@ -979,17 +997,23 @@ class AchievementsDialog(PopupDialog):
         if game_id != self.game_id or self._close_requested:
             return
         self._last_resolution = resolution
-        from core.achievement_persistence import persist_resolution
-        persist_resolution(self.db, game_id, app_id, resolution)
-        self.achievements = self.db.get_game_achievements(self.game_id)
+        if self.library_service is not None:
+            self.library_service.persist_achievement_resolution(game_id, app_id, resolution)
+        else:
+            from core.achievement_persistence import persist_resolution
+            persist_resolution(self.db, game_id, app_id, resolution)
+        self.achievements = self._read_game_achievements()
 
         self._set_resolution_status(resolution)
         self._render_cards()
 
     def _on_schema_fetched(self, game_id: int, app_id: str, achs_list: list):
         if game_id == self.game_id:
-            self.db.save_achievement_schema(game_id, app_id, achs_list)
-            self.achievements = self.db.get_game_achievements(self.game_id)
+            if self.library_service is not None:
+                self.library_service.save_achievement_schema(game_id, app_id, achs_list)
+            else:
+                self.db.save_achievement_schema(game_id, app_id, achs_list)
+            self.achievements = self._read_game_achievements()
             self.status_tag.setText(" Definitions cached ")
             self.status_tag.setStyleSheet("background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
             self._render_cards()

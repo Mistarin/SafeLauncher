@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from PyQt6.QtWidgets import (
-    QApplication, QFormLayout, QLineEdit, QLabel, QToolButton, QFrame,
+    QApplication, QFormLayout, QLineEdit, QLabel, QToolButton, QFrame, QComboBox,
     QPushButton, QMainWindow, QWidget, QCheckBox,
 )
 from PyQt6.QtCore import QEvent, QSettings, Qt
@@ -17,6 +17,7 @@ from ui.components.sidebar import CustomTitleBar
 from ui.main_window import MainWindow
 from ui.components.banner_card import GameBannerWidget
 from ui.components.virtual_grid import VirtualizedGameGridView
+from ui.components.library_view_host import LibraryViewHost
 from ui.components.game_detail_page import GameDetailPageWidget
 from core.cloud_models import SyncStatus
 from core.cloud_models import SaveStats
@@ -204,7 +205,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             card.deleteLater()
             self.app.processEvents()
 
-    def test_virtual_grid_exposes_upload_shortcut_for_selected_game(self):
+    def test_virtual_grid_ignores_unmapped_ctrl_u_shortcut(self):
         grid = VirtualizedGameGridView()
         actions = []
         grid.cloud_action_requested.connect(lambda game_id, action: actions.append((game_id, action)))
@@ -226,6 +227,59 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             self.assertEqual(actions, [])
         finally:
             grid.deleteLater()
+            self.app.processEvents()
+
+    def test_library_shortcuts_do_not_override_buttons_or_combos(self):
+        button = QPushButton("Continue")
+        combo = QComboBox()
+        try:
+            with patch("ui.main_window.QApplication.focusWidget", return_value=button):
+                self.assertFalse(MainWindow._shortcut_allowed(object()))
+            with patch("ui.main_window.QApplication.focusWidget", return_value=combo):
+                self.assertFalse(MainWindow._shortcut_allowed(object()))
+            with patch("ui.main_window.QApplication.focusWidget", return_value=None):
+                self.assertTrue(MainWindow._shortcut_allowed(object()))
+        finally:
+            button.deleteLater()
+            combo.deleteLater()
+
+    def test_stopping_game_schedules_process_cleanup_off_gui_thread(self):
+        tracker = SimpleNamespace(game_id=42, process=object(), sandbox_name="safe-42")
+        scheduled = []
+        fake = SimpleNamespace(
+            _game_termination_in_flight=set(),
+            _stopping_game_ids=set(),
+            _closing=False,
+            compact_container=None,
+            selected_game=None,
+            game_sessions=SimpleNamespace(mark_stopping=Mock()),
+            launch_session_coordinator=SimpleNamespace(trackers=lambda: [tracker]),
+            _game_termination_tasks=SimpleNamespace(
+                start=lambda name, work: scheduled.append((name, work))
+            ),
+            _show_toast=Mock(),
+            _update_detail_launch_button=Mock(),
+        )
+        with patch("ui.main_window.terminate_game_process") as terminate:
+            MainWindow._stop_game(fake, 42)
+        self.assertEqual(len(scheduled), 1)
+        self.assertEqual(scheduled[0][0], "StopGame-42")
+        terminate.assert_not_called()
+
+    def test_grid_empty_state_emits_add_game_action(self):
+        host = LibraryViewHost()
+        actions = []
+        host.add_game_requested.connect(lambda: actions.append("add"))
+        try:
+            host.set_empty_grid_message("No games yet", show_add=True)
+            self.assertEqual(host._empty_label.text(), "No games yet")
+            self.assertFalse(host._empty_add_button.isHidden())
+            host._empty_add_button.click()
+            self.assertEqual(actions, ["add"])
+            host.set_empty_grid_message("No matching games", show_add=False)
+            self.assertTrue(host._empty_add_button.isHidden())
+        finally:
+            host.deleteLater()
             self.app.processEvents()
 
     def test_game_detail_shows_cloud_save_time_and_device(self):

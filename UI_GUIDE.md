@@ -1,315 +1,64 @@
-# SafeLauncher - UI Components & Workflow
+# SafeLauncher desktop UI guide
 
-## Main Window UI
+SafeLauncher is organized around the local game library, with profile and cloud
+management available from the main window. The exact layout adapts to the
+window size and selected library view.
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Game Sandbox Launcher                          [_□×] │
-├─────────────────────────────────────────────────────┤
-│                                                       │
-│  Game Library                                         │
-│                                                       │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │ 🎮 Portal 2 (WINE)                              │ │
-│  │ 🎮 Starfield (UMU)                              │ │
-│  │ 🎮 Baldur's Gate 3 (UMU)                        │ │
-│  │                                                  │ │
-│  │                                                  │ │
-│  │                                                  │ │
-│  └─────────────────────────────────────────────────┘ │
-│                                                       │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │ ▶ Launch Selected Game │ ➕ Add Game │ 🗑️ Uninstall / Delete │ │
-│  └─────────────────────────────────────────────────┘ │
-│                                                       │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │ 💾 Export Save │ 📂 Import Save                  │ │
-│  └─────────────────────────────────────────────────┘ │
-│                                                       │
-└─────────────────────────────────────────────────────┘
-```
+## Main window
 
-## Add Game Dialog
+- **Library sidebar:** switch between all, installed, favorite, and archived
+  games; choose a collection; create or manage collections.
+- **Library toolbar:** search and sort the current view. The library can use a
+  responsive card grid, a virtualized grid for larger libraries, or a compact
+  list. Selecting a game opens its detail inspector when that view is active.
+- **Footer:** add a game and switch between the compact and grid presentations.
+  Empty grid states provide an Add Game action when the current view has no
+  matching games.
+- **Header:** open Cloud Center, use the profile/account menu, and access the
+  window controls. The profile page is a full page in the main window; friends
+  and other profile actions can open dialogs.
 
-```
-┌──────────────────────────────────────────┐
-│  Add Game                            [×] │
-├──────────────────────────────────────────┤
-│                                          │
-│  Game Name:        [Portal 2________]   │
-│                                          │
-│  Game Path:        [/home/user/Portal2] │
-│                    [Browse...]           │
-│                                          │
-│  Executable:       [portal2.exe____]    │
-│                                          │
-│  Launch Mode:      [▼ wine            ] │
-│                    ├─ umu               │
-│                    └─ wine              │
-│                                          │
-│  ┌──────────────────────────────────┐  │
-│  │     [Add]        [Cancel]         │  │
-│  └──────────────────────────────────┘  │
-│                                          │
-└──────────────────────────────────────────┘
-```
+## Add and launch games
 
----
+1. Choose **Add Game** from the footer or an empty-library prompt.
+2. Select the game directory, set its executable and launch mode, then save.
+3. Select the game and use its launch control or double-click its card or row.
+4. Use the game detail inspector for installation status, metadata, achievements,
+   and per-game actions.
 
-## User Workflows
+Archive installation and game updates are available through the library's
+game-management actions. Uninstalling archives a game record; deleting all
+local data is a separate confirmed action.
 
-### Workflow 1: Adding a Game
+## Saves and cloud
 
-```
-User Clicks "Add Game"
-         ↓
-AddGameDialog Opens
-         ↓
-User Enters Game Name
-         ↓
-User Clicks "Browse..." → Selects Game Folder
-         ↓
-User Enters Executable Name
-         ↓
-User Selects Launch Mode
-         ↓
-User Clicks "Add"
-         ↓
-Database Saves Game
-         ↓
-Game List Refreshed
-         ↓
-Success Message Shown
-```
+- **Cloud Center** is the main entry point for private-cloud connection,
+  synchronization status, devices, quota, conflicts, and save history.
+- Per-game Cloud menus open the existing save-management and history workflows.
+- SafeLauncher keeps local saves available if cloud services are offline. It
+  asks before resolving conflicting local and cloud versions.
+- Automatic uploads occur when the managed cloud lifecycle determines it is
+  safe to do so. A game can also use local saves when cloud sync is unavailable.
 
-### Workflow 2: Launching a Game
+## Profile and social features
 
-```
-User Selects Game from List
-         ↓
-User Double-Clicks OR Clicks "Launch"
-         ↓
-Game Object Retrieved from Database
-         ↓
-FirejailSandboxRunner.launch() Called
-         ↓
-Firejail Command Constructed
-         ↓
-Game Subprocess Started
-         ↓
-User Sees "Launching..." Message
-         ↓
-Game Runs in Sandbox
-         ↓
-User Plays Game!
-```
+Use the profile control in the header to open the local profile page and account
+actions. The public profile is a curated view; it does not publish installation
+paths, executable names, devices, credentials, or private save state. Friends
+and public profiles are opened from their corresponding profile actions.
 
-### Workflow 3: Exporting Save
+## Keyboard and accessibility
 
-```
-User Selects Game from List
-         ↓
-User Clicks "Export Save"
-         ↓
-Save Directory Located
-         ↓
-File Save Dialog Shown
-         ↓
-User Chooses Location & Filename
-         ↓
-ZipBackupManager.export_save() Called
-         ↓
-Game Save Compressed to ZIP
-         ↓
-ZIP File Saved to Disk
-         ↓
-Success Message Shown
-```
+The library provides search, selection, and context-menu keyboard actions.
+Interactive controls keep their normal Return, Space, and typing behavior;
+library shortcuts are ignored while text fields, buttons, or other action
+controls have focus. Delegate-painted badges expose tooltip and accessibility
+text. Dialogs provide explicit focus order and accessible names for important
+actions.
 
-### Workflow 4: Importing Save
+## Status and troubleshooting
 
-```
-User Selects Game from List
-         ↓
-User Clicks "Import Save"
-         ↓
-File Open Dialog Shown
-         ↓
-User Selects ZIP File
-         ↓
-ZipBackupManager.import_save() Called
-         ↓
-ZIP File Extracted to Save Directory
-         ↓
-Success Message Shown
-         ↓
-Game Files Updated
-```
-
----
-
-## Component Interactions
-
-```
-┌─────────────┐
-│   PyQt6     │  Main window, dialogs, buttons
-│   (UI)      │
-└──────┬──────┘
-       │ Uses
-       ↓
-┌──────────────────┐
-│  GameDatabase    │  SQLite game library
-│  (database.py)   │
-└──────────────────┘
-       ↑
-       │ Manages
-
-┌──────────────────────────────────┐
-│  MainWindow (main_window.py)     │
-│  - Displays game list             │
-│  - Manages user interactions      │
-│  - Coordinates with backend       │
-└──────────────────┬───────────────┘
-                   │
-        ┌──────────┼──────────┐
-        ↓          ↓          ↓
-┌──────────────┐  ┌──────────────────┐  ┌──────────────┐
-│ FirejailSand│  │ ZipBackupManager  │  │GameDatabase  │
-│   boxRunner │  │ (zip_backup.py)   │  │(database.py) │
-│(firejail_   │  │                   │  │              │
-│ runner.py)  │  │- Export saves     │  │- Add game    │
-│             │  │- Import saves     │  │- Uninstall / delete game │
-│- Launch in  │  │- ZIP compression  │  │- Get all     │
-│  sandbox    │  │- ZIP extraction   │  │              │
-│- Firejail   │  └──────────────────┘  └──────────────┘
-│  commands   │
-│- Wine/UMU   │
-│  support    │
-└──────────────┘
-```
-
----
-
-## Error Handling & User Feedback
-
-All operations provide user feedback:
-
-```
-Success Scenarios:
-  ✓ Game added successfully
-  ✓ Game launched (with message)
-  ✓ Save exported successfully
-  ✓ Save imported successfully
-  ✓ Game uninstalled while its record is preserved
-  ✓ Game permanently deleted
-
-Error Scenarios:
-  ✗ All fields required (Add Game)
-  ✗ Invalid game path (Add Game)
-  ✗ No game selected (Launch/Uninstall/Export/Import)
-  ✗ Save directory not found (Export)
-  ✗ Failed to export save (Export)
-  ✗ Failed to import save (Import)
-  ✗ Failed to launch game (Launch)
-
-Confirmation Dialogs:
-  ? Manage game?
-    - Uninstall (Removes game files, keeps the SafeLauncher record and history)
-    - Permanently delete (Removes game files and all local SafeLauncher data)
-    - Cancel
-```
-
----
-
-## Database Model
-
-The `games` record contains the core launch identity plus optional metadata:
-
-| Group | Fields |
-| :--- | :--- |
-| Launch identity | name, path, executable, mode |
-| Artwork/store | banner URL, icon URL, Steam ID |
-| Library state | favorite, archived, collection, tags |
-| Activity | playtime, last played, install date |
-| Runtime | Proton path, build ID, version override, patch-notes URL, environment variables |
-
-Not installed is a reversible per-device library state. Permanent removal is a separate destructive action that deletes files while preserving account profile history.
-
-**Example Record:**
-```
-id: 1
-name: Portal 2
-path: /home/user/Games/Portal2
-executable: portal2.exe
-mode: wine
-```
-
----
-
-## Launch Modes Explained
-
-### UMU (Unified Multi-platform Utility)
-```bash
-cd '<game_path>' && firejail --ignore=noroot --ignore=seccomp \
-  --whitelist='<game_path>' \
-  --whitelist='$HOME/.local/share/umu' \
-  --whitelist='$HOME/.cache/umu' \
-  --env=WINEPREFIX='<game_path>/prefix' \
-  --env=WINEDLLOVERRIDES='winegstreamer=' umu-run '<executable>'
-```
-- Better compatibility with newer games
-- Requires UMU installed
-- **Has full host network access** (no `--net=none`; pressure-vessel compatibility). Filesystem/process isolation still applies.
-- Modern approach
-
-### Wine
-```bash
-cd '<game_path>' && firejail --net=none \
-  --whitelist='<game_path>' \
-  --env=WINEPREFIX='<game_path>/prefix' wine '<executable>'
-```
-- Broader game compatibility
-- No dependencies beyond Wine
-- No network by default
-- Classic approach
-
----
-
-## PyQt6 Components Used
-
-| Component | Purpose |
-|-----------|---------|
-| `QMainWindow` | Main application window |
-| `QWidget` | Central widget container |
-| `QVBoxLayout` / `QHBoxLayout` | Layout management |
-| `QPushButton` | Clickable buttons |
-| `QListWidget` | Game list display |
-| `QListWidgetItem` | Individual list items |
-| `QFileDialog` | Browse folders/files |
-| `QMessageBox` | Notifications & confirmations |
-| `QDialog` | Add game dialog |
-| `QLabel` | Text labels |
-| `QLineEdit` | Text input fields |
-| `QComboBox` | Dropdown selection |
-| `QFormLayout` | Form structure |
-
----
-
-## File Permissions
-
-The application needs:
-- Read/write access to `library.db`
-- Execute permission on `launcher.sh`
-- Read access to game directories
-- Write access to game `prefix/` directories
-
-If Firejail shows permission errors:
-```bash
-sudo chmod u+s /usr/bin/firejail
-```
-
----
-
-## Current optional feature states
-
-Screenshots, video recording, achievements, cloud sync, Steam metadata, and performance overlays are optional integrations. Their controls may be unavailable when the required runtime, Steam identity, recorder, backend, or host capability is missing; this does not mean the game library itself is unavailable.
+Loading, cached, offline, empty, and error states are shown with text as well as
+icons. Cloud and Steam checks may be unavailable in offline mode; cached local
+library data remains the source for the installed game list. For technical
+cloud setup, open Cloud Center and follow its connection or setup workflow.

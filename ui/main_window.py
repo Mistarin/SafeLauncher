@@ -9,11 +9,12 @@ from html import escape
 from typing import Optional, List, Dict, Tuple, Any, Set
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QAbstractButton,
     QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
     QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
     QApplication, QSystemTrayIcon, QCheckBox, QPlainTextEdit, QProgressBar,
     QSlider, QSplitter, QDialogButtonBox, QInputDialog, QSizePolicy,
+    QAbstractSpinBox, QAbstractSlider, QTextEdit, QTextBrowser, QTabBar,
     QProgressDialog
 )
 from PyQt6.QtCore import (
@@ -49,6 +50,7 @@ from core.launch_diagnostics import persist_diagnostics
 from core.library_state import LibraryStateStore
 from core.library_controller import LibraryController, LibraryQuery, LibrarySnapshot
 from core.library_service import LibraryService
+from core.game_lifecycle_service import GameLifecycleService
 from core.library_metadata_state import LibraryMetadataState
 from core.game_status import GameStatusState, cloud_indicator, is_cloud_conflict
 from core.launch_session_coordinator import LaunchSessionContext, LaunchSessionCoordinator
@@ -141,9 +143,7 @@ from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
 from ui.components.cloud_ui import cloud_progress, confirm_restore
 from core.central_auth import CentralAuthSession
-from core.profile_service import get_profile_service_url
-from core.profile_resource_service import ProfileResourceService
-from core.profile_models import HANDLE_RE, load_profile_settings
+from core.profile_models import load_profile_settings
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.request_manager import RequestManager
 from core.resource_cache import ResourceCache
@@ -151,6 +151,7 @@ from core.performance_metrics import ResourcePerformanceTracker
 from core.save_history import normalize_history_entries
 from core.steam_client import SteamClient
 from ui.resource_binding import ResourceBinding, ResourceBindingRegistry, bind_resource, bind_request
+from ui.main_window_profile import MainWindowProfileMixin
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -181,7 +182,7 @@ def detect_linux_distro() -> tuple[str, str]:
     return (os_name, cmd)
 
 
-class MainWindow(QMainWindow):
+class MainWindow(MainWindowProfileMixin, QMainWindow):
     # Queued-signal carriers for save-sync work performed off the GUI thread.
     _save_op_done = pyqtSignal(object)      # exit-upload payload dict
     _prelaunch_resolved = pyqtSignal(object)  # pre-launch sync payload dict
@@ -198,6 +199,7 @@ class MainWindow(QMainWindow):
     _managed_achievement_batch_done = pyqtSignal(object)
     _managed_steam_update_batch_done = pyqtSignal(object)
     _network_probe_done = pyqtSignal(object)
+    _game_termination_finished = pyqtSignal(object)
 
     # Compatibility views for older dialogs and rendering helpers.  The
     # dictionaries themselves belong to LibraryMetadataState; these accessors
@@ -294,6 +296,7 @@ class MainWindow(QMainWindow):
         self.library_controller = LibraryController()
         self.library_state = LibraryStateStore(self.library_controller)
         self.library_service = LibraryService(self.db, self.library_state)
+        self.game_lifecycle_service = GameLifecycleService(self.library_service)
         # A transient connectivity loss acts as a request gate until the
         # connectivity probe succeeds again. Keep this separate from the
         # user's explicit Offline Mode preference.
@@ -377,6 +380,10 @@ class MainWindow(QMainWindow):
         )
         self._stopping_game_ids = set()  # game IDs transitioning from running to stopped
         self.worker_supervisor = WorkerSupervisor(self)
+        self._game_termination_tasks = TaskSupervisor(
+            self, logger, worker_registry=self.worker_supervisor
+        )
+        self._game_termination_in_flight: set[int] = set()
         # running_game_ids is derived from the session supervisor, not from
         # UI widgets or the playtime tracker feature list.
         self.topbar_extractor_thread = None
@@ -411,6 +418,7 @@ class MainWindow(QMainWindow):
         self._prelaunch_restore_done.connect(self._on_prelaunch_restore_done)
         self._startup_backend_health_ready.connect(self._on_startup_backend_health_ready)
         self._managed_task_done.connect(self._on_managed_task_done)
+        self._game_termination_finished.connect(self._on_game_termination_finished)
         self._network_probe_done.connect(self._on_network_probe_done)
         self._managed_cloud_batch_done.connect(self._on_managed_cloud_batch_done)
         self._cloud_auto_restore_done.connect(self._on_cloud_auto_restore_done)
@@ -2978,7 +2986,22 @@ class MainWindow(QMainWindow):
         if allow_text_focus:
             return True
         focus = QApplication.focusWidget()
-        return not isinstance(focus, (QLineEdit, QPlainTextEdit))
+        interactive_controls = (
+            QLineEdit,
+            QPlainTextEdit,
+            QTextEdit,
+            QTextBrowser,
+            QAbstractButton,
+            QComboBox,
+            QAbstractSpinBox,
+            QAbstractSlider,
+            QTabBar,
+        )
+        while focus is not None:
+            if isinstance(focus, interactive_controls):
+                return False
+            focus = focus.parentWidget()
+        return True
 
     def _focus_library_search(self) -> None:
         search = getattr(self, "grid_search_input", None)
@@ -6766,24 +6789,60 @@ class MainWindow(QMainWindow):
 
     def _stop_game(self, game_id: int):
         """Terminate the active game process and its sandbox container."""
+        game_id = int(game_id)
+        if game_id in self._game_termination_in_flight:
+            return
         self._stopping_game_ids.add(game_id)
         if hasattr(self, "compact_container") and self.compact_container:
             if self.selected_game and self.selected_game[0] == game_id:
                 self.compact_container.set_play_state("stopping")
-        stopped = False
         self.game_sessions.mark_stopping(game_id)
-        for tracker in self.launch_session_coordinator.trackers():
-            if tracker.game_id == game_id:
-                if tracker.process:
+        trackers = tuple(
+            tracker for tracker in self.launch_session_coordinator.trackers()
+            if tracker.game_id == game_id and tracker.process is not None
+        )
+        if not trackers:
+            self._stopping_game_ids.discard(game_id)
+            self._update_detail_launch_button(game_id)
+            return
+
+        self._game_termination_in_flight.add(game_id)
+        if not getattr(self, "_closing", False):
+            self._show_toast("Stopping game container…")
+
+        def terminate_trackers():
+            stopped = False
+            errors = []
+            for tracker in trackers:
+                try:
                     stopped = terminate_game_process(
                         tracker.process,
                         sandbox_name=getattr(tracker, "sandbox_name", None),
                     ) or stopped
+                except Exception as exc:
+                    errors.append(str(exc))
+            self._game_termination_finished.emit(
+                (game_id, (stopped, "; ".join(errors)))
+            )
+
+        self._game_termination_tasks.start(
+            f"StopGame-{game_id}", terminate_trackers
+        )
+
+    def _on_game_termination_finished(self, payload: object) -> None:
+        """Apply a process-stop result on the GUI thread."""
+        game_id, outcome = payload
+        game_id = int(game_id)
+        stopped, error = outcome
+        self._game_termination_in_flight.discard(game_id)
         if stopped:
-            self._show_toast("Stopping game container...")
-            logger.info(f"Stop signal sent to Game ID {game_id}")
-        else:
-            self._update_detail_launch_button(game_id)
+            logger.info("Stop signal sent to Game ID %s", game_id)
+            return
+        self._stopping_game_ids.discard(game_id)
+        self._update_detail_launch_button(game_id)
+        if not getattr(self, "_closing", False):
+            message = error or "Could not stop the game process."
+            self._show_toast(message, is_error=True)
 
     def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True, disable_performance: bool = False):
         """Helper to launch a game directly with the chosen mode"""
@@ -7364,7 +7423,13 @@ class MainWindow(QMainWindow):
         if not game:
             return
         from ui.dialogs.achievements_dialog import AchievementsDialog
-        dialog = AchievementsDialog(game, self.db, parent=self, request_manager=self.request_manager)
+        dialog = AchievementsDialog(
+            game,
+            self.db,
+            parent=self,
+            request_manager=self.request_manager,
+            library_service=self.library_service,
+        )
         dialog.exec()
         self.request_achievement_recheck([game[0]], tag="dialog_close")
         self._update_detail_panel()
@@ -7419,194 +7484,6 @@ class MainWindow(QMainWindow):
                 self.detail_panel.hide()
                 self.btn_reveal_detail.show()
         self._update_detail_panel()
-
-    def _open_public_profile_prompt(self):
-        """Open the social hub focused on finding another profile."""
-        self._open_friends_popup(focus_find=True)
-
-    def _open_friends_popup(self, focus_find: bool = False) -> None:
-        """Show the single custom friends surface used by header navigation."""
-        from ui.dialogs.friends_dialog import FriendsDialog
-
-        existing = getattr(self, "_friends_dialog", None)
-        if existing is not None:
-            try:
-                if existing.isVisible():
-                    existing.raise_()
-                    existing.activateWindow()
-                    return
-            except RuntimeError:
-                self._friends_dialog = None
-
-        dialog = FriendsDialog(
-            self.settings,
-            self.central_auth,
-            self,
-            worker_registry=self.worker_supervisor,
-            request_manager=self.request_manager,
-            focus_find=focus_find,
-        )
-        self._friends_dialog = dialog
-
-        def open_profile(handle: str) -> None:
-            dialog.close()
-            self._open_public_profile_handle(handle)
-
-        def open_owner() -> None:
-            dialog.close()
-            self._open_achievement_profile()
-
-        dialog.open_profile_requested.connect(open_profile)
-        dialog.open_owner_profile_requested.connect(open_owner)
-        try:
-            dialog.exec()
-        finally:
-            if self._friends_dialog is dialog:
-                self._friends_dialog = None
-
-    def _open_public_profile_handle(self, handle: str):
-        """Fetch and display a public profile without opening another window."""
-        if not self._automatic_network_allowed() and self.request_manager is None:
-            QMessageBox.information(
-                self,
-                "Public Profile",
-                "Offline mode is enabled. Public profiles are unavailable until online mode is restored.",
-            )
-            return
-        value = str(handle or "").strip().lstrip("@").lower()
-        if not HANDLE_RE.fullmatch(value):
-            QMessageBox.warning(self, "Public Profile", "That is not a valid SafeLauncher profile username.")
-            return
-        service_url = get_profile_service_url()
-        profile_resources = self.profile_page.profile_resources
-        configured = profile_resources.configured(service_url)
-        if not configured:
-            QMessageBox.information(
-                self,
-                "Public Profile Service",
-                "The central profile gateway is not configured for this build. Set SAFELAUNCHER_PROFILE_SERVICE_URL only for an explicit development gateway.",
-            )
-            return
-        self.profile_page.footer_status.setText("Loading public profile…")
-        def _fetch_public_profile():
-            return profile_resources.fetch_public(value, service_url)
-
-        if self.request_manager is not None:
-            self._public_profile_generation += 1
-            generation = self._public_profile_generation
-            key = RequestKey(
-                "public-profile",
-                f"{ProfileResourceService.endpoint_fingerprint(service_url)}:{value}",
-            )
-            loader = lambda token: (token.raise_if_cancelled(), _fetch_public_profile())[1]
-            if self._public_profile_binding is not None:
-                self._public_profile_binding.close()
-                self._public_profile_binding.deleteLater()
-                self._public_profile_binding = None
-            if getattr(self.request_manager, "cache", None) is not None:
-                handle = self.request_manager.request_cached(
-                    key,
-                    loader,
-                    max_age_seconds=cache_policy("public-profile").max_age_seconds,
-                    priority=RequestPriority.NORMAL,
-                    generation=generation,
-                    timeout_seconds=20,
-                    content_type="application/json",
-                )
-            else:
-                handle = self.request_manager.request(
-                    key,
-                    loader,
-                    priority=RequestPriority.NORMAL,
-                    generation=generation,
-                    timeout_seconds=20,
-                )
-            self._public_profile_binding = bind_resource(
-                self.request_manager,
-                key,
-                lambda result, generation=generation, key=key: self._on_managed_public_profile_state(
-                    generation, key, result
-                ),
-                self,
-                cancel_on_close=True,
-            )
-            return
-
-        worker = self._profile_remote_tasks.start(
-            "SafeLauncher-OpenPublicProfile",
-            # Create the requests session in the worker that uses it.
-            _fetch_public_profile,
-            lambda document: self._on_public_profile_loaded(document),
-        )
-        worker.error_occurred.connect(lambda error: self._on_public_profile_error(error))
-
-    def _on_public_profile_loaded(self, document: dict):
-        self._show_profile_page()
-        self.profile_page.show_public(document)
-
-    def _on_managed_public_profile_state(self, generation: int, key: RequestKey, result) -> None:
-        if generation != self._public_profile_generation:
-            return
-        if result.status in {ResourceStatus.READY, ResourceStatus.STALE} and isinstance(result.value, dict):
-            self._on_public_profile_loaded(result.value)
-            if result.status == ResourceStatus.STALE:
-                self.profile_page.footer_status.setText(
-                    "Showing cached public profile; refresh will retry when online."
-                )
-        elif result.status not in {ResourceStatus.CANCELLED, ResourceStatus.LOADING}:
-            self._on_public_profile_error(str(result.error or "Public profile could not be loaded."))
-
-    def _on_public_profile_error(self, error: str):
-        QMessageBox.warning(self, "Public Profile", str(error))
-
-    def _on_profile_changed(self):
-        """Persist profile presentation metadata through the private ledger."""
-        self._update_header_identity()
-        if hasattr(self, "profile_page"):
-            self.profile_page.mark_local_data_changed()
-        self._sync_profile_metadata_async()
-
-    def _on_private_profile_changed(self):
-        """Persist a publish-state or handle change without republishing."""
-        self._update_header_identity()
-        self._sync_profile_metadata_async()
-
-    def _sync_profile_metadata_async(self):
-        db_path = getattr(self.db, "db_path", None)
-
-        self._profile_sync_generation += 1
-        generation = self._profile_sync_generation
-        handle = self.cloud_metadata_service.request_profile(
-            db_path,
-            force=True,
-            priority=RequestPriority.CRITICAL,
-            generation=generation,
-            tag="profile_change",
-        )
-        handle.future.add_done_callback(
-            lambda future, generation=generation: self._profile_sync_done.emit(
-                (generation, future)
-            )
-        )
-
-    def _on_managed_profile_sync_done(self, payload: object) -> None:
-        """Refresh the local projection after private cloud reconciliation."""
-        generation, future = payload
-        if generation != self._profile_sync_generation:
-            return
-        try:
-            result = future.result()
-        except Exception as error:
-            logger.debug("Profile metadata sync failed: %s", error)
-            return
-        if result.status == ResourceStatus.READY and result.value:
-            self._refresh_library()
-            if (
-                hasattr(self, "profile_page")
-                and self.profile_page.isVisible()
-                and getattr(self.profile_page, "_mode", "owner") == "owner"
-            ):
-                self.profile_page.show_owner()
 
     def _on_achievement_unlocked(self, game_id: int, app_id: str, data: dict):
         """Handle real-time achievement unlock event from watcher."""
@@ -8987,10 +8864,7 @@ class MainWindow(QMainWindow):
                 fetcher.requestInterruption()
         for tracker in list(self.playtime_trackers):
             if tracker.process:
-                terminate_game_process(
-                    tracker.process,
-                    sandbox_name=getattr(tracker, "sandbox_name", None),
-                )
+                self._stop_game(tracker.game_id)
             tracker.stop()
 
         # WorkerSupervisor is the authoritative registry. Semantic lists are
@@ -9058,6 +8932,9 @@ class MainWindow(QMainWindow):
             progress.close()
             progress.deleteLater()
             self._shutdown_progress = None
+
+        if hasattr(self, "_game_termination_tasks"):
+            self._game_termination_tasks.shutdown(wait_ms=0)
 
         if hasattr(self, "tray_icon") and self.tray_icon:
             try:
@@ -9319,113 +9196,18 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _remove_game_files_from_disk(game_path: str) -> tuple[bool, str]:
-        """Delete one registered game directory without following its root symlink."""
-        raw_value = os.path.expanduser(str(game_path or "").strip())
-        if not raw_value:
-            return False, "The game has no directory recorded."
-        raw_path = os.path.abspath(raw_value)
-        if os.path.islink(raw_path):
-            return False, "Refusing to delete a symlinked game directory. Remove the library record instead."
-
-        target_path = os.path.realpath(raw_path)
-        if target_path != raw_path:
-            return False, "Refusing to delete a path containing a symlink. Remove the library record instead."
-        protected_paths = {
-            os.path.realpath(os.path.abspath(os.sep)),
-            os.path.realpath(os.path.expanduser("~")),
-            os.path.realpath(os.path.expanduser(DEFAULT_SANDBOX_DIR)),
-        }
-        if target_path in protected_paths:
-            return False, "Refusing to delete a protected system, home, or sandbox directory."
-        if not os.path.lexists(target_path):
-            return True, ""
-
-        failures: list[str] = []
-
-        def _handle_readonly(func, subpath, exc_info):
-            try:
-                os.chmod(subpath, 0o700)
-                func(subpath)
-            except Exception as exc:
-                failures.append(f"{subpath}: {exc}")
-
-        try:
-            if os.path.isdir(target_path):
-                try:
-                    shutil.rmtree(target_path, onexc=_handle_readonly)
-                except TypeError:
-                    shutil.rmtree(target_path, onerror=_handle_readonly)
-            else:
-                os.chmod(target_path, 0o700)
-                os.unlink(target_path)
-        except Exception as exc:
-            failures.append(str(exc))
-
-        if failures or os.path.lexists(target_path):
-            detail = failures[0] if failures else "the directory still exists"
-            logger.warning(f"Could not remove game files at '{target_path}': {detail}")
-            return False, "Could not remove the game files. Check permissions and try again."
-        logger.info(f"Removed game files from disk: {target_path}")
-        return True, ""
+        """Compatibility entry point for the lifecycle service's safe deletion."""
+        return GameLifecycleService.remove_game_files(game_path)
 
     @staticmethod
     def _stage_game_files_for_lifecycle(game_path: str) -> tuple[str | None, str]:
-        """Move game files aside until the corresponding DB mutation succeeds.
-
-        Lifecycle operations must not delete an installation and only then
-        discover that the library transaction failed.  The staging name stays
-        beside the original path, so the move is normally atomic and can be
-        rolled back without copying multi-gigabyte game data.
-        """
-        raw_value = os.path.expanduser(str(game_path or "").strip())
-        if not raw_value:
-            return None, ""
-        raw_path = os.path.abspath(raw_value)
-        if os.path.islink(raw_path):
-            return None, "Refusing to move a symlinked game directory. Remove the library record instead."
-
-        target_path = os.path.realpath(raw_path)
-        if target_path != raw_path:
-            return None, "Refusing to move a path containing a symlink. Remove the library record instead."
-        protected_paths = {
-            os.path.realpath(os.path.abspath(os.sep)),
-            os.path.realpath(os.path.expanduser("~")),
-            os.path.realpath(os.path.expanduser(DEFAULT_SANDBOX_DIR)),
-        }
-        if target_path in protected_paths:
-            return None, "Refusing to move a protected system, home, or sandbox directory."
-        if not os.path.lexists(target_path):
-            return None, ""
-
-        staged_path = f"{target_path}.safelauncher-pending-{uuid.uuid4().hex}"
-        try:
-            shutil.move(target_path, staged_path)
-        except Exception as exc:
-            logger.warning(f"Could not stage game files at '{target_path}': {exc}")
-            return None, "Could not prepare the game files safely. Check permissions and try again."
-        return staged_path, ""
+        """Compatibility entry point for safe lifecycle staging."""
+        return GameLifecycleService.stage_game_files(game_path)
 
     @staticmethod
     def _restore_staged_game_files(staged_path: str, original_path: str) -> tuple[bool, str]:
-        """Restore a staged installation after a failed library mutation."""
-        if not staged_path or not os.path.lexists(staged_path):
-            return True, ""
-        original_path = os.path.abspath(os.path.expanduser(str(original_path or "").strip()))
-        if not original_path:
-            return False, "The original game path is empty; staged files were preserved."
-        try:
-            if os.path.lexists(original_path):
-                return False, "The original game path is no longer empty; staged files were preserved."
-            shutil.move(staged_path, original_path)
-            return True, ""
-        except Exception as exc:
-            logger.warning(
-                "Could not restore staged game files from '%s' to '%s': %s",
-                staged_path,
-                original_path,
-                exc,
-            )
-            return False, "Could not restore the staged game files; they were preserved for safety."
+        """Compatibility entry point for restoring staged files."""
+        return GameLifecycleService.restore_staged_files(staged_path, original_path)
 
     def _finish_game_lifecycle_change(self, game_id: int) -> None:
         """Drop stale UI/runtime state after a game row changes lifecycle."""
@@ -9447,91 +9229,20 @@ class MainWindow(QMainWindow):
             self._update_compact_game_page()
 
     def _apply_game_lifecycle_action(self, game, action: str) -> bool:
-        """Apply uninstall or permanent deletion and refresh all consumers."""
-        if not game:
-            return False
-        action = str(action or "").strip().lower()
-        if action not in {"uninstall", "delete_all_data"}:
-            logger.warning(f"Ignoring unknown game lifecycle action: {action!r}")
-            return False
-
-        game_id = int(game[0])
-        game_name = str(game[1] or "Game")
-        library_service = MainWindow._get_library_service(self)
-        game_path = str(game[2] if len(game) > 2 else "")
-        staged_path, stage_error = MainWindow._stage_game_files_for_lifecycle(game_path)
-        if stage_error:
-            self._show_toast(stage_error, is_error=True)
-            return False
-
-        def _restore_after_failure(message: str) -> bool:
-            restored, restore_error = MainWindow._restore_staged_game_files(staged_path, game_path)
-            detail = restore_error if not restored else "The installation was left unchanged."
-            self._show_toast(f"{message} {detail}", is_error=True)
-            return False
-
-        def _finish_success() -> None:
-            self._finish_game_lifecycle_change(game_id)
-            if action == "uninstall" and hasattr(self, "_sync_launcher_metadata_async"):
-                self._sync_launcher_metadata_async(game_id)
-            elif action != "delete_all_data" and hasattr(self, "_sync_profile_metadata_async"):
+        """Run lifecycle policy in its service and refresh the UI projection."""
+        service = getattr(self, "game_lifecycle_service", None)
+        if service is None:
+            service = GameLifecycleService(MainWindow._get_library_service(self))
+        result = service.apply(game, action)
+        if result.database_changed:
+            self._finish_game_lifecycle_change(result.game_id)
+            if result.action == "uninstall" and hasattr(self, "_sync_launcher_metadata_async"):
+                self._sync_launcher_metadata_async(result.game_id)
+            elif result.action != "delete_all_data" and hasattr(self, "_sync_profile_metadata_async"):
                 self._sync_profile_metadata_async()
-
-        try:
-            mutation_ok = (
-                bool(library_service and library_service.archive_game(game_id))
-                if action == "uninstall"
-                else bool(library_service and library_service.delete_all_game_data(game_id))
-            )
-        except Exception as exc:
-            logger.exception("Game lifecycle database mutation failed for %s", game_id)
-            mutation_ok = False
-
-        if not mutation_ok:
-            action_label = "mark" if action == "uninstall" else "delete"
-            return _restore_after_failure(
-                f"Could not {action_label} local data for '{game_name}'. Try again."
-            )
-
-        if action == "uninstall":
-            if staged_path:
-                deleted, error = MainWindow._remove_game_files_from_disk(staged_path)
-                if not deleted:
-                    restored, restore_error = MainWindow._restore_staged_game_files(staged_path, game_path)
-                    if restored:
-                        detail = "The files were restored; the record remains marked uninstalled."
-                    else:
-                        detail = f"The staged files were preserved: {restore_error or error}"
-                    _finish_success()
-                    self._show_toast(
-                        f"'{game_name}' was marked uninstalled, but its files could not be removed. {detail}",
-                        is_error=True,
-                    )
-                    return True
-            self._show_toast(
-                f"Uninstalled '{game_name}'. The SafeLauncher record and statistics were preserved."
-            )
-        else:
-            if staged_path:
-                deleted, error = MainWindow._remove_game_files_from_disk(staged_path)
-                if not deleted:
-                    restored, restore_error = MainWindow._restore_staged_game_files(staged_path, game_path)
-                    if restored:
-                        detail = "The files were restored, but the local SafeLauncher record was deleted."
-                    else:
-                        detail = f"The staged files were preserved: {restore_error or error}"
-                    _finish_success()
-                    self._show_toast(
-                        f"Local data for '{game_name}' was deleted, but its files could not be removed. {detail}",
-                        is_error=True,
-                    )
-                    return True
-            self._show_toast(
-                f"Deleted all local data for '{game_name}'. Remote cloud save versions were kept."
-            )
-
-        _finish_success()
-        return True
+        if result.message:
+            self._show_toast(result.message, is_error=result.is_error)
+        return result.database_changed
 
     def _on_remove(self):
         game = self._get_selected_game()

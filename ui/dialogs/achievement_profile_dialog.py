@@ -10,9 +10,12 @@ from core.safe_thread import TaskSupervisor
 class AchievementProfileDialog(PopupDialog):
     _sync_done = pyqtSignal(object)
 
-    def __init__(self, db, parent=None):
+    def __init__(self, db=None, parent=None, *, library_service=None):
         super().__init__("Achievement Profile", parent)
         self.db = db
+        self.library_service = library_service or getattr(parent, "library_service", None)
+        if self.db is None and self.library_service is None:
+            raise ValueError("AchievementProfileDialog requires a library service or database")
         self._busy = False
         self._close_requested = False
         self._pending_result = None
@@ -49,11 +52,17 @@ class AchievementProfileDialog(PopupDialog):
         self._load()
 
     def _load(self):
-        profile = self.db.get_profile_unlocks()
-        profile_records = self.db.get_profile_unlock_records(include_pending=True)
-        profile_games = {item["identity_key"]: item for item in self.db.get_profile_games()}
+        service = self.library_service
+        profile = service.profile_unlocks() if service is not None else self.db.get_profile_unlocks()
+        profile_records = (
+            service.profile_unlock_records(include_pending=True)
+            if service is not None else self.db.get_profile_unlock_records(include_pending=True)
+        )
+        profiles = service.profile_games() if service is not None else self.db.get_profile_games()
+        profile_games = {item["identity_key"]: item for item in profiles}
         games = {}
-        for game in self.db.get_all_games():
+        library_games = service.read_games() if service is not None else self.db.get_all_games()
+        for game in library_games:
             sid = str(game.steam_id or "").strip()
             if sid:
                 games.setdefault(sid, []).append(game.name)
@@ -101,6 +110,8 @@ class AchievementProfileDialog(PopupDialog):
         db_path = getattr(self.db, "db_path", None)
 
         def work():
+            if self.library_service is not None:
+                return self.library_service.sync_profile_in_worker(force=True)
             from database import GameDatabase
             from core.cloud_metadata_sync import CloudMetadataSync
             worker_db = GameDatabase(db_path) if db_path else GameDatabase()

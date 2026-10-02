@@ -1,8 +1,8 @@
 {
   "files": [
     {
-      "bytes": 8210,
-      "lines": 131,
+      "bytes": 8734,
+      "lines": 139,
       "path": ".ai/ARCHITECTURE.md",
       "suffix": ".md"
     },
@@ -19,8 +19,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 14091,
-      "lines": 95,
+      "bytes": 14879,
+      "lines": 98,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
     },
@@ -685,6 +685,18 @@
       "suffix": ".md"
     },
     {
+      "bytes": 2003,
+      "lines": 58,
+      "path": "AGENTS.md",
+      "suffix": ".md"
+    },
+    {
+      "bytes": 12735,
+      "lines": 166,
+      "path": "CHANGELOG.md",
+      "suffix": ".md"
+    },
+    {
       "bytes": 2267,
       "lines": 84,
       "path": "Dev.txt",
@@ -709,8 +721,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 11028,
-      "lines": 316,
+      "bytes": 3191,
+      "lines": 65,
       "path": "UI_GUIDE.md",
       "suffix": ".md"
     },
@@ -727,8 +739,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 10709,
-      "lines": 293,
+      "bytes": 10917,
+      "lines": 300,
       "path": "ci/security_audit.py",
       "suffix": ".py"
     },
@@ -865,8 +877,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 35612,
-      "lines": 870,
+      "bytes": 35949,
+      "lines": 878,
       "path": "core/cloud_backend.py",
       "suffix": ".py"
     },
@@ -877,7 +889,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 63869,
+      "bytes": 63857,
       "lines": 1373,
       "path": "core/cloud_cli_wizard.py",
       "suffix": ".py"
@@ -913,14 +925,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 40161,
-      "lines": 819,
+      "bytes": 40725,
+      "lines": 827,
       "path": "core/cloud_metadata_sync.py",
       "suffix": ".py"
     },
     {
-      "bytes": 924,
-      "lines": 38,
+      "bytes": 1276,
+      "lines": 52,
       "path": "core/cloud_models.py",
       "suffix": ".py"
     },
@@ -949,8 +961,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 57896,
-      "lines": 1251,
+      "bytes": 60273,
+      "lines": 1291,
       "path": "core/cloud_save_sync.py",
       "suffix": ".py"
     },
@@ -997,8 +1009,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 4858,
-      "lines": 118,
+      "bytes": 7596,
+      "lines": 197,
       "path": "core/desktop_integration.py",
       "suffix": ".py"
     },
@@ -1015,9 +1027,21 @@
       "suffix": ".py"
     },
     {
-      "bytes": 18533,
-      "lines": 383,
+      "bytes": 19572,
+      "lines": 410,
       "path": "core/firejail_runner.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 22131,
+      "lines": 460,
+      "path": "core/game_archive_updater.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 8541,
+      "lines": 198,
+      "path": "core/game_lifecycle_service.py",
       "suffix": ".py"
     },
     {
@@ -1105,8 +1129,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 12590,
-      "lines": 326,
+      "bytes": 14468,
+      "lines": 367,
       "path": "core/library_service.py",
       "suffix": ".py"
     },
@@ -1177,8 +1201,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 3380,
-      "lines": 81,
+      "bytes": 5206,
+      "lines": 128,
       "path": "core/playtime_tracker.py",
       "suffix": ".py"
     },
@@ -1225,8 +1249,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 12843,
-      "lines": 324,
+      "bytes": 14763,
+      "lines": 363,
       "path": "core/profile_resource_service.py",
       "suffix": ".py"
     },
@@ -1399,8 +1423,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 108906,
-      "lines": 2088,
+      "bytes": 111570,
+      "lines": 2145,
       "path": "database.py",
       "suffix": ".py"
     },
@@ -1429,14 +1453,14 @@
       "suffix": ".sh"
     },
     {
-      "bytes": 7033,
-      "lines": 165,
+      "bytes": 7402,
+      "lines": 174,
       "path": "main.py",
       "suffix": ".py"
     },
     {
-      "bytes": 349,
-      "lines": 11,
+      "bytes": 935,
+      "lines": 27,
       "path": "packaging/build-appimage-docker.sh",
       "suffix": ".sh"
     },
@@ -1451,6 +1475,18 @@
       "lines": 12,
       "path": "packaging/safelauncher.desktop",
       "suffix": ".desktop"
+    },
+    {
+      "bytes": 512,
+      "lines": 1,
+      "path": "prefix/drive_c/users/steamuser/AppData/Roaming/Godot/app_userdata/Dub Together/letzter_schritt.txt",
+      "suffix": ".txt"
+    },
+    {
+      "bytes": 7606,
+      "lines": 53,
+      "path": "prefix/drive_c/users/steamuser/AppData/Roaming/Godot/app_userdata/Dub Together/mikro_log.txt",
+      "suffix": ".txt"
     },
     {
       "bytes": 152,
@@ -1469,6 +1505,36 @@
       "lines": 143,
       "path": "services/profile_cloud/README.md",
       "suffix": ".md"
+    },
+    {
+      "bytes": 1478,
+      "lines": 62,
+      "path": "services/profile_cloud/convex/_generated/api.d.ts",
+      "suffix": ".ts"
+    },
+    {
+      "bytes": 480,
+      "lines": 24,
+      "path": "services/profile_cloud/convex/_generated/api.js",
+      "suffix": ".js"
+    },
+    {
+      "bytes": 1736,
+      "lines": 61,
+      "path": "services/profile_cloud/convex/_generated/dataModel.d.ts",
+      "suffix": ".ts"
+    },
+    {
+      "bytes": 6008,
+      "lines": 163,
+      "path": "services/profile_cloud/convex/_generated/server.d.ts",
+      "suffix": ".ts"
+    },
+    {
+      "bytes": 3872,
+      "lines": 102,
+      "path": "services/profile_cloud/convex/_generated/server.js",
+      "suffix": ".js"
     },
     {
       "bytes": 443,
@@ -1552,6 +1618,18 @@
       "bytes": 268,
       "lines": 14,
       "path": "services/profile_cloud/tsconfig.json",
+      "suffix": ".json"
+    },
+    {
+      "bytes": 520,
+      "lines": 12,
+      "path": "services/profile_gateway/.vercel/README.txt",
+      "suffix": ".txt"
+    },
+    {
+      "bytes": 120,
+      "lines": 1,
+      "path": "services/profile_gateway/.vercel/project.json",
       "suffix": ".json"
     },
     {
@@ -1663,8 +1741,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 129325,
-      "lines": 2563,
+      "bytes": 130046,
+      "lines": 2573,
       "path": "test.py",
       "suffix": ".py"
     },
@@ -1711,7 +1789,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 8277,
+      "bytes": 8287,
       "lines": 220,
       "path": "tests/test_cloud_backend_health.py",
       "suffix": ".py"
@@ -1741,8 +1819,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 6521,
-      "lines": 141,
+      "bytes": 7915,
+      "lines": 166,
       "path": "tests/test_cloud_save_flow.py",
       "suffix": ".py"
     },
@@ -1765,8 +1843,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 10125,
-      "lines": 288,
+      "bytes": 11936,
+      "lines": 332,
       "path": "tests/test_cloud_ui.py",
       "suffix": ".py"
     },
@@ -1783,9 +1861,27 @@
       "suffix": ".py"
     },
     {
-      "bytes": 1366,
-      "lines": 37,
+      "bytes": 2455,
+      "lines": 61,
+      "path": "tests/test_database_recovery.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 2814,
+      "lines": 69,
+      "path": "tests/test_desktop_integration.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 1935,
+      "lines": 51,
       "path": "tests/test_firejail_network_policy.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 8713,
+      "lines": 194,
+      "path": "tests/test_game_archive_updater.py",
       "suffix": ".py"
     },
     {
@@ -1804,6 +1900,12 @@
       "bytes": 1446,
       "lines": 55,
       "path": "tests/test_global_hotkeys.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 1185,
+      "lines": 33,
+      "path": "tests/test_icon_rendering.py",
       "suffix": ".py"
     },
     {
@@ -1891,20 +1993,26 @@
       "suffix": ".py"
     },
     {
+      "bytes": 710,
+      "lines": 27,
+      "path": "tests/test_playtime_cleanup.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 591,
       "lines": 24,
       "path": "tests/test_presentation_cache.py",
       "suffix": ".py"
     },
     {
-      "bytes": 74745,
-      "lines": 1581,
+      "bytes": 78448,
+      "lines": 1665,
       "path": "tests/test_profile.py",
       "suffix": ".py"
     },
     {
-      "bytes": 8606,
-      "lines": 212,
+      "bytes": 9310,
+      "lines": 225,
       "path": "tests/test_profile_resource_service.py",
       "suffix": ".py"
     },
@@ -1921,8 +2029,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 28018,
-      "lines": 685,
+      "bytes": 28427,
+      "lines": 697,
       "path": "tests/test_request_manager.py",
       "suffix": ".py"
     },
@@ -1981,8 +2089,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 21585,
-      "lines": 516,
+      "bytes": 24877,
+      "lines": 583,
       "path": "tests/test_ui_consistency.py",
       "suffix": ".py"
     },
@@ -1999,7 +2107,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 7221,
+      "bytes": 7234,
       "lines": 189,
       "path": "ui/components/achievement_toast.py",
       "suffix": ".py"
@@ -2023,25 +2131,25 @@
       "suffix": ".py"
     },
     {
-      "bytes": 11455,
-      "lines": 297,
+      "bytes": 12199,
+      "lines": 317,
       "path": "ui/components/cloud_ui.py",
       "suffix": ".py"
     },
     {
-      "bytes": 119077,
+      "bytes": 119018,
       "lines": 2746,
       "path": "ui/components/compact_game_page.py",
       "suffix": ".py"
     },
     {
-      "bytes": 2582,
-      "lines": 83,
+      "bytes": 1357,
+      "lines": 43,
       "path": "ui/components/extraction_spinner.py",
       "suffix": ".py"
     },
     {
-      "bytes": 34110,
+      "bytes": 34123,
       "lines": 801,
       "path": "ui/components/game_detail_page.py",
       "suffix": ".py"
@@ -2053,9 +2161,15 @@
       "suffix": ".py"
     },
     {
-      "bytes": 10577,
-      "lines": 213,
+      "bytes": 11572,
+      "lines": 229,
       "path": "ui/components/library_view_host.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 2437,
+      "lines": 75,
+      "path": "ui/components/loading_spinner.py",
       "suffix": ".py"
     },
     {
@@ -2065,14 +2179,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 33572,
-      "lines": 930,
+      "bytes": 33669,
+      "lines": 939,
       "path": "ui/components/popup_shell.py",
       "suffix": ".py"
     },
     {
-      "bytes": 171674,
-      "lines": 3563,
+      "bytes": 187770,
+      "lines": 3883,
       "path": "ui/components/profile_page.py",
       "suffix": ".py"
     },
@@ -2089,8 +2203,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 44442,
-      "lines": 1015,
+      "bytes": 44614,
+      "lines": 1019,
       "path": "ui/components/sidebar.py",
       "suffix": ".py"
     },
@@ -2119,20 +2233,20 @@
       "suffix": ".py"
     },
     {
-      "bytes": 41566,
-      "lines": 961,
+      "bytes": 41188,
+      "lines": 953,
       "path": "ui/dialogs/account_dialog.py",
       "suffix": ".py"
     },
     {
-      "bytes": 7537,
-      "lines": 161,
+      "bytes": 8320,
+      "lines": 172,
       "path": "ui/dialogs/achievement_profile_dialog.py",
       "suffix": ".py"
     },
     {
-      "bytes": 48251,
-      "lines": 1110,
+      "bytes": 49102,
+      "lines": 1134,
       "path": "ui/dialogs/achievements_dialog.py",
       "suffix": ".py"
     },
@@ -2143,8 +2257,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 35849,
-      "lines": 825,
+      "bytes": 35915,
+      "lines": 826,
       "path": "ui/dialogs/cloud_wizard_dialog.py",
       "suffix": ".py"
     },
@@ -2155,13 +2269,13 @@
       "suffix": ".py"
     },
     {
-      "bytes": 27139,
-      "lines": 608,
+      "bytes": 29051,
+      "lines": 641,
       "path": "ui/dialogs/friends_dialog.py",
       "suffix": ".py"
     },
     {
-      "bytes": 108404,
+      "bytes": 108449,
       "lines": 2556,
       "path": "ui/dialogs/game_dialogs.py",
       "suffix": ".py"
@@ -2185,6 +2299,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 4116,
+      "lines": 105,
+      "path": "ui/dialogs/profile_username_dialog.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 26270,
       "lines": 573,
       "path": "ui/dialogs/proton_dialogs.py",
@@ -2203,8 +2323,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 154967,
-      "lines": 3373,
+      "bytes": 156553,
+      "lines": 3405,
       "path": "ui/dialogs/settings_dialog.py",
       "suffix": ".py"
     },
@@ -2215,21 +2335,27 @@
       "suffix": ".py"
     },
     {
-      "bytes": 5916,
-      "lines": 161,
+      "bytes": 8788,
+      "lines": 229,
       "path": "ui/icons.py",
       "suffix": ".py"
     },
     {
-      "bytes": 23203,
+      "bytes": 23229,
       "lines": 566,
       "path": "ui/library_list.py",
       "suffix": ".py"
     },
     {
-      "bytes": 444511,
-      "lines": 9508,
+      "bytes": 438569,
+      "lines": 9380,
       "path": "ui/main_window.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 8777,
+      "lines": 219,
+      "path": "ui/main_window_profile.py",
       "suffix": ".py"
     },
     {
@@ -2257,11 +2383,11 @@
       "suffix": ".py"
     },
     {
-      "bytes": 36760,
-      "lines": 878,
+      "bytes": 37977,
+      "lines": 910,
       "path": "ui/threads.py",
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-09-25T20:14:54+00:00"
+  "generated_at": "2026-10-02T21:53:41+00:00"
 }

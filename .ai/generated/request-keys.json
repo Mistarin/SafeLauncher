@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-25T20:14:54+00:00",
+  "generated_at": "2026-10-02T21:53:41+00:00",
   "request_keys": [
     {
       "file": "ci/performance_baseline.py",
@@ -273,68 +273,63 @@
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 328,
+      "line": 337,
       "resource": "source"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 331,
+      "line": 341,
       "resource": "projection"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 336,
+      "line": 346,
       "resource": "projection"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 350,
+      "line": 362,
       "resource": "source"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 353,
+      "line": 365,
       "resource": "projection"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 373,
+      "line": 385,
       "resource": "source"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 377,
+      "line": 389,
       "resource": "projection"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 390,
+      "line": 402,
       "resource": "source"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 393,
+      "line": 405,
       "resource": "projection"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 413,
+      "line": 425,
       "resource": "source"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 417,
+      "line": 429,
       "resource": "projection"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 422,
+      "line": 434,
       "resource": "projection"
-    },
-    {
-      "file": "tests/test_request_manager.py",
-      "line": 436,
-      "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
@@ -343,62 +338,67 @@
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 476,
+      "line": 460,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 477,
+      "line": 488,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 501,
+      "line": 489,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 527,
+      "line": 513,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 546,
+      "line": 539,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 556,
+      "line": 558,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 581,
+      "line": 568,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 591,
+      "line": 593,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 613,
+      "line": 603,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 621,
+      "line": 625,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 640,
+      "line": 633,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 664,
+      "line": 652,
+      "resource": "data"
+    },
+    {
+      "file": "tests/test_request_manager.py",
+      "line": 676,
       "resource": "data"
     },
     {
@@ -498,27 +498,27 @@
     },
     {
       "file": "ui/main_window.py",
-      "line": 1659,
+      "line": 1680,
       "resource": "internet-connectivity"
     },
     {
       "file": "ui/main_window.py",
-      "line": 3699,
+      "line": 3841,
       "resource": "window-task"
     },
     {
       "file": "ui/main_window.py",
-      "line": 5395,
+      "line": 5543,
       "resource": "library-metadata-projection"
     },
     {
-      "file": "ui/main_window.py",
-      "line": 7334,
+      "file": "ui/main_window_profile.py",
+      "line": 103,
       "resource": "public-profile"
     },
     {
       "file": "ui/threads.py",
-      "line": 54,
+      "line": 55,
       "resource": "artwork-search"
     }
   ]

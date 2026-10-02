@@ -537,9 +537,8 @@ class ProfileModelTests(unittest.TestCase):
                 game_id = db.add_game("Cleanup Game", str(game_path), "game.exe", "umu")
                 host = LifecycleHost(db)
 
-                with patch.object(
-                    MainWindow,
-                    "_remove_game_files_from_disk",
+                with patch(
+                    "core.game_lifecycle_service.GameLifecycleService.remove_game_files",
                     return_value=(False, "permission denied"),
                 ):
                     self.assertTrue(
