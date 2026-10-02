@@ -1254,7 +1254,11 @@ try:
                 return mock_resp
 
             with patch("requests.get", side_effect=mock_release_assets):
-                update_info = check_for_updates()
+                # Keep this fixture independent of APP_VERSION bumps. The
+                # mocked v0.9.1 release must be newer than the version being
+                # checked, otherwise the equality case correctly reports no
+                # update and this smoke block becomes stale on each release.
+                update_info = check_for_updates(current_version="v0.9.0")
                 assert update_info["update_available"] is True
                 assert update_info["latest_version"] == "v0.9.1"
 
