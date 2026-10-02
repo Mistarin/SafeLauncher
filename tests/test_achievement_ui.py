@@ -10,7 +10,9 @@ from ui.components.compact_game_page import (
 )
 from ui.components.achievement_toast import AchievementToast
 from ui.dialogs.achievements_dialog import AppleAchievementCard
+from ui.dialogs.achievements_dialog import AchievementsDialog
 from ui.dialogs.settings_dialog import UserSettingsDialog
+from core.achievement_providers import AchievementAvailability, AchievementResolution
 
 
 class AchievementTextLayoutTests(unittest.TestCase):
@@ -90,6 +92,26 @@ class AchievementTextLayoutTests(unittest.TestCase):
             toast.close()
             toast.deleteLater()
             self.app.processEvents()
+
+    def test_empty_local_state_is_distinguished_from_missing_state(self):
+        status = QLabel()
+        dialog = type("DialogStatusHarness", (), {"status_tag": status})()
+        resolution = AchievementResolution(
+            schema=[{"api_name": "ACH_FIRST", "display_name": "First"}],
+            state={},
+            state_path="/prefix/Steam/RUNE/2725260/achievements.ini",
+            schema_source="local",
+            state_source="local-state",
+            availability=AchievementAvailability.AVAILABLE,
+            state_available=True,
+            state_format="ini",
+        )
+
+        AchievementsDialog._set_resolution_status(dialog, resolution)
+
+        self.assertIn("0 unlocked", status.text())
+        self.assertIn("achievements.ini", status.toolTip())
+        self.assertIn("contains no unlocked", status.toolTip())
 
 
 class SettingsButtonSurfaceTests(unittest.TestCase):

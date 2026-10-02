@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T21:53:41+00:00",
+  "generated_at": "2026-10-02T22:12:23+00:00",
   "request_keys": [
     {
       "file": "ci/performance_baseline.py",
@@ -353,52 +353,52 @@
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 513,
+      "line": 515,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 539,
+      "line": 550,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 558,
+      "line": 569,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 568,
+      "line": 579,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 593,
+      "line": 604,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 603,
+      "line": 614,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 625,
+      "line": 636,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 633,
+      "line": 644,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 652,
+      "line": 663,
       "resource": "data"
     },
     {
       "file": "tests/test_request_manager.py",
-      "line": 676,
+      "line": 687,
       "resource": "data"
     },
     {
@@ -498,17 +498,17 @@
     },
     {
       "file": "ui/main_window.py",
-      "line": 1680,
+      "line": 1683,
       "resource": "internet-connectivity"
     },
     {
       "file": "ui/main_window.py",
-      "line": 3841,
+      "line": 3842,
       "resource": "window-task"
     },
     {
       "file": "ui/main_window.py",
-      "line": 5543,
+      "line": 5544,
       "resource": "library-metadata-projection"
     },
     {

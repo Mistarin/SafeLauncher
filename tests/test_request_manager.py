@@ -509,10 +509,20 @@ class RequestManagerTests(unittest.TestCase):
 
     def test_metrics_capture_deduplication_and_completion(self):
         manager = RequestManager(max_workers=1)
+        started = threading.Event()
+        release = threading.Event()
         try:
             key = RequestKey("data", "metrics")
-            first = manager.request(key, lambda _token: "ok")
+            def loader(_token):
+                started.set()
+                if not release.wait(timeout=2):
+                    raise TimeoutError("test did not release the request")
+                return "ok"
+
+            first = manager.request(key, loader)
+            self.assertTrue(started.wait(timeout=2))
             second = manager.request(key, lambda _token: "ignored")
+            release.set()
             first.future.result(timeout=2)
             second.future.result(timeout=2)
             metrics = manager.metrics()
@@ -523,6 +533,7 @@ class RequestManagerTests(unittest.TestCase):
             self.assertGreaterEqual(metrics["duration_seconds_max"], 0)
             self.assertEqual(metrics["active_peak"], 1)
         finally:
+            release.set()
             manager.shutdown()
 
     def test_cooperative_request_timeout_is_reported(self):

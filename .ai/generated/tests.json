@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T21:53:41+00:00",
+  "generated_at": "2026-10-02T22:12:23+00:00",
   "tests": [
     {
       "file": "tests/test_achievement_persistence_service.py",
@@ -18,6 +18,24 @@
       "kind": "test_class",
       "line": 10,
       "name": "AchievementPersistenceServiceTests"
+    },
+    {
+      "file": "tests/test_achievement_providers.py",
+      "kind": "test",
+      "line": 15,
+      "name": "test_rune_zero_count_file_is_valid_empty_local_state"
+    },
+    {
+      "file": "tests/test_achievement_providers.py",
+      "kind": "test",
+      "line": 45,
+      "name": "test_rune_local_unlock_is_resolved_without_steam_player_state"
+    },
+    {
+      "file": "tests/test_achievement_providers.py",
+      "kind": "test_class",
+      "line": 12,
+      "name": "AchievementProviderTests"
     },
     {
       "file": "tests/test_achievement_schema_cache.py",
@@ -52,37 +70,43 @@
     {
       "file": "tests/test_achievement_ui.py",
       "kind": "test",
-      "line": 20,
+      "line": 22,
       "name": "test_full_achievement_card_wraps_long_text_and_keeps_tooltips"
     },
     {
       "file": "tests/test_achievement_ui.py",
       "kind": "test",
-      "line": 46,
+      "line": 48,
       "name": "test_compact_achievement_surfaces_wrap_and_expose_full_text"
     },
     {
       "file": "tests/test_achievement_ui.py",
       "kind": "test",
-      "line": 75,
+      "line": 77,
       "name": "test_unlock_toast_wraps_long_title_and_description"
     },
     {
       "file": "tests/test_achievement_ui.py",
       "kind": "test",
-      "line": 99,
+      "line": 95,
+      "name": "test_empty_local_state_is_distinguished_from_missing_state"
+    },
+    {
+      "file": "tests/test_achievement_ui.py",
+      "kind": "test",
+      "line": 121,
       "name": "test_secondary_buttons_use_dark_surface_without_overriding_roles"
     },
     {
       "file": "tests/test_achievement_ui.py",
       "kind": "test_class",
-      "line": 14,
+      "line": 16,
       "name": "AchievementTextLayoutTests"
     },
     {
       "file": "tests/test_achievement_ui.py",
       "kind": "test_class",
-      "line": 93,
+      "line": 115,
       "name": "SettingsButtonSurfaceTests"
     },
     {
@@ -2224,43 +2248,43 @@
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 527,
+      "line": 538,
       "name": "test_cooperative_request_timeout_is_reported"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 550,
+      "line": 561,
       "name": "test_timeout_budget_starts_when_queued_request_begins"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 585,
+      "line": 596,
       "name": "test_queued_cancellation_still_prevents_loader_execution"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 615,
+      "line": 626,
       "name": "test_shutdown_cancels_active_cooperative_request"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 628,
+      "line": 639,
       "name": "test_cancel_interrupts_retry_backoff"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 647,
+      "line": 658,
       "name": "test_cancellation_and_newer_generation_suppress_stale_listener"
     },
     {
       "file": "tests/test_request_manager.py",
       "kind": "test",
-      "line": 671,
+      "line": 682,
       "name": "test_late_superseded_result_cannot_overwrite_newer_state"
     },
     {
@@ -2693,138 +2717,150 @@
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
       "line": 90,
+      "name": "test_repeated_launch_activation_is_ignored_while_prelaunch_is_pending"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 102,
+      "name": "test_already_running_launch_continuation_never_stops_game"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 128,
       "name": "test_cloud_settings_routes_account_work_to_cloud_center"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 106,
+      "line": 144,
       "name": "test_cloud_backend_selector_does_not_persist_until_save"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 121,
+      "line": 159,
       "name": "test_add_game_keeps_invalid_form_open"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 134,
+      "line": 172,
       "name": "test_add_game_button_checked_payload_is_not_treated_as_collection"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 163,
+      "line": 201,
       "name": "test_header_view_menu_exposes_only_library_navigation"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 179,
+      "line": 217,
       "name": "test_identity_menu_owns_profile_and_social_navigation"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 194,
+      "line": 232,
       "name": "test_cloud_badge_is_an_actionable_control"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 207,
+      "line": 245,
       "name": "test_virtual_grid_ignores_unmapped_ctrl_u_shortcut"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 231,
+      "line": 269,
       "name": "test_library_shortcuts_do_not_override_buttons_or_combos"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 245,
+      "line": 283,
       "name": "test_stopping_game_schedules_process_cleanup_off_gui_thread"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 268,
+      "line": 306,
       "name": "test_grid_empty_state_emits_add_game_action"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 284,
+      "line": 322,
       "name": "test_game_detail_shows_cloud_save_time_and_device"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 299,
+      "line": 337,
       "name": "test_background_cloud_restore_enters_syncing_and_targets_version"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 337,
+      "line": 375,
       "name": "test_background_cloud_restore_is_deferred_while_game_runs"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 359,
+      "line": 397,
       "name": "test_background_cloud_upload_enters_syncing_and_is_automatic"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 395,
+      "line": 433,
       "name": "test_background_cloud_upload_success_rechecks"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 414,
+      "line": 452,
       "name": "test_background_cloud_restore_failure_rechecks_without_retry_loop"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 441,
+      "line": 479,
       "name": "test_background_cloud_restore_success_rechecks_and_allows_convergence"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 470,
+      "line": 508,
       "name": "test_background_cloud_restore_caps_retries_for_unchanged_snapshot"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 506,
+      "line": 544,
       "name": "test_late_restore_completion_is_ignored_during_shutdown"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 522,
+      "line": 560,
       "name": "test_virtual_grid_exposes_cloud_tooltip_and_accessible_text"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 541,
+      "line": 579,
       "name": "test_cloud_action_is_deferred_until_menu_event_finishes"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 552,
+      "line": 590,
       "name": "test_launch_failure_actions_reflow_without_gaps"
     },
     {

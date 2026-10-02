@@ -88,6 +88,44 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             dialog.deleteLater()
             self.app.processEvents()
 
+    def test_repeated_launch_activation_is_ignored_while_prelaunch_is_pending(self):
+        fake = SimpleNamespace(
+            _prelaunch_in_flight={7: {"token": "active"}},
+            _show_toast=Mock(),
+        )
+
+        MainWindow._launch_mode(fake, 7, "/game", "game.exe", "umu")
+
+        fake._show_toast.assert_called_once_with(
+            "Launch is already preparing this game's cloud save."
+        )
+
+    def test_already_running_launch_continuation_never_stops_game(self):
+        coordinator = Mock(return_value=SimpleNamespace(already_running=True))
+        fake = SimpleNamespace(
+            launch_session_coordinator=SimpleNamespace(start=coordinator),
+            _update_detail_launch_button=Mock(),
+            _show_toast=Mock(),
+            _stop_game=Mock(),
+        )
+        context = {
+            "game_id": 7,
+            "game_name": "Example",
+            "path": "/game",
+            "exe": "game.exe",
+            "steam_id": "",
+            "sandbox": True,
+            "env_vars": {},
+            "selected_mode": "umu",
+            "selected_proton": "",
+        }
+
+        MainWindow._continue_launch(fake, context)
+
+        fake._stop_game.assert_not_called()
+        fake._update_detail_launch_button.assert_called_once_with(7)
+        fake._show_toast.assert_called_once_with("'Example' is already running.")
+
     def test_cloud_settings_routes_account_work_to_cloud_center(self):
         dialog = UserSettingsDialog("Player", parent=None)
         try:

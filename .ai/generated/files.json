@@ -19,7 +19,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 14879,
+      "bytes": 14957,
       "lines": 98,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
@@ -49,7 +49,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 939,
+      "bytes": 1036,
       "lines": 12,
       "path": ".ai/architecture/authentication-and-secrets.md",
       "suffix": ".md"
@@ -787,8 +787,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 15331,
-      "lines": 325,
+      "bytes": 11798,
+      "lines": 251,
       "path": "core/achievement_providers.py",
       "suffix": ".py"
     },
@@ -811,8 +811,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 25315,
-      "lines": 565,
+      "bytes": 25981,
+      "lines": 583,
       "path": "core/achievement_watcher.py",
       "suffix": ".py"
     },
@@ -1753,6 +1753,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 3279,
+      "lines": 80,
+      "path": "tests/test_achievement_providers.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 1789,
       "lines": 53,
       "path": "tests/test_achievement_schema_cache.py",
@@ -1765,8 +1771,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 5360,
-      "lines": 123,
+      "bytes": 6351,
+      "lines": 145,
       "path": "tests/test_achievement_ui.py",
       "suffix": ".py"
     },
@@ -2029,8 +2035,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 28427,
-      "lines": 697,
+      "bytes": 28805,
+      "lines": 708,
       "path": "tests/test_request_manager.py",
       "suffix": ".py"
     },
@@ -2089,8 +2095,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 24877,
-      "lines": 583,
+      "bytes": 26231,
+      "lines": 621,
       "path": "tests/test_ui_consistency.py",
       "suffix": ".py"
     },
@@ -2239,14 +2245,14 @@
       "suffix": ".py"
     },
     {
-      "bytes": 8320,
+      "bytes": 8325,
       "lines": 172,
       "path": "ui/dialogs/achievement_profile_dialog.py",
       "suffix": ".py"
     },
     {
-      "bytes": 49102,
-      "lines": 1134,
+      "bytes": 50819,
+      "lines": 1159,
       "path": "ui/dialogs/achievements_dialog.py",
       "suffix": ".py"
     },
@@ -2347,8 +2353,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 438569,
-      "lines": 9380,
+      "bytes": 444329,
+      "lines": 9492,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2383,11 +2389,11 @@
       "suffix": ".py"
     },
     {
-      "bytes": 37977,
-      "lines": 910,
+      "bytes": 38066,
+      "lines": 915,
       "path": "ui/threads.py",
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-10-02T21:53:41+00:00"
+  "generated_at": "2026-10-02T22:12:23+00:00"
 }

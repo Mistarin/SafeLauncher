@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T21:53:41+00:00",
+  "generated_at": "2026-10-02T22:12:23+00:00",
   "imports": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -368,68 +368,53 @@
     },
     {
       "file": "core/achievement_providers.py",
-      "import": "os",
+      "import": "re",
       "line": 20
     },
     {
       "file": "core/achievement_providers.py",
-      "import": "re",
+      "import": "time",
       "line": 21
     },
     {
       "file": "core/achievement_providers.py",
-      "import": "math",
+      "import": "pathlib",
       "line": 22
     },
     {
       "file": "core/achievement_providers.py",
-      "import": "time",
+      "import": "typing",
       "line": 23
     },
     {
       "file": "core/achievement_providers.py",
-      "import": "pathlib",
-      "line": 24
-    },
-    {
-      "file": "core/achievement_providers.py",
-      "import": "typing",
+      "import": "core.logger",
       "line": 25
     },
     {
       "file": "core/achievement_providers.py",
-      "import": "core.logger",
-      "line": 27
-    },
-    {
-      "file": "core/achievement_providers.py",
       "import": "core.achievement_models",
-      "line": 28
+      "line": 26
     },
     {
       "file": "core/achievement_providers.py",
       "import": "core.network_policy",
-      "line": 29
+      "line": 27
     },
     {
       "file": "core/achievement_providers.py",
       "import": "core.achievement_schema",
-      "line": 75
+      "line": 72
     },
     {
       "file": "core/achievement_providers.py",
       "import": "core.achievement_schema",
-      "line": 86
-    },
-    {
-      "file": "core/achievement_providers.py",
-      "import": "requests",
-      "line": 112
+      "line": 83
     },
     {
       "file": "core/achievement_providers.py",
       "import": "core.achievement_watcher",
-      "line": 157
+      "line": 107
     },
     {
       "file": "core/achievement_resource_service.py",
@@ -5777,6 +5762,41 @@
       "line": 9
     },
     {
+      "file": "tests/test_achievement_providers.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_achievement_providers.py",
+      "import": "os",
+      "line": 5
+    },
+    {
+      "file": "tests/test_achievement_providers.py",
+      "import": "tempfile",
+      "line": 6
+    },
+    {
+      "file": "tests/test_achievement_providers.py",
+      "import": "unittest",
+      "line": 7
+    },
+    {
+      "file": "tests/test_achievement_providers.py",
+      "import": "pathlib",
+      "line": 8
+    },
+    {
+      "file": "tests/test_achievement_providers.py",
+      "import": "unittest.mock",
+      "line": 9
+    },
+    {
+      "file": "tests/test_achievement_providers.py",
+      "import": "core.achievement_providers",
+      "line": 11
+    },
+    {
       "file": "tests/test_achievement_schema_cache.py",
       "import": "__future__",
       "line": 3
@@ -5868,8 +5888,18 @@
     },
     {
       "file": "tests/test_achievement_ui.py",
-      "import": "ui.dialogs.settings_dialog",
+      "import": "ui.dialogs.achievements_dialog",
       "line": 13
+    },
+    {
+      "file": "tests/test_achievement_ui.py",
+      "import": "ui.dialogs.settings_dialog",
+      "line": 14
+    },
+    {
+      "file": "tests/test_achievement_ui.py",
+      "import": "core.achievement_providers",
+      "line": 15
     },
     {
       "file": "tests/test_asset_cache.py",
@@ -9084,17 +9114,17 @@
     {
       "file": "ui/dialogs/achievements_dialog.py",
       "import": "core.achievement_coordinator",
-      "line": 879
+      "line": 899
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
       "import": "core.network_policy",
-      "line": 891
+      "line": 911
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
       "import": "core.achievement_persistence",
-      "line": 1003
+      "line": 1023
     },
     {
       "file": "ui/dialogs/cloud_center_dialog.py",
@@ -11029,142 +11059,142 @@
     {
       "file": "ui/main_window.py",
       "import": "core.prefix_sanitizer",
-      "line": 433
+      "line": 436
     },
     {
       "file": "ui/main_window.py",
       "import": "core.updater",
-      "line": 1970
+      "line": 1971
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_backend",
-      "line": 1989
+      "line": 1990
     },
     {
       "file": "ui/main_window.py",
       "import": "core.secret_store",
-      "line": 1997
+      "line": 1998
     },
     {
       "file": "ui/main_window.py",
       "import": "core.updater",
-      "line": 2097
+      "line": 2098
     },
     {
       "file": "ui/main_window.py",
       "import": "core.updater",
-      "line": 2151
+      "line": 2152
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.welcome_wizard",
-      "line": 2155
+      "line": 2156
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.cloud_wizard_dialog",
-      "line": 2293
+      "line": 2294
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.account_dialog",
-      "line": 2307
+      "line": 2308
     },
     {
       "file": "ui/main_window.py",
       "import": "subprocess",
-      "line": 2606
+      "line": 2607
     },
     {
       "file": "ui/main_window.py",
       "import": "core.screenshot_capture",
-      "line": 4503
+      "line": 4504
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 4662
+      "line": 4663
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_operations",
-      "line": 5881
+      "line": 5885
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_operations",
-      "line": 5898
+      "line": 5902
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_operations",
-      "line": 6148
+      "line": 6235
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_operations",
-      "line": 6298
+      "line": 6385
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 6441
+      "line": 6528
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_watcher",
-      "line": 7230
+      "line": 7357
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_schema",
-      "line": 7247
+      "line": 7374
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.achievements_dialog",
-      "line": 7425
+      "line": 7552
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.components.achievement_toast",
-      "line": 7547
+      "line": 7674
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.components.achievement_toast",
-      "line": 7555
+      "line": 7682
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_models",
-      "line": 8129
+      "line": 8256
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_models",
-      "line": 8166
+      "line": 8293
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_coordinator",
-      "line": 8697
+      "line": 8826
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 8817
+      "line": 8929
     },
     {
       "file": "ui/main_window.py",
       "import": "core.plugins.gpu_screen_recorder",
-      "line": 8946
+      "line": 9058
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_schema",
-      "line": 9027
+      "line": 9139
     },
     {
       "file": "ui/main_window_profile.py",
@@ -11469,37 +11499,37 @@
     {
       "file": "ui/threads.py",
       "import": "PyQt6.QtCore",
-      "line": 774
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "concurrent.futures",
       "line": 779
     },
     {
       "file": "ui/threads.py",
-      "import": "core.achievement_resource_service",
-      "line": 780
-    },
-    {
-      "file": "ui/threads.py",
-      "import": "core.request_contracts",
+      "import": "concurrent.futures",
       "line": 784
     },
     {
       "file": "ui/threads.py",
+      "import": "core.achievement_resource_service",
+      "line": 785
+    },
+    {
+      "file": "ui/threads.py",
+      "import": "core.request_contracts",
+      "line": 789
+    },
+    {
+      "file": "ui/threads.py",
       "import": "database",
-      "line": 845
+      "line": 850
     },
     {
       "file": "ui/threads.py",
       "import": "core.achievement_coordinator",
-      "line": 846
+      "line": 851
     },
     {
       "file": "ui/threads.py",
       "import": "core.achievement_persistence",
-      "line": 847
+      "line": 852
     }
   ]
 }

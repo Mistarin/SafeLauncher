@@ -279,6 +279,10 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         # downloading the same version more than once.
         self._cloud_auto_restore_in_flight: dict[int, tuple[int, object]] = {}
         self._cloud_auto_upload_in_flight: dict[int, tuple[int, object]] = {}
+        # A launch owns one prelaunch cloud lifecycle per game. This is
+        # separate from background auto-sync so repeated activation cannot
+        # attach another continuation to a deduplicated cloud request.
+        self._prelaunch_in_flight: dict[int, dict] = {}
         # A single cloud snapshot must not be restored forever when a remote
         # timestamp cannot converge with the extracted local files.  The
         # counter is reset automatically when the cloud version/signature
@@ -288,7 +292,6 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         self._closing = False
         self.achievement_state = AchievementStateStore()
         self.achievement_persistence_service = AchievementPersistenceService(self.db)
-        self._achievement_poll_timer = None
         # A watcher can observe an unlock before its schema worker finishes.
         # Keep it in memory until the schema gives the API name a durable row;
         # otherwise the one-shot live event would be silently lost.
@@ -1834,9 +1837,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                 "Offline mode is enabled; remote metadata checks are paused. Cached and local data remain available.",
             )
             self.cloud_status_polling.stop()
-            for timer_name in (
-                "_achievement_poll_timer", "_update_check_timer"
-            ):
+            for timer_name in ("_update_check_timer",):
                 timer = getattr(self, timer_name, None)
                 if timer is not None:
                     try:
@@ -5781,6 +5782,9 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             try:
                 resource = future.result()
                 value = resource.value if resource.status == ResourceStatus.READY else None
+                if value is None:
+                    payload["error"] = str(getattr(resource, "error", None) or "Cloud save check did not complete.")
+                    payload["toast"] = f"Cloud check failed — launching '{game_name}' with local saves."
             except Exception as exc:
                 value = None
                 error = str(exc)
@@ -6038,6 +6042,89 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             int(game_id) in getattr(self, "_cloud_auto_restore_in_flight", {})
             or int(game_id) in getattr(self, "_cloud_auto_upload_in_flight", {})
         )
+
+    def _prelaunch_pending(self, game_id: int) -> bool:
+        return int(game_id) in getattr(self, "_prelaunch_in_flight", {})
+
+    def _show_prelaunch_progress(self, ctx: dict, label: str, handle=None) -> None:
+        """Show a per-game progress surface and bind it to operation metadata."""
+        game_id = int(ctx["game_id"])
+        state = self._prelaunch_in_flight.get(game_id)
+        if state is None or state.get("token") != ctx.get("prelaunch_token"):
+            return
+        self._close_prelaunch_progress(ctx)
+        state["handle"] = handle
+        progress = QProgressDialog(label, None, 0, 100, self)
+        progress.setWindowTitle("Preparing game launch")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.setValue(0)
+        if handle is None:
+            progress.setRange(0, 0)
+        progress.show()
+        timer = QTimer(progress)
+        timer.setInterval(150)
+        timer.timeout.connect(
+            lambda gid=game_id, token=state["token"]: self._refresh_prelaunch_progress(gid, token)
+        )
+        state["progress"] = progress
+        state["timer"] = timer
+        timer.start()
+        self._refresh_prelaunch_progress(game_id, state["token"])
+        if getattr(self, "selected_game", None) and int(self.selected_game[0]) == game_id:
+            self._update_detail_launch_button(game_id)
+
+    def _refresh_prelaunch_progress(self, game_id: int, token: str) -> None:
+        state = self._prelaunch_in_flight.get(int(game_id))
+        if not state or state.get("token") != token:
+            return
+        progress = state.get("progress")
+        handle = state.get("handle")
+        if progress is None or handle is None:
+            return
+        try:
+            record = self.cloud_operation_service.operation(handle.request_id)
+            value = getattr(record, "progress", None)
+        except Exception:
+            value = None
+        if value is None:
+            if progress.minimum() != 0 or progress.maximum() != 0:
+                progress.setRange(0, 0)
+        else:
+            if progress.minimum() == progress.maximum():
+                progress.setRange(0, 100)
+            progress.setValue(int(max(0.0, min(1.0, float(value))) * 100))
+
+    def _close_prelaunch_progress(self, ctx: dict) -> None:
+        state = self._prelaunch_in_flight.get(int(ctx.get("game_id", -1)))
+        if not state or state.get("token") != ctx.get("prelaunch_token"):
+            return
+        timer = state.pop("timer", None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        progress = state.pop("progress", None)
+        if progress is not None:
+            progress.close()
+            progress.deleteLater()
+
+    def _finish_prelaunch(self, ctx: dict) -> None:
+        """Retire a pending launch exactly once before its terminal action."""
+        game_id = int(ctx.get("game_id", -1))
+        state = self._prelaunch_in_flight.get(game_id)
+        if state and state.get("token") == ctx.get("prelaunch_token"):
+            self._close_prelaunch_progress(ctx)
+            self._prelaunch_in_flight.pop(game_id, None)
+        if game_id >= 0 and getattr(self, "selected_game", None):
+            if int(self.selected_game[0]) == game_id:
+                self._update_detail_launch_button(game_id)
+
+    def _proceed_prelaunch(self, ctx: dict) -> None:
+        self._finish_prelaunch(ctx)
+        self._continue_launch(ctx)
 
     @staticmethod
     def _cloud_restore_signature(cloud_stats) -> tuple:
@@ -6704,6 +6791,16 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             self.btn_detail_remove.setToolTip("Manage this uninstalled game or permanently delete it.")
             return
 
+        if MainWindow._prelaunch_pending(self, game_id):
+            self.btn_detail_launch.setText("Preparing Launch…")
+            self.btn_detail_launch.setIcon(get_icon("ph.arrows-clockwise-bold", color="#71717A"))
+            self.btn_detail_launch.setIconSize(QSize(15, 15))
+            self.btn_detail_launch.setEnabled(False)
+            self.btn_detail_launch.setToolTip(
+                "Cloud save preparation is in progress. The game will launch when it finishes."
+            )
+            return
+
         if (
             MainWindow._cloud_auto_sync_in_flight(self, game_id)
             and game_id not in self.running_game_ids
@@ -6847,6 +6944,9 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
     def _launch_mode(self, game_id: int, path: str, exe: str, selected_mode: str, sandbox: bool = True, disable_performance: bool = False):
         """Helper to launch a game directly with the chosen mode"""
         logger.info(f"Initiating launch for Game ID {game_id}: exe='{exe}', mode='{selected_mode}', path='{path}'")
+        if MainWindow._prelaunch_pending(self, game_id):
+            self._show_toast("Launch is already preparing this game's cloud save.")
+            return
         if MainWindow._cloud_auto_sync_in_flight(self, game_id):
             self._show_toast("Please wait for the cloud save to finish syncing.")
             return
@@ -6906,15 +7006,30 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             self._show_toast(f"Offline mode — launching '{game_name}' with local saves.")
             self._continue_launch(ctx)
             return
-        self._show_toast(f"Checking cloud saves for '{game_name}'…")
+        ctx["prelaunch_token"] = uuid.uuid4().hex
+        self._prelaunch_in_flight[int(ctx["game_id"])] = {
+            "token": ctx["prelaunch_token"],
+            "ctx": ctx,
+            "handle": None,
+        }
+        self._show_prelaunch_progress(ctx, f"Checking cloud saves for '{game_name}'…")
         target = CloudOperationTarget(ctx["game_id"], game_name, path, steam_id)
-        handle = self.cloud_operation_service.request_prelaunch_resolution(
-            target,
-            auto_prefer_newer=self.settings.value("auto_prefer_newer_saves", False, type=bool),
-            auto_prefer_local=self.settings.value("auto_prefer_local_saves", False, type=bool),
-            priority=RequestPriority.CRITICAL,
-            tag="prelaunch",
-        )
+        try:
+            handle = self.cloud_operation_service.request_prelaunch_resolution(
+                target,
+                auto_prefer_newer=self.settings.value("auto_prefer_newer_saves", False, type=bool),
+                auto_prefer_local=self.settings.value("auto_prefer_local_saves", False, type=bool),
+                priority=RequestPriority.CRITICAL,
+                tag="prelaunch",
+            )
+        except Exception as exc:
+            logger.warning("Could not queue prelaunch cloud resolution for game %s: %s", ctx["game_id"], exc)
+            self._finish_prelaunch(ctx)
+            self._show_toast(f"Cloud check failed — launching '{game_name}' with local saves.", is_error=True)
+            self._continue_launch(ctx)
+            return
+        self._prelaunch_in_flight[int(ctx["game_id"])]["handle"] = handle
+        self._refresh_prelaunch_progress(int(ctx["game_id"]), ctx["prelaunch_token"])
 
         def _deliver(future):
             payload = {"proceed": True, "needs_conflict": False, "toast": "", "ctx": ctx}
@@ -6985,19 +7100,27 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             ctx["path"],
             ctx.get("steam_id", ""),
         )
-        if operation == "restore":
-            handle = self.cloud_operation_service.request_restore(
-                target,
-                priority=RequestPriority.CRITICAL,
-                tag="prelaunch_conflict",
-                target_version=target_version,
-            )
-        else:
-            handle = self.cloud_operation_service.request_upload(
-                target,
-                priority=RequestPriority.CRITICAL,
-                tag="prelaunch_conflict",
-            )
+        try:
+            if operation == "restore":
+                handle = self.cloud_operation_service.request_restore(
+                    target,
+                    priority=RequestPriority.CRITICAL,
+                    tag="prelaunch_conflict",
+                    target_version=target_version,
+                )
+            else:
+                handle = self.cloud_operation_service.request_upload(
+                    target,
+                    priority=RequestPriority.CRITICAL,
+                    tag="prelaunch_conflict",
+                )
+        except Exception as exc:
+            logger.warning("Could not queue prelaunch %s for game %s: %s", operation, ctx["game_id"], exc)
+            self._show_toast(f"{failure_toast} ({exc})", is_error=True)
+            self._proceed_prelaunch(ctx)
+            return
+        label = "Restoring cloud save…" if operation == "restore" else "Uploading local save…"
+        self._show_prelaunch_progress(ctx, label, handle)
 
         def _deliver(future):
             try:
@@ -7030,15 +7153,12 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         dispatched to a daemon thread via _prelaunch_restore_done so the Qt
         main thread never blocks on network or disk work.
         """
-        if hasattr(self, "_active_prelaunch_progress") and self._active_prelaunch_progress:
-            try:
-                self._active_prelaunch_progress.close()
-                self._active_prelaunch_progress.deleteLater()
-            except Exception:
-                pass
-            self._active_prelaunch_progress = None
-
         ctx = payload.get("ctx", {})
+        pending = self._prelaunch_in_flight.get(int(ctx.get("game_id", -1)))
+        if not pending or pending.get("token") != ctx.get("prelaunch_token"):
+            logger.debug("Ignoring stale prelaunch result for game %s", ctx.get("game_id"))
+            return
+        self._close_prelaunch_progress(ctx)
         game_name = ctx.get("game_name", "")
 
         if payload.get("quota_blocked"):
@@ -7060,10 +7180,12 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             dialog.exec()
             clicked = dialog.clickedButton()
             if clicked is launch_button:
-                self._continue_launch(ctx)
+                self._proceed_prelaunch(ctx)
             elif clicked is cloud_button:
+                self._finish_prelaunch(ctx)
                 self._open_cloud_center()
             else:
+                self._finish_prelaunch(ctx)
                 self._show_toast(f"Launch cancelled — cloud storage is insufficient for '{game_name}'.")
             return
 
@@ -7086,7 +7208,8 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                     )
                     return  # resume in _on_prelaunch_restore_done
                 else:
-                    # Keep local: upload in background, launch immediately
+                    # Keep local: upload the selected local snapshot before
+                    # launch completes, with visible progress and one owner.
                     self._queue_prelaunch_cloud_operation(
                         ctx,
                         "upload",
@@ -7098,6 +7221,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                 # Closing the conflict dialog cancels the launch — say so
                 # instead of silently dropping the user's Play click.
                 self._show_toast(f"Launch cancelled — resolve the save conflict for '{game_name}' first.")
+                self._finish_prelaunch(ctx)
                 return
 
         elif payload.get("needs_cloud_only_prompt"):
@@ -7135,17 +7259,16 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             self._show_toast(toast, is_error=bool(payload.get("error")))
 
         # All non-async, non-abort paths reach here and proceed to launch.
-        self._continue_launch(ctx)
+        self._proceed_prelaunch(ctx)
 
     def _on_prelaunch_restore_done(self, result: dict):
         """Main-thread slot: close the progress dialog and continue the launch."""
-        if hasattr(self, "_active_prelaunch_progress") and self._active_prelaunch_progress:
-            try:
-                self._active_prelaunch_progress.close()
-                self._active_prelaunch_progress.deleteLater()
-            except Exception:
-                pass
-            self._active_prelaunch_progress = None
+        ctx = result.get("ctx", {})
+        pending = self._prelaunch_in_flight.get(int(ctx.get("game_id", -1)))
+        if not pending or pending.get("token") != ctx.get("prelaunch_token"):
+            logger.debug("Ignoring stale prelaunch cloud-operation result for game %s", ctx.get("game_id"))
+            return
+        self._close_prelaunch_progress(ctx)
 
         toast = result.get("toast", "")
         if result.get("guidance"):
@@ -7153,11 +7276,10 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         if toast:
             self._show_toast(toast, is_error=bool(result.get("error")))
 
-        ctx = result.get("ctx", {})
         if result.get("ok") and ctx.get("game_id") is not None:
             self.refresh_cloud_status_for_game(ctx["game_id"])
 
-        self._continue_launch(ctx)
+        self._proceed_prelaunch(ctx)
 
 
     def _continue_launch(self, ctx: dict):
@@ -7186,7 +7308,12 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                 )
             )
             if launch_result.already_running:
-                self._stop_game(game_id)
+                # A launch continuation is not an explicit Stop action. A
+                # duplicate or delayed continuation must never terminate a
+                # session that has already started.
+                logger.info("Launch continuation skipped because game %s is already running", game_id)
+                self._update_detail_launch_button(game_id)
+                self._show_toast(f"'{game_name}' is already running.")
                 return
             process = launch_result.process
             if launch_result.started and process:
@@ -7359,7 +7486,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                         d_desc = html.escape(ach.get("description", ""))
                         b_lbl.setAccessibleName(ach.get("display_name") or ach.get("api_name") or "Achievement badge")
                         b_lbl.setAccessibleDescription(ach.get("description") or "Unlocked achievement")
-                        source = "Steam verified" if ach.get("verified") else "Local source · unverified"
+                        source = "Previously verified record" if ach.get("verified") else "Local source · unverified"
                         source_color = "#35C98A" if ach.get("verified") else "#E5A93D"
                         b_lbl.setToolTip(f"<div style='background: #1C1C1E; color: #FFF; padding: 3px;'><b>{d_name}</b><br/><span style='color: #A1A1AA; font-size: 11px;'>{d_desc}</span><br/><span style='color: {source_color}; font-size: 10px;'>{source}</span></div>")
                         self.detail_ach_badges_layout.addWidget(b_lbl)
@@ -8536,9 +8663,11 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                 ResourceStatus.PERMISSION_DENIED,
                 ResourceStatus.CONFLICT,
             }:
-                logger.debug(
-                    "Managed achievement request failed for %s: %s",
+                log = logger.warning if result.status == ResourceStatus.ERROR else logger.debug
+                log(
+                    "Managed achievement request ended for %s (status=%s): %s",
                     key,
+                    result.status.value,
                     result.error or result.status.value,
                 )
             return
@@ -8716,8 +8845,6 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
     def _start_background_achievement_sync(self):
         """Start bounded achievement monitoring without a library-wide scan."""
         if not self._automatic_network_allowed():
-            if self._achievement_poll_timer is not None:
-                self._achievement_poll_timer.stop()
             return
         # Achievement resolution is deliberately lazy: selection, launch,
         # dialog open/close, and running-game polling are the explicit probes.
@@ -8726,21 +8853,6 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         for game in list(self.games):
             if game and len(game) > 0:
                 self._sync_launcher_metadata_async(int(game[0]))
-        # Native Steam has no universal local unlock file.  When the user has
-        # explicitly supplied Steam Web API credentials, recheck only games
-        # that are actually running to provide bounded near-realtime updates.
-        if self._achievement_poll_timer is None:
-            self._achievement_poll_timer = QTimer(self)
-            self._achievement_poll_timer.setInterval(60_000)
-            self._achievement_poll_timer.timeout.connect(self._poll_running_achievements)
-        self._achievement_poll_timer.start()
-
-    def _poll_running_achievements(self):
-        """Poll opted-in native Steam state without scanning the whole library."""
-        running_ids = list(self.running_game_ids)
-        if running_ids:
-            self.request_achievement_recheck(running_ids, tag="running_poll")
-
     def _on_achievement_status_calculated(self, game_id: int, unlocked_count: int, total_count: int, pct: float, recent: list):
         """GUI-thread slot when an achievement worker finishes computing status for a game."""
         self.achievement_state.set_status(
@@ -8799,7 +8911,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         # the user chooses to keep the launcher open.
         if self._automatic_network_allowed():
             self.cloud_status_polling.start()
-        for timer_name in ("drive_check_timer", "_achievement_poll_timer"):
+        for timer_name in ("drive_check_timer",):
             timer = getattr(self, timer_name, None)
             if timer is not None and not timer.isActive():
                 timer.start()
@@ -8839,7 +8951,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             # Halt every source that schedules new background work while we
             # are trying to shut down.
             self.cloud_status_polling.stop()
-            for timer_name in ("drive_check_timer", "_size_resort_timer", "_update_status_refresh_timer", "_achievement_poll_timer", "_update_check_timer"):
+            for timer_name in ("drive_check_timer", "_size_resort_timer", "_update_status_refresh_timer", "_update_check_timer"):
                 timer = getattr(self, timer_name, None)
                 if timer is not None:
                     try:

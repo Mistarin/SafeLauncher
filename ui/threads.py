@@ -713,7 +713,7 @@ class AchievementStatusFetcherThread(SafeQThread):
                     self.game_id, unlocked_cnt, total_cnt, pct, recent
                 )
             elif result.status == ResourceStatus.ERROR:
-                logger.debug(
+                logger.warning(
                     "Managed achievement request failed for %s: %s",
                     self.game_id,
                     result.error,
@@ -747,7 +747,12 @@ class AchievementStatusFetcherThread(SafeQThread):
             if not self.isInterruptionRequested():
                 self.achievement_status_calculated.emit(self.game_id, unlocked_cnt, total_cnt, pct, recent)
         except Exception as e:
-            logger.debug(f"AchievementStatusFetcherThread error for game {self.game_id} ({self.game_name}): {e}")
+            logger.warning(
+                "AchievementStatusFetcherThread failed for game %s (%s): %s",
+                self.game_id,
+                self.game_name,
+                e,
+            )
         finally:
             if db is not None:
                 try:

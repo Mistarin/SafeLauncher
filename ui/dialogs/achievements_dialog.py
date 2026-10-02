@@ -299,11 +299,11 @@ class AppleAchievementCard(QFrame):
 
         if unlocked and unlock_time > 1000:
             dt_str = format_datetime_timestamp(unlock_time, "%H:%M:%S")
-            source_text = "Steam verified" if self.ach.get("verified") else "Local source · unverified"
+            source_text = "Previously verified record" if self.ach.get("verified") else "Local source · unverified"
             source_color = "#35C98A" if self.ach.get("verified") else "#E5A93D"
             time_line = f"<p style='color: {source_color}; font-weight: bold; margin-top: 6px;'>Unlocked on {dt_str} · {source_text}</p>"
         elif unlocked:
-            source_text = "Steam verified" if self.ach.get("verified") else "Local source · unverified"
+            source_text = "Previously verified record" if self.ach.get("verified") else "Local source · unverified"
             source_color = "#35C98A" if self.ach.get("verified") else "#E5A93D"
             time_line = f"<p style='color: {source_color}; font-weight: bold; margin-top: 6px;'>Unlocked · {source_text}</p>"
         elif hidden:
@@ -561,22 +561,42 @@ class AchievementsDialog(PopupDialog):
         pending = getattr(resolution, "pending_state", {}) or {}
         verified = getattr(resolution, "state_provenance", "") == "steam_verified"
         if schema_available and state_available and state:
-            text = " Steam verified " if verified else " Local state · unverified "
+            text = " Prior verified record " if verified else " Local state · unverified "
             style = "background: rgba(48, 209, 88, 0.12); color: #35C98A; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;" if verified else "background: rgba(255, 159, 10, 0.15); color: #E5A93D; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
         elif schema_available and state_available and pending:
             text = " State found · records need validation "
             style = "background: rgba(255, 159, 10, 0.15); color: #E5A93D; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+        elif schema_available and state_available:
+            text = " Local state found · 0 unlocked "
+            style = "background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
         elif schema_available:
-            text = " Definitions available · no state " if state_available else " Definitions available · state unavailable "
+            text = " Definitions available · state file not found "
             style = "background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
         elif state:
-            text = " Local state · schema unavailable "
+            text = " Local state · definitions unavailable "
             style = "background: rgba(255, 159, 10, 0.15); color: #E5A93D; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
+        elif state_available:
+            text = " State file found · definitions unavailable "
+            style = "background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
         else:
             text = " Achievement data unavailable "
             style = "background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;"
         self.status_tag.setText(text)
         self.status_tag.setStyleSheet(style)
+        details = []
+        reason = str(getattr(resolution, "reason", "") or "").strip()
+        state_path = getattr(resolution, "state_path", None)
+        if reason:
+            details.append(reason)
+        if state_path:
+            details.append(f"Local state file: {state_path}")
+        elif not state_available:
+            details.append("No supported local achievement state file was found.")
+        if getattr(resolution, "state_ambiguous", False):
+            details.append("More than one candidate state file was found; the selected file may not be the one this game updates.")
+        if state_available and not state:
+            details.append("The selected local state file parsed successfully but contains no unlocked achievement records.")
+        self.status_tag.setToolTip("\n".join(details) or text.strip())
 
     def _build_ui(self):
         main_layout = self.popup_layout(margins=(24, 20, 24, 20), spacing=16)
@@ -1024,9 +1044,14 @@ class AchievementsDialog(PopupDialog):
             # already cached cards visible and explain the unavailable source.
             if self._last_resolution is not None:
                 self._set_resolution_status(self._last_resolution)
+                detail = str(error or "Achievement definitions could not be loaded.").strip()
+                prior = self.status_tag.toolTip().strip()
+                self.status_tag.setToolTip("\n".join(part for part in (prior, detail) if part))
             else:
-                self.status_tag.setText(" Achievement data unavailable ")
+                detail = str(error or "No supported achievement definition source is available.").strip()
+                self.status_tag.setText(" Definitions unavailable ")
                 self.status_tag.setStyleSheet("background: rgba(142, 142, 147, 0.15); color: #AEAEB2; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 6px;")
+                self.status_tag.setToolTip(detail)
             self._render_cards()
 
     def _on_search_changed(self, text: str):

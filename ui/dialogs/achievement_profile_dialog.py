@@ -76,7 +76,7 @@ class AchievementProfileDialog(PopupDialog):
             total += count
             names = ", ".join(games.get(app_id, [])) or "No installed game linked"
             suffix = f" · {pending} pending validation" if pending else ""
-            item = QListWidgetItem(f"AppID {app_id} · {count} unlocked · {verified} Steam verified{suffix}\n{names}")
+            item = QListWidgetItem(f"AppID {app_id} · {count} unlocked · {verified} previously verified{suffix}\n{names}")
             item.setData(Qt.ItemDataRole.UserRole, app_id)
             self.list.addItem(item)
         for identity, item in sorted(profile_games.items()):

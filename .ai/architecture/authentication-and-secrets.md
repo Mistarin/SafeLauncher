@@ -4,7 +4,7 @@ There are separate credential domains:
 
 - Private cloud credentials/configuration are used by SafeLauncherCloud transport and save encryption.
 - Central authentication is used for public profile ownership and social operations.
-- Steam Web API credentials, when configured, are optional and feature-specific.
+- Achievement unlock detection reads local game/emulator state files and does not use Steam account or Web API credentials. Public metadata lookup is separate from unlock state.
 
 Secrets must remain in the platform/configuration secret store or environment configuration. They must never enter `.ai`, pending sync queue payloads, generated manifests, logs, public profile projections, or cache keys. Cache keys may include an opaque account/backend context fingerprint, never raw tokens.
 

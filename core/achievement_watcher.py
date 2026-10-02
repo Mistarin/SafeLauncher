@@ -305,6 +305,18 @@ def parse_achievements_state_detailed(file_path: Path) -> AchievementStateParseR
             return value.strip().lower() in {"1", "true", "yes", "on", "unlocked", "earned", "achieved"}
         return False
 
+    def is_unlocked_ini(value: Any) -> bool:
+        """Accept RUNE/CODEX numeric timestamps as earned flags in INI state."""
+        if is_unlocked(value):
+            return True
+        if isinstance(value, str):
+            try:
+                number = float(value.strip())
+            except (TypeError, ValueError, OverflowError):
+                return False
+            return math.isfinite(number) and number > 0
+        return False
+
     def collect_json(items: Any, *, context: bool = False, depth: int = 0) -> None:
         if depth > _MAX_STATE_DEPTH:
             return
@@ -373,10 +385,16 @@ def parse_achievements_state_detailed(file_path: Path) -> AchievementStateParseR
         for key, value in cfg.items(section):
             key_text = key.strip()
             key_lower = key_text.lower()
+            if key_lower in {"count", "achievement_count", "unlocked_count"}:
+                continue
             if mixed_section and not achievement_section and not key_lower.startswith(("ach_", "achievement_", "unlock_")):
                 continue
-            if is_unlocked(value):
-                add(key_text, value if str(value).strip().replace(".", "", 1).isdigit() else 0)
+            if is_unlocked_ini(value):
+                try:
+                    unlock_time = float(value)
+                except (TypeError, ValueError, OverflowError):
+                    unlock_time = 0
+                add(key_text, unlock_time)
     return AchievementStateParseResult(
         state=results,
         format="ini",

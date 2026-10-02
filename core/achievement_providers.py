@@ -17,9 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-import os
 import re
-import math
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -30,7 +28,6 @@ from core.network_policy import automatic_network_allowed
 
 logger = get_logger("AchievementProviders")
 _APP_ID_RE = re.compile(r"^[0-9]{1,16}$")
-_API_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
 class AchievementAvailability(str, Enum):
@@ -92,59 +89,12 @@ class SteamSchemaProvider(AchievementProvider):
         )
 
 
-def _authenticated_steam_player_state(app_id: str) -> Dict[str, float]:
-    """Read native Steam unlock state only with explicit user credentials.
-
-    Steam does not expose a local, stable achievement-state file for every
-    native title.  The official player endpoint is the reliable fallback, but
-    it requires both a Web API key and the player's SteamID.  Environment-only
-    configuration keeps this opt-in and avoids storing either credential in
-    SafeLauncher settings.
-    """
-    if not automatic_network_allowed():
-        return {}
-    api_key = os.environ.get("STEAM_WEB_API_KEY", "").strip()
-    steam_user_id = os.environ.get("STEAM_USER_ID", "").strip()
-    if not _APP_ID_RE.fullmatch(str(app_id or "")) or str(app_id) == "0" or not api_key or not steam_user_id:
-        return {}
-    response = None
-    try:
-        import requests
-        response = requests.get(
-            "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/",
-            params={"key": api_key, "steamid": steam_user_id, "appid": str(app_id)},
-            timeout=8,
-        )
-        if response.status_code != 200:
-            return {}
-        achievements = (response.json() or {}).get("playerstats", {}).get("achievements", [])
-        result = {}
-        for item in achievements if isinstance(achievements, list) else []:
-            name = str(item.get("apiname", "")).strip() if isinstance(item, dict) else ""
-            if not _API_NAME_RE.fullmatch(name) or not item.get("achieved"):
-                continue
-            try:
-                unlock_time = float(item.get("unlocktime", 0) or 0)
-            except (TypeError, ValueError, OverflowError):
-                unlock_time = 0.0
-            result[name] = unlock_time if math.isfinite(unlock_time) and unlock_time >= 0 else 0.0
-        return result
-    except Exception as exc:
-        logger.debug("Authenticated Steam achievement state unavailable for %s: %s", app_id, exc)
-        return {}
-    finally:
-        if response is not None:
-            try:
-                response.close()
-            except Exception:
-                pass
-
-
 class AchievementProviderRegistry:
     """Resolve schema and local state using deterministic provider priority."""
 
-    # Local schema/state is preferred for offline compatibility; an
-    # authenticated Steam player response is stronger for duplicate unlocks.
+    # Unlock state is strictly local: it comes from the game/emulator files
+    # discovered by AchievementWatcher. Public schema metadata is a separate
+    # concern and can never assert that a player unlocked an achievement.
     schema_providers = (LanzadorSchemaProvider(), SteamSchemaProvider())
 
     @classmethod
@@ -174,21 +124,6 @@ class AchievementProviderRegistry:
         state_verified = False
         provenance_by_name = {name: AchievementProvenance.LOCAL_EMULATOR.value for name in state}
         verified_by_name = {name: False for name in state}
-        remote_state = _authenticated_steam_player_state(app_id)
-        if remote_state:
-            # An authenticated Steam response is stronger evidence than a
-            # local emulator file.  It wins on duplicate API names, while
-            # local-only observations remain useful and visibly unverified.
-            merged_state = dict(state)
-            merged_state.update(remote_state)
-            state = merged_state
-            state_source = f"{state_source}+steam-player" if state_source else "steam-player"
-            state_provenance = AchievementProvenance.STEAM.value if not parsed or not parsed.state else "mixed"
-            state_verified = True
-            for name in remote_state:
-                provenance_by_name[name] = AchievementProvenance.STEAM.value
-                verified_by_name[name] = True
-
         schema: List[dict] = []
         schema_source = ""
         for provider in cls.schema_providers:
@@ -262,15 +197,6 @@ class AchievementProviderRegistry:
                     verified_by_name = {name: False for name in state}
                     state_available = True
 
-        if remote_state:
-            state.update(remote_state)
-            state_source = "local-state+steam-player" if state_path else "steam-player"
-            has_local = any(value == AchievementProvenance.LOCAL_EMULATOR.value for value in provenance_by_name.values())
-            state_provenance = "mixed" if has_local else AchievementProvenance.STEAM.value
-            state_verified = True
-            for name in remote_state:
-                provenance_by_name[name] = AchievementProvenance.STEAM.value
-                verified_by_name[name] = True
         state, pending_state = filter_achievement_state(state, allowed_names)
         provenance_by_name = {name: provenance_by_name.get(name, state_provenance) for name in state}
         verified_by_name = {name: verified_by_name.get(name, state_verified) for name in state}
