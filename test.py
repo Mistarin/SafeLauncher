@@ -1876,11 +1876,12 @@ try:
             stats, snap = CloudSaveSyncEngine._remote_stats(resolve_name_key("MultiGenTestGame"), local_mtime=1700000100.0)
             assert "v3" in stats.display_path
 
-            # When top is 2 (<= known_top 2), respects v1 without nagging!
+            # Even when the selected local generation is v1, the cloud status
+            # reflects the newest retained content generation (v2).
             cloud_mock_data_v2 = dict(cloud_mock_data, versions=cloud_mock_data["versions"][1:])
             with patch.object(CloudSaveSyncEngine, "_remote_game_snapshot", return_value=cloud_mock_data_v2):
                 stats_v2, _ = CloudSaveSyncEngine._remote_stats(resolve_name_key("MultiGenTestGame"), local_mtime=1700000100.0)
-                assert "v1" in stats_v2.display_path
+                assert "v2" in stats_v2.display_path
 
             # 3. Test active version selection in get_available_versions when local save exists
             avail = CloudSaveSyncEngine.get_available_versions("MultiGenTestGame", game_path=td)
@@ -2158,6 +2159,7 @@ try:
         CompactGamePageWidget, CompactLayoutContainer, CompactSidebarListWidget,
         SteamGamePageWidget, SteamLayoutContainer, SteamSidebarListWidget
     )
+    from ui.components.sort_combo import SortComboBox
 
     compact_page = CompactGamePageWidget()
     dummy_game = (
@@ -2439,8 +2441,10 @@ try:
     assert compact_page.action_bar.btn_fav.toolTip() == "Remove from favorites"
     assert compact_page.lbl_version.text() == "Not set"
     assert compact_page.lbl_steam_id.text() == "12345"
-    assert "QComboBox::down-arrow" in mw_compact.sort_combo.styleSheet()
-    assert "QComboBox::down-arrow" in mw_compact.compact_container.sidebar_list.sort_combo.styleSheet()
+    # SortComboBox owns the platform-independent chevron in paintEvent; the
+    # old stylesheet-based arrow selector was intentionally removed.
+    assert isinstance(mw_compact.sort_combo, SortComboBox)
+    assert isinstance(mw_compact.compact_container.sidebar_list.sort_combo, SortComboBox)
 
     # Test compact layout zero margins & hidden top bar
     assert mw_compact.library_header_bar.isHidden() is True
