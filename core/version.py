@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Tuple
 
-APP_VERSION = "0.9.1"
+APP_VERSION = "0.9.2"
 __version__ = APP_VERSION
 
 MIN_CONVEX_BACKEND_VERSION = "1.7.0"
