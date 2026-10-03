@@ -327,6 +327,7 @@ class ZipBackupManager(IBackupManager):
 
         staging_root = None
         rollback_root = None
+        rollback_failed = False
         try:
             with zipfile.ZipFile(import_zip_path, 'r') as zipf:
                 namelist = zipf.namelist()
@@ -418,15 +419,26 @@ class ZipBackupManager(IBackupManager):
                     try:
                         if os.path.lexists(final_path):
                             os.unlink(final_path)
-                    except OSError:
-                        pass
+                    except OSError as rollback_error:
+                        rollback_failed = True
+                        logger.critical(
+                            "Save restore rollback could not remove %s: %s",
+                            final_path,
+                            rollback_error,
+                        )
                 for original_path, final_path in reversed(originals):
                     try:
                         os.makedirs(os.path.dirname(final_path), exist_ok=True)
                         if os.path.lexists(original_path):
                             shutil.move(original_path, final_path)
                     except OSError as rollback_error:
+                        rollback_failed = True
                         logger.critical("Save restore rollback failed for %s: %s", final_path, rollback_error)
+                if rollback_failed:
+                    logger.critical(
+                        "Preserving save restore rollback files for manual recovery at %s",
+                        rollback_root,
+                    )
                 raise
 
             if not moved_any:
@@ -439,7 +451,7 @@ class ZipBackupManager(IBackupManager):
         finally:
             if staging_root and os.path.isdir(staging_root):
                 shutil.rmtree(staging_root, ignore_errors=True)
-            if rollback_root and os.path.isdir(rollback_root):
+            if rollback_root and os.path.isdir(rollback_root) and not rollback_failed:
                 shutil.rmtree(rollback_root, ignore_errors=True)
 
     def validate_archive(

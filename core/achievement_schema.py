@@ -824,8 +824,8 @@ class SteamAchievementFetcherWorker(SafeQThread):
             if not self.app_id:
                 self.failed.emit(self.game_id, "", "No AppID provided")
                 return
-            # Keep all local-state, authenticated-Steam, schema-cache, and
-            # public-schema precedence in the registry.  This worker is only
+            # Keep all local-state, schema-cache, and public-schema precedence
+            # in the registry. This worker is only
             # transport/lifecycle glue; callers must not implement their own
             # achievement interpretation beside it.
             from core.achievement_coordinator import coordinated_resolve

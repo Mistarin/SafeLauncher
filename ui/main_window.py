@@ -6057,11 +6057,14 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         progress = QProgressDialog(label, None, 0, 100, self)
         progress.setWindowTitle("Preparing game launch")
         progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setCancelButton(None)
+        progress.setCancelButtonText("Cancel")
         progress.setMinimumDuration(0)
         progress.setAutoClose(False)
         progress.setAutoReset(False)
         progress.setValue(0)
+        progress.canceled.connect(
+            lambda gid=game_id, token=state["token"]: self._cancel_prelaunch(gid, token)
+        )
         if handle is None:
             progress.setRange(0, 0)
         progress.show()
@@ -6076,6 +6079,30 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         self._refresh_prelaunch_progress(game_id, state["token"])
         if getattr(self, "selected_game", None) and int(self.selected_game[0]) == game_id:
             self._update_detail_launch_button(game_id)
+
+    def _cancel_prelaunch(self, game_id: int, token: str) -> None:
+        """Cancel cloud preparation and abort the pending game launch.
+
+        Keep the progress dialog and per-game launch lock alive until the
+        worker reports completion. Restore workers use the save engine's
+        staging/rollback path, so launching or releasing the lock before that
+        terminal callback could race writes to the game's save files.
+        """
+        state = self._prelaunch_in_flight.get(int(game_id))
+        if not state or state.get("token") != token or state.get("cancel_requested"):
+            return
+        state["cancel_requested"] = True
+        progress = state.get("progress")
+        if progress is not None:
+            progress.setLabelText("Cancelling cloud sync…")
+            progress.setCancelButton(None)
+            progress.setRange(0, 0)
+        handle = state.get("handle")
+        if handle is not None:
+            try:
+                self.cloud_operation_service.cancel(handle.request_id)
+            except Exception:
+                logger.exception("Could not request cancellation for prelaunch cloud operation %s", handle.request_id)
 
     def _refresh_prelaunch_progress(self, game_id: int, token: str) -> None:
         state = self._prelaunch_in_flight.get(int(game_id))
@@ -7011,6 +7038,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             "token": ctx["prelaunch_token"],
             "ctx": ctx,
             "handle": None,
+            "cancel_requested": False,
         }
         self._show_prelaunch_progress(ctx, f"Checking cloud saves for '{game_name}'…")
         target = CloudOperationTarget(ctx["game_id"], game_name, path, steam_id)
@@ -7024,11 +7052,19 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             )
         except Exception as exc:
             logger.warning("Could not queue prelaunch cloud resolution for game %s: %s", ctx["game_id"], exc)
+            pending = self._prelaunch_in_flight.get(int(ctx["game_id"]))
+            if pending and pending.get("cancel_requested"):
+                self._finish_prelaunch(ctx)
+                self._show_toast("Launch cancelled.")
+                return
             self._finish_prelaunch(ctx)
             self._show_toast(f"Cloud check failed — launching '{game_name}' with local saves.", is_error=True)
             self._continue_launch(ctx)
             return
         self._prelaunch_in_flight[int(ctx["game_id"])]["handle"] = handle
+        pending = self._prelaunch_in_flight.get(int(ctx["game_id"]))
+        if pending and pending.get("cancel_requested"):
+            self.cloud_operation_service.cancel(handle.request_id)
         self._refresh_prelaunch_progress(int(ctx["game_id"]), ctx["prelaunch_token"])
 
         def _deliver(future):
@@ -7036,6 +7072,9 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             try:
                 resource = future.result()
                 value = resource.value if resource.status == ResourceStatus.READY else None
+                payload["cancelled"] = resource.status == ResourceStatus.CANCELLED
+                if resource.status == ResourceStatus.CANCELLED:
+                    payload["error"] = str(resource.error or "Cloud operation cancelled")
             except Exception as exc:
                 value = None
                 payload["error"] = str(exc)
@@ -7126,15 +7165,18 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             try:
                 resource = future.result()
                 result = resource.value if resource.status == ResourceStatus.READY else None
+                cancelled = resource.status == ResourceStatus.CANCELLED
             except Exception as exc:
                 result = None
                 error = str(exc)
+                cancelled = False
             else:
                 error = ""
             payload = {
                 "ctx": ctx,
                 "ok": bool(result is not None and result.success),
                 "cloud_result": result,
+                "cancelled": cancelled,
                 "toast": success_toast if result is not None and result.success else failure_toast,
             }
             if result is None:
@@ -7159,6 +7201,10 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             logger.debug("Ignoring stale prelaunch result for game %s", ctx.get("game_id"))
             return
         self._close_prelaunch_progress(ctx)
+        if pending.get("cancel_requested") or payload.get("cancelled"):
+            self._finish_prelaunch(ctx)
+            self._show_toast(f"Launch cancelled — cloud sync for '{ctx.get('game_name', 'game')}' was stopped.")
+            return
         game_name = ctx.get("game_name", "")
 
         if payload.get("quota_blocked"):
@@ -7269,6 +7315,11 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             logger.debug("Ignoring stale prelaunch cloud-operation result for game %s", ctx.get("game_id"))
             return
         self._close_prelaunch_progress(ctx)
+
+        if pending.get("cancel_requested") or result.get("cancelled"):
+            self._finish_prelaunch(ctx)
+            self._show_toast(f"Launch cancelled — cloud sync for '{ctx.get('game_name', 'game')}' was stopped.")
+            return
 
         toast = result.get("toast", "")
         if result.get("guidance"):

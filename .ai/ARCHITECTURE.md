@@ -126,6 +126,12 @@ owns its Xlib display on its listener thread and is disabled on Qt's
 headless/minimal platforms; a window close therefore cannot race native input
 cleanup or force the host `QApplication` to quit when SafeLauncher is embedded.
 
+Prelaunch cloud save resolution uses the managed request worker and a modal
+progress dialog. Cancelling requests cooperative operation cancellation and
+aborts the game launch; the launch lock remains held until the operation has
+finished so an in-progress restore can complete rollback before game files
+are accessed.
+
 Initial window/dialog sizes are clamped to the available screen geometry, and
 the compact hero banner adapts between a readable minimum and its cinematic
 maximum. Security probes keep technical subprocess output in a copyable

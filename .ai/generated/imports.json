@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T22:12:23+00:00",
+  "generated_at": "2026-10-02T22:35:28+00:00",
   "imports": [
     {
       "file": ".ai/tools/build_manifest.py",
@@ -404,17 +404,17 @@
     {
       "file": "core/achievement_providers.py",
       "import": "core.achievement_schema",
-      "line": 72
+      "line": 75
     },
     {
       "file": "core/achievement_providers.py",
       "import": "core.achievement_schema",
-      "line": 83
+      "line": 86
     },
     {
       "file": "core/achievement_providers.py",
       "import": "core.achievement_watcher",
-      "line": 107
+      "line": 110
     },
     {
       "file": "core/achievement_resource_service.py",
@@ -5737,6 +5737,31 @@
       "line": 2567
     },
     {
+      "file": "tests/test_achievement_formats.py",
+      "import": "__future__",
+      "line": 3
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "import": "tempfile",
+      "line": 5
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "import": "unittest",
+      "line": 6
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "import": "pathlib",
+      "line": 7
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "import": "core.achievement_watcher",
+      "line": 9
+    },
+    {
       "file": "tests/test_achievement_persistence_service.py",
       "import": "__future__",
       "line": 3
@@ -7763,38 +7788,48 @@
     },
     {
       "file": "tests/test_save_restore_service.py",
-      "import": "tempfile",
+      "import": "shutil",
       "line": 2
     },
     {
       "file": "tests/test_save_restore_service.py",
-      "import": "unittest",
+      "import": "tempfile",
       "line": 3
     },
     {
       "file": "tests/test_save_restore_service.py",
-      "import": "zipfile",
+      "import": "unittest",
       "line": 4
     },
     {
       "file": "tests/test_save_restore_service.py",
-      "import": "unittest.mock",
+      "import": "zipfile",
       "line": 5
     },
     {
       "file": "tests/test_save_restore_service.py",
-      "import": "core.ludusavi_detector",
+      "import": "pathlib",
+      "line": 6
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
+      "import": "unittest.mock",
       "line": 7
     },
     {
       "file": "tests/test_save_restore_service.py",
+      "import": "core.ludusavi_detector",
+      "line": 9
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
       "import": "core.save_restore_service",
-      "line": 8
+      "line": 10
     },
     {
       "file": "tests/test_save_restore_service.py",
       "import": "core.zip_backup",
-      "line": 9
+      "line": 11
     },
     {
       "file": "tests/test_security_and_threads.py",
@@ -9114,17 +9149,17 @@
     {
       "file": "ui/dialogs/achievements_dialog.py",
       "import": "core.achievement_coordinator",
-      "line": 899
+      "line": 908
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
       "import": "core.network_policy",
-      "line": 911
+      "line": 920
     },
     {
       "file": "ui/dialogs/achievements_dialog.py",
       "import": "core.achievement_persistence",
-      "line": 1023
+      "line": 1032
     },
     {
       "file": "ui/dialogs/cloud_center_dialog.py",
@@ -11129,72 +11164,72 @@
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_operations",
-      "line": 6235
+      "line": 6262
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_operations",
-      "line": 6385
+      "line": 6412
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 6528
+      "line": 6555
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_watcher",
-      "line": 7357
+      "line": 7408
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_schema",
-      "line": 7374
+      "line": 7425
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.dialogs.achievements_dialog",
-      "line": 7552
+      "line": 7603
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.components.achievement_toast",
-      "line": 7674
+      "line": 7725
     },
     {
       "file": "ui/main_window.py",
       "import": "ui.components.achievement_toast",
-      "line": 7682
+      "line": 7733
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_models",
-      "line": 8256
+      "line": 8307
     },
     {
       "file": "ui/main_window.py",
       "import": "core.cloud_models",
-      "line": 8293
+      "line": 8344
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_coordinator",
-      "line": 8826
+      "line": 8877
     },
     {
       "file": "ui/main_window.py",
       "import": "time",
-      "line": 8929
+      "line": 8980
     },
     {
       "file": "ui/main_window.py",
       "import": "core.plugins.gpu_screen_recorder",
-      "line": 9058
+      "line": 9109
     },
     {
       "file": "ui/main_window.py",
       "import": "core.achievement_schema",
-      "line": 9139
+      "line": 9190
     },
     {
       "file": "ui/main_window_profile.py",

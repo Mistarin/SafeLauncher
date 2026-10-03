@@ -105,6 +105,9 @@ class AchievementTextLayoutTests(unittest.TestCase):
             availability=AchievementAvailability.AVAILABLE,
             state_available=True,
             state_format="ini",
+            state_adapter="codex-rune-steamachievements-ini",
+            state_selection_reason="Selected the newest known candidate containing parseable unlock records.",
+            state_contributing_paths=["/prefix/Steam/RUNE/2725260/achievements.ini"],
         )
 
         AchievementsDialog._set_resolution_status(dialog, resolution)
@@ -112,6 +115,8 @@ class AchievementTextLayoutTests(unittest.TestCase):
         self.assertIn("0 unlocked", status.text())
         self.assertIn("achievements.ini", status.toolTip())
         self.assertIn("contains no unlocked", status.toolTip())
+        self.assertIn("codex-rune-steamachievements-ini", status.toolTip())
+        self.assertIn("Selected the newest known candidate", status.toolTip())
 
 
 class SettingsButtonSurfaceTests(unittest.TestCase):

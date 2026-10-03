@@ -31,6 +31,13 @@ _ACHIEVEMENT_CONTAINERS = frozenset({
     "achievements", "achievement", "unlocks", "user_achievements",
     "userachievements", "achievement_state", "achievement_states",
 })
+_INI_ACHIEVEMENT_SECTIONS = frozenset({
+    "achievements", "achievement", "steamachievements", "steamachievement",
+    "unlocks", "userachievements", "userachievement", "achievementstate",
+    "achievementstates",
+})
+_INI_STATS_SECTIONS = frozenset({"stats", "steamstats"})
+_NON_ACHIEVEMENT_KEYS = frozenset({"count", "achievement_count", "unlocked_count"})
 
 
 def _valid_api_name(value: Any) -> str:
@@ -201,17 +208,19 @@ def achievement_state_candidates(prefix_path: str, game_path: str, app_id: str) 
     return candidates
 
 
-def locate_achievements_file(prefix_path: str, game_path: str, app_id: str) -> Optional[Path]:
+def locate_achievements_file_with_reason(
+    prefix_path: str, game_path: str, app_id: str
+) -> tuple[Optional[Path], str]:
     """
-    Locates the active achievements file for a given Wine prefix, game directory, and AppID.
-    Returns Path if an existing file is found, or None.
+    Locate the best existing local state file and explain the deterministic
+    priority rule used. Candidate discovery stays bounded to known locations.
     """
     if not _valid_app_id(app_id):
-        return None
+        return None, "No valid Steam AppID is configured."
 
     existing = [p for p in achievement_state_candidates(prefix_path, game_path, app_id) if p.is_file()]
     if not existing:
-        return None
+        return None, "No supported local state file was found in known emulator locations."
     # Emulators commonly replace files atomically. Prefer a file that actually
     # contains an unlocked state over a newer non-achievement stats/schema
     # file, then prefer the newest candidate.  ``parse_achievements_state`` is
@@ -235,14 +244,22 @@ def locate_achievements_file(prefix_path: str, game_path: str, app_id: str) -> O
             except OSError:
                 continue
     if parsed:
-        return max(parsed, key=lambda item: item[1])[0]
+        selected = max(parsed, key=lambda item: item[1])[0]
+        return selected, "Selected the newest known candidate containing parseable unlock records."
 
     non_empty = [p for p in existing if priority(p)[0]]
     if non_empty:
-        return max(non_empty, key=priority)
+        selected = max(non_empty, key=priority)
+        return selected, "No candidate contains parsed unlocks; preferred the named achievements file, then the newest candidate."
     # Do not create placeholders, but do monitor a real empty file.  Returning
     # it lets the watcher observe the first subsequent atomic write.
-    return max(existing, key=priority)
+    selected = max(existing, key=priority)
+    return selected, "All candidates are empty or unrecognized; watching the newest existing known state file."
+
+
+def locate_achievements_file(prefix_path: str, game_path: str, app_id: str) -> Optional[Path]:
+    """Compatibility wrapper returning only the selected local state path."""
+    return locate_achievements_file_with_reason(prefix_path, game_path, app_id)[0]
 
 
 def ensure_achievement_watch_target(prefix_path: str, game_path: str, app_id: str) -> Optional[Path]:
@@ -276,7 +293,7 @@ def parse_achievements_state_detailed(file_path: Path) -> AchievementStateParseR
     except (OSError, UnicodeError) as exc:
         return AchievementStateParseResult(reason=f"state file unreadable: {exc}")
     if not content:
-        return AchievementStateParseResult(format="empty", valid=True)
+        return AchievementStateParseResult(format="empty", adapter="empty-file", valid=True)
 
     observed_at = time.time()
     results: Dict[str, float] = {}
@@ -324,7 +341,10 @@ def parse_achievements_state_detailed(file_path: Path) -> AchievementStateParseR
             for item in items:
                 if isinstance(item, dict):
                     # Steam-like arrays use apiname/api_name plus achieved.
-                    name = item.get("apiname", item.get("api_name", item.get("achievement_id")))
+                    name = item.get(
+                        "apiname",
+                        item.get("api_name", item.get("achievement_id", item.get("name"))),
+                    )
                     flag = item.get("achieved", item.get("unlocked", item.get("earned")))
                     if name is not None and is_unlocked(flag):
                         add(name, item.get("unlocktime", item.get("unlock_time", item.get("earned_time", item.get("timestamp", 0)))))
@@ -341,7 +361,7 @@ def parse_achievements_state_detailed(file_path: Path) -> AchievementStateParseR
                     add(key_text, value.get("earned_time", value.get("unlock_time", value.get("unlocktime", value.get("timestamp", 0)))))
                 elif key_lower in _ACHIEVEMENT_CONTAINERS or context:
                     collect_json(value, context=True, depth=depth + 1)
-            elif context and is_unlocked(value):
+            elif context and key_lower not in _NON_ACHIEVEMENT_KEYS and is_unlocked(value):
                 add(key_text, value)
             elif not context and key_lower.startswith(("ach_", "achievement_", "unlock_")) and is_unlocked(value):
                 add(key_text, value)
@@ -361,10 +381,53 @@ def parse_achievements_state_detailed(file_path: Path) -> AchievementStateParseR
         if data is not None:
             if not isinstance(data, (dict, list)):
                 return AchievementStateParseResult(format="json", valid=False, reason="JSON root is not an object or array")
+            if isinstance(data, list) and data and not any(
+                isinstance(item, dict)
+                and any(key in item for key in ("apiname", "api_name", "achievement_id", "name"))
+                and any(key in item for key in ("achieved", "unlocked", "earned"))
+                for item in data
+            ):
+                return AchievementStateParseResult(
+                    format="json",
+                    adapter="unsupported-json",
+                    reason="JSON array does not contain recognized achievement state records",
+                )
+            if isinstance(data, dict) and data and not (
+                isinstance(data.get("achievements"), (dict, list))
+                or any(
+                    isinstance(value, dict)
+                    and any(key in value for key in ("earned", "unlocked", "achieved"))
+                    for value in data.values()
+                )
+                or any(
+                    str(key).lower().startswith(("ach_", "achievement_", "unlock_"))
+                    for key in data
+                )
+            ):
+                return AchievementStateParseResult(
+                    format="json",
+                    adapter="unsupported-json",
+                    reason="JSON document does not match a supported achievement-state structure",
+                )
             collect_json(data)
+            if isinstance(data, list):
+                adapter = "steam-achievement-array-json"
+            elif not data:
+                adapter = "empty-json-state"
+            elif isinstance(data.get("achievements"), (dict, list)):
+                adapter = "goldberg-gse-container-json"
+            elif any(
+                isinstance(value, dict)
+                and any(key in value for key in ("earned", "unlocked", "achieved"))
+                for value in data.values()
+            ):
+                adapter = "goldberg-gse-map-json"
+            else:
+                adapter = "achievement-json-compatible"
             return AchievementStateParseResult(
                 state=results,
                 format="json",
+                adapter=adapter,
                 valid=not truncated,
                 reason="record limit reached" if truncated else "",
             )
@@ -377,15 +440,15 @@ def parse_achievements_state_detailed(file_path: Path) -> AchievementStateParseR
         return AchievementStateParseResult(format="ini", reason=f"invalid INI: {exc}")
 
     for section in cfg.sections():
-        section_name = section.lower()
-        achievement_section = "achieve" in section_name or "unlock" in section_name
-        mixed_section = "stats" in section_name
+        section_name = re.sub(r"[^a-z0-9]", "", section.lower())
+        achievement_section = section_name in _INI_ACHIEVEMENT_SECTIONS
+        mixed_section = section_name in _INI_STATS_SECTIONS
         if not (achievement_section or mixed_section):
             continue
         for key, value in cfg.items(section):
             key_text = key.strip()
             key_lower = key_text.lower()
-            if key_lower in {"count", "achievement_count", "unlocked_count"}:
+            if key_lower in _NON_ACHIEVEMENT_KEYS:
                 continue
             if mixed_section and not achievement_section and not key_lower.startswith(("ach_", "achievement_", "unlock_")):
                 continue
@@ -395,11 +458,27 @@ def parse_achievements_state_detailed(file_path: Path) -> AchievementStateParseR
                 except (TypeError, ValueError, OverflowError):
                     unlock_time = 0
                 add(key_text, unlock_time)
+    supported_ini = any(
+        re.sub(r"[^a-z0-9]", "", section.lower())
+        in (_INI_ACHIEVEMENT_SECTIONS | _INI_STATS_SECTIONS)
+        for section in cfg.sections()
+    )
     return AchievementStateParseResult(
         state=results,
         format="ini",
-        valid=not truncated,
-        reason="record limit reached" if truncated else "",
+        adapter=("codex-rune-steamachievements-ini" if any(
+            re.sub(r"[^a-z0-9]", "", section.lower()) in _INI_ACHIEVEMENT_SECTIONS
+            for section in cfg.sections()
+        ) else "stats-achievement-flags-ini" if any(
+            re.sub(r"[^a-z0-9]", "", section.lower()) in _INI_STATS_SECTIONS
+            for section in cfg.sections()
+        ) else "unsupported-ini"),
+        valid=not truncated and supported_ini,
+        reason=(
+            "record limit reached" if truncated
+            else "no supported achievement or stats section" if not supported_ini
+            else ""
+        ),
     )
 
 

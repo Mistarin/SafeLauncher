@@ -1,9 +1,9 @@
 """Shared achievement provenance and validation vocabulary.
 
-Achievement data can come from a trusted Steam account endpoint, a local
-emulator, a cache, or a cloud profile.  Keeping that distinction explicit is
-important: local emulator files are useful and supported, but they are not
-cryptographic proof of a Steam unlock.
+Current unlock observations come from local game/emulator files or previously
+stored profile data. The legacy Steam provenance value remains readable for
+existing records, but SafeLauncher does not query Steam player unlock state.
+Local observations are useful evidence, not cryptographic proof.
 """
 
 from __future__ import annotations
@@ -52,6 +52,7 @@ class AchievementStateParseResult:
     state: Dict[str, float] = field(default_factory=dict)
     unknown: Dict[str, float] = field(default_factory=dict)
     format: str = ""
+    adapter: str = ""
     valid: bool = False
     reason: str = ""
 

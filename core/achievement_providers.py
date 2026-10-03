@@ -49,6 +49,9 @@ class AchievementResolution:
     state_provenance: str = AchievementProvenance.UNKNOWN.value
     state_verified: bool = False
     state_format: str = ""
+    state_adapter: str = ""
+    state_selection_reason: str = ""
+    state_contributing_paths: List[str] = field(default_factory=list)
     state_available: bool = False
     state_ambiguous: bool = False
     candidate_paths: List[str] = field(default_factory=list)
@@ -106,18 +109,22 @@ class AchievementProviderRegistry:
 
         from core.achievement_watcher import (
             achievement_state_candidates,
-            locate_achievements_file,
+            locate_achievements_file_with_reason,
             parse_achievements_state_detailed,
             filter_achievement_state,
         )
 
         candidates = achievement_state_candidates(proton_path, game_path, app_id)
         existing_candidates = [p for p in candidates if p.is_file()]
-        state_path = locate_achievements_file(proton_path, game_path, app_id)
+        state_path, state_selection_reason = locate_achievements_file_with_reason(
+            proton_path, game_path, app_id
+        )
         parsed = parse_achievements_state_detailed(state_path) if state_path else None
         state = parsed.state if parsed and parsed.valid else {}
         state_source = "local-state" if state_path and parsed and parsed.valid else ""
         state_format = parsed.format if parsed else ""
+        state_adapter = parsed.adapter if parsed else ""
+        state_contributing_paths = [str(state_path)] if state_source and state_path else []
         state_available = bool(state_path and parsed and parsed.valid)
         state_ambiguous = len([p for p in existing_candidates if p.is_file()]) > 1
         state_provenance = AchievementProvenance.LOCAL_EMULATOR.value if state_source else AchievementProvenance.UNKNOWN.value
@@ -179,6 +186,12 @@ class AchievementProviderRegistry:
                     state_path = selected[5]
                     parsed = selected[4]
                     state_format = parsed.format
+                    state_adapter = parsed.adapter
+                    state_contributing_paths = [str(item[5]) for item in matching_states]
+                    state_selection_reason = (
+                        f"Selected by schema match ({selected[0]} matching achievement names); "
+                        f"merged schema-matching unlocks from {len(matching_states)} local candidate(s)."
+                    )
                     state_source = "local-state"
                     state_provenance = AchievementProvenance.LOCAL_EMULATOR.value
                     state_verified = False
@@ -190,6 +203,12 @@ class AchievementProviderRegistry:
                     parsed = selected[4]
                     state = parsed.state
                     state_format = parsed.format
+                    state_adapter = parsed.adapter
+                    state_contributing_paths = [str(state_path)]
+                    state_selection_reason = (
+                        f"Selected by schema match ({selected[0]} matching achievement names), "
+                        "then state presence, filename, and modification time."
+                    )
                     state_source = "local-state"
                     state_provenance = AchievementProvenance.LOCAL_EMULATOR.value
                     state_verified = False
@@ -209,6 +228,9 @@ class AchievementProviderRegistry:
                 state_provenance=state_provenance,
                 state_verified=state_verified,
                 state_format=state_format,
+                state_adapter=state_adapter,
+                state_selection_reason=state_selection_reason,
+                state_contributing_paths=state_contributing_paths,
                 state_available=state_available,
                 state_ambiguous=state_ambiguous,
                 candidate_paths=[str(p) for p in existing_candidates[:32]],
@@ -231,6 +253,9 @@ class AchievementProviderRegistry:
             state_provenance=state_provenance,
             state_verified=state_verified,
             state_format=state_format,
+            state_adapter=state_adapter,
+            state_selection_reason=state_selection_reason,
+            state_contributing_paths=state_contributing_paths,
             state_available=state_available,
             state_ambiguous=state_ambiguous,
             candidate_paths=[str(p) for p in existing_candidates[:32]],

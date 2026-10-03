@@ -1,7 +1,9 @@
 import os
+import shutil
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
 from core.ludusavi_detector import SaveLocation
@@ -84,6 +86,74 @@ class SaveRestoreSafetyTests(unittest.TestCase):
                 output.writestr("./slot.dat", b"two")
             destination = os.path.join(root, "destination")
             self.assertFalse(ZipBackupManager().import_save(archive, destination))
+
+    def test_cancelled_restore_rolls_back_files_already_committed(self):
+        with tempfile.TemporaryDirectory() as root:
+            destination = os.path.join(root, "saves")
+            os.makedirs(destination)
+            for name, contents in (("one.dat", "old-one"), ("two.dat", "old-two")):
+                with open(os.path.join(destination, name), "w", encoding="utf-8") as handle:
+                    handle.write(contents)
+            archive = os.path.join(root, "cloud.zip")
+            with zipfile.ZipFile(archive, "w") as output:
+                output.writestr("one.dat", b"new-one")
+                output.writestr("two.dat", b"new-two")
+
+            checks = 0
+
+            def cancel_during_commit():
+                nonlocal checks
+                checks += 1
+                # Initial check, two staging checks, and the first commit
+                # check pass; cancel before the second commit.
+                return checks >= 5
+
+            self.assertFalse(ZipBackupManager().import_save(
+                archive, destination, cancel_check=cancel_during_commit
+            ))
+            for name, expected in (("one.dat", "old-one"), ("two.dat", "old-two")):
+                with open(os.path.join(destination, name), encoding="utf-8") as handle:
+                    self.assertEqual(handle.read(), expected)
+
+    def test_failed_rollback_preserves_displaced_save_for_manual_recovery(self):
+        with tempfile.TemporaryDirectory() as root:
+            destination = os.path.join(root, "saves")
+            os.makedirs(destination)
+            for name, contents in (("one.dat", "old-one"), ("two.dat", "old-two")):
+                with open(os.path.join(destination, name), "w", encoding="utf-8") as handle:
+                    handle.write(contents)
+            archive = os.path.join(root, "cloud.zip")
+            with zipfile.ZipFile(archive, "w") as output:
+                output.writestr("one.dat", b"new-one")
+                output.writestr("two.dat", b"new-two")
+
+            real_move = shutil.move
+            calls = 0
+
+            def fail_commit_and_one_rollback(source, target, *args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls in (4, 5):
+                    raise OSError("simulated filesystem failure")
+                return real_move(source, target, *args, **kwargs)
+
+            with patch("core.zip_backup.shutil.move", side_effect=fail_commit_and_one_rollback):
+                self.assertFalse(ZipBackupManager().import_save(archive, destination))
+
+            recovery_dirs = [
+                path for path in os.listdir(root)
+                if path.startswith(".safelauncher-import-")
+            ]
+            self.assertTrue(recovery_dirs, "rollback source should not be deleted after a failed rollback")
+            recovery_files = []
+            for recovery_dir in recovery_dirs:
+                for current, _dirs, files in os.walk(os.path.join(root, recovery_dir)):
+                    recovery_files.extend(os.path.join(current, name) for name in files)
+            self.assertTrue(recovery_files)
+            self.assertTrue(any(
+                Path(path).read_text(encoding="utf-8") == "old-two"
+                for path in recovery_files
+            ))
 
     def test_manifest_restore_accepts_identical_overlapping_locations(self):
         with tempfile.TemporaryDirectory() as root:

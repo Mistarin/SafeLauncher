@@ -42,6 +42,9 @@ class AchievementProviderTests(unittest.TestCase):
             self.assertEqual(result.state_provenance, "local_emulator")
             self.assertFalse(result.state_verified)
             self.assertEqual(result.state_path, state_file)
+            self.assertEqual(result.state_adapter, "codex-rune-steamachievements-ini")
+            self.assertTrue(result.state_selection_reason)
+            self.assertEqual(result.state_contributing_paths, [str(state_file)])
 
     def test_rune_local_unlock_is_resolved_without_steam_player_state(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,0 +1,7 @@
+{
+  "achievements": {
+    "ACH_FIRST_BLOOD": {"unlocked": true, "unlock_time": 1712345678},
+    "ACH_LOCKED": {"unlocked": false}
+  },
+  "stats": {"KILLS": 42, "Count": 2}
+}

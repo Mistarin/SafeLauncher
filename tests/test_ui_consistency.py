@@ -126,6 +126,66 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         fake._update_detail_launch_button.assert_called_once_with(7)
         fake._show_toast.assert_called_once_with("'Example' is already running.")
 
+    def test_prelaunch_cancel_requests_worker_stop_but_keeps_launch_lock_until_completion(self):
+        progress = Mock()
+        handle = SimpleNamespace(request_id="operation-1")
+        cancel = Mock(return_value=True)
+        fake = SimpleNamespace(
+            _prelaunch_in_flight={7: {
+                "token": "active",
+                "handle": handle,
+                "progress": progress,
+                "cancel_requested": False,
+            }},
+            cloud_operation_service=SimpleNamespace(cancel=cancel),
+        )
+
+        MainWindow._cancel_prelaunch(fake, 7, "active")
+
+        cancel.assert_called_once_with("operation-1")
+        progress.setLabelText.assert_called_once_with("Cancelling cloud sync…")
+        progress.setCancelButton.assert_called_once_with(None)
+        self.assertTrue(fake._prelaunch_in_flight[7]["cancel_requested"])
+        self.assertTrue(MainWindow._prelaunch_pending(fake, 7))
+
+    def test_cancelled_prelaunch_result_aborts_launch_and_retires_pending_state(self):
+        ctx = {"game_id": 7, "game_name": "Example", "prelaunch_token": "active"}
+        fake = SimpleNamespace(
+            _prelaunch_in_flight={7: {"token": "active", "cancel_requested": True}},
+            _close_prelaunch_progress=Mock(),
+            _finish_prelaunch=Mock(),
+            _show_toast=Mock(),
+        )
+
+        MainWindow._finish_prelaunch_sync(fake, {"ctx": ctx, "cancelled": True})
+
+        fake._close_prelaunch_progress.assert_called_once_with(ctx)
+        fake._finish_prelaunch.assert_called_once_with(ctx)
+        fake._show_toast.assert_called_once_with(
+            "Launch cancelled — cloud sync for 'Example' was stopped."
+        )
+
+    def test_cancel_racing_with_completed_cloud_operation_still_aborts_launch(self):
+        ctx = {"game_id": 7, "game_name": "Example", "prelaunch_token": "active"}
+        fake = SimpleNamespace(
+            _prelaunch_in_flight={7: {"token": "active", "cancel_requested": True}},
+            _close_prelaunch_progress=Mock(),
+            _finish_prelaunch=Mock(),
+            _show_toast=Mock(),
+        )
+
+        MainWindow._on_prelaunch_restore_done(fake, {
+            "ctx": ctx,
+            "ok": True,
+            "cancelled": False,
+            "toast": "Restored cloud save.",
+        })
+
+        fake._finish_prelaunch.assert_called_once_with(ctx)
+        fake._show_toast.assert_called_once_with(
+            "Launch cancelled — cloud sync for 'Example' was stopped."
+        )
+
     def test_cloud_settings_routes_account_work_to_cloud_center(self):
         dialog = UserSettingsDialog("Player", parent=None)
         try:

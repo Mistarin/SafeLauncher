@@ -590,6 +590,15 @@ class AchievementsDialog(PopupDialog):
             details.append(reason)
         if state_path:
             details.append(f"Local state file: {state_path}")
+        adapter = str(getattr(resolution, "state_adapter", "") or "").strip()
+        if adapter:
+            details.append(f"Detected format: {adapter}")
+        selection_reason = str(getattr(resolution, "state_selection_reason", "") or "").strip()
+        if selection_reason:
+            details.append(f"Selection: {selection_reason}")
+        contributing_paths = list(getattr(resolution, "state_contributing_paths", []) or [])
+        if len(contributing_paths) > 1:
+            details.append("Matching state sources: " + "; ".join(contributing_paths[:8]))
         elif not state_available:
             details.append("No supported local achievement state file was found.")
         if getattr(resolution, "state_ambiguous", False):

@@ -1,8 +1,8 @@
 {
   "files": [
     {
-      "bytes": 8734,
-      "lines": 139,
+      "bytes": 9053,
+      "lines": 145,
       "path": ".ai/ARCHITECTURE.md",
       "suffix": ".md"
     },
@@ -19,7 +19,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 14957,
+      "bytes": 15061,
       "lines": 98,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
@@ -649,7 +649,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 429,
+      "bytes": 575,
       "lines": 11,
       "path": ".ai/workflows/game-launch.md",
       "suffix": ".md"
@@ -769,8 +769,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 4147,
-      "lines": 113,
+      "bytes": 4201,
+      "lines": 114,
       "path": "core/achievement_models.py",
       "suffix": ".py"
     },
@@ -787,8 +787,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 11798,
-      "lines": 251,
+      "bytes": 13265,
+      "lines": 276,
       "path": "core/achievement_providers.py",
       "suffix": ".py"
     },
@@ -799,7 +799,7 @@
       "suffix": ".py"
     },
     {
-      "bytes": 36508,
+      "bytes": 36486,
       "lines": 851,
       "path": "core/achievement_schema.py",
       "suffix": ".py"
@@ -811,8 +811,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 25981,
-      "lines": 583,
+      "bytes": 29965,
+      "lines": 662,
       "path": "core/achievement_watcher.py",
       "suffix": ".py"
     },
@@ -1417,8 +1417,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 30982,
-      "lines": 651,
+      "bytes": 31575,
+      "lines": 663,
       "path": "core/zip_backup.py",
       "suffix": ".py"
     },
@@ -1747,14 +1747,32 @@
       "suffix": ".py"
     },
     {
+      "bytes": 122,
+      "lines": 5,
+      "path": "tests/fixtures/achievements/goldberg_achievements.json",
+      "suffix": ".json"
+    },
+    {
+      "bytes": 174,
+      "lines": 8,
+      "path": "tests/fixtures/achievements/gse_container_achievements.json",
+      "suffix": ".json"
+    },
+    {
+      "bytes": 4471,
+      "lines": 97,
+      "path": "tests/test_achievement_formats.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 3367,
       "lines": 91,
       "path": "tests/test_achievement_persistence_service.py",
       "suffix": ".py"
     },
     {
-      "bytes": 3279,
-      "lines": 80,
+      "bytes": 3506,
+      "lines": 83,
       "path": "tests/test_achievement_providers.py",
       "suffix": ".py"
     },
@@ -1771,8 +1789,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 6351,
-      "lines": 145,
+      "bytes": 6765,
+      "lines": 150,
       "path": "tests/test_achievement_ui.py",
       "suffix": ".py"
     },
@@ -2071,8 +2089,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 6366,
-      "lines": 153,
+      "bytes": 9683,
+      "lines": 223,
       "path": "tests/test_save_restore_service.py",
       "suffix": ".py"
     },
@@ -2095,8 +2113,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 26231,
-      "lines": 621,
+      "bytes": 28718,
+      "lines": 681,
       "path": "tests/test_ui_consistency.py",
       "suffix": ".py"
     },
@@ -2251,8 +2269,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 50819,
-      "lines": 1159,
+      "bytes": 51385,
+      "lines": 1168,
       "path": "ui/dialogs/achievements_dialog.py",
       "suffix": ".py"
     },
@@ -2353,8 +2371,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 444329,
-      "lines": 9492,
+      "bytes": 447004,
+      "lines": 9543,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
@@ -2395,5 +2413,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-10-02T22:12:23+00:00"
+  "generated_at": "2026-10-02T22:35:28+00:00"
 }

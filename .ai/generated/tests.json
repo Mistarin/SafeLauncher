@@ -1,6 +1,66 @@
 {
-  "generated_at": "2026-10-02T22:12:23+00:00",
+  "generated_at": "2026-10-02T22:35:28+00:00",
   "tests": [
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test",
+      "line": 19,
+      "name": "test_rune_timestamp_ini_is_detected_and_count_is_not_an_unlock"
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test",
+      "line": 28,
+      "name": "test_codex_boolean_ini_is_detected"
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test",
+      "line": 34,
+      "name": "test_goldberg_map_json_is_detected"
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test",
+      "line": 40,
+      "name": "test_gse_container_json_ignores_unrelated_counters"
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test",
+      "line": 46,
+      "name": "test_ini_adapter_rejects_arbitrary_sections_instead_of_guessing"
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test",
+      "line": 56,
+      "name": "test_json_adapter_rejects_unrelated_game_statistics"
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test",
+      "line": 65,
+      "name": "test_json_array_adapter_requires_explicit_achievement_fields"
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test",
+      "line": 74,
+      "name": "test_malformed_input_is_reported_not_reinterpreted"
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test",
+      "line": 82,
+      "name": "test_selection_returns_a_human_readable_reason_without_creating_files"
+    },
+    {
+      "file": "tests/test_achievement_formats.py",
+      "kind": "test_class",
+      "line": 16,
+      "name": "AchievementFormatFixtureTests"
+    },
     {
       "file": "tests/test_achievement_persistence_service.py",
       "kind": "test",
@@ -28,7 +88,7 @@
     {
       "file": "tests/test_achievement_providers.py",
       "kind": "test",
-      "line": 45,
+      "line": 48,
       "name": "test_rune_local_unlock_is_resolved_without_steam_player_state"
     },
     {
@@ -94,7 +154,7 @@
     {
       "file": "tests/test_achievement_ui.py",
       "kind": "test",
-      "line": 121,
+      "line": 126,
       "name": "test_secondary_buttons_use_dark_surface_without_overriding_roles"
     },
     {
@@ -106,7 +166,7 @@
     {
       "file": "tests/test_achievement_ui.py",
       "kind": "test_class",
-      "line": 115,
+      "line": 120,
       "name": "SettingsButtonSurfaceTests"
     },
     {
@@ -2554,37 +2614,49 @@
     {
       "file": "tests/test_save_restore_service.py",
       "kind": "test",
-      "line": 15,
+      "line": 17,
       "name": "test_restore_creates_backup_before_replacing_local_files"
     },
     {
       "file": "tests/test_save_restore_service.py",
       "kind": "test",
-      "line": 47,
+      "line": 49,
       "name": "test_backup_failure_does_not_replace_local_files"
     },
     {
       "file": "tests/test_save_restore_service.py",
       "kind": "test",
-      "line": 78,
+      "line": 80,
       "name": "test_import_rejects_duplicate_destination_members"
     },
     {
       "file": "tests/test_save_restore_service.py",
       "kind": "test",
-      "line": 87,
+      "line": 89,
+      "name": "test_cancelled_restore_rolls_back_files_already_committed"
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
+      "kind": "test",
+      "line": 117,
+      "name": "test_failed_rollback_preserves_displaced_save_for_manual_recovery"
+    },
+    {
+      "file": "tests/test_save_restore_service.py",
+      "kind": "test",
+      "line": 157,
       "name": "test_manifest_restore_accepts_identical_overlapping_locations"
     },
     {
       "file": "tests/test_save_restore_service.py",
       "kind": "test",
-      "line": 113,
+      "line": 183,
       "name": "test_restore_plan_rejects_changed_archive_before_backup"
     },
     {
       "file": "tests/test_save_restore_service.py",
       "kind": "test_class",
-      "line": 10,
+      "line": 12,
       "name": "SaveRestoreSafetyTests"
     },
     {
@@ -2729,138 +2801,156 @@
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
       "line": 128,
+      "name": "test_prelaunch_cancel_requests_worker_stop_but_keeps_launch_lock_until_completion"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 150,
+      "name": "test_cancelled_prelaunch_result_aborts_launch_and_retires_pending_state"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 167,
+      "name": "test_cancel_racing_with_completed_cloud_operation_still_aborts_launch"
+    },
+    {
+      "file": "tests/test_ui_consistency.py",
+      "kind": "test",
+      "line": 188,
       "name": "test_cloud_settings_routes_account_work_to_cloud_center"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 144,
+      "line": 204,
       "name": "test_cloud_backend_selector_does_not_persist_until_save"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 159,
+      "line": 219,
       "name": "test_add_game_keeps_invalid_form_open"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 172,
+      "line": 232,
       "name": "test_add_game_button_checked_payload_is_not_treated_as_collection"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 201,
+      "line": 261,
       "name": "test_header_view_menu_exposes_only_library_navigation"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 217,
+      "line": 277,
       "name": "test_identity_menu_owns_profile_and_social_navigation"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 232,
+      "line": 292,
       "name": "test_cloud_badge_is_an_actionable_control"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 245,
+      "line": 305,
       "name": "test_virtual_grid_ignores_unmapped_ctrl_u_shortcut"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 269,
+      "line": 329,
       "name": "test_library_shortcuts_do_not_override_buttons_or_combos"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 283,
+      "line": 343,
       "name": "test_stopping_game_schedules_process_cleanup_off_gui_thread"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 306,
+      "line": 366,
       "name": "test_grid_empty_state_emits_add_game_action"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 322,
+      "line": 382,
       "name": "test_game_detail_shows_cloud_save_time_and_device"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 337,
+      "line": 397,
       "name": "test_background_cloud_restore_enters_syncing_and_targets_version"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 375,
+      "line": 435,
       "name": "test_background_cloud_restore_is_deferred_while_game_runs"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 397,
+      "line": 457,
       "name": "test_background_cloud_upload_enters_syncing_and_is_automatic"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 433,
+      "line": 493,
       "name": "test_background_cloud_upload_success_rechecks"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 452,
+      "line": 512,
       "name": "test_background_cloud_restore_failure_rechecks_without_retry_loop"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 479,
+      "line": 539,
       "name": "test_background_cloud_restore_success_rechecks_and_allows_convergence"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 508,
+      "line": 568,
       "name": "test_background_cloud_restore_caps_retries_for_unchanged_snapshot"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 544,
+      "line": 604,
       "name": "test_late_restore_completion_is_ignored_during_shutdown"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 560,
+      "line": 620,
       "name": "test_virtual_grid_exposes_cloud_tooltip_and_accessible_text"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 579,
+      "line": 639,
       "name": "test_cloud_action_is_deferred_until_menu_event_finishes"
     },
     {
       "file": "tests/test_ui_consistency.py",
       "kind": "test",
-      "line": 590,
+      "line": 650,
       "name": "test_launch_failure_actions_reflow_without_gaps"
     },
     {
