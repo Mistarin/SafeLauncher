@@ -15,6 +15,7 @@ from ui.dialogs.game_dialogs import AddGameDialog, SafeLaunchDialog
 from ui.dialogs.settings_dialog import UserSettingsDialog
 from ui.components.sidebar import CustomTitleBar
 from ui.main_window import MainWindow
+from ui.cloud_workflow_controller import CloudWorkflowController
 from ui.components.banner_card import GameBannerWidget
 from ui.components.virtual_grid import VirtualizedGameGridView
 from ui.components.library_view_host import LibraryViewHost
@@ -27,6 +28,32 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def _cloud_controller(self, fixture):
+        existing = getattr(fixture, "cloud_workflow_controller", None)
+        if existing is not None:
+            return existing
+        controller = CloudWorkflowController(
+            operation_service=getattr(fixture, "cloud_operation_service", Mock()),
+            coordinator=getattr(fixture, "cloud_sync_coordinator", Mock()),
+            games_provider=lambda: getattr(fixture, "games_by_id", {}),
+            running_games=lambda: getattr(fixture, "running_game_ids", set()),
+            accepts_work=lambda: not getattr(fixture, "_closing", False),
+            network_allowed=getattr(fixture, "_automatic_network_allowed", lambda: True),
+            is_closing=lambda: getattr(fixture, "_closing", False),
+            set_syncing=getattr(fixture, "_set_cloud_syncing", Mock()),
+            update_launch_button=getattr(fixture, "_update_detail_launch_button", Mock()),
+            show_toast=getattr(fixture, "_show_toast", Mock()),
+            recheck=getattr(fixture, "request_cloud_recheck", Mock()),
+        )
+        for field in ("_cloud_auto_restore_in_flight", "_cloud_auto_upload_in_flight",
+                      "_cloud_auto_restore_attempts", "_cloud_auto_upload_attempts"):
+            owned = getattr(controller, field)
+            owned.update(getattr(fixture, field, {}))
+            setattr(fixture, field, owned)
+        fixture.cloud_workflow_controller = controller
+        self.addCleanup(controller.dispose)
+        return controller
 
     def test_property_form_aligns_labels_and_expands_fields(self):
         dialog = PopupDialog("Consistency")
@@ -90,7 +117,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
 
     def test_repeated_launch_activation_is_ignored_while_prelaunch_is_pending(self):
         fake = SimpleNamespace(
-            _prelaunch_in_flight={7: {"token": "active"}},
+            prelaunch_controller=SimpleNamespace(is_pending=lambda game_id: game_id == 7),
             _show_toast=Mock(),
         )
 
@@ -103,7 +130,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
     def test_already_running_launch_continuation_never_stops_game(self):
         coordinator = Mock(return_value=SimpleNamespace(already_running=True))
         fake = SimpleNamespace(
-            launch_session_coordinator=SimpleNamespace(start=coordinator),
+            game_session_controller=SimpleNamespace(start=coordinator),
             _update_detail_launch_button=Mock(),
             _show_toast=Mock(),
             _stop_game=Mock(),
@@ -125,66 +152,6 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         fake._stop_game.assert_not_called()
         fake._update_detail_launch_button.assert_called_once_with(7)
         fake._show_toast.assert_called_once_with("'Example' is already running.")
-
-    def test_prelaunch_cancel_requests_worker_stop_but_keeps_launch_lock_until_completion(self):
-        progress = Mock()
-        handle = SimpleNamespace(request_id="operation-1")
-        cancel = Mock(return_value=True)
-        fake = SimpleNamespace(
-            _prelaunch_in_flight={7: {
-                "token": "active",
-                "handle": handle,
-                "progress": progress,
-                "cancel_requested": False,
-            }},
-            cloud_operation_service=SimpleNamespace(cancel=cancel),
-        )
-
-        MainWindow._cancel_prelaunch(fake, 7, "active")
-
-        cancel.assert_called_once_with("operation-1")
-        progress.setLabelText.assert_called_once_with("Cancelling cloud sync…")
-        progress.setCancelButton.assert_called_once_with(None)
-        self.assertTrue(fake._prelaunch_in_flight[7]["cancel_requested"])
-        self.assertTrue(MainWindow._prelaunch_pending(fake, 7))
-
-    def test_cancelled_prelaunch_result_aborts_launch_and_retires_pending_state(self):
-        ctx = {"game_id": 7, "game_name": "Example", "prelaunch_token": "active"}
-        fake = SimpleNamespace(
-            _prelaunch_in_flight={7: {"token": "active", "cancel_requested": True}},
-            _close_prelaunch_progress=Mock(),
-            _finish_prelaunch=Mock(),
-            _show_toast=Mock(),
-        )
-
-        MainWindow._finish_prelaunch_sync(fake, {"ctx": ctx, "cancelled": True})
-
-        fake._close_prelaunch_progress.assert_called_once_with(ctx)
-        fake._finish_prelaunch.assert_called_once_with(ctx)
-        fake._show_toast.assert_called_once_with(
-            "Launch cancelled — cloud sync for 'Example' was stopped."
-        )
-
-    def test_cancel_racing_with_completed_cloud_operation_still_aborts_launch(self):
-        ctx = {"game_id": 7, "game_name": "Example", "prelaunch_token": "active"}
-        fake = SimpleNamespace(
-            _prelaunch_in_flight={7: {"token": "active", "cancel_requested": True}},
-            _close_prelaunch_progress=Mock(),
-            _finish_prelaunch=Mock(),
-            _show_toast=Mock(),
-        )
-
-        MainWindow._on_prelaunch_restore_done(fake, {
-            "ctx": ctx,
-            "ok": True,
-            "cancelled": False,
-            "toast": "Restored cloud save.",
-        })
-
-        fake._finish_prelaunch.assert_called_once_with(ctx)
-        fake._show_toast.assert_called_once_with(
-            "Launch cancelled — cloud sync for 'Example' was stopped."
-        )
 
     def test_cloud_settings_routes_account_work_to_cloud_center(self):
         dialog = UserSettingsDialog("Player", parent=None)
@@ -341,28 +308,10 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             button.deleteLater()
             combo.deleteLater()
 
-    def test_stopping_game_schedules_process_cleanup_off_gui_thread(self):
-        tracker = SimpleNamespace(game_id=42, process=object(), sandbox_name="safe-42")
-        scheduled = []
-        fake = SimpleNamespace(
-            _game_termination_in_flight=set(),
-            _stopping_game_ids=set(),
-            _closing=False,
-            compact_container=None,
-            selected_game=None,
-            game_sessions=SimpleNamespace(mark_stopping=Mock()),
-            launch_session_coordinator=SimpleNamespace(trackers=lambda: [tracker]),
-            _game_termination_tasks=SimpleNamespace(
-                start=lambda name, work: scheduled.append((name, work))
-            ),
-            _show_toast=Mock(),
-            _update_detail_launch_button=Mock(),
-        )
-        with patch("ui.main_window.terminate_game_process") as terminate:
-            MainWindow._stop_game(fake, 42)
-        self.assertEqual(len(scheduled), 1)
-        self.assertEqual(scheduled[0][0], "StopGame-42")
-        terminate.assert_not_called()
+    def test_stop_action_delegates_to_game_session_controller(self):
+        controller = SimpleNamespace(stop=Mock())
+        MainWindow._stop_game(SimpleNamespace(game_session_controller=controller), 42)
+        controller.stop.assert_called_once_with(42)
 
     def test_grid_empty_state_emits_add_game_action(self):
         host = LibraryViewHost()
@@ -414,8 +363,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             _update_detail_launch_button=Mock(),
         )
         fake._set_cloud_syncing = MainWindow._set_cloud_syncing.__get__(fake)
-        MainWindow._maybe_auto_restore_cloud_save(
-            fake,
+        self._cloud_controller(fake).maybe_restore(
             7,
             SyncStatus.CLOUD_NEWER,
             SaveStats(exists=True, last_modified=100),
@@ -430,7 +378,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         self.assertEqual(fake.cloud_operation_service.request_restore.call_args.kwargs["tag"], "automatic-cloud-restore")
 
         # A second status callback cannot queue another restore for the same game.
-        MainWindow._maybe_auto_restore_cloud_save(fake, 7, SyncStatus.CLOUD_NEWER, None, cloud)
+        self._cloud_controller(fake).maybe_restore( 7, SyncStatus.CLOUD_NEWER, None, cloud)
         fake.cloud_operation_service.request_restore.assert_called_once()
 
     def test_background_cloud_restore_is_deferred_while_game_runs(self):
@@ -445,8 +393,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             _automatic_network_allowed=Mock(return_value=True),
         )
 
-        MainWindow._maybe_auto_restore_cloud_save(
-            fake,
+        self._cloud_controller(fake).maybe_restore(
             7,
             SyncStatus.CLOUD_NEWER,
             None,
@@ -475,8 +422,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         )
         fake._set_cloud_syncing = MainWindow._set_cloud_syncing.__get__(fake)
 
-        MainWindow._maybe_auto_upload_cloud_save(
-            fake,
+        self._cloud_controller(fake).maybe_upload(
             7,
             SyncStatus.LOCAL_NEWER,
             SaveStats(exists=True, last_modified=100, device_name="Desktop"),
@@ -499,7 +445,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             _show_toast=Mock(),
             request_cloud_recheck=Mock(),
         )
-        MainWindow._on_cloud_auto_upload_done(fake, {
+        self._cloud_controller(fake).handle_upload_done( {
             "game_id": 7,
             "game_name": "Example",
             "generation": 4,
@@ -521,8 +467,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             request_cloud_recheck=Mock(),
         )
 
-        MainWindow._on_cloud_auto_restore_done(
-            fake,
+        self._cloud_controller(fake).handle_restore_done(
             {
                 "game_id": 7,
                 "game_name": "Example",
@@ -548,8 +493,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             request_cloud_recheck=Mock(),
         )
 
-        MainWindow._on_cloud_auto_restore_done(
-            fake,
+        self._cloud_controller(fake).handle_restore_done(
             {
                 "game_id": 7,
                 "game_name": "Example",
@@ -596,8 +540,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
 
         for _ in range(3):
             fake._cloud_auto_restore_in_flight.clear()
-            MainWindow._maybe_auto_restore_cloud_save(
-                fake, 7, SyncStatus.CLOUD_NEWER, None, cloud
+            self._cloud_controller(fake).maybe_restore( 7, SyncStatus.CLOUD_NEWER, None, cloud
             )
 
         self.assertEqual(fake.cloud_operation_service.request_restore.call_count, 2)
@@ -609,7 +552,7 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             _show_toast=Mock(),
             request_cloud_recheck=Mock(),
         )
-        MainWindow._on_cloud_auto_restore_done(fake, {
+        self._cloud_controller(fake).handle_restore_done( {
             "game_id": 7,
             "generation": 4,
             "target_version": 12,

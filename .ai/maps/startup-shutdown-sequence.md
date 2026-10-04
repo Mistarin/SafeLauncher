@@ -4,23 +4,24 @@
 CLI args
  → environment/bootstrap
  → QApplication
- → single-instance check
+ → single-instance check and listener reservation
  → dependency check
  → database/runner/backup
- → MainWindow
- → shared clients/cache/request manager
+ → ApplicationRuntime shared clients/cache/request manager
+ → MainWindow views and feature controllers
  → local library render
  → managed optional resources
 ```
 
 ```text
 close request
- → stop/close page bindings and transient UI
+ → ShutdownController draining state; stop producers
  → finish/stop game/session and feature workers
- → close profile/cloud/Steam/artwork clients
+ → wait for Qt workers and managed loaders/rollback
+ → dispose feature bindings
  → log request/performance metrics
- → RequestManager.shutdown
+ → RequestManager.shutdown then close transports
  → Qt teardown
 ```
 
-The exact ordering is source-controlled in `MainWindow.closeEvent` and should be rechecked whenever a long-lived client or worker is added.
+The ordering is implemented by `ShutdownController`, MainWindow lifecycle hooks, and `ApplicationRuntime.close_resources`. A cancelled/overdue drain resumes the window and invalidates queued close retries instead of destroying active workers.

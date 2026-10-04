@@ -1,9 +1,9 @@
+from ui.components.game_inspector import GameInspectorWidget, GameInspectorActions
 import os
 import re
 import time
 import shutil
 import subprocess
-import uuid
 from dataclasses import replace
 from html import escape
 from typing import Optional, List, Dict, Tuple, Any, Set
@@ -59,17 +59,17 @@ from core.compatibility_worker_index import CompatibilityWorkerIndex
 from core.cloud_exit_sync_service import CloudExitSyncResult, CloudExitSyncService
 from core.achievement_persistence_service import AchievementPersistenceService
 from core.save_state import SaveStateStore
-from core.cloud_operations import CloudStatusResult, CloudSyncCoordinator
+from core.cloud_operations import CloudSyncCoordinator
 from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
 from core.cloud_metadata_service import CloudMetadataService, CloudMetadataTarget
 from core.cloud_account_service import CloudAccountService
 from core.cloud_center_service import CloudCenterService, CloudOverview
 from core.cloud_status_service import CloudStatusService, CloudStatusTarget
 from core.cloud_status_polling_service import CloudStatusPollingService
-from core.achievement_resource_service import AchievementResourceService, AchievementTarget
+from core.achievement_resource_service import AchievementResourceService
 from core.achievement_state_store import AchievementStateStore
 from core.library_achievement_coordinator import LibraryAchievementCoordinator
-from core.artwork_resource_service import ArtworkResourceService, ArtworkTarget
+from core.artwork_resource_service import ArtworkResourceService
 from core.library_artwork_coordinator import LibraryArtworkCoordinator
 from core.steam_resource_service import SteamResourceService
 from core.library_steam_metadata_coordinator import LibrarySteamMetadataCoordinator
@@ -87,11 +87,10 @@ import html
 logger = get_logger("UI")
 
 from ui.threads import (
-    BannerFetcher, BannerDownloader, BannerAutoFetcher, ArchiveExtractorThread,
+    BannerFetcher, BannerDownloader, ArchiveExtractorThread,
     GameArchiveUpdateThread,
-    GitHubReleasesFetcherThread, UmuBootstrapWorker, SafeLaunchLogReader,
+    UmuBootstrapWorker, SafeLaunchLogReader,
     DiskSizeFetcherThread,
-    AchievementStatusFetcherThread, AchievementBatchQueueWorker
 )
 from core.archive_installer import find_executables
 from core.host_process import host_process_env
@@ -103,7 +102,8 @@ from core.plugins.gpu_screen_recorder import (
 from core.global_hotkeys import GlobalHotkeyListener
 from ui.components.overlay_hud import show_ingame_notification
 from ui.components.banner_card import GameBannerWidget
-from ui.components.virtual_grid import BannerProxy
+from ui.library_card_renderer import LibraryCardRenderer, LibraryCardActions
+from ui.library_navigation_controller import LibraryNavigationController, LibraryNavigationViews
 from ui.components.library_view_host import LibraryViewHost
 from ui.components.hero_background import HeroBackgroundWidget
 from ui.components.extraction_spinner import ExtractionSpinner
@@ -120,7 +120,6 @@ from ui.dialogs.settings_dialog import UserSettingsDialog, ScreenshotGalleryDial
 from ui.dialogs.cloud_center_dialog import CloudCenterDialog
 from ui.dialogs.game_properties_dialog import GamePropertiesDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
-from ui.dialogs.save_conflict_dialog import SaveConflictDialog
 from core.cloud_models import SyncStatus
 from core.performance_env import MANAGED_ENV_KEYS
 from ui.theme import (
@@ -131,13 +130,12 @@ from ui.theme import (
 
 
 import getpass
-from core.playtime_tracker import PlaytimeTrackerThread, terminate_game_process
+from core.playtime_tracker import PlaytimeTrackerThread
 from core.game_session import GameSessionManager
 from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
 from core.operation_registry import OperationRegistry
 from core.secret_store import get_secret
 from core.network_policy import automatic_network_allowed, is_offline_mode, set_offline_mode
-from core.network_probe import probe_internet
 from ui.dialogs.network_dialog import NetworkUnavailableDialog
 from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
@@ -150,8 +148,24 @@ from core.resource_cache import ResourceCache
 from core.performance_metrics import ResourcePerformanceTracker
 from core.save_history import normalize_history_entries
 from core.steam_client import SteamClient
-from ui.resource_binding import ResourceBinding, ResourceBindingRegistry, bind_resource, bind_request
-from ui.main_window_profile import MainWindowProfileMixin
+from ui.resource_binding import ResourceBinding, bind_resource, bind_request
+from ui.profile_controller import ProfileController
+from ui.achievement_sync_controller import AchievementSyncController
+from ui.app_update_controller import AppUpdateController
+from ui.artwork_controller import ArtworkController
+from ui.cloud_status_controller import CloudStatusController
+from ui.network_monitor_controller import NetworkMonitorController
+from ui.prelaunch_controller import PrelaunchController
+from ui.game_session_controller import GameSessionController
+from ui.application_runtime import ApplicationRuntime
+from ui.managed_task_controller import ManagedTaskController
+from ui.shutdown_controller import ShutdownController
+from ui.session_feature_controller import SessionFeatureController
+from ui.steam_metadata_controller import SteamMetadataController
+from ui.cloud_workflow_controller import CloudWorkflowController
+from ui.manual_restore_controller import ManualRestoreController
+from ui.settings_dialog_services import SettingsDialogServices
+from ui.save_dialog_services import SaveDialogServices
 
 
 def detect_linux_distro() -> tuple[str, str]:
@@ -182,24 +196,18 @@ def detect_linux_distro() -> tuple[str, str]:
     return (os_name, cmd)
 
 
-class MainWindow(MainWindowProfileMixin, QMainWindow):
+class MainWindow(QMainWindow):
     # Queued-signal carriers for save-sync work performed off the GUI thread.
     _save_op_done = pyqtSignal(object)      # exit-upload payload dict
-    _prelaunch_resolved = pyqtSignal(object)  # pre-launch sync payload dict
     _startup_sync_done = pyqtSignal(object)   # startup cloud sync sweep payload dict
     _cloud_poll_changed = pyqtSignal(list)    # games whose cloud save changed mid-session
     _save_restore_finished = pyqtSignal(object)  # structured manual restore result
-    _prelaunch_restore_done = pyqtSignal(object)          # {"ctx", "ok", "toast"} after conflict restore
     _startup_backend_health_ready = pyqtSignal(object)
     _managed_task_done = pyqtSignal(object)
     _profile_sync_done = pyqtSignal(object)
-    _managed_cloud_batch_done = pyqtSignal(object)
     _cloud_auto_restore_done = pyqtSignal(object)
     _cloud_auto_upload_done = pyqtSignal(object)
-    _managed_achievement_batch_done = pyqtSignal(object)
     _managed_steam_update_batch_done = pyqtSignal(object)
-    _network_probe_done = pyqtSignal(object)
-    _game_termination_finished = pyqtSignal(object)
 
     # Compatibility views for older dialogs and rendering helpers.  The
     # dictionaries themselves belong to LibraryMetadataState; these accessors
@@ -229,149 +237,172 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         return self.library_metadata_state.local_version_by_game_id
 
 
-    def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager):
+    def __init__(self, db: GameDatabase, runner: ISandboxRunner, backup: IBackupManager, *, runtime=None):
         super().__init__()
-        self.db = db
-        self.runner = runner
-        self.backup = backup
-        self.settings = QSettings("SafeLauncher", "SafeLauncher")
-        self.sgdb_client = ArtworkClient()
-        self.steam_client = SteamClient()
-        # Keep the cache path available to every library presentation,
-        # including the empty-filter branch used by compact view.
-        self.cache_dir = self.sgdb_client.cache_dir
-        resource_cache_dir = self.cache_dir.parent / "resources"
-        self.resource_cache = ResourceCache(
-            str(resource_cache_dir),
-            max_entries=512,
-            max_disk_bytes=64 * 1024 * 1024,
-            legacy_directories=(str(self.cache_dir / "resources"),),
+        if runtime is not None and (runtime.db is not db or runtime.runner is not runner or runtime.backup is not backup):
+            raise ValueError("The injected runtime must own the supplied application services")
+        self.runtime = runtime if runtime is not None else ApplicationRuntime(db, runner, backup, parent=self)
+        # Compatibility references: each service has exactly one runtime owner.
+        self.db = self.runtime.db
+        self.runner = self.runtime.runner
+        self.backup = self.runtime.backup
+        self.settings = self.runtime.settings
+        self.sgdb_client = self.runtime.sgdb_client
+        self.steam_client = self.runtime.steam_client
+        self.central_auth = self.runtime.central_auth
+        self.cache_dir = self.runtime.cache_dir
+        self.resource_cache = self.runtime.resource_cache
+        self.performance_tracker = self.runtime.performance_tracker
+        self.library_metadata_state = self.runtime.library_metadata_state
+        self.save_state_store = self.runtime.save_state_store
+        self.cloud_sync_coordinator = self.runtime.cloud_sync_coordinator
+        self.achievement_state = self.runtime.achievement_state
+        self.achievement_persistence_service = self.runtime.achievement_persistence_service
+        self.library_controller = self.runtime.library_controller
+        self.library_state = self.runtime.library_state
+        self.library_service = self.runtime.library_service
+        self.game_lifecycle_service = self.runtime.game_lifecycle_service
+        self.request_manager = self.runtime.request_manager
+        self.achievement_resource_service = self.runtime.achievement_resource_service
+        self.achievement_coordinator = self.runtime.achievement_coordinator
+        self.steam_resource_service = self.runtime.steam_resource_service
+        self.steam_metadata_coordinator = self.runtime.steam_metadata_coordinator
+        self.cloud_status_service = self.runtime.cloud_status_service
+        self.cloud_operation_service = self.runtime.cloud_operation_service
+        self.cloud_exit_sync_service = self.runtime.cloud_exit_sync_service
+        self.cloud_account_service = self.runtime.cloud_account_service
+        self.cloud_metadata_service = self.runtime.cloud_metadata_service
+        self.cloud_center_service = self.runtime.cloud_center_service
+        self.worker_supervisor = self.runtime.worker_supervisor
+        self.game_sessions = self.runtime.game_sessions
+        self.operation_registry = self.runtime.operation_registry
+        self.managed_tasks = ManagedTaskController(
+            self.request_manager, self.operation_registry, parent=self,
         )
-        self.performance_tracker = ResourcePerformanceTracker()
+        self.shutdown_controller = ShutdownController(
+            begin=self._begin_shutdown, cancel_work=self._cancel_shutdown_work,
+            pending=self._pending_shutdown_work, finish=self._finish_shutdown,
+            resume=self._resume_after_shutdown, request_close=self.close,
+            show_waiting=self._show_shutdown_waiting, parent=self,
+        )
         self.games = []
         self.selected_game = None
         self._settings_dialog_active = False
         self.banner_widgets = {}
-        self.auto_fetchers = CompatibilityWorkerIndex("artwork-active-fallback")
-        self._pending_auto_fetchers = CompatibilityWorkerIndex("artwork-pending-fallback")
-        self.max_concurrent_auto_fetchers = 3
-        # Compatibility-only artwork fetch guard.  Managed artwork attempts
-        # are owned by LibraryArtworkCoordinator; this set exists only for
-        # embedded callers that do not provide RequestManager.
-        self._compat_auto_fetch_attempted = set()
         self.metadata_fetchers = CompatibilityWorkerIndex("metadata-active-fallback")
-        self.library_metadata_state = LibraryMetadataState()
-        self.save_state_store = SaveStateStore()
-        self.cloud_sync_coordinator = CloudSyncCoordinator()
         # Incremented whenever the configured cloud identity changes. Every
         # asynchronous status result is bound to the generation that created it.
         # Compatibility alias; the coordinator is the authoritative owner of
         # cloud configuration generations.
         self._cloud_context_generation = self.cloud_sync_coordinator.generation
-        self._cloud_status_bindings = ResourceBindingRegistry()
-        # A library sweep, selected-game detail panel, and manual action can
-        # all observe the same managed resource. Keep every consumer instead
-        # of letting the last caller overwrite the previous callback.
-        self._cloud_status_callbacks: dict[RequestKey, list[tuple[int, int, object]]] = {}
-        self._cloud_status_target_ids: dict[RequestKey, int] = {}
-        # Background cloud restores are keyed by game and context generation.
-        # This prevents overlapping polling/startup/detail callbacks from
-        # downloading the same version more than once.
-        self._cloud_auto_restore_in_flight: dict[int, tuple[int, object]] = {}
-        self._cloud_auto_upload_in_flight: dict[int, tuple[int, object]] = {}
-        # A launch owns one prelaunch cloud lifecycle per game. This is
-        # separate from background auto-sync so repeated activation cannot
-        # attach another continuation to a deduplicated cloud request.
-        self._prelaunch_in_flight: dict[int, dict] = {}
-        # A single cloud snapshot must not be restored forever when a remote
-        # timestamp cannot converge with the extracted local files.  The
-        # counter is reset automatically when the cloud version/signature
-        # changes, and also bounds transient retry noise.
-        self._cloud_auto_restore_attempts: dict[int, tuple[tuple, int]] = {}
-        self._cloud_auto_upload_attempts: dict[int, tuple[tuple, int]] = {}
         self._closing = False
-        self.achievement_state = AchievementStateStore()
-        self.achievement_persistence_service = AchievementPersistenceService(self.db)
-        # A watcher can observe an unlock before its schema worker finishes.
-        # Keep it in memory until the schema gives the API name a durable row;
-        # otherwise the one-shot live event would be silently lost.
-        self.playtime_trackers = []  # keep references so GC doesn't kill running threads
-        self.library_controller = LibraryController()
-        self.library_state = LibraryStateStore(self.library_controller)
-        self.library_service = LibraryService(self.db, self.library_state)
-        self.game_lifecycle_service = GameLifecycleService(self.library_service)
-        # A transient connectivity loss acts as a request gate until the
-        # connectivity probe succeeds again. Keep this separate from the
-        # user's explicit Offline Mode preference.
-        self._transient_network_unavailable = False
-        self.request_manager = RequestManager(
-            max_workers=3,
-            cache=self.resource_cache,
-            offline_check=lambda: (
-                not automatic_network_allowed(getattr(self, "settings", None))
-                or bool(getattr(self, "_transient_network_unavailable", False))
+        self.achievement_sync_controller = AchievementSyncController(
+            request_manager=self.request_manager,
+            resource_service=self.achievement_resource_service,
+            coordinator=self.achievement_coordinator,
+            state_store=self.achievement_state,
+            persistence_service=self.achievement_persistence_service,
+            settings=self.settings,
+            games_provider=lambda: self.games,
+            selected_game_provider=lambda: self.selected_game,
+            db_path_provider=lambda: getattr(self.db, "db_path", None),
+            online_allowed=self._automatic_network_allowed,
+            workers_provider=lambda: self.metadata_fetchers,
+            track_worker=self._track_metadata_fetcher,
+            save_cache=self._save_persistent_cache,
+            sync_launcher_metadata=self._sync_launcher_metadata_async,
+            mark_profile_changed=lambda: (
+                self.profile_page.mark_local_data_changed()
+                if hasattr(self, "profile_page")
+                else None
             ),
+            refresh_inspector=self._update_achievement_inspector,
+            refresh_compact_page=self._update_compact_game_page,
+            on_batch_finished=self._on_achievement_batch_finished,
+            parent=self,
         )
-        self.achievement_resource_service = AchievementResourceService(self.request_manager)
-        self.achievement_coordinator = LibraryAchievementCoordinator(
-            self.achievement_resource_service,
+        self.steam_metadata_controller = SteamMetadataController(
+            manager=self.request_manager, service=self.steam_resource_service,
+            coordinator=self.steam_metadata_coordinator, library_service=self.library_service,
+            on_build=self._on_steam_build_checked, on_failure=self._on_steam_check_failed,
+            on_offline=self._on_update_check_offline, on_tags=self._on_steam_tags_found,
+            on_network_status=self._set_network_status, refresh_library=self._refresh_library,
+            on_description=self._render_detail_description, accepts_work=self._request_manager_accepts_work,
+            parent=self,
         )
-        self.steam_resource_service = SteamResourceService(
-            self.request_manager,
-            client=self.steam_client,
-        )
-        # One binding per AppID repairs cloud-only placeholder titles while
-        # retaining the normal RequestManager cache/deduplication lifecycle.
-        self._steam_name_bindings: dict[RequestKey, ResourceBinding] = {}
-        self.steam_metadata_coordinator = LibrarySteamMetadataCoordinator(
-            self.steam_resource_service,
-        )
-        self.artwork_resource_service = ArtworkResourceService(
-            self.request_manager,
-            client=self.sgdb_client,
-        )
-        self.artwork_coordinator = LibraryArtworkCoordinator(
-            self.artwork_resource_service,
-        )
-        self.cloud_status_service = CloudStatusService(
-            self.request_manager,
+        self.cloud_status_controller = CloudStatusController(
+            request_manager=self.request_manager,
+            status_service=self.cloud_status_service,
             coordinator=self.cloud_sync_coordinator,
-            status_store=self.save_state_store,
-            cache=self.resource_cache,
-            legacy_cache_path=os.path.join(
-                os.path.dirname(os.fspath(self.cache_dir)), "cloud_status_cache.json"
-            ),
+            games_provider=lambda: self.games,
+            request_allowed=self._request_manager_accepts_work,
+            network_allowed=self._automatic_network_allowed,
+            mark_offline=self._mark_cloud_offline,
+            mark_auth_required=self._mark_cloud_auth_required,
+            on_status_calculated=self._on_cloud_save_status_calculated,
+            on_poll_changed=self._cloud_poll_changed.emit,
+            on_batch_finished=self._on_cloud_batch_finished,
+            parent=self,
         )
         self.cloud_status_polling = CloudStatusPollingService(
             self.cloud_status_service,
             on_changed=self._cloud_poll_changed.emit,
             on_error=lambda error: logger.debug("Cloud status polling failed: %s", error),
         )
-        self.cloud_operation_service = CloudOperationService(
-            self.request_manager,
-            coordinator=self.cloud_sync_coordinator,
+        self.cloud_workflow_controller = CloudWorkflowController(
+            operation_service=self.cloud_operation_service, coordinator=self.cloud_sync_coordinator,
+            games_provider=lambda: self.games_by_id, running_games=lambda: self.running_game_ids,
+            accepts_work=self._request_manager_accepts_work, network_allowed=self._automatic_network_allowed,
+            is_closing=lambda: self._closing, set_syncing=self._set_cloud_syncing,
+            update_launch_button=self._update_detail_launch_button, show_toast=self._show_toast,
+            recheck=self.request_cloud_recheck, parent=self,
         )
-        self.cloud_exit_sync_service = CloudExitSyncService(self.cloud_operation_service)
-        self.cloud_account_service = CloudAccountService(
-            request_manager=self.request_manager,
+        # Compatibility references, not independent workflow state.
+        self._cloud_auto_restore_in_flight = self.cloud_workflow_controller._cloud_auto_restore_in_flight
+        self._cloud_auto_upload_in_flight = self.cloud_workflow_controller._cloud_auto_upload_in_flight
+        self._cloud_auto_restore_attempts = self.cloud_workflow_controller._cloud_auto_restore_attempts
+        self._cloud_auto_upload_attempts = self.cloud_workflow_controller._cloud_auto_upload_attempts
+        self.manual_restore_controller = ManualRestoreController(
+            service=self.cloud_operation_service,
+            generation=lambda: self.cloud_sync_coordinator.generation,
+            accepts_work=self._request_manager_accepts_work,
+            can_restore=self._can_manually_restore,
+            progress=self._show_manual_restore_progress,
+            close_progress=self._close_manual_restore_progress,
+            confirm=self._confirm_manual_restore, notify=self._show_toast,
+            no_save=lambda name: QMessageBox.information(
+                self, "No Cloud Save", f"No cloud save found for '{name}'."),
+            state_changed=self._manual_restore_state_changed,
+            recheck=self.request_cloud_recheck, parent=self,
         )
-        self.cloud_metadata_service = CloudMetadataService(self.request_manager)
-        self.cloud_center_service = CloudCenterService(
-            self.request_manager,
-            account_service=self.cloud_account_service,
-            status_service=self.cloud_status_service,
-            metadata_service=self.cloud_metadata_service,
-            operation_service=self.cloud_operation_service,
-            settings=self.settings,
+        self.prelaunch_controller = PrelaunchController(
+            self.cloud_operation_service,
+            self.settings,
+            parent=self,
+            network_allowed=self._automatic_network_allowed,
+            continue_launch=self._continue_launch,
+            show_toast=self._show_toast,
+            update_launch_button=lambda game_id: (
+                self._update_detail_launch_button(game_id)
+                if getattr(self, "selected_game", None)
+                and int(self.selected_game[0]) == int(game_id)
+                else None
+            ),
+            open_cloud_center=self._open_cloud_center,
+            refresh_cloud_status=self.refresh_cloud_status_for_game,
+            is_closing=lambda: self._closing,
+            logger=logger,
+        )
+        self.save_dialog_services = SaveDialogServices(
+            request_manager=self.request_manager, operation_registry=self.operation_registry,
+            worker_registry=self.worker_supervisor, cloud_center=self.cloud_center_service,
+            cloud_operations=self.cloud_operation_service, cloud_status=self.cloud_status_service,
+            save_state=self.save_state_store, backup=self.backup,
+            on_changed=self.refresh_cloud_status_for_game, open_cloud_center=self._open_cloud_center,
         )
         self._cloud_center_overview_binding: ResourceBinding | None = None
         self.cloud_save_status_cache = self.cloud_status_service.status_cache
-        self._public_profile_generation = 0
-        self._public_profile_binding: ResourceBinding | None = None
-        self._profile_sync_generation = 0
-        self._profile_sync_done.connect(self._on_managed_profile_sync_done)
         self._managed_steam_update_batch_done.connect(self._on_managed_steam_update_batch_done)
-        self.game_sessions = GameSessionManager(self)
         self.game_sessions.session_state_changed.connect(self._on_game_session_state_changed)
         self.launch_session_coordinator = LaunchSessionCoordinator(
             self.runner,
@@ -381,12 +412,44 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                 game_id, process, session_id=session_id, parent=self
             ),
         )
-        self._stopping_game_ids = set()  # game IDs transitioning from running to stopped
-        self.worker_supervisor = WorkerSupervisor(self)
-        self._game_termination_tasks = TaskSupervisor(
-            self, logger, worker_registry=self.worker_supervisor
+        self.artwork_controller = ArtworkController(
+            self.runtime.artwork_resource_service,
+            self.runtime.artwork_coordinator,
+            binding_parent=self,
+            network_allowed=self._automatic_network_allowed,
+            register_worker=self._register_worker,
+            on_auto_artwork=self._on_auto_banner_downloaded,
+            on_hero_artwork=self._on_hero_downloaded,
+            on_icon_artwork=self._on_icon_downloaded,
+            logger=logger,
         )
-        self._game_termination_in_flight: set[int] = set()
+        self.game_session_controller = GameSessionController(
+            self.launch_session_coordinator,
+            self.game_sessions,
+            self.worker_supervisor,
+            parent=self,
+            on_playtime_recorded=self._on_playtime_recorded,
+            on_playtime_checkpoint=self._on_playtime_checkpoint,
+            on_playtime_session_recorded=self._on_playtime_session_recorded,
+            register_worker=self._register_worker,
+            on_session_finished=self._on_game_session_finished,
+            on_stopping_changed=self._on_game_stopping_state_changed,
+            on_stop_requested=self._on_game_stop_requested,
+            on_termination_result=self._on_game_termination_result,
+            is_closing=lambda: self._closing,
+            logger=logger,
+        )
+        self.session_features = SessionFeatureController(
+            achievements=self.achievement_sync_controller, library_service=self.library_service,
+            metadata_service=self.cloud_metadata_service, exit_sync_service=self.cloud_exit_sync_service,
+            games_provider=lambda: self.games_by_id, db_path=getattr(self.db, "db_path", None),
+            running_games=lambda: self.running_game_ids, rpc_provider=lambda: getattr(self, "discord_rpc", None),
+            recorder_config=lambda: getattr(self, "gpu_recorder_config", None),
+            recorder_provider=GpuRecorderService.instance, notify=show_ingame_notification,
+            network_allowed=self._automatic_network_allowed, on_playtime_changed=self._render_playtime_changed,
+            on_exit_result=self._on_exit_save_sync_done, parent=self,
+        )
+        # Compatibility views; lifecycle state is owned by GameSessionController.
         # running_game_ids is derived from the session supervisor, not from
         # UI widgets or the playtime tracker feature list.
         self.topbar_extractor_thread = None
@@ -407,28 +470,15 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         # store is now the owner rather than MainWindow.
         self.library_selection = self.library_state.selection
         self.library_snapshot = self.library_state.snapshot
-        self.operation_registry = OperationRegistry(self)
-        self.achievement_watchers = {}
-        self.active_toasts = []
+        self.achievement_watchers = self.achievement_sync_controller.watchers
         self._load_persistent_cache()
 
         # Always-connected signal carriers. A connect/disconnect dance around
         # each use mis-orders or drops payloads when two events overlap (two
         # games exiting at once, rapid consecutive launches).
         self._save_op_done.connect(self._on_exit_save_sync_done)
-        self._prelaunch_resolved.connect(self._finish_prelaunch_sync)
-        self._save_restore_finished.connect(self._on_save_restore_finished)
-        self._prelaunch_restore_done.connect(self._on_prelaunch_restore_done)
         self._startup_backend_health_ready.connect(self._on_startup_backend_health_ready)
-        self._managed_task_done.connect(self._on_managed_task_done)
-        self._game_termination_finished.connect(self._on_game_termination_finished)
-        self._network_probe_done.connect(self._on_network_probe_done)
-        self._managed_cloud_batch_done.connect(self._on_managed_cloud_batch_done)
-        self._cloud_auto_restore_done.connect(self._on_cloud_auto_restore_done)
-        self._cloud_auto_upload_done.connect(self._on_cloud_auto_upload_done)
-        self._managed_achievement_batch_done.connect(self._on_managed_achievement_batch_done)
         self._cloud_poll_changed.connect(self._on_cloud_poll_changed)
-        self._managed_task_callbacks = {}
 
 
         # Background maintenance: prune orphaned temp files
@@ -446,21 +496,22 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         self.search_query = ""
         # Central public-profile identity is deliberately separate from the
         # per-user private SafeLauncherCloud credential.
-        self.central_auth = CentralAuthSession()
         self.date_format = self.settings.value("date_format", get_date_format_key(), type=str)
         # CI/UI smoke tests must not depend on DNS or third-party response
         # timing.  The shared policy also supports the user-facing offline
         # setting, which is enforced by automatic and optional network paths.
         self._offline_test_mode = os.environ.get("SAFELAUNCHER_OFFLINE_TEST_MODE") == "1"
         self._offline_mode = is_offline_mode(self.settings)
-        self._network_reachability_known = False
-        self._network_reachable = False
-        self._network_probe_in_flight = False
         self._network_loss_pending = False
         self._network_loss_dialog = None
-        self._network_probe_timer = QTimer(self)
-        self._network_probe_timer.setInterval(5_000)
-        self._network_probe_timer.timeout.connect(self._probe_network_now)
+        self.network_monitor = NetworkMonitorController(
+            self.request_manager,
+            network_allowed=self._automatic_network_allowed,
+            offline_test_mode=lambda: self._offline_test_mode,
+            parent=self,
+        )
+        self.runtime.set_network_gate(lambda: self.network_monitor.transient_unavailable)
+        self.network_monitor.result_ready.connect(self._on_network_probe_done)
         # Compact is the product default.  Older releases persisted Grid/List
         # even though Compact became the primary unified library experience,
         # so migrate that stale preference once rather than surprising every
@@ -515,8 +566,9 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         # can race with Qt teardown and leave a native listener alive while
         # the QApplication is processing deferred deletes.
         qt_platform = QGuiApplication.platformName().lower()
-        if not self._offline_test_mode and qt_platform not in ("offscreen", "minimal"):
-            self.global_hotkeys.start()
+        self._start_hotkeys_after_composition = (
+            not self._offline_test_mode and qt_platform not in ("offscreen", "minimal")
+        )
 
         self.setWindowTitle("SafeLauncher - Game Sandbox Manager")
         self._resize_to_available_screen(1180, 750, minimum=(760, 520), margin=32)
@@ -682,26 +734,51 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         # -------------------------------------------------------------
         # Right Game Detail Panel (Inspector)
         # -------------------------------------------------------------
-        self.detail_panel = QFrame()
-        self.detail_panel.setObjectName("detailPanel")
-        self.detail_panel.setMinimumWidth(260)
-        self.detail_panel.setMaximumWidth(480)
-        self.detail_panel.setStyleSheet("""
-            QFrame#detailPanel {
-                background-color: #18181B;
-                border: none;
-                border-left: 1px solid rgba(255, 255, 255, 0.06);
-            }
-            QLabel {
-                color: #F4F4F5;
-            }
-        """)
-        # Keep the inspector as a solid docked surface.  The library behind it
-        # can remain translucent, but the right-side edit panel should not
-        # reveal that background while it is opening or closing.
-        self.detail_panel.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-
-        self.detail_panel.setVisible(False)
+        self.detail_panel = GameInspectorWidget(GameInspectorActions(
+            animate_left_panel=self._animate_left_panel,
+            on_edit=self._on_edit,
+            on_launch=self._on_launch,
+            on_remove=self._on_remove,
+            open_achievements_dialog=self._open_achievements_dialog,
+            open_game_properties=self._open_game_properties,
+            open_screenshot_gallery=self._open_screenshot_gallery,
+            open_video_gallery=self._open_video_gallery,
+            restore_selected_game_cloud_save=self._restore_selected_game_cloud_save,
+            retry_steam_check=self._retry_steam_check,
+        ), parent=self)
+        self.btn_detail_achievements = self.detail_panel.btn_detail_achievements
+        self.btn_detail_cloud_restore = self.detail_panel.btn_detail_cloud_restore
+        self.btn_detail_edit = self.detail_panel.btn_detail_edit
+        self.btn_detail_launch = self.detail_panel.btn_detail_launch
+        self.btn_detail_properties = self.detail_panel.btn_detail_properties
+        self.btn_detail_remove = self.detail_panel.btn_detail_remove
+        self.btn_detail_screenshots = self.detail_panel.btn_detail_screenshots
+        self.btn_detail_videos = self.detail_panel.btn_detail_videos
+        self.btn_hide_detail = self.detail_panel.btn_hide_detail
+        self.btn_retry_steam = self.detail_panel.btn_retry_steam
+        self.detail_ach_badges_container = self.detail_panel.detail_ach_badges_container
+        self.detail_ach_badges_layout = self.detail_panel.detail_ach_badges_layout
+        self.detail_ach_card = self.detail_panel.detail_ach_card
+        self.detail_ach_progress = self.detail_panel.detail_ach_progress
+        self.detail_cloud_metadata = self.detail_panel.detail_cloud_metadata
+        self.detail_cloud_spinner = self.detail_panel.detail_cloud_spinner
+        self.detail_cloud_status = self.detail_panel.detail_cloud_status
+        self.detail_cover = self.detail_panel.detail_cover
+        self.detail_disk_size = self.detail_panel.detail_disk_size
+        self.detail_last_played = self.detail_panel.detail_last_played
+        self.detail_playtime = self.detail_panel.detail_playtime
+        self.detail_scroll = self.detail_panel.detail_scroll
+        self.detail_spec_card = self.detail_panel.detail_spec_card
+        self.detail_title = self.detail_panel.detail_title
+        self.detail_update_layout = self.detail_panel.detail_update_layout
+        self.detail_update_spinner = self.detail_panel.detail_update_spinner
+        self.detail_update_widget = self.detail_panel.detail_update_widget
+        self.lbl_detail_ach_count = self.detail_panel.lbl_detail_ach_count
+        self.lbl_detail_update = self.detail_panel.lbl_detail_update
+        self.lbl_detail_versions = self.detail_panel.lbl_detail_versions
+        self.lbl_update_dates = self.detail_panel.lbl_update_dates
+        self.tags_layout = self.detail_panel.tags_layout
+        self.tags_widget = self.detail_panel.tags_widget
 
         # Inspector panel slide animation setup. The panel itself remains
         # opaque throughout the animation.
@@ -710,416 +787,6 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         self.panel_anim.valueChanged.connect(self._on_panel_anim_step)
         self.panel_anim.finished.connect(self._on_panel_anim_finished)
         self._panel_expanding = False
-
-        # Internal scrollable container for seamless scaling
-        panel_outer_layout = QVBoxLayout(self.detail_panel)
-        panel_outer_layout.setContentsMargins(0, 0, 0, 0)
-        panel_outer_layout.setSpacing(0)
-
-        self.detail_scroll = QScrollArea()
-        self.detail_scroll.setWidgetResizable(True)
-        self.detail_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-        
-        detail_content = QWidget()
-        detail_content.setStyleSheet("background: transparent;")
-        detail_layout = QVBoxLayout(detail_content)
-        # Keep the glassmorphism breathing room balanced vertically.
-        detail_layout.setContentsMargins(16, 16, 16, 16)
-        detail_layout.setSpacing(10)
-        detail_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.detail_scroll.setWidget(detail_content)
-        panel_outer_layout.addWidget(self.detail_scroll)
-
-        # Top Bar with Inspector Header and Close button
-        top_bar = QHBoxLayout()
-        top_bar.setContentsMargins(2, 0, 0, 2)
-        
-        lbl_inspector_hdr = QLabel("INSPECTOR")
-        lbl_inspector_hdr.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
-        top_bar.addWidget(lbl_inspector_hdr)
-        top_bar.addStretch()
-
-        self.btn_hide_detail = QPushButton()
-        self.btn_hide_detail.setIcon(get_icon("ph.x-bold", color="#A1A1AA"))
-        self.btn_hide_detail.setIconSize(QSize(12, 12))
-        self.btn_hide_detail.setFixedSize(24, 24)
-        self.btn_hide_detail.setToolTip("Close inspector")
-        self.btn_hide_detail.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                border-radius: 12px;
-            }
-            QPushButton:hover {
-                background: #202024;
-            }
-        """)
-        self.btn_hide_detail.clicked.connect(lambda: self._animate_left_panel(False))
-        top_bar.addWidget(self.btn_hide_detail)
-        detail_layout.addLayout(top_bar)
-
-        # Selected Game Cover Art Preview
-        self.detail_cover = QLabel()
-        self.detail_cover.setFixedSize(QSize(180, 270))
-        self.detail_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_cover.setStyleSheet("""
-            QLabel {
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 12px;
-                background-color: #202024;
-            }
-        """)
-        
-        cover_row = QHBoxLayout()
-        cover_row.setContentsMargins(0, 2, 0, 4)
-        cover_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        cover_row.addWidget(self.detail_cover)
-        detail_layout.addLayout(cover_row)
-
-        # Selected Game Title Header Row
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-
-        self.detail_title = QLabel("Select a Game")
-        self.detail_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        self.detail_title.setWordWrap(True)
-        self.detail_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_title.setStyleSheet("color: #FFFFFF; background: transparent; letter-spacing: -0.2px;")
-        title_row.addWidget(self.detail_title, 1)
-
-        detail_layout.addLayout(title_row)
-
-        # Steam Tags Badge Container
-        self.tags_widget = QWidget()
-        self.tags_layout = QHBoxLayout(self.tags_widget)
-        self.tags_layout.setContentsMargins(0, 0, 0, 0)
-        self.tags_layout.setSpacing(6)
-        self.tags_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        detail_layout.addWidget(self.tags_widget)
-
-        # ── Unified Game Specs Card (Playtime, Last Played, Size, Cloud Save) ──
-        self.detail_spec_card = QFrame()
-        self.detail_spec_card.setObjectName("detailSpecCard")
-        self.detail_spec_card.setStyleSheet("""
-            QFrame#detailSpecCard {
-                background-color: #121214;
-                border: 1px solid rgba(255, 255, 255, 0.05);
-                border-radius: 10px;
-            }
-        """)
-        spec_layout = QGridLayout(self.detail_spec_card)
-        spec_layout.setContentsMargins(12, 10, 12, 10)
-        spec_layout.setHorizontalSpacing(14)
-        spec_layout.setVerticalSpacing(6)
-
-        # Col 0: Playtime
-        lbl_pt_h = QLabel("PLAYTIME")
-        lbl_pt_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
-        spec_layout.addWidget(lbl_pt_h, 0, 0)
-        self.detail_playtime = QLabel("--")
-        self.detail_playtime.setStyleSheet("color: #F4F4F5; font-size: 11px; font-weight: 600; background: transparent;")
-        spec_layout.addWidget(self.detail_playtime, 1, 0)
-
-        # Col 1: Last Played
-        lbl_lp_h = QLabel("LAST PLAYED")
-        lbl_lp_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
-        spec_layout.addWidget(lbl_lp_h, 0, 1)
-        self.detail_last_played = QLabel("--")
-        self.detail_last_played.setStyleSheet("color: #F4F4F5; font-size: 11px; font-weight: 600; background: transparent;")
-        spec_layout.addWidget(self.detail_last_played, 1, 1)
-
-        # Row 2, Col 0: Disk Size
-        lbl_ds_h = QLabel("DISK SIZE")
-        lbl_ds_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
-        spec_layout.addWidget(lbl_ds_h, 2, 0)
-        self.detail_disk_size = QLabel("--")
-        self.detail_disk_size.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 500; background: transparent;")
-        spec_layout.addWidget(self.detail_disk_size, 3, 0)
-
-        # Row 2, Col 1: Cloud Sync
-        lbl_cs_h = QLabel("CLOUD SAVE")
-        lbl_cs_h.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; background: transparent;")
-        spec_layout.addWidget(lbl_cs_h, 2, 1)
-
-        cloud_box = QWidget()
-        cloud_box.setStyleSheet("background: transparent;")
-        cloud_box_layout = QVBoxLayout(cloud_box)
-        cloud_box_layout.setContentsMargins(0, 0, 0, 0)
-        cloud_box_layout.setSpacing(2)
-
-        cloud_status_row = QHBoxLayout()
-        cloud_status_row.setContentsMargins(0, 0, 0, 0)
-        cloud_status_row.setSpacing(6)
-
-        self.detail_cloud_spinner = LoadingSpinner(cloud_box, size=14)
-        cloud_status_row.addWidget(self.detail_cloud_spinner)
-        self.detail_cloud_status = QLabel("--")
-        self.detail_cloud_status.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 500; background: transparent;")
-        cloud_status_row.addWidget(self.detail_cloud_status)
-
-        self.btn_detail_cloud_restore = QPushButton("Restore latest cloud save")
-        self.btn_detail_cloud_restore.setAccessibleName("Restore latest cloud save")
-        self.btn_detail_cloud_restore.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_detail_cloud_restore.setToolTip("Restore latest cloud save for this game")
-        self.btn_detail_cloud_restore.setStyleSheet(
-            "QPushButton { background: #3B9FE8; color: #FFFFFF; border: none; border-radius: 4px; "
-            "padding: 2px 8px; font-size: 10px; font-weight: bold; } "
-            "QPushButton:hover { background: #3B9FE8; }"
-        )
-        self.btn_detail_cloud_restore.hide()
-        self.btn_detail_cloud_restore.clicked.connect(self._restore_selected_game_cloud_save)
-        cloud_status_row.addWidget(self.btn_detail_cloud_restore)
-
-        cloud_status_row.addStretch()
-        cloud_box_layout.addLayout(cloud_status_row)
-
-        self.detail_cloud_metadata = QLabel("")
-        self.detail_cloud_metadata.setStyleSheet(
-            "color: #71717A; font-size: 9px; font-weight: 500; background: transparent;"
-        )
-        self.detail_cloud_metadata.setAccessibleName("Cloud save time and device")
-        self.detail_cloud_metadata.setVisible(False)
-        cloud_box_layout.addWidget(self.detail_cloud_metadata)
-
-        spec_layout.addWidget(cloud_box, 3, 1)
-
-        detail_layout.addWidget(self.detail_spec_card)
-
-        # Steam update status and version details
-        self.detail_update_widget = QWidget()
-        self.detail_update_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.detail_update_layout = QVBoxLayout(self.detail_update_widget)
-        self.detail_update_layout.setContentsMargins(0, 0, 0, 0)
-        self.detail_update_layout.setSpacing(4)
-        self.detail_update_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.detail_update_spinner = LoadingSpinner(self.detail_update_widget, size=14)
-        self.detail_update_layout.addWidget(self.detail_update_spinner, 0, Qt.AlignmentFlag.AlignCenter)
-
-        self.lbl_detail_update = QLabel("")
-        self.lbl_detail_update.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_detail_update.setFixedHeight(22)
-        self.detail_update_layout.addWidget(self.lbl_detail_update)
-
-        self.lbl_update_dates = QLabel("")
-        self.lbl_update_dates.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_update_dates.setStyleSheet(
-            "QLabel { color: #F4F4F5; background: transparent; "
-            "font-size: 10px; padding: 0 4px; }"
-        )
-        self.lbl_update_dates.setVisible(False)
-        self.detail_update_layout.addWidget(self.lbl_update_dates)
-
-        self.lbl_detail_versions = QLabel("")
-        self.lbl_detail_versions.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_detail_versions.setWordWrap(True)
-        self.lbl_detail_versions.setOpenExternalLinks(True)
-        self.lbl_detail_versions.setStyleSheet("QLabel { color: #A1A1AA; background: #18181B; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; font-size: 10px; padding: 3px 8px; }")
-        self.detail_update_layout.addWidget(self.lbl_detail_versions)
-
-        self.btn_retry_steam = QPushButton("Retry")
-        self.btn_retry_steam.setVisible(False)
-        self.btn_retry_steam.setToolTip("Retry the Steam build check")
-        self.btn_retry_steam.clicked.connect(self._retry_steam_check)
-        self.detail_update_layout.addWidget(self.btn_retry_steam)
-
-        self.detail_update_widget.setVisible(False)
-        detail_layout.addWidget(self.detail_update_widget)
-
-        # Primary Launch Game Button
-        detail_layout.addSpacing(2)
-        self.btn_detail_launch = QPushButton("Launch Game")
-        self.btn_detail_launch.setObjectName("detailLaunch")
-        self.btn_detail_launch.setIcon(get_icon("ph.play-bold", color="#FFFFFF"))
-        self.btn_detail_launch.setIconSize(QSize(15, 15))
-        self.btn_detail_launch.setFixedHeight(40)
-        self.btn_detail_launch.setStyleSheet("""
-            QPushButton#detailLaunch {
-                background-color: #3B9FE8;
-                color: #FFFFFF;
-                font-weight: 600;
-                font-size: 13px;
-                border: none;
-                border-radius: 8px;
-                padding: 0 16px;
-                text-align: center;
-                letter-spacing: 0.2px;
-            }
-            QPushButton#detailLaunch:hover {
-                background-color: #55ACED;
-            }
-            QPushButton#detailLaunch:pressed {
-                background-color: #2789D0;
-            }
-        """)
-        self.btn_detail_launch.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_detail_launch.clicked.connect(self._on_launch)
-        detail_layout.addWidget(self.btn_detail_launch)
-
-        sec_btn_style = """
-            QPushButton {
-                background-color: #18181B;
-                color: #F4F4F5;
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
-                padding: 0 10px;
-                font-weight: 500;
-                font-size: 11px;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #202024;
-                border-color: rgba(255, 255, 255, 0.12);
-                color: #FFFFFF;
-            }
-            QPushButton:pressed {
-                background-color: #121214;
-            }
-        """
-
-        # ── Secondary Action Buttons (2x2 Grid) ──
-        actions_grid = QGridLayout()
-        actions_grid.setContentsMargins(0, 0, 0, 0)
-        actions_grid.setSpacing(6)
-
-        self.btn_detail_edit = QPushButton("Edit Game")
-        self.btn_detail_edit.setIcon(get_icon("ph.pencil-simple-bold", color="#3B9FE8"))
-        self.btn_detail_edit.setIconSize(QSize(14, 14))
-        self.btn_detail_edit.setFixedHeight(32)
-        self.btn_detail_edit.setStyleSheet(sec_btn_style)
-        self.btn_detail_edit.clicked.connect(self._on_edit)
-        actions_grid.addWidget(self.btn_detail_edit, 0, 0)
-
-        self.btn_detail_properties = QPushButton("Properties")
-        self.btn_detail_properties.setIcon(get_icon("ph.sliders-horizontal-bold", color="#A1A1AA"))
-        self.btn_detail_properties.setIconSize(QSize(14, 14))
-        self.btn_detail_properties.setFixedHeight(32)
-        self.btn_detail_properties.setStyleSheet(sec_btn_style)
-        self.btn_detail_properties.clicked.connect(self._open_game_properties)
-        actions_grid.addWidget(self.btn_detail_properties, 0, 1)
-
-        self.btn_detail_screenshots = QPushButton("Screenshots")
-        self.btn_detail_screenshots.setIcon(get_icon("ph.image-bold", color="#A1A1AA"))
-        self.btn_detail_screenshots.setIconSize(QSize(14, 14))
-        self.btn_detail_screenshots.setFixedHeight(32)
-        self.btn_detail_screenshots.setStyleSheet(sec_btn_style)
-        self.btn_detail_screenshots.clicked.connect(self._open_screenshot_gallery)
-        actions_grid.addWidget(self.btn_detail_screenshots, 1, 0)
-
-        self.btn_detail_videos = QPushButton("Videos")
-        self.btn_detail_videos.setIcon(get_icon("ph.video-camera-bold", color="#A1A1AA"))
-        self.btn_detail_videos.setIconSize(QSize(14, 14))
-        self.btn_detail_videos.setFixedHeight(32)
-        self.btn_detail_videos.setStyleSheet(sec_btn_style)
-        self.btn_detail_videos.clicked.connect(self._open_video_gallery)
-        actions_grid.addWidget(self.btn_detail_videos, 1, 1)
-
-        detail_layout.addLayout(actions_grid)
-
-        self.btn_detail_achievements = QPushButton("Achievements")
-        self.btn_detail_achievements.setAccessibleName("Open achievements")
-        self.btn_detail_achievements.setToolTip("Open the full achievement list for this game")
-        self.btn_detail_achievements.setIcon(get_icon("ph.trophy-bold", color="#35C98A"))
-        self.btn_detail_achievements.setIconSize(QSize(14, 14))
-        self.btn_detail_achievements.setFixedHeight(32)
-        self.btn_detail_achievements.setStyleSheet(sec_btn_style)
-        self.btn_detail_achievements.clicked.connect(self._open_achievements_dialog)
-        self.btn_detail_achievements.setVisible(False)
-        detail_layout.addWidget(self.btn_detail_achievements)
-
-        # Apple-styled Achievement Preview Card in Inspector Detail Panel
-        self.detail_ach_card = QFrame()
-        self.detail_ach_card.setObjectName("detailAchCard")
-        self.detail_ach_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.detail_ach_card.setStyleSheet("""
-            QFrame#detailAchCard {
-                background-color: #121214;
-                border: 1px solid rgba(255, 255, 255, 0.05);
-                border-radius: 10px;
-                padding: 10px;
-            }
-            QFrame#detailAchCard:hover {
-                background-color: #18181B;
-                border-color: rgba(48, 209, 88, 0.3);
-            }
-        """)
-        self.detail_ach_card.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.detail_ach_card.mousePressEvent = lambda e: self._open_achievements_dialog()
-
-        ach_card_layout = QVBoxLayout(self.detail_ach_card)
-        ach_card_layout.setContentsMargins(10, 8, 10, 8)
-        ach_card_layout.setSpacing(6)
-
-        ach_hdr_row = QHBoxLayout()
-        ach_hdr_row.setContentsMargins(0, 0, 0, 0)
-        ach_hdr_row.setSpacing(6)
-
-        ach_title = QLabel("ACHIEVEMENTS")
-        ach_title.setStyleSheet("color: #71717A; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
-        ach_hdr_row.addWidget(ach_title)
-        ach_hdr_row.addStretch()
-
-        self.lbl_detail_ach_count = QLabel("0 / 0 (0%)")
-        self.lbl_detail_ach_count.setStyleSheet("color: #35C98A; font-size: 11px; font-weight: 700; background: transparent;")
-        ach_hdr_row.addWidget(self.lbl_detail_ach_count)
-        ach_card_layout.addLayout(ach_hdr_row)
-
-        self.detail_ach_progress = QProgressBar()
-        self.detail_ach_progress.setFixedHeight(4)
-        self.detail_ach_progress.setTextVisible(False)
-        self.detail_ach_progress.setRange(0, 100)
-        self.detail_ach_progress.setValue(0)
-        self.detail_ach_progress.setStyleSheet("""
-            QProgressBar {
-                background-color: #202024;
-                border: none;
-                border-radius: 2px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #35C98A, stop:1 #35C98A);
-                border-radius: 2px;
-            }
-        """)
-        ach_card_layout.addWidget(self.detail_ach_progress)
-
-        # Mini badge icons preview container
-        self.detail_ach_badges_container = QWidget()
-        self.detail_ach_badges_layout = QHBoxLayout(self.detail_ach_badges_container)
-        self.detail_ach_badges_layout.setContentsMargins(0, 2, 0, 0)
-        self.detail_ach_badges_layout.setSpacing(6)
-        ach_card_layout.addWidget(self.detail_ach_badges_container)
-
-        self.detail_ach_card.setVisible(False)
-        detail_layout.addWidget(self.detail_ach_card)
-
-        # Game lifecycle button: opens the shared uninstall/delete chooser.
-        self.btn_detail_remove = QPushButton("Uninstall / Delete")
-        self.btn_detail_remove.setIcon(get_icon("ph.trash-bold", color="#FF453A"))
-        self.btn_detail_remove.setIconSize(QSize(13, 13))
-        self.btn_detail_remove.setFixedHeight(28)
-        self.btn_detail_remove.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #FF453A;
-                border: none;
-                border-radius: 6px;
-                padding: 0 12px;
-                font-weight: 500;
-                font-size: 11px;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 69, 58, 0.1);
-                color: #FF6961;
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 69, 58, 0.18);
-            }
-        """)
-        self.btn_detail_remove.clicked.connect(self._on_remove)
-        detail_layout.addWidget(self.btn_detail_remove)
-
-        detail_layout.addStretch()
 
         # Center Main Game Library Area
         self.right_panel = QWidget()
@@ -1421,6 +1088,15 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             request_manager=self.request_manager,
             resource_cache=self.resource_cache,
         )
+        self.profile_controller = ProfileController(
+            page=self.profile_page, resources=self.profile_page.profile_resources,
+            settings=self.settings, auth=self.central_auth, manager=self.request_manager,
+            metadata_service=self.cloud_metadata_service, db_path=getattr(self.db, "db_path", None),
+            worker_registry=self.worker_supervisor, show_profile=self._show_profile_page,
+            open_owner=self._open_achievement_profile, refresh_library=self._refresh_library,
+            refresh_identity=self._update_header_identity, network_allowed=self._automatic_network_allowed,
+            accepts_work=self._request_manager_accepts_work, parent=self,
+        )
         self.profile_page.hide()
         self.profile_page.back_requested.connect(self._close_profile_page)
         self.profile_page.open_profile_handle_requested.connect(self._open_public_profile_handle)
@@ -1429,8 +1105,6 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         self.profile_page.avatar_pixmap_changed.connect(self.title_bar.set_profile_avatar)
         self.title_bar.set_profile_avatar(self.profile_page.current_avatar_pixmap())
         right_layout.addWidget(self.profile_page, 1)
-        self._profile_view_active = False
-        self._profile_remote_tasks = TaskSupervisor(self, worker_registry=self.worker_supervisor)
 
         # ── Dedicated Darker Footer Bar (#121214, 36px) with Add Game and View Toggle on bottom-left ──
         self.footer_bar = QFrame(self)
@@ -1576,6 +1250,24 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         self._setup_library_shortcuts()
         self._apply_accessibility_metadata()
         
+        self.library_card_renderer = LibraryCardRenderer(
+            self.library_view_host, self.sgdb_client, self.artwork_controller,
+            network_allowed=self._automatic_network_allowed,
+            actions=LibraryCardActions(self._select_game_by_id, self._on_double_click_game,
+                self._on_card_favorite_clicked, self._launch_game_by_id,
+                self._show_game_cloud_menu, self._on_card_cloud_badge_clicked))
+        self.banner_widgets = self.library_card_renderer.cards
+        self.library_navigation = LibraryNavigationController(
+            LibraryNavigationViews(self.library_view_host, self.scroll_area,
+                self.library_header_bar, self.collection_banner, self.detail_panel,
+                self.btn_reveal_detail, self.sidebar, self.footer_bar,
+                self.profile_page, self.right_layout),
+            mode=lambda: self.library_view_mode,
+            virtual=lambda: len(self.banner_widgets) >= self.virtualization_threshold,
+            collection_active=lambda: bool(self.collection_filter),
+            update_detail=self._update_detail_panel, update_compact=self._update_compact_game_page,
+            show_inspector=self._animate_left_panel, has_selection=lambda: self.selected_game is not None)
+
         self.setStyleSheet(get_application_stylesheet())
         
         # 5-minute periodic drive check timer (300,000 ms)
@@ -1606,6 +1298,17 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         self._startup_app_update_info = None
         self._startup_backend_health = None
         self._startup_update_notice_shown = False
+        self.app_update_controller = AppUpdateController(
+            parent=self,
+            action_button=self.btn_update_banner_action,
+            message_label=self.lbl_update_banner_msg,
+            banner=self.update_banner,
+            register_worker=self._register_worker,
+            network_allowed=self._automatic_network_allowed,
+            on_check_finished=self._on_app_update_check_finished,
+            running_game_ids=lambda: self.running_game_ids,
+            games_provider=lambda: self.games,
+        )
         if (
             self._automatic_network_allowed()
             and os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") != "1"
@@ -1623,6 +1326,12 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         # open it through the normal action when needed.
         if show_wizard and not self._offline_test_mode and self._automatic_network_allowed():
             QTimer.singleShot(150, self._show_welcome_wizard)
+
+        # Start the only process-wide input hook after all fallible view and
+        # service composition has completed. A constructor error must not leave
+        # an X11 listener running after the entrypoint unwinds the runtime.
+        if self._start_hotkeys_after_composition:
+            self.global_hotkeys.start()
 
     def _resize_to_available_screen(
         self,
@@ -1658,65 +1367,29 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         """
         allowed = automatic_network_allowed(getattr(self, "settings", None))
         self._offline_mode = is_offline_mode(getattr(self, "settings", None))
-        return allowed
+        return allowed and not getattr(self, "_closing", False)
 
     def _start_network_monitor(self) -> None:
         """Probe connectivity periodically while automatic networking is allowed."""
-        if self._offline_test_mode or not self._automatic_network_allowed():
-            self._network_probe_timer.stop()
-            return
-        self._network_probe_timer.start()
-        # Give the first library render a chance to settle before spending a
-        # request slot on the connectivity check.
-        QTimer.singleShot(1500, self._probe_network_now)
+        self.network_monitor.start()
 
     def _probe_network_now(self) -> None:
-        """Run the connectivity check through the shared request workers."""
-        if (
-            self._offline_test_mode
-            or not self._automatic_network_allowed()
-            or self._network_probe_in_flight
-        ):
-            return
-        self._network_probe_in_flight = True
-        handle = self.request_manager.request(
-            RequestKey("internet-connectivity", "public", "v1"),
-            lambda token: (
-                token.raise_if_cancelled(),
-                probe_internet(timeout=3.0),
-                token.raise_if_cancelled(),
-            )[1],
-            priority=RequestPriority.BACKGROUND,
-            metadata={"allow_offline": True, "connectivity_probe": True},
-            timeout_seconds=5,
-        )
-        handle.future.add_done_callback(
-            lambda future: self._network_probe_done.emit(future)
-        )
+        """Compatibility delegate for user-triggered connectivity retries."""
+        self.network_monitor.probe_now()
 
-    def _on_network_probe_done(self, future) -> None:
+    def _on_network_probe_done(self, result: dict) -> None:
         """Update the footer and surface only an online→offline transition."""
-        self._network_probe_in_flight = False
         if not self._automatic_network_allowed():
-            self._network_probe_timer.stop()
+            self.network_monitor.stop()
             return
-        reachable = False
-        reason = "The internet connection could not be reached."
-        try:
-            result = future.result()
-            if result.status == ResourceStatus.READY and isinstance(result.value, tuple):
-                reachable = bool(result.value[0])
-                reason = str(result.value[1] or reason)
-        except Exception as error:
-            logger.debug("Connectivity probe failed: %s", error)
-
-        previous = self._network_reachable
-        had_previous = self._network_reachability_known
-        self._network_reachability_known = True
-        self._network_reachable = reachable
+        reachable = bool(result.get("reachable", False))
+        reason = str(result.get("reason") or "The internet connection could not be reached.")
+        previous = bool(result.get("previous_reachable", False))
+        had_previous = bool(result.get("had_previous", False))
         if reachable:
-            was_transiently_unavailable = self._transient_network_unavailable
-            self._transient_network_unavailable = False
+            was_transiently_unavailable = bool(
+                result.get("was_transient_unavailable", False)
+            )
             self._network_loss_pending = False
             self._set_network_status(False)
             dialog = self._network_loss_dialog
@@ -1735,10 +1408,6 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                     QTimer.singleShot(300, self._check_all_steam_updates)
             return
 
-        self._transient_network_unavailable = True
-        self.request_manager.cancel_matching(
-            lambda spec: not bool(spec.metadata.get("allow_offline", False))
-        )
         self._set_network_status(True, reason)
         dialog = self._network_loss_dialog
         if dialog is not None:
@@ -1778,7 +1447,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         if dialog is not None:
             dialog.set_retrying(True)
         self._network_loss_pending = True
-        QTimer.singleShot(0, self._probe_network_now)
+        QTimer.singleShot(0, self.network_monitor.probe_now)
 
     def _switch_to_offline_from_network_loss(self) -> None:
         was_offline = is_offline_mode(self.settings)
@@ -1826,12 +1495,8 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         """Stop optional network work immediately after Settings changes."""
         now_offline = is_offline_mode(self.settings)
         self._offline_mode = now_offline
-        self._transient_network_unavailable = False
         if now_offline or not self._automatic_network_allowed():
-            network_timer = getattr(self, "_network_probe_timer", None)
-            if network_timer is not None:
-                network_timer.stop()
-            self._network_probe_in_flight = False
+            self.network_monitor.stop()
             self._set_network_status(
                 True,
                 "Offline mode is enabled; remote metadata checks are paused. Cached and local data remain available.",
@@ -1844,13 +1509,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                         timer.stop()
                     except RuntimeError:
                         pass
-            self._pending_auto_fetchers.clear()
-            for fetcher in list(self.auto_fetchers):
-                try:
-                    if fetcher.isRunning():
-                        fetcher.requestInterruption()
-                except RuntimeError:
-                    pass
+            self.artwork_controller.cancel_compatibility_fetches()
             self._cancel_metadata_fetchers()
             self._cancel_optional_network_tasks()
             self.cloud_center_service.cancel_pending_reads()
@@ -1907,8 +1566,8 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         """Request cancellation for one-shot network tasks already in flight."""
         self._close_managed_cloud_status_bindings()
         self._close_managed_achievement_bindings()
-        self._close_managed_artwork_bindings()
-        self._close_managed_steam_metadata_bindings()
+        self.artwork_controller.close_bindings()
+        self.steam_metadata_controller.close_bindings()
         markers = (
             "account", "backend", "cloud", "metadata", "profile", "telemetry",
             "update", "ludusavi", "publicprofile", "public_profile",
@@ -1962,21 +1621,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
 
     def _check_app_updates(self):
         """Check GitHub Releases for new SafeLauncher versions in background."""
-        if (
-            not self._automatic_network_allowed()
-            or os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") == "1"
-        ):
-            return
-        try:
-            from core.updater import UpdateCheckWorker
-            self._update_worker = UpdateCheckWorker(parent=self)
-            self._update_worker.check_finished.connect(self._on_app_update_check_finished)
-            self._register_worker(self._update_worker)
-            self._update_worker.start()
-        except Exception as e:
-            logger.debug(f"Failed to start update worker: {e}")
-            self._startup_app_update_info = {}
-            self._maybe_show_startup_update_notice()
+        self.app_update_controller.check_for_updates()
 
     def _check_backend_update_on_startup(self):
         """Probe the configured cloud backend without delaying window startup."""
@@ -2058,100 +1703,9 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         dialog.open()
 
     def _on_app_update_check_finished(self, info: dict):
-        """Display non-intrusive update banner if a new release is detected."""
-        info = info or {}
+        """Feed update-check completion into the combined startup notice."""
         self._startup_app_update_info = info or {}
         self._maybe_show_startup_update_notice()
-        if not info.get("update_available"):
-            return
-
-        self._latest_update_info = info
-        latest = info.get("latest_version", "")
-
-        try:
-            self.btn_update_banner_action.clicked.disconnect()
-        except Exception:
-            pass
-
-        if info.get("is_appimage") and info.get("appimage_asset"):
-            self.lbl_update_banner_msg.setText(f"SafeLauncher {latest} is available!")
-            self.btn_update_banner_action.setText("Download & Apply")
-            self.btn_update_banner_action.clicked.connect(self._on_banner_download_clicked)
-            self.update_banner.setVisible(True)
-        else:
-            self.lbl_update_banner_msg.setText(f"SafeLauncher {latest} is available on GitHub (source checkout).")
-            self.btn_update_banner_action.setText("View Release ↗")
-            rel_url = info.get("release_url") or "https://github.com/Mistarin/SafeLauncher/releases"
-            self.btn_update_banner_action.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(rel_url)))
-            self.update_banner.setVisible(True)
-
-    def _on_banner_download_clicked(self):
-        """Initiate AppImage download from banner."""
-        info = getattr(self, "_latest_update_info", None)
-        if not info or not info.get("appimage_asset"):
-            return
-
-        asset_url = info["appimage_asset"]["download_url"]
-        self.btn_update_banner_action.setEnabled(False)
-        self.btn_update_banner_action.setText("Downloading…")
-
-        from core.updater import UpdateDownloadWorker
-        self._dl_worker = UpdateDownloadWorker(asset_url, parent=self)
-        self._dl_worker.progress.connect(self._on_banner_download_progress)
-        self._dl_worker.finished.connect(self._on_banner_download_finished)
-        self._dl_worker.failed.connect(self._on_banner_download_failed)
-        self._register_worker(self._dl_worker)
-        self._dl_worker.start()
-
-    def _on_banner_download_progress(self, downloaded: int, total: int):
-        if total > 0:
-            pct = int((downloaded / total) * 100)
-            self.lbl_update_banner_msg.setText(f"Downloading SafeLauncher update: {pct}%…")
-
-    def _on_banner_download_finished(self, target_path: str):
-        self.lbl_update_banner_msg.setText("Update verified and ready to apply!")
-        self.btn_update_banner_action.setText("Restart Now")
-        self.btn_update_banner_action.setEnabled(True)
-        try:
-            self.btn_update_banner_action.clicked.disconnect()
-        except Exception:
-            pass
-        self.btn_update_banner_action.clicked.connect(self._on_banner_restart_clicked)
-
-        reply = QMessageBox.question(
-            self, "Update Ready",
-            "SafeLauncher has been successfully updated.\n\nRestart now to apply?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._on_banner_restart_clicked()
-
-    def _on_banner_download_failed(self, error: str):
-        self.lbl_update_banner_msg.setText(f"Update failed: {error}")
-        self.btn_update_banner_action.setText("Retry")
-        self.btn_update_banner_action.setEnabled(True)
-        try:
-            self.btn_update_banner_action.clicked.disconnect()
-        except Exception:
-            pass
-        self.btn_update_banner_action.clicked.connect(self._on_banner_download_clicked)
-
-    def _on_banner_restart_clicked(self):
-        # exec() replaces this process: playtime tracking and exit-uploads for
-        # running games would be lost (the games themselves keep running).
-        if self.running_game_ids:
-            names = ", ".join(
-                self.games_by_id.get(gid, (None, f"Game {gid}"))[1]
-                for gid in self.running_game_ids)
-            QMessageBox.warning(
-                self, "Games Still Running",
-                "Restarting SafeLauncher now would lose playtime tracking and "
-                f"the exit save-upload for: {names}.\n\nClose the game(s) first, "
-                "then restart. The update is already applied and survives the restart.")
-            return
-        from core.updater import restart_application
-        restart_application()
-
     def _show_welcome_wizard(self):
         from ui.dialogs.welcome_wizard import WelcomeWizardDialog
         wizard = WelcomeWizardDialog(self.user_name, self.proton_path, self)
@@ -2344,6 +1898,10 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             date_format=self.date_format,
             request_manager=self.request_manager,
             initial_tab=initial_tab,
+            services=SettingsDialogServices(
+                request_manager=self.request_manager, operation_registry=self.operation_registry,
+                worker_registry=self.worker_supervisor, cloud_account=self.cloud_account_service,
+                cloud_center=self.cloud_center_service, open_cloud_center=self._open_cloud_center),
         )
         # PopupDialog uses WA_DeleteOnClose, but this handler reads the form
         # values after exec() returns. Keep the dialog alive until those reads
@@ -3041,33 +2599,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         cycle = {"compact": "grid", "grid": "compact", "steam": "grid"}
         self.library_view_mode = cycle.get(self.library_view_mode, "compact")
         self.settings.setValue("library_view_mode", self.library_view_mode)
-        use_virtual = len(self.banner_widgets) >= getattr(self, "virtualization_threshold", 200)
-        if self.library_view_mode in ("compact", "steam"):
-            self.library_view_host.set_mode("compact")
-            self.detail_panel.setVisible(False)
-            self.btn_reveal_detail.setVisible(False)
-            if hasattr(self, "library_header_bar"):
-                self.library_header_bar.setVisible(False)
-            if hasattr(self, "right_layout"):
-                self.right_layout.setContentsMargins(0, 0, 0, 0)
-                self.right_layout.setSpacing(0)
-            self._update_compact_game_page()
-        elif use_virtual:
-            self.library_view_host.set_mode("grid", use_virtual=True)
-            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            if hasattr(self, "library_header_bar"):
-                self.library_header_bar.setVisible(True)
-            if hasattr(self, "right_layout"):
-                self.right_layout.setContentsMargins(18, 14, 18, 14)
-                self.right_layout.setSpacing(12)
-        else:
-            self.library_view_host.set_mode("grid")
-            self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            if hasattr(self, "library_header_bar"):
-                self.library_header_bar.setVisible(True)
-            if hasattr(self, "right_layout"):
-                self.right_layout.setContentsMargins(18, 14, 18, 14)
-                self.right_layout.setSpacing(12)
+        self.library_navigation.library()
         view_labels = {"compact": "Compact", "grid": "Grid", "steam": "Compact"}
         current_label = view_labels.get(self.library_view_mode, "Grid")
         self.btn_view_toggle.setText(f"View: {current_label}")
@@ -3185,16 +2717,8 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         """Clear and reload game banners into dynamic responsive grid based on search, status filter, and sorting."""
         self.performance_tracker.mark_library_refresh()
         selected_game_id = self.selected_game[0] if self.selected_game else None
-        # Explicitly hide and destroy old child widgets
-        for old_w in list(self.banner_widgets.values()):
-            try:
-                old_w.hide()
-                old_w.setParent(None)
-                old_w.deleteLater()
-            except (RuntimeError, AttributeError):
-                pass
-        self.banner_widgets.clear()
-        
+        self.library_card_renderer.clear()
+
         self.games = list(self.library_service.read_games())
         self.games_by_id = {game[0]: game for game in self.games}
         self._resolve_missing_steam_names()
@@ -3295,153 +2819,14 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
 
         use_virtual = len(processed) >= getattr(self, "virtualization_threshold", 200)
 
-        if use_virtual:
-            # Virtualized grid presentation for large libraries (500+ games)
-            for item_data in processed:
-                g = item_data[0] if isinstance(item_data, tuple) and len(item_data) == 4 and not hasattr(item_data, "id") and hasattr(item_data[0], "__getitem__") else item_data
-                raw_id = g[0] if hasattr(g, "__getitem__") else getattr(g, "id", 0)
-                if hasattr(raw_id, "id"):
-                    raw_id = raw_id.id
-                if isinstance(raw_id, (tuple, list)) and len(raw_id) > 0:
-                    raw_id = raw_id[0]
-                game_id = int(raw_id)
-
-                self.banner_widgets[game_id] = BannerProxy(game_id, self.virtual_grid)
-
-                # Background banner/icon auto-fetch
-                name = g[1] if len(g) > 1 and g[1] else ""
-                path = g[2] if len(g) > 2 and g[2] else ""
-                executable = g[3] if len(g) > 3 and g[3] else ""
-                banner_url = g[5] if len(g) > 5 and g[5] else ""
-                steam_id = g[6] if len(g) > 6 and g[6] else ""
-                icon_url = g[18] if len(g) > 18 and g[18] else ""
-                is_archived = bool(len(g) > 17 and g[17])
-                banner_missing = not banner_url or not os.path.exists(banner_url)
-                icon_missing = not icon_url or not os.path.exists(icon_url)
-                if self._automatic_network_allowed() and not is_archived and (banner_missing or icon_missing):
-                    full_exe = os.path.join(path, executable) if (path and executable) else ""
-                    self._start_auto_artwork_fetch(
-                        game_id,
-                        name,
-                        full_exe,
-                        str(steam_id or ""),
-                    )
-
-            try:
-                self.library_view_host.set_grid_widgets([])
-            except (RuntimeError, AttributeError):
-                pass
-        else:
-            widgets = []
-            for g, is_missing, playtime_seconds, is_fav in processed:
-                game_id, name, path, executable, mode, banner_url, steam_id = g[:7]
-                version_override = g[15] if len(g) > 15 and g[15] else ""
-                icon_url = g[18] if len(g) > 18 and g[18] else ""
-
-                if banner_url and not os.path.exists(banner_url):
-                    banner_url = None
-
-                if not icon_url or not os.path.exists(icon_url):
-                    full_exe = os.path.join(path, executable) if (path and executable) else ""
-                    cached_icon = self.sgdb_client.get_icon_cached_path(steam_id=steam_id, game_name=name, exe_path=full_exe, game_id=game_id)
-                    if cached_icon and os.path.exists(cached_icon):
-                        icon_url = cached_icon
-                    else:
-                        icon_url = ""
-                
-                widget = GameBannerWidget(
-                    game_id, name, banner_url, playtime_seconds or 0,
-                    version=version_override, icon_path=icon_url, parent=self.grid_container
-                )
-                widget.set_missing(is_missing)
-                update_state = self.game_status_by_id.get(game_id, GameStatusState())
-                widget.set_update_status(
-                    bool(self.update_status_by_game_id.get(game_id, False)),
-                    source=getattr(update_state, "update_source", "unknown"),
-                    checked_at=getattr(update_state, "update_checked_at", 0.0),
-                )
-                widget.set_favorite(is_fav)
-                widget.set_selected(game_id in self._selected_library_ids())
-                cached_cloud = self.cloud_save_status_cache.get(game_id)
-                if cached_cloud:
-                    widget.set_cloud_status(cached_cloud[0])
-                widget.clicked.connect(self._select_game_by_id)
-                widget.doubleClicked.connect(self._on_double_click_game)
-                widget.favoriteClicked.connect(self._on_card_favorite_clicked)
-                widget.launchClicked.connect(self._launch_game_by_id)
-                widget.rightClicked.connect(self._show_game_cloud_menu)
-                widget.cloudActionRequested.connect(self._on_card_cloud_badge_clicked)
-                
-                widgets.append(widget)
-                self.banner_widgets[game_id] = widget
-                
-                banner_missing = not banner_url or not os.path.exists(banner_url)
-                icon_missing = not icon_url or not os.path.exists(icon_url)
-                is_archived = bool(len(g) > 17 and g[17])
-                if self._automatic_network_allowed() and not is_archived and (banner_missing or icon_missing):
-                    full_exe = os.path.join(path, executable) if (path and executable) else ""
-                    self._start_auto_artwork_fetch(
-                        game_id,
-                        name,
-                        full_exe,
-                        str(steam_id or ""),
-                    )
-                
-            try:
-                self.library_view_host.set_grid_widgets(widgets)
-            except (RuntimeError, AttributeError):
-                pass
-
-        try:
-            self.library_view_host.render_snapshot(self.library_snapshot, self.sgdb_client.cache_dir, self._selected_library_ids())
-        except (RuntimeError, AttributeError):
-            pass
+        self.library_card_renderer.render(
+            self.library_snapshot, self._selected_library_ids(), use_virtual=use_virtual)
         self.performance_tracker.mark_library_render()
-
-        if self.library_view_mode in ("compact", "steam"):
-            self.library_view_host.set_mode("compact")
-            self.detail_panel.setVisible(False)
-            self.btn_reveal_detail.setVisible(False)
-            self._update_compact_game_page()
-        elif use_virtual:
-            self.library_view_host.set_mode("grid", use_virtual=True)
-        else:
-            self.library_view_host.set_mode("grid")
+        self.library_navigation.library()
         self._check_games_on_drive()
         self._update_tray_menu()
 
-        # Prefetch 16:9 hero artwork and game icons through the shared manager.
-        for game in self.games:
-            if len(game) > 17 and game[17]:
-                # Archived records are intentionally presentation-only. They
-                # use a neutral archive icon and must not start artwork work.
-                continue
-            g_id = game[0]
-            g_name = game[1] if len(game) > 1 else ""
-            g_path = game[2] if len(game) > 2 else ""
-            g_exe = game[3] if len(game) > 3 else ""
-            s_id = game[6] if len(game) > 6 else ""
-            full_exe = os.path.join(g_path, g_exe) if (g_path and g_exe) else ""
-
-            hero_cache_file = self.sgdb_client.get_hero_cached_path(steam_id=s_id, game_name=g_name, exe_path=full_exe, game_id=g_id)
-            if self._automatic_network_allowed() and not hero_cache_file:
-                self._request_managed_hero_artwork(
-                    g_id,
-                    g_name,
-                    s_id,
-                    full_exe,
-                    priority=RequestPriority.BACKGROUND,
-                )
-
-            icon_url = game[18] if len(game) > 18 and game[18] else ""
-            if self._automatic_network_allowed() and (not icon_url or not os.path.exists(icon_url)):
-                self._request_managed_icon_artwork(
-                    g_id,
-                    g_name,
-                    str(s_id or ""),
-                    full_exe,
-                    priority=RequestPriority.BACKGROUND,
-                )
+        self.library_card_renderer.prefetch(self.games)
 
     def _update_sidebar_counts(self):
         """Recompute sidebar stats; called on refresh and after drive re-checks."""
@@ -3464,14 +2849,11 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             if game and int(game[0]) == int(game_id):
                 return bool(len(game) > 17 and game[17])
         database = getattr(self, "db", None)
-        connection = getattr(database, "conn", None)
-        if connection is None:
+        read_archive_state = getattr(database, "is_game_archived", None)
+        if read_archive_state is None:
             return False
         try:
-            row = connection.execute(
-                "SELECT is_archived FROM games WHERE id = ?", (int(game_id),)
-            ).fetchone()
-            return bool(row and row[0])
+            return bool(read_archive_state(game_id))
         except Exception:
             return False
 
@@ -3520,126 +2902,6 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         # Keep sidebar counts consistent with the re-checked on-disk state.
         self._update_sidebar_counts()
 
-    def _start_auto_artwork_fetch(
-        self,
-        game_id: int,
-        game_name: str,
-        exe_path: str,
-        steam_id: str,
-    ) -> None:
-        """Schedule missing cover/icon artwork through the shared manager."""
-        if self.request_manager is not None:
-            self._request_managed_auto_artwork(
-                game_id,
-                game_name,
-                exe_path,
-                steam_id,
-                priority=RequestPriority.BACKGROUND,
-            )
-            return
-
-        # Compatibility for embedded callers that do not provide a manager.
-        if game_id in self._compat_auto_fetch_attempted:
-            return
-        self._compat_auto_fetch_attempted.add(game_id)
-        fetcher = BannerAutoFetcher(
-            game_id,
-            game_name,
-            self.sgdb_client,
-            exe_path=exe_path,
-            steam_id=steam_id,
-        )
-        fetcher.banner_auto_downloaded.connect(self._on_auto_banner_downloaded)
-        fetcher.finished.connect(lambda f=fetcher: self._cleanup_auto_fetcher(f))
-        if len(self.auto_fetchers) < self.max_concurrent_auto_fetchers:
-            self.auto_fetchers.append(fetcher)
-            self._register_worker(fetcher)
-            fetcher.start()
-        else:
-            self._pending_auto_fetchers.append(fetcher)
-
-    def _request_managed_auto_artwork(
-        self,
-        game_id: int,
-        game_name: str,
-        exe_path: str,
-        steam_id: str,
-        *,
-        priority: RequestPriority,
-    ) -> None:
-        """Resolve one cover/icon pair and share it across duplicate rows."""
-        if self.request_manager is None:
-            return
-        artwork_target = ArtworkTarget(
-            int(game_id),
-            str(game_name),
-            str(steam_id or ""),
-            str(exe_path or ""),
-        )
-        plan = self.artwork_coordinator.prepare(
-            "auto",
-            artwork_target,
-            priority=priority,
-            mark_attempted=True,
-        )
-        if plan is None:
-            return
-        key = plan.key
-        if not plan.new_binding:
-            current = self.request_manager.state(key)
-            if current.usable and isinstance(current.value, (tuple, list)):
-                self._apply_managed_auto_artwork(game_id, current.value)
-            return
-
-        binding = bind_resource(
-            self.request_manager,
-            key,
-            lambda result, key=key: self._on_managed_auto_artwork_state(key, result),
-            self,
-            cancel_on_close=True,
-        )
-        self.artwork_coordinator.attach_binding(plan, binding)
-        try:
-            self.artwork_coordinator.request(plan)
-        except Exception:
-            binding = self.artwork_coordinator.discard("auto", key)
-            if binding is not None:
-                binding.close()
-                binding.deleteLater()
-
-    def _apply_managed_auto_artwork(self, game_id: int, value) -> None:
-        if not isinstance(value, (tuple, list)) or len(value) < 3:
-            return
-        self._on_auto_banner_downloaded(
-            game_id,
-            str(value[0] or ""),
-            int(value[1] or 0),
-            str(value[2] or ""),
-        )
-
-    def _on_managed_auto_artwork_state(self, key: RequestKey, result) -> None:
-        if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
-            for game_id in self.artwork_coordinator.game_ids("auto", key):
-                self._apply_managed_auto_artwork(game_id, result.value)
-        elif result.status not in {ResourceStatus.LOADING}:
-            logger.debug("Managed automatic artwork request failed for %s: %s", key, result.error or result.status.value)
-
-        if result.status in {
-            ResourceStatus.READY,
-            ResourceStatus.STALE,
-            ResourceStatus.ERROR,
-            ResourceStatus.OFFLINE,
-            ResourceStatus.UNAVAILABLE,
-            ResourceStatus.AUTHENTICATION_REQUIRED,
-            ResourceStatus.PERMISSION_DENIED,
-            ResourceStatus.CONFLICT,
-            ResourceStatus.CANCELLED,
-        }:
-            binding = self.artwork_coordinator.discard("auto", key)
-            if binding is not None:
-                binding.close()
-                binding.deleteLater()
-
     def _on_auto_banner_downloaded(self, game_id: int, image_path: str, steam_id: int = 0, icon_path: str = ""):
         """Update DB and widget when background auto-fetch completes"""
         if self._is_archived_game_id(game_id):
@@ -3681,27 +2943,6 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         if steam_id and hasattr(self, "profile_page"):
             self.profile_page.mark_local_data_changed()
 
-    def _cleanup_auto_fetcher(self, fetcher):
-        if fetcher in self.auto_fetchers:
-            self.auto_fetchers.remove(fetcher)
-        self._start_next_pending_fetcher()
-
-    def _start_next_pending_fetcher(self):
-        """Launch the next queued art fetch once a slot frees up."""
-        if not self._automatic_network_allowed():
-            self._pending_auto_fetchers.clear()
-            return
-        while self._pending_auto_fetchers:
-            if len(self.auto_fetchers) >= self.max_concurrent_auto_fetchers:
-                return
-            fetcher = self._pending_auto_fetchers.pop(0)
-            if fetcher.isInterruptionRequested():
-                continue
-            self.auto_fetchers.append(fetcher)
-            self._register_worker(fetcher)
-            fetcher.start()
-            return
-
     def _cancel_metadata_fetchers(self):
         for fetcher in list(self.metadata_fetchers):
             if fetcher.isRunning():
@@ -3713,211 +2954,23 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         self._register_worker(fetcher)
         fetcher.start()
 
-    def _request_managed_hero_artwork(
-        self,
-        game_id: int,
-        game_name: str,
-        steam_id: str,
-        exe_path: str,
-        *,
-        priority: RequestPriority,
-    ) -> None:
-        """Load one shared hero resource for every library row that needs it."""
-        if self.request_manager is None:
-            return
-        artwork_target = ArtworkTarget(
-            int(game_id),
-            str(game_name),
-            str(steam_id or ""),
-            str(exe_path or ""),
-        )
-        plan = self.artwork_coordinator.prepare(
-            "hero",
-            artwork_target,
-            priority=priority,
-            mark_attempted=True,
-        )
-        if plan is None:
-            return
-        key = plan.key
-
-        binding = self.artwork_coordinator.binding("hero", key)
-        if binding is not None:
-            current = self.request_manager.state(key)
-            if current.usable and current.value and os.path.exists(str(current.value)):
-                self._on_hero_downloaded(game_id, str(current.value))
-            return
-
-        binding = bind_resource(
-            self.request_manager,
-            key,
-            lambda result, key=key: self._on_managed_hero_state(key, result),
-            self,
-            cancel_on_close=True,
-        )
-        self.artwork_coordinator.attach_binding(plan, binding)
-        self.artwork_coordinator.request(plan)
-
-    def _on_managed_hero_state(self, key: RequestKey, result) -> None:
-        if result.status not in {ResourceStatus.READY, ResourceStatus.STALE}:
-            return
-        path = str(result.value or "")
-        if not path or not os.path.exists(path):
-            return
-        for game_id in self.artwork_coordinator.game_ids("hero", key):
-            self._on_hero_downloaded(game_id, path)
-
-    def _request_managed_icon_artwork(
-        self,
-        game_id: int,
-        game_name: str,
-        steam_id: str,
-        exe_path: str,
-        *,
-        priority: RequestPriority,
-    ) -> None:
-        """Load one shared icon resource for every library row that needs it."""
-        if self.request_manager is None:
-            return
-        artwork_target = ArtworkTarget(
-            int(game_id),
-            str(game_name),
-            str(steam_id or ""),
-            str(exe_path or ""),
-        )
-        plan = self.artwork_coordinator.prepare(
-            "icon",
-            artwork_target,
-            priority=priority,
-            mark_attempted=True,
-        )
-        if plan is None:
-            return
-        key = plan.key
-
-        binding = self.artwork_coordinator.binding("icon", key)
-        if binding is not None:
-            current = self.request_manager.state(key)
-            if current.usable and current.value and os.path.exists(str(current.value)):
-                self._on_icon_downloaded(game_id, str(current.value))
-            return
-
-        binding = bind_resource(
-            self.request_manager,
-            key,
-            lambda result, key=key: self._on_managed_icon_state(key, result),
-            self,
-            cancel_on_close=True,
-        )
-        self.artwork_coordinator.attach_binding(plan, binding)
-        self.artwork_coordinator.request(plan)
-
-    def _on_managed_icon_state(self, key: RequestKey, result) -> None:
-        if result.status not in {ResourceStatus.READY, ResourceStatus.STALE}:
-            return
-        path = str(result.value or "")
-        if not path or not os.path.exists(path):
-            return
-        for game_id in self.artwork_coordinator.game_ids("icon", key):
-            self._on_icon_downloaded(game_id, path)
-
-    def _close_managed_artwork_bindings(self) -> None:
-        for binding in self.artwork_coordinator.close():
-            binding.close()
-            binding.deleteLater()
-
     def _register_worker(self, worker):
         """Register an application-owned worker with the shutdown supervisor."""
         self.worker_supervisor.register(worker)
 
-    def _start_managed_task(
-        self, name: str, work, on_complete=None, *, allow_offline: bool = False
-    ):
-        """Start a one-shot task owned by this window and shut it down safely."""
-        if self.request_manager is not None:
-            operation = self.operation_registry.start(
-                name.replace("_", " ").strip().title(),
-                category="Background",
-            )
-            key = RequestKey("window-task", f"{name}:{id(work)}")
-            handle = self.request_manager.request(
-                key,
-                lambda token: (token.raise_if_cancelled(), work(), token.raise_if_cancelled())[1],
-                priority=RequestPriority.NORMAL,
-                metadata={"allow_offline": bool(allow_offline)},
-                timeout_seconds=120,
-            )
-            operation.cancel = handle.cancel
-            operation.retry = lambda: self._start_managed_task(
-                name, work, on_complete, allow_offline=allow_offline
-            )
-            self._managed_task_callbacks[handle.request_id] = (name, operation, on_complete)
-            handle.future.add_done_callback(
-                lambda future, request_id=handle.request_id: self._managed_task_done.emit(
-                    (request_id, future)
-                )
-            )
-            return handle
+    def start_background_task(self, name, work, on_complete=None, *, allow_offline=False):
+        """Public application-task entrypoint for startup and integrations."""
+        if self._closing:
+            return None
+        return self.managed_tasks.start(name, work, on_complete, allow_offline=allow_offline)
 
-        worker = FunctionWorker(work, parent=self)
-        worker.setObjectName(name)
-        operation = self.operation_registry.start(
-            name.replace("_", " ").strip().title(),
-            category="Background",
-            cancel=getattr(worker, "request_cancel", worker.requestInterruption),
-        )
-        operation.retry = lambda: self._start_managed_task(
-            name, work, on_complete, allow_offline=allow_offline
-        )
-        if on_complete is not None:
-            def _complete(result, callback=on_complete, op_id=operation.operation_id):
-                self.operation_registry.finish_result(op_id, result)
-                callback(result)
-            worker.completed.connect(_complete)
-        else:
-            worker.completed.connect(
-                lambda result, op_id=operation.operation_id: self.operation_registry.finish_result(op_id, result)
-            )
-        worker.error_occurred.connect(
-            lambda error, task=name, op_id=operation.operation_id: self._on_managed_task_error(task, op_id, error)
-        )
+    def _start_managed_task(self, name, work, on_complete=None, *, allow_offline=False):
+        """Compatibility adapter; task ownership lives outside the window."""
+        return self.start_background_task(name, work, on_complete, allow_offline=allow_offline)
 
-        def _retire():
-            if operation.active:
-                self.operation_registry.finish(operation.operation_id, state="cancelled")
-
-        worker.finished.connect(_retire)
-        self._register_worker(worker)
-        worker.start()
-        return worker
-
-    def _on_managed_task_done(self, payload: object) -> None:
-        request_id, future = payload
-        task_data = self._managed_task_callbacks.pop(request_id, None)
-        if task_data is None:
-            return
-        name, operation, on_complete = task_data
-        try:
-            result = future.result()
-        except Exception as error:
-            self._on_managed_task_error(name, operation.operation_id, str(error))
-            return
-        if result.status == ResourceStatus.READY:
-            self.operation_registry.finish_result(operation.operation_id, result.value)
-            if on_complete is not None:
-                on_complete(result.value)
-        elif result.status == ResourceStatus.CANCELLED:
-            self.operation_registry.finish(operation.operation_id, state="cancelled")
-        else:
-            self._on_managed_task_error(
-                name,
-                operation.operation_id,
-                str(result.error or result.status.value),
-            )
-
-    def _on_managed_task_error(self, task: str, operation_id: str, error: str) -> None:
-        logger.warning("Background task %s failed: %s", task, error)
-        self.operation_registry.fail(operation_id, error)
+    def activate_window(self):
+        """Public activation endpoint for the single-instance IPC listener."""
+        self._show_and_raise()
 
     def _on_operation_failed(self, operation) -> None:
         """Surface background failures without interrupting the current task."""
@@ -4031,12 +3084,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         self._close_game_detail()
 
     def _close_game_detail(self):
-        """Return from Game Detail Page back to the Grid view."""
-        if hasattr(self, "library_header_bar"):
-            self.library_header_bar.setVisible(True)
-        use_virtual = len(self.banner_widgets) >= getattr(self, "virtualization_threshold", 200)
-        self.library_view_host.set_mode("grid", use_virtual=use_virtual)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.library_navigation.library()
 
     def _open_game_detail(self, game_id: int):
         """Open the dedicated Game Detail Page for the clicked banner in Grid view."""
@@ -4103,11 +3151,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         # Update hero background image
         self._update_hero_background_for_game(game)
 
-        # Hide grid header search/sort bar and transition stack to detail page
-        if hasattr(self, "library_header_bar"):
-            self.library_header_bar.setVisible(False)
-        self.library_view_host.set_mode("detail")
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.library_navigation.detail()
 
     def _update_hero_background_for_game(self, game: tuple):
         if not game:
@@ -4126,57 +3170,17 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             self.hero_bg.set_hero_image(None)
 
     def _fetch_detail_page_description(self, game_id: int, game_name: str, steam_id: str):
-        detail_page = self.library_view_host.detail_page
-        saved_notes = self.settings.value(f"game_notes/{game_id}", "", type=str)
+        self.steam_metadata_controller.request_description(game_id, game_name, steam_id)
 
-        def worker():
-            desc = ""
-            tags = []
-            client = SteamClient()
-            try:
-                sid = steam_id
-                if not sid:
-                    items = client.search(game_name, timeout=6)
-                    if items and items[0].get("id"):
-                        sid = str(items[0]["id"])
-                if sid:
-                    details = client.app_details(sid, timeout=6)
-                    if details:
-                        desc = details.get("short_description") or details.get("detailed_description") or ""
-                        genres = details.get("genres", [])
-                        categories = details.get("categories", [])
-                        extracted_tags = [
-                            str(item.get("description", ""))
-                            for grp in (genres, categories)
-                            if isinstance(grp, list)
-                            for item in grp
-                            if isinstance(item, dict) and item.get("description")
-                        ]
-                        tags = list(dict.fromkeys(extracted_tags))[:6]
-            except Exception as e:
-                logger.debug("Could not fetch Steam details for %s: %s", game_name, e)
-            finally:
-                client.close()
-            return desc, tags
-
-        def on_done(result):
-            if detail_page.current_game_id != game_id:
-                return
-            if result:
-                desc, tags = result
-                if desc:
-                    detail_page.set_description(desc)
-                elif saved_notes:
-                    detail_page.set_description(saved_notes)
-                if tags and not detail_page.tags_container.isVisible():
-                    detail_page.set_tags(tags)
-            elif saved_notes:
-                detail_page.set_description(saved_notes)
-
-        thread = FunctionWorker(worker, parent=self)
-        thread.completed.connect(on_done)
-        self._track_metadata_fetcher(thread)
-        thread.start()
+    def _render_detail_description(self, game_id, description, tags):
+        page = self.library_view_host.detail_page
+        if page.current_game_id != game_id:
+            return
+        notes = self.settings.value(f"game_notes/{game_id}", "", type=str)
+        if description or notes:
+            page.set_description(description or notes)
+        if tags and not page.tags_container.isVisible():
+            page.set_tags(tags)
 
     def _on_remove_by_id(self, game_id: int):
         self._select_game_by_id(game_id, open_detail=False)
@@ -4264,7 +3268,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                 hero_file = None
 
         if self._automatic_network_allowed() and not hero_cache_path:
-            self._request_managed_hero_artwork(
+            self.artwork_controller.request_hero(
                 g_id,
                 g_name,
                 s_id,
@@ -4553,7 +3557,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         """Open the canonical per-game cloud and properties surface."""
         if not game:
             return
-        dialog = GamePropertiesDialog(game, self)
+        dialog = GamePropertiesDialog(game, self, services=self.save_dialog_services)
         dialog.exec()
         # Edits here can change the cloud verdict (manual upload/download,
         # generation rollback, rename → different cloud key): re-check.
@@ -4932,110 +3936,10 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             pass
         self._update_library_item("update_update_state", game_id, state)
 
-    def _request_managed_steam_build(
-        self,
-        game_id: int,
-        steam_id: str,
-        local_build_id: str,
-        local_build_date: int,
-        *,
-        priority: RequestPriority = RequestPriority.NORMAL,
-        schedule: bool = True,
-    ) -> bool:
-        """Subscribe one game to a shared cached public Steam build."""
-        if self.request_manager is None:
-            return False
-        app_id = normalize_steam_app_id(steam_id)
-        if not app_id:
-            return False
-        plan = self.steam_metadata_coordinator.prepare_build(
-            game_id,
-            app_id,
-            local_build_id,
-            local_build_date,
-            priority=priority,
-        )
-        key = plan.key
-        if self.steam_metadata_coordinator.binding("build", key) is None:
-            binding = bind_resource(
-                self.request_manager,
-                key,
-                lambda result, key=key: self._on_managed_steam_build_state(key, result),
-                self,
-                cancel_on_close=True,
-            )
-            self.steam_metadata_coordinator.attach_binding("build", plan, binding)
-
-        if not schedule:
-            return True
-
-        try:
-            self.steam_resource_service.request_build(
-                app_id,
-                priority=priority,
-                tag="game_update_check",
-            )
-        except Exception as exc:
-            logger.debug("Managed Steam build request failed to start for %s: %s", app_id, exc)
-            self._on_steam_check_failed(int(game_id), str(exc))
-        return True
-
-    def _on_managed_steam_build_state(self, key: RequestKey, result) -> None:
-        if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
-            # ``READY`` can still be a cache hit.  Preserve that provenance so
-            # an offline launch never presents an old comparison as a live
-            # Steam answer.  ``updated_at`` is the cache's stored timestamp for
-            # cached results and the completion timestamp for live results.
-            source = "cached" if bool(getattr(result, "from_cache", False)) else "live"
-            checked_at = float(getattr(result, "updated_at", 0.0) or 0.0)
-            value = result.value
-            if isinstance(value, (tuple, list)) and len(value) >= 2:
-                latest_build_id = str(value[0] or "")
-                try:
-                    latest_build_date = int(value[1] or 0)
-                except (TypeError, ValueError, OverflowError):
-                    latest_build_date = 0
-                if not latest_build_id:
-                    for game_id in tuple(self.steam_metadata_coordinator.build_games(key)):
-                        self._on_steam_check_failed(
-                            game_id,
-                            "Steam returned no public branch build for this AppID",
-                        )
-                    return
-                for game_id, (local_build_id, local_build_date) in tuple(
-                    self.steam_metadata_coordinator.build_games(key).items()
-                ):
-                    if local_build_id:
-                        is_update = latest_build_id != local_build_id
-                    elif local_build_date > 0:
-                        is_update = latest_build_date > local_build_date
-                    else:
-                        self._on_steam_check_failed(
-                            game_id,
-                            "No installed Steam build reference; enter a current Build ID or date",
-                        )
-                        continue
-                    self._on_steam_build_checked(
-                        game_id,
-                        latest_build_id,
-                        latest_build_date,
-                        is_update,
-                        source=source,
-                        checked_at=checked_at,
-                    )
-            return
-        if result.status == ResourceStatus.OFFLINE:
-            self._set_network_status(
-                True,
-                "No internet connection. Showing the last known game-version result when available.",
-            )
-            for game_id in tuple(self.steam_metadata_coordinator.build_games(key)):
-                self._on_update_check_offline(game_id)
-        elif result.status not in {ResourceStatus.READY, ResourceStatus.STALE, ResourceStatus.CANCELLED}:
-            reason = str(result.error or "Steam build check failed")
-            for game_id in tuple(self.steam_metadata_coordinator.build_games(key)):
-                self._on_steam_check_failed(game_id, reason)
-
+    def _request_managed_steam_build(self, *args, **kwargs):
+        return self.steam_metadata_controller.request_build(*args, **kwargs)
+    def _on_managed_steam_build_state(self, *args, **kwargs):
+        return self.steam_metadata_controller.handle_build_state(*args, **kwargs)
     def _on_managed_steam_update_batch_done(self, _results: object) -> None:
         """Finish the UI action after all distinct AppID resources settle."""
         if hasattr(self, "nav_updates") and self.nav_updates is not None:
@@ -5049,137 +3953,16 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         else:
             self._show_toast("Steam update check complete.")
 
-    def _request_managed_steam_tags(
-        self,
-        game_id: int,
-        game_name: str,
-        *,
-        priority: RequestPriority = RequestPriority.NORMAL,
-    ) -> bool:
-        """Subscribe one game to a shared cached Steam tag lookup."""
-        if self.request_manager is None:
-            return False
-        identity = str(game_name or "").strip().casefold()
-        if not identity:
-            return False
-        plan = self.steam_metadata_coordinator.prepare_tags(
-            game_id,
-            game_name,
-            priority=priority,
-        )
-        key = plan.key
-        if self.steam_metadata_coordinator.binding("tag", key) is None:
-            binding = bind_resource(
-                self.request_manager,
-                key,
-                lambda result, key=key: self._on_managed_steam_tag_state(key, result),
-                self,
-                cancel_on_close=True,
-            )
-            self.steam_metadata_coordinator.attach_binding("tag", plan, binding)
-
-        try:
-            self.steam_resource_service.request_tags(
-                game_name,
-                priority=priority,
-                tag="game_tags",
-            )
-        except Exception as exc:
-            logger.debug("Managed Steam tag request failed to start for %s: %s", game_name, exc)
-            self._on_steam_tags_found(int(game_id), [], "")
-        return True
-
-    def _on_managed_steam_tag_state(self, key: RequestKey, result) -> None:
-        if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
-            value = result.value
-            if isinstance(value, (tuple, list)) and len(value) >= 2:
-                tags = value[0] if isinstance(value[0], list) else []
-                app_id = str(value[1] or "")
-                for game_id in self.steam_metadata_coordinator.tag_game_ids(key):
-                    self._on_steam_tags_found(game_id, tags, app_id)
-        elif result.status in {
-            ResourceStatus.ERROR,
-            ResourceStatus.OFFLINE,
-            ResourceStatus.UNAVAILABLE,
-            ResourceStatus.AUTHENTICATION_REQUIRED,
-            ResourceStatus.PERMISSION_DENIED,
-            ResourceStatus.CONFLICT,
-        }:
-            for game_id in self.steam_metadata_coordinator.tag_game_ids(key):
-                self._on_steam_tags_found(game_id, [], "")
-
-    def _close_managed_steam_metadata_bindings(self) -> None:
-        for binding in self.steam_metadata_coordinator.close():
-            binding.close()
-            binding.deleteLater()
-        for binding in tuple(getattr(self, "_steam_name_bindings", {}).values()):
-            try:
-                binding.close()
-                binding.deleteLater()
-            except RuntimeError:
-                pass
-        getattr(self, "_steam_name_bindings", {}).clear()
-
-    def _resolve_missing_steam_names(self, *, priority: RequestPriority = RequestPriority.BACKGROUND) -> None:
-        """Repair archived/cloud-only Steam titles through cached App Details."""
-        if self.request_manager is None or not hasattr(self, "steam_resource_service"):
-            return
-        for game in self.library_service.read_games():
-            app_id = str(game.steam_id or "").strip()
-            if not app_id or app_id == "0" or not is_placeholder_game_name(game.name, app_id):
-                continue
-            key = self.steam_resource_service.app_details_key(app_id)
-            if key in self._steam_name_bindings:
-                continue
-            try:
-                handle = self.steam_resource_service.request_app_details(
-                    app_id,
-                    priority=priority,
-                    tag="repair_game_name",
-                )
-                binding = bind_request(
-                    self.request_manager,
-                    handle,
-                    lambda result, key=key: self._on_managed_steam_name_state(key, result),
-                    self,
-                    cancel_on_close=True,
-                )
-                self._steam_name_bindings[key] = binding
-            except Exception as exc:
-                logger.debug("Managed Steam App Details request failed for %s: %s", app_id, exc)
-
-    def _on_managed_steam_name_state(self, key: RequestKey, result) -> None:
-        """Apply only verified Steam titles to matching placeholder records."""
-        if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
-            details = result.value if isinstance(result.value, dict) else {}
-            name = str(details.get("name", "") or "").strip()
-            if name:
-                app_id = key.identity.rsplit(":", 1)[-1]
-                changed = False
-                for game in self.library_service.read_games():
-                    if str(game.steam_id or "").strip() != app_id:
-                        continue
-                    changed = self.library_service.apply_metadata_name(game.id, name) or changed
-                if changed:
-                    self._refresh_library()
-            return
-        if result.status in {
-            ResourceStatus.ERROR,
-            ResourceStatus.OFFLINE,
-            ResourceStatus.UNAVAILABLE,
-            ResourceStatus.AUTHENTICATION_REQUIRED,
-            ResourceStatus.PERMISSION_DENIED,
-            ResourceStatus.CONFLICT,
-            ResourceStatus.CANCELLED,
-        }:
-            binding = self._steam_name_bindings.pop(key, None)
-            if binding is not None:
-                try:
-                    binding.close()
-                    binding.deleteLater()
-                except RuntimeError:
-                    pass
-
+    def _request_managed_steam_tags(self, *args, **kwargs):
+        return self.steam_metadata_controller.request_tags(*args, **kwargs)
+    def _on_managed_steam_tag_state(self, *args, **kwargs):
+        return self.steam_metadata_controller.handle_tag_state(*args, **kwargs)
+    def _close_managed_steam_metadata_bindings(self, *args, **kwargs):
+        return self.steam_metadata_controller.close_bindings(*args, **kwargs)
+    def _resolve_missing_steam_names(self, *args, **kwargs):
+        return self.steam_metadata_controller.resolve_missing_names(*args, **kwargs)
+    def _on_managed_steam_name_state(self, *args, **kwargs):
+        return self.steam_metadata_controller.handle_name_state(*args, **kwargs)
     def _on_steam_build_checked(
         self,
         game_id: int,
@@ -5707,6 +4490,9 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                     self.detail_cloud_metadata.setVisible(False)
 
             if hasattr(self, "btn_detail_cloud_restore"):
+                restore = getattr(self, "manual_restore_controller", None)
+                self.btn_detail_cloud_restore.setEnabled(
+                    restore is None or not restore.is_pending(game_id))
                 c_stats = cloud_stats
                 if c_stats is None:
                     cached_entry = self.cloud_save_status_cache.get(game_id)
@@ -5738,215 +4524,47 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             self.btn_detail_cloud_restore.hide()
 
     def _restore_selected_game_cloud_save(self):
-        """Restore cloud save for the currently selected library game.
-
-        Shows a progress dialog immediately (before any network I/O) so the
-        user gets instant feedback. The preflight runs first; replacement is
-        dispatched only after the user explicitly confirms the restore.
-        """
         game = self.selected_game
-        if not game:
-            return
-        game_id, game_name, game_path = game[0], game[1], game[2]
-        steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
+        if game:
+            self.manual_restore_controller.start(CloudOperationTarget(
+                game[0], game[1], game[2], str(game[6] or "") if len(game) > 6 else ""))
 
-        # L-5: Disable the button immediately to prevent double-click races.
-        if hasattr(self, "btn_detail_cloud_restore"):
-            self.btn_detail_cloud_restore.setEnabled(False)
+    def _can_manually_restore(self, target):
+        game = self.games_by_id.get(target.game_id)
+        return bool(game and game[2] == target.game_path
+                    and target.game_id not in self.running_game_ids
+                    and not self.prelaunch_controller.is_pending(target.game_id)
+                    and not self.cloud_workflow_controller.in_flight(target.game_id)
+                    and not any(record.game_id == target.game_id
+                                for record in self.cloud_operation_service.active_operations()))
 
-        progress = QProgressDialog(f"Checking cloud save for '{game_name}'…", None, 0, 0, self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setCancelButton(None)
-        progress.setMinimumDuration(0)
-        progress.show()
+    def _show_manual_restore_progress(self, message, cancel):
+        self._close_manual_restore_progress()
+        progress = cloud_progress(self, message)
+        progress.setCancelButton(QPushButton("Cancel", progress))
+        progress.canceled.connect(cancel)
         self._active_restore_progress = progress
 
-        target = CloudOperationTarget(game_id, game_name, game_path, steam_id)
-        try:
-            handle = self.cloud_operation_service.request_restore_preflight(
-                target,
-                priority=RequestPriority.CRITICAL,
-                tag="manual_restore",
-            )
-        except Exception as exc:
-            if hasattr(self, "_active_restore_progress") and self._active_restore_progress:
-                self._active_restore_progress.close()
-                self._active_restore_progress.deleteLater()
-                self._active_restore_progress = None
-            if hasattr(self, "btn_detail_cloud_restore"):
-                self.btn_detail_cloud_restore.setEnabled(True)
-            self._show_toast(f"Could not check the cloud save: {exc}", is_error=True)
-            return
-
-        def _deliver(future):
-            try:
-                resource = future.result()
-                value = resource.value if resource.status == ResourceStatus.READY else None
-                if value is None:
-                    payload["error"] = str(getattr(resource, "error", None) or "Cloud save check did not complete.")
-                    payload["toast"] = f"Cloud check failed — launching '{game_name}' with local saves."
-            except Exception as exc:
-                value = None
-                error = str(exc)
-            else:
-                error = str(resource.error or "") if value is None else ""
-            self._save_restore_finished.emit({
-                "game_id": game_id,
-                "game_name": game_name,
-                "game_path": game_path,
-                "steam_id": steam_id,
-                "phase": "preflight",
-                "preflight": value,
-                "restore_plan": value.get("restore_plan") if isinstance(value, dict) else None,
-                "error": error or (value.get("error") if isinstance(value, dict) else ""),
-            })
-
-        handle.future.add_done_callback(_deliver)
-
-    def _on_save_restore_finished(self, payload: dict):
-        if hasattr(self, "_active_restore_progress") and self._active_restore_progress:
-            try:
-                self._active_restore_progress.close()
-                self._active_restore_progress.deleteLater()
-            except Exception:
-                pass
+    def _close_manual_restore_progress(self):
+        progress = getattr(self, "_active_restore_progress", None)
+        if progress is not None:
+            progress.blockSignals(True)
+            progress.close()
+            progress.deleteLater()
             self._active_restore_progress = None
-        game_id = payload.get("game_id")
-        game_name = payload.get("game_name", "")
-        result = payload.get("result")
 
-        if payload.get("phase") == "preflight":
-            preflight = payload.get("preflight")
-            if not isinstance(preflight, dict) or preflight.get("kind") == "error":
-                detail = preflight.get("error") if isinstance(preflight, dict) else None
-                message = (
-                    getattr(detail, "error", None)
-                    or detail
-                    or payload.get("error")
-                    or "Could not check the cloud save."
-                )
-                guidance = getattr(detail, "guidance", "")
-                self._show_toast(f"{message} {guidance}".strip(), is_error=True)
-                if hasattr(self, "btn_detail_cloud_restore"):
-                    self.btn_detail_cloud_restore.setEnabled(True)
-                return
+    def _confirm_manual_restore(self, target, preflight):
+        entries = normalize_history_entries([preflight.get("history_entry")])
+        return confirm_restore(
+            self, game_name=target.game_name, entry=entries[0] if entries else None,
+            target_path=target.game_path,
+            technical_details=str(preflight.get("display_path") or ""),
+            title="Restore latest cloud save")
 
-            if preflight.get("kind") not in {"ready", "history"} or not preflight.get("cloud_exists", True):
-                display_name = game_name or "this game"
-                QMessageBox.information(
-                    self, "No Cloud Save",
-                    f"No cloud save found for '{display_name}'.",
-                )
-                if hasattr(self, "btn_detail_cloud_restore"):
-                    self.btn_detail_cloud_restore.setEnabled(True)
-                return
-
-            entries = normalize_history_entries([preflight.get("history_entry")])
-            selected_entry = entries[0] if entries else None
-            if not confirm_restore(
-                self,
-                game_name=game_name,
-                entry=selected_entry,
-                target_path=payload.get("game_path", ""),
-                technical_details=str(preflight.get("display_path") or ""),
-                title="Restore latest cloud save",
-            ):
-                if hasattr(self, "btn_detail_cloud_restore"):
-                    self.btn_detail_cloud_restore.setEnabled(True)
-                return
-
-            if hasattr(self, "btn_detail_cloud_restore"):
-                self.btn_detail_cloud_restore.setEnabled(False)
-            progress = cloud_progress(
-                self, f"Restoring latest cloud save for '{game_name}'…"
-            )
-            self._active_restore_progress = progress
-            target = CloudOperationTarget(
-                game_id,
-                game_name,
-                payload.get("game_path", ""),
-                payload.get("steam_id", ""),
-            )
-            history_entry = preflight.get("history_entry") or {}
-            target_version = history_entry.get("version")
-            try:
-                target_version = int(target_version) if target_version is not None else None
-            except (TypeError, ValueError):
-                target_version = None
-            try:
-                handle = self.cloud_operation_service.request_restore(
-                    target,
-                    priority=RequestPriority.CRITICAL,
-                    tag="manual_restore",
-                    target_version=target_version,
-                    restore_plan=payload.get("restore_plan"),
-                )
-            except Exception as exc:
-                from core.cloud_operations import CloudOperationResult
-                self._save_restore_finished.emit({
-                    "game_id": game_id,
-                    "game_name": game_name,
-                    "phase": "restore",
-                    "result": CloudOperationResult(
-                        False,
-                        "Cloud restore",
-                        game_name,
-                        error=str(exc),
-                        category="backend_unavailable",
-                        guidance="Check the cloud connection and try again.",
-                    ),
-                })
-                return
-
-            def _deliver_restore(future):
-                from core.cloud_operations import CloudOperationResult
-                try:
-                    resource = future.result()
-                    restored = resource.value if resource.status == ResourceStatus.READY else None
-                    error = str(resource.error or "") if restored is None else ""
-                except Exception as exc:
-                    restored = None
-                    error = str(exc)
-                if restored is None:
-                    restored = CloudOperationResult(
-                        False,
-                        "Cloud restore",
-                        game_name,
-                        error=error or "Cloud restore failed.",
-                        category="backend_unavailable",
-                        guidance="Check the cloud connection and try again.",
-                    )
-                self._save_restore_finished.emit({
-                    "game_id": game_id,
-                    "game_name": game_name,
-                    "phase": "restore",
-                    "result": restored,
-                })
-
-            handle.future.add_done_callback(_deliver_restore)
-            return
-
-        ok = bool(getattr(result, "success", False))
-        # Re-enable the restore button regardless of outcome (L-5 companion)
-        if hasattr(self, "btn_detail_cloud_restore"):
-            self.btn_detail_cloud_restore.setEnabled(True)
-        # Handle the typed no-cloud-save result from the operation service.
-        if getattr(result, "category", "") == "cloud_missing":
-            game = self.selected_game
-            display_name = game[1] if game else "this game"
-            QMessageBox.information(
-                self, "No Cloud Save",
-                f"No cloud save found for '{display_name}'."
-            )
-            return
-        if ok:
-            self._show_toast(f"Successfully restored cloud save for '{game_name}'.")
-            self.request_cloud_recheck([game_id], "manual_restore")
-        else:
-            message = getattr(result, "error", "Failed to restore cloud save.")
-            guidance = getattr(result, "guidance", "")
-            self._show_toast(f"{message} {guidance}".strip(), is_error=True)
-
+    def _manual_restore_state_changed(self, game_id, pending):
+        if self.selected_game and self.selected_game[0] == game_id:
+            self.btn_detail_cloud_restore.setEnabled(not pending)
+            self._update_detail_launch_button(game_id)
 
     def _on_cloud_save_status_calculated(
         self,
@@ -6041,117 +4659,12 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         return (
             int(game_id) in getattr(self, "_cloud_auto_restore_in_flight", {})
             or int(game_id) in getattr(self, "_cloud_auto_upload_in_flight", {})
+            or (getattr(self, "manual_restore_controller", None) is not None
+                and self.manual_restore_controller.is_pending(game_id))
         )
 
     def _prelaunch_pending(self, game_id: int) -> bool:
-        return int(game_id) in getattr(self, "_prelaunch_in_flight", {})
-
-    def _show_prelaunch_progress(self, ctx: dict, label: str, handle=None) -> None:
-        """Show a per-game progress surface and bind it to operation metadata."""
-        game_id = int(ctx["game_id"])
-        state = self._prelaunch_in_flight.get(game_id)
-        if state is None or state.get("token") != ctx.get("prelaunch_token"):
-            return
-        self._close_prelaunch_progress(ctx)
-        state["handle"] = handle
-        progress = QProgressDialog(label, None, 0, 100, self)
-        progress.setWindowTitle("Preparing game launch")
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setCancelButtonText("Cancel")
-        progress.setMinimumDuration(0)
-        progress.setAutoClose(False)
-        progress.setAutoReset(False)
-        progress.setValue(0)
-        progress.canceled.connect(
-            lambda gid=game_id, token=state["token"]: self._cancel_prelaunch(gid, token)
-        )
-        if handle is None:
-            progress.setRange(0, 0)
-        progress.show()
-        timer = QTimer(progress)
-        timer.setInterval(150)
-        timer.timeout.connect(
-            lambda gid=game_id, token=state["token"]: self._refresh_prelaunch_progress(gid, token)
-        )
-        state["progress"] = progress
-        state["timer"] = timer
-        timer.start()
-        self._refresh_prelaunch_progress(game_id, state["token"])
-        if getattr(self, "selected_game", None) and int(self.selected_game[0]) == game_id:
-            self._update_detail_launch_button(game_id)
-
-    def _cancel_prelaunch(self, game_id: int, token: str) -> None:
-        """Cancel cloud preparation and abort the pending game launch.
-
-        Keep the progress dialog and per-game launch lock alive until the
-        worker reports completion. Restore workers use the save engine's
-        staging/rollback path, so launching or releasing the lock before that
-        terminal callback could race writes to the game's save files.
-        """
-        state = self._prelaunch_in_flight.get(int(game_id))
-        if not state or state.get("token") != token or state.get("cancel_requested"):
-            return
-        state["cancel_requested"] = True
-        progress = state.get("progress")
-        if progress is not None:
-            progress.setLabelText("Cancelling cloud sync…")
-            progress.setCancelButton(None)
-            progress.setRange(0, 0)
-        handle = state.get("handle")
-        if handle is not None:
-            try:
-                self.cloud_operation_service.cancel(handle.request_id)
-            except Exception:
-                logger.exception("Could not request cancellation for prelaunch cloud operation %s", handle.request_id)
-
-    def _refresh_prelaunch_progress(self, game_id: int, token: str) -> None:
-        state = self._prelaunch_in_flight.get(int(game_id))
-        if not state or state.get("token") != token:
-            return
-        progress = state.get("progress")
-        handle = state.get("handle")
-        if progress is None or handle is None:
-            return
-        try:
-            record = self.cloud_operation_service.operation(handle.request_id)
-            value = getattr(record, "progress", None)
-        except Exception:
-            value = None
-        if value is None:
-            if progress.minimum() != 0 or progress.maximum() != 0:
-                progress.setRange(0, 0)
-        else:
-            if progress.minimum() == progress.maximum():
-                progress.setRange(0, 100)
-            progress.setValue(int(max(0.0, min(1.0, float(value))) * 100))
-
-    def _close_prelaunch_progress(self, ctx: dict) -> None:
-        state = self._prelaunch_in_flight.get(int(ctx.get("game_id", -1)))
-        if not state or state.get("token") != ctx.get("prelaunch_token"):
-            return
-        timer = state.pop("timer", None)
-        if timer is not None:
-            timer.stop()
-            timer.deleteLater()
-        progress = state.pop("progress", None)
-        if progress is not None:
-            progress.close()
-            progress.deleteLater()
-
-    def _finish_prelaunch(self, ctx: dict) -> None:
-        """Retire a pending launch exactly once before its terminal action."""
-        game_id = int(ctx.get("game_id", -1))
-        state = self._prelaunch_in_flight.get(game_id)
-        if state and state.get("token") == ctx.get("prelaunch_token"):
-            self._close_prelaunch_progress(ctx)
-            self._prelaunch_in_flight.pop(game_id, None)
-        if game_id >= 0 and getattr(self, "selected_game", None):
-            if int(self.selected_game[0]) == game_id:
-                self._update_detail_launch_button(game_id)
-
-    def _proceed_prelaunch(self, ctx: dict) -> None:
-        self._finish_prelaunch(ctx)
-        self._continue_launch(ctx)
+        return self.prelaunch_controller.is_pending(game_id)
 
     @staticmethod
     def _cloud_restore_signature(cloud_stats) -> tuple:
@@ -6177,311 +4690,14 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         manager = getattr(self, "request_manager", None)
         return manager is not None and not getattr(manager, "_closed", False)
 
-    def _maybe_auto_upload_cloud_save(
-        self,
-        game_id: int,
-        status,
-        local_stats=None,
-        cloud_stats=None,
-    ) -> None:
-        """Upload a newer local save automatically once the game is stopped."""
-        if not MainWindow._request_manager_accepts_work(self):
-            return
-        if status != SyncStatus.LOCAL_NEWER:
-            return
-        if game_id in self.running_game_ids:
-            return
-        if not self._automatic_network_allowed():
-            return
-        if MainWindow._cloud_auto_sync_in_flight(self, game_id):
-            return
-        game = self.games_by_id.get(game_id)
-        if not game:
-            return
-
-        active_operations = self.cloud_operation_service.active_operations()
-        if any(
-            record.game_id == int(game_id)
-            and (
-                str(record.operation).startswith("restore")
-                or record.operation in {"exit-sync", "prelaunch", "upload"}
-            )
-            for record in active_operations
-        ):
-            return
-
-        game_name = str(game[1] if len(game) > 1 else "")
-        game_path = str(game[2] if len(game) > 2 else "")
-        steam_id = str(game[6] if len(game) > 6 and game[6] else "")
-        signature = (
-            self.cloud_sync_coordinator.generation,
-            round(float(getattr(local_stats, "last_modified", 0.0) or 0.0), 3),
-            int(getattr(local_stats, "size_bytes", 0) or 0),
-            int(getattr(local_stats, "file_count", 0) or 0),
-            str(getattr(local_stats, "device_name", "") or ""),
-        )
-        attempts = getattr(self, "_cloud_auto_upload_attempts", {})
-        previous = attempts.get(int(game_id))
-        attempt_count = previous[1] if previous and previous[0] == signature else 0
-        if attempt_count >= 2:
-            logger.warning(
-                "Automatic cloud upload stopped for game %s after %d attempts "
-                "for unchanged local snapshot %s",
-                game_id,
-                attempt_count,
-                signature,
-            )
-            return
-        generation = self.cloud_sync_coordinator.generation
-        marker = (generation, "upload")
-        attempts[int(game_id)] = (signature, attempt_count + 1)
-        setattr(self, "_cloud_auto_upload_attempts", attempts)
-        self._cloud_auto_upload_in_flight[int(game_id)] = marker
-        self._set_cloud_syncing(game_id, local_stats, cloud_stats)
-        target = CloudOperationTarget(int(game_id), game_name, game_path, steam_id)
-        try:
-            handle = self.cloud_operation_service.request_upload(
-                target,
-                priority=RequestPriority.BACKGROUND,
-                generation=generation,
-                tag="automatic-cloud-upload",
-            )
-        except Exception as exc:
-            logger.exception("Unable to queue automatic cloud upload for game %s", game_id)
-            self._cloud_auto_upload_done.emit({
-                "game_id": int(game_id),
-                "game_name": game_name,
-                "generation": generation,
-                "success": False,
-                "error": str(exc),
-                "guidance": "Check the cloud connection and try again.",
-            })
-            return
-
-        def _deliver(future):
-            from core.cloud_operations import CloudOperationResult
-            try:
-                resource = future.result()
-                result = resource.value if resource.status == ResourceStatus.READY else None
-                error = str(resource.error or "") if result is None else ""
-            except Exception as exc:
-                result = None
-                error = str(exc)
-            if not isinstance(result, CloudOperationResult):
-                self._cloud_auto_upload_done.emit({
-                    "game_id": int(game_id),
-                    "game_name": game_name,
-                    "generation": generation,
-                    "success": False,
-                    "error": error or "Cloud upload failed.",
-                    "guidance": "Check the cloud connection and try again.",
-                })
-                return
-            self._cloud_auto_upload_done.emit({
-                "game_id": int(game_id),
-                "game_name": game_name,
-                "generation": generation,
-                "success": bool(result.success),
-                "error": str(result.error or ""),
-                "guidance": str(result.guidance or ""),
-            })
-
-        handle.future.add_done_callback(_deliver)
-
-    def _on_cloud_auto_upload_done(self, payload: object) -> None:
-        """Finish an automatic upload and re-derive the authoritative status."""
-        if not isinstance(payload, dict):
-            return
-        game_id = int(payload.get("game_id", 0) or 0)
-        if getattr(self, "_closing", False):
-            self._cloud_auto_upload_in_flight.pop(game_id, None)
-            return
-        marker = self._cloud_auto_upload_in_flight.get(game_id)
-        expected = (int(payload.get("generation", -1)), "upload")
-        if marker != expected:
-            return
-        self._cloud_auto_upload_in_flight.pop(game_id, None)
-        self._update_detail_launch_button(game_id)
-        if not self.cloud_sync_coordinator.accepts(expected[0]):
-            return
-
-        game_name = str(payload.get("game_name", "this game"))
-        if payload.get("success"):
-            self._show_toast(f"Local save synced to cloud for '{game_name}'.")
-            self.request_cloud_recheck(
-                [game_id],
-                "automatic-upload-complete",
-                auto_sync=False,
-            )
-            return
-
-        message = str(payload.get("error") or "Cloud upload failed.")
-        guidance = str(payload.get("guidance") or "")
-        self._show_toast(
-            f"{message} Local save preserved. {guidance}".strip(),
-            is_error=True,
-        )
-        self.request_cloud_recheck([game_id], "automatic-upload-failed")
-
-    def _maybe_auto_restore_cloud_save(
-        self,
-        game_id: int,
-        status,
-        local_stats=None,
-        cloud_stats=None,
-    ) -> None:
-        """Restore a newly detected cloud save when it is safe to mutate disk."""
-        if not MainWindow._request_manager_accepts_work(self):
-            return
-        if status not in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
-            return
-        if game_id in self.running_game_ids:
-            return
-        if not self._automatic_network_allowed():
-            return
-        if MainWindow._cloud_auto_sync_in_flight(self, game_id):
-            return
-        game = self.games_by_id.get(game_id)
-        if not game:
-            return
-
-        active_operations = self.cloud_operation_service.active_operations()
-        if any(
-            record.game_id == int(game_id)
-            and (
-                str(record.operation).startswith("restore")
-                or record.operation in {"exit-sync", "prelaunch", "upload"}
-            )
-            for record in active_operations
-        ):
-            return
-
-        game_name = str(game[1] if len(game) > 1 else "")
-        game_path = str(game[2] if len(game) > 2 else "")
-        steam_id = str(game[6] if len(game) > 6 and game[6] else "")
-        target_version = getattr(cloud_stats, "cloud_version", None)
-        signature = (
-            self.cloud_sync_coordinator.generation,
-            *MainWindow._cloud_restore_signature(cloud_stats),
-        )
-        attempts = getattr(self, "_cloud_auto_restore_attempts", {})
-        previous = attempts.get(int(game_id))
-        attempt_count = previous[1] if previous and previous[0] == signature else 0
-        # Two attempts cover a transient transfer failure.  A successful
-        # restore that still reports the same cloud snapshot must never turn
-        # into a periodic destructive restore loop.
-        if attempt_count >= 2:
-            logger.warning(
-                "Automatic cloud restore stopped for game %s after %d attempts "
-                "for unchanged snapshot %s",
-                game_id,
-                attempt_count,
-                signature,
-            )
-            return
-        generation = self.cloud_sync_coordinator.generation
-        marker = (generation, target_version)
-        attempts[int(game_id)] = (signature, attempt_count + 1)
-        setattr(self, "_cloud_auto_restore_attempts", attempts)
-        self._cloud_auto_restore_in_flight[int(game_id)] = marker
-        self._set_cloud_syncing(game_id, local_stats, cloud_stats)
-
-        target = CloudOperationTarget(int(game_id), game_name, game_path, steam_id)
-        try:
-            handle = self.cloud_operation_service.request_restore(
-                target,
-                priority=RequestPriority.BACKGROUND,
-                generation=generation,
-                tag="automatic-cloud-restore",
-                target_version=target_version,
-            )
-        except Exception as exc:
-            logger.exception("Unable to queue automatic cloud restore for game %s", game_id)
-            self._cloud_auto_restore_done.emit({
-                "game_id": int(game_id),
-                "game_name": game_name,
-                "generation": generation,
-                "target_version": target_version,
-                "success": False,
-                "error": str(exc),
-                "guidance": "Check the cloud connection and try again.",
-            })
-            return
-
-        def _deliver(future):
-            from core.cloud_operations import CloudOperationResult
-            try:
-                resource = future.result()
-                result = resource.value if resource.status == ResourceStatus.READY else None
-                error = str(resource.error or "") if result is None else ""
-            except Exception as exc:
-                result = None
-                error = str(exc)
-            if not isinstance(result, CloudOperationResult):
-                self._cloud_auto_restore_done.emit({
-                    "game_id": int(game_id),
-                    "game_name": game_name,
-                    "generation": generation,
-                    "target_version": target_version,
-                    "success": False,
-                    "error": error or "Cloud restore failed.",
-                    "guidance": "Check the cloud connection and try again.",
-                })
-                return
-            self._cloud_auto_restore_done.emit({
-                "game_id": int(game_id),
-                "game_name": game_name,
-                "generation": generation,
-                "target_version": target_version,
-                "success": bool(result.success),
-                "error": str(result.error or ""),
-                "guidance": str(result.guidance or ""),
-            })
-
-        handle.future.add_done_callback(_deliver)
-
-    def _on_cloud_auto_restore_done(self, payload: object) -> None:
-        """Finish an automatic restore on the GUI thread and re-derive status."""
-        if not isinstance(payload, dict):
-            return
-        game_id = int(payload.get("game_id", 0) or 0)
-        if getattr(self, "_closing", False):
-            self._cloud_auto_restore_in_flight.pop(game_id, None)
-            return
-        marker = self._cloud_auto_restore_in_flight.get(game_id)
-        expected = (
-            int(payload.get("generation", -1)),
-            payload.get("target_version"),
-        )
-        if marker != expected:
-            return
-        self._cloud_auto_restore_in_flight.pop(game_id, None)
-        self._update_detail_launch_button(game_id)
-        if not self.cloud_sync_coordinator.accepts(expected[0]):
-            return
-
-        game_name = str(payload.get("game_name", "this game"))
-        if payload.get("success"):
-            self._show_toast(f"Newest cloud save restored for '{game_name}'.")
-            self.request_cloud_recheck(
-                [game_id],
-                "automatic-restore-complete",
-                # Re-read and render the authoritative status, but do not
-                # immediately feed a non-converged result back into restore.
-                # The normal poll path can handle a genuinely new snapshot.
-                auto_sync=False,
-            )
-            return
-
-        message = str(payload.get("error") or "Cloud restore failed.")
-        guidance = str(payload.get("guidance") or "")
-        self._show_toast(
-            f"{message} Local save preserved. {guidance}".strip(),
-            is_error=True,
-        )
-        # Recheck without launching another restore loop after a failure.
-        self.request_cloud_recheck([game_id], "automatic-restore-failed")
-
+    def _maybe_auto_upload_cloud_save(self, *args, **kwargs):
+        return self.cloud_workflow_controller.maybe_upload(*args, **kwargs)
+    def _on_cloud_auto_upload_done(self, *args, **kwargs):
+        return self.cloud_workflow_controller.handle_upload_done(*args, **kwargs)
+    def _maybe_auto_restore_cloud_save(self, *args, **kwargs):
+        return self.cloud_workflow_controller.maybe_restore(*args, **kwargs)
+    def _on_cloud_auto_restore_done(self, *args, **kwargs):
+        return self.cloud_workflow_controller.handle_restore_done(*args, **kwargs)
     def _update_detail_panel(self):
         """Update left panel with current selected game details and trigger smooth slide animation."""
         game = self.selected_game
@@ -6509,7 +4725,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             self.hero_bg.set_hero_image(None)
 
         if self._automatic_network_allowed() and not hero_cache_path:
-            self._request_managed_hero_artwork(
+            self.artwork_controller.request_hero(
                 game_id,
                 name,
                 steam_id,
@@ -6904,7 +5120,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         # Synchronize compact container play button if compact view is active
         if hasattr(self, "compact_container") and self.compact_container:
             if self.selected_game and self.selected_game[0] == game_id:
-                if game_id in self._stopping_game_ids:
+                if game_id in self.game_session_controller.stopping_game_ids:
                     self.compact_container.set_play_state("stopping")
                 elif game_id in self.running_game_ids:
                     self.compact_container.set_play_state("running")
@@ -6912,58 +5128,33 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                     self.compact_container.set_play_state("play")
 
     def _stop_game(self, game_id: int):
-        """Terminate the active game process and its sandbox container."""
-        game_id = int(game_id)
-        if game_id in self._game_termination_in_flight:
-            return
-        self._stopping_game_ids.add(game_id)
-        if hasattr(self, "compact_container") and self.compact_container:
-            if self.selected_game and self.selected_game[0] == game_id:
-                self.compact_container.set_play_state("stopping")
-        self.game_sessions.mark_stopping(game_id)
-        trackers = tuple(
-            tracker for tracker in self.launch_session_coordinator.trackers()
-            if tracker.game_id == game_id and tracker.process is not None
-        )
-        if not trackers:
-            self._stopping_game_ids.discard(game_id)
-            self._update_detail_launch_button(game_id)
-            return
+        self.game_session_controller.stop(game_id)
 
-        self._game_termination_in_flight.add(game_id)
+    def _on_game_stopping_state_changed(self, game_id: int, stopping: bool) -> None:
+        """Refresh the selected game's play/stop presentation."""
+        if (
+            getattr(self, "selected_game", None)
+            and int(self.selected_game[0]) == int(game_id)
+            and getattr(self, "compact_container", None)
+        ):
+            if stopping:
+                self.compact_container.set_play_state("stopping")
+            elif int(game_id) in self.running_game_ids:
+                self.compact_container.set_play_state("running")
+            else:
+                self.compact_container.set_play_state("play")
+        if not stopping:
+            self._update_detail_launch_button(int(game_id))
+
+    def _on_game_stop_requested(self, _game_id: int) -> None:
         if not getattr(self, "_closing", False):
             self._show_toast("Stopping game container…")
 
-        def terminate_trackers():
-            stopped = False
-            errors = []
-            for tracker in trackers:
-                try:
-                    stopped = terminate_game_process(
-                        tracker.process,
-                        sandbox_name=getattr(tracker, "sandbox_name", None),
-                    ) or stopped
-                except Exception as exc:
-                    errors.append(str(exc))
-            self._game_termination_finished.emit(
-                (game_id, (stopped, "; ".join(errors)))
-            )
-
-        self._game_termination_tasks.start(
-            f"StopGame-{game_id}", terminate_trackers
-        )
-
-    def _on_game_termination_finished(self, payload: object) -> None:
-        """Apply a process-stop result on the GUI thread."""
-        game_id, outcome = payload
-        game_id = int(game_id)
-        stopped, error = outcome
-        self._game_termination_in_flight.discard(game_id)
+    def _on_game_termination_result(self, game_id: int, stopped: bool, error: str) -> None:
+        """Present a process-stop result after controller state is settled."""
         if stopped:
             logger.info("Stop signal sent to Game ID %s", game_id)
             return
-        self._stopping_game_ids.discard(game_id)
-        self._update_detail_launch_button(game_id)
         if not getattr(self, "_closing", False):
             message = error or "Could not stop the game process."
             self._show_toast(message, is_error=True)
@@ -7018,320 +5209,11 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
                 "env_vars": game_env_vars,
                 "disable_performance": disable_performance,
             }
-            self._schedule_prelaunch_sync(ctx)
+            self.prelaunch_controller.start(ctx)
             return
         except Exception as e:
             logger.error(f"Failed to launch game ID {game_id}: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Failed to launch game: {str(e)}")
-
-    def _schedule_prelaunch_sync(self, ctx: dict):
-        """Resolve cloud-save state for a pending launch through the operation service."""
-        game_name = ctx["game_name"]
-        path = ctx["path"]
-        steam_id = ctx["steam_id"]
-        if not self._automatic_network_allowed():
-            self._show_toast(f"Offline mode — launching '{game_name}' with local saves.")
-            self._continue_launch(ctx)
-            return
-        ctx["prelaunch_token"] = uuid.uuid4().hex
-        self._prelaunch_in_flight[int(ctx["game_id"])] = {
-            "token": ctx["prelaunch_token"],
-            "ctx": ctx,
-            "handle": None,
-            "cancel_requested": False,
-        }
-        self._show_prelaunch_progress(ctx, f"Checking cloud saves for '{game_name}'…")
-        target = CloudOperationTarget(ctx["game_id"], game_name, path, steam_id)
-        try:
-            handle = self.cloud_operation_service.request_prelaunch_resolution(
-                target,
-                auto_prefer_newer=self.settings.value("auto_prefer_newer_saves", False, type=bool),
-                auto_prefer_local=self.settings.value("auto_prefer_local_saves", False, type=bool),
-                priority=RequestPriority.CRITICAL,
-                tag="prelaunch",
-            )
-        except Exception as exc:
-            logger.warning("Could not queue prelaunch cloud resolution for game %s: %s", ctx["game_id"], exc)
-            pending = self._prelaunch_in_flight.get(int(ctx["game_id"]))
-            if pending and pending.get("cancel_requested"):
-                self._finish_prelaunch(ctx)
-                self._show_toast("Launch cancelled.")
-                return
-            self._finish_prelaunch(ctx)
-            self._show_toast(f"Cloud check failed — launching '{game_name}' with local saves.", is_error=True)
-            self._continue_launch(ctx)
-            return
-        self._prelaunch_in_flight[int(ctx["game_id"])]["handle"] = handle
-        pending = self._prelaunch_in_flight.get(int(ctx["game_id"]))
-        if pending and pending.get("cancel_requested"):
-            self.cloud_operation_service.cancel(handle.request_id)
-        self._refresh_prelaunch_progress(int(ctx["game_id"]), ctx["prelaunch_token"])
-
-        def _deliver(future):
-            payload = {"proceed": True, "needs_conflict": False, "toast": "", "ctx": ctx}
-            try:
-                resource = future.result()
-                value = resource.value if resource.status == ResourceStatus.READY else None
-                payload["cancelled"] = resource.status == ResourceStatus.CANCELLED
-                if resource.status == ResourceStatus.CANCELLED:
-                    payload["error"] = str(resource.error or "Cloud operation cancelled")
-            except Exception as exc:
-                value = None
-                payload["error"] = str(exc)
-                payload["toast"] = f"Cloud check failed — launching '{game_name}' with local saves."
-            if value is not None:
-                preflight = value.get("preflight")
-                status = value.get("status")
-                local_stats = value.get("local_stats")
-                cloud_stats = value.get("cloud_stats")
-                payload.update({
-                    "local_stats": local_stats,
-                    "cloud_stats": cloud_stats,
-                })
-                if value.get("cloud_error") is not None:
-                    error = value["cloud_error"]
-                    payload.update({
-                        "cloud_error": error,
-                        "error": error.error,
-                        "guidance": error.guidance,
-                        "toast": f"Cloud check failed — launching '{game_name}' with local saves.",
-                    })
-                elif status == SyncStatus.CLOUD_AUTH_REQUIRED:
-                    payload["toast"] = f"Cloud setup required — launching '{game_name}' with local saves."
-                elif status in (SyncStatus.CLOUD_OFFLINE, SyncStatus.CLOUD_UNAVAILABLE):
-                    payload["toast"] = f"Cloud not reachable — launching '{game_name}' with local saves."
-                elif value.get("cloud_result") is not None:
-                    result = value["cloud_result"]
-                    payload["cloud_result"] = result
-                    payload["toast"] = (
-                        f"Restored cloud save for '{game_name}'." if result.success else
-                        f"Cloud restore failed — launching '{game_name}' with local saves."
-                    )
-                    if not result.success:
-                        payload.update({"error": result.error, "guidance": result.guidance})
-                        if result.category == "quota":
-                            payload["quota_blocked"] = True
-                            payload["quota_details"] = result.payload or {}
-                elif value.get("needs_cloud_only_prompt"):
-                    payload["needs_cloud_only_prompt"] = True
-                elif value.get("needs_conflict"):
-                    payload["needs_conflict"] = True
-                elif value.get("local_ready"):
-                    payload["toast"] = f"Local saves ready for '{game_name}'."
-                elif value.get("local_preferred"):
-                    payload["toast"] = f"Local saves preferred for '{game_name}'."
-            self._prelaunch_resolved.emit(payload)
-
-        handle.future.add_done_callback(_deliver)
-
-    def _queue_prelaunch_cloud_operation(
-        self,
-        ctx: dict,
-        operation: str,
-        success_toast: str,
-        failure_toast: str,
-        target_version=None,
-    ) -> None:
-        """Submit a conflict choice without letting the UI own the worker."""
-        target = CloudOperationTarget(
-            ctx["game_id"],
-            ctx["game_name"],
-            ctx["path"],
-            ctx.get("steam_id", ""),
-        )
-        try:
-            if operation == "restore":
-                handle = self.cloud_operation_service.request_restore(
-                    target,
-                    priority=RequestPriority.CRITICAL,
-                    tag="prelaunch_conflict",
-                    target_version=target_version,
-                )
-            else:
-                handle = self.cloud_operation_service.request_upload(
-                    target,
-                    priority=RequestPriority.CRITICAL,
-                    tag="prelaunch_conflict",
-                )
-        except Exception as exc:
-            logger.warning("Could not queue prelaunch %s for game %s: %s", operation, ctx["game_id"], exc)
-            self._show_toast(f"{failure_toast} ({exc})", is_error=True)
-            self._proceed_prelaunch(ctx)
-            return
-        label = "Restoring cloud save…" if operation == "restore" else "Uploading local save…"
-        self._show_prelaunch_progress(ctx, label, handle)
-
-        def _deliver(future):
-            try:
-                resource = future.result()
-                result = resource.value if resource.status == ResourceStatus.READY else None
-                cancelled = resource.status == ResourceStatus.CANCELLED
-            except Exception as exc:
-                result = None
-                error = str(exc)
-                cancelled = False
-            else:
-                error = ""
-            payload = {
-                "ctx": ctx,
-                "ok": bool(result is not None and result.success),
-                "cloud_result": result,
-                "cancelled": cancelled,
-                "toast": success_toast if result is not None and result.success else failure_toast,
-            }
-            if result is None:
-                payload.update({"error": error or "Cloud operation failed.", "guidance": "Check the cloud connection and try again."})
-            elif not result.success:
-                payload.update({"error": result.error, "guidance": result.guidance})
-            self._prelaunch_restore_done.emit(payload)
-
-        handle.future.add_done_callback(_deliver)
-
-    def _finish_prelaunch_sync(self, payload: dict):
-        """GUI-thread continuation after the pre-launch sync worker resolves.
-
-        Dialogs (conflict chooser, CLOUD_ONLY prompt) are shown here on the
-        main thread.  Any resulting I/O (cloud download / local upload) is
-        dispatched to a daemon thread via _prelaunch_restore_done so the Qt
-        main thread never blocks on network or disk work.
-        """
-        ctx = payload.get("ctx", {})
-        pending = self._prelaunch_in_flight.get(int(ctx.get("game_id", -1)))
-        if not pending or pending.get("token") != ctx.get("prelaunch_token"):
-            logger.debug("Ignoring stale prelaunch result for game %s", ctx.get("game_id"))
-            return
-        self._close_prelaunch_progress(ctx)
-        if pending.get("cancel_requested") or payload.get("cancelled"):
-            self._finish_prelaunch(ctx)
-            self._show_toast(f"Launch cancelled — cloud sync for '{ctx.get('game_name', 'game')}' was stopped.")
-            return
-        game_name = ctx.get("game_name", "")
-
-        if payload.get("quota_blocked"):
-            details = payload.get("quota_details") or {}
-            requested = format_size(int(details.get("requested_bytes", 0) or 0))
-            available = format_size(int(details.get("available_bytes", 0) or 0))
-            quota = format_size(int(details.get("quota_bytes", 0) or 0))
-            dialog = QMessageBox(self)
-            dialog.setIcon(QMessageBox.Icon.Warning)
-            dialog.setWindowTitle("Cloud storage limit reached")
-            dialog.setText(f"The save for '{game_name}' cannot be uploaded right now.")
-            dialog.setInformativeText(
-                f"Save size: {requested}\nAvailable cloud space: {available}\n"
-                f"Account quota: {quota}\n\nYour local save was not changed."
-            )
-            launch_button = dialog.addButton("Launch with local saves", QMessageBox.ButtonRole.AcceptRole)
-            dialog.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-            cloud_button = dialog.addButton("Open Cloud Center", QMessageBox.ButtonRole.ActionRole)
-            dialog.exec()
-            clicked = dialog.clickedButton()
-            if clicked is launch_button:
-                self._proceed_prelaunch(ctx)
-            elif clicked is cloud_button:
-                self._finish_prelaunch(ctx)
-                self._open_cloud_center()
-            else:
-                self._finish_prelaunch(ctx)
-                self._show_toast(f"Launch cancelled — cloud storage is insufficient for '{game_name}'.")
-            return
-
-        if payload.get("needs_conflict"):
-            conflict_dlg = SaveConflictDialog(game_name, payload["local_stats"], payload["cloud_stats"], parent=self)
-            if conflict_dlg.exec() == QDialog.DialogCode.Accepted:
-                if conflict_dlg.always_newer:
-                    if conflict_dlg.choice == "cloud":
-                        self.settings.setValue("auto_prefer_newer_saves", True)
-                    else:
-                        self.settings.setValue("auto_prefer_local_saves", True)
-
-                if conflict_dlg.choice == "cloud":
-                    self._queue_prelaunch_cloud_operation(
-                        ctx,
-                        "restore",
-                        f"Restored cloud save for '{ctx['game_name']}' — your previous save was kept as a local backup.",
-                        f"Could not restore the cloud save for '{ctx['game_name']}' — launched with local saves.",
-                        target_version=getattr(payload.get("cloud_stats"), "cloud_version", None),
-                    )
-                    return  # resume in _on_prelaunch_restore_done
-                else:
-                    # Keep local: upload the selected local snapshot before
-                    # launch completes, with visible progress and one owner.
-                    self._queue_prelaunch_cloud_operation(
-                        ctx,
-                        "upload",
-                        "Overwrote cloud save with local version.",
-                        "Could not upload the local save — launching with local state.",
-                    )
-                    return  # resume in _on_prelaunch_restore_done
-            else:
-                # Closing the conflict dialog cancels the launch — say so
-                # instead of silently dropping the user's Play click.
-                self._show_toast(f"Launch cancelled — resolve the save conflict for '{game_name}' first.")
-                self._finish_prelaunch(ctx)
-                return
-
-        elif payload.get("needs_cloud_only_prompt"):
-            c_stats = payload.get("cloud_stats")
-            should_restore = confirm_restore(
-                self,
-                game_name=game_name,
-                target_path=ctx.get("path", ""),
-                technical_details=(
-                    f"Cloud save: {getattr(c_stats, 'display_path', 'Latest cloud save version')}"
-                ),
-                title="Restore latest cloud save",
-            )
-            if should_restore:
-                self._queue_prelaunch_cloud_operation(
-                    ctx,
-                    "restore",
-                    f"Restored cloud save for '{ctx.get('game_name', '')}'.",
-                    f"Failed to restore cloud save for '{ctx.get('game_name', '')}'.",
-                    target_version=getattr(c_stats, "cloud_version", None),
-                )
-                return  # resume in _on_prelaunch_restore_done
-            else:
-                self._show_toast(f"Launching '{game_name}' without restoring cloud save.")
-                # Fall through to _continue_launch below
-
-        elif payload.get("toast"):
-            # Informational toast only — no save conflict, launch proceeds.
-            # NOTE: If adding an abort-toast path in future (e.g. preflight error
-            # that should cancel the launch), return early here instead of
-            # reaching _continue_launch.
-            toast = payload["toast"]
-            if payload.get("guidance"):
-                toast = f"{toast} {payload['guidance']}"
-            self._show_toast(toast, is_error=bool(payload.get("error")))
-
-        # All non-async, non-abort paths reach here and proceed to launch.
-        self._proceed_prelaunch(ctx)
-
-    def _on_prelaunch_restore_done(self, result: dict):
-        """Main-thread slot: close the progress dialog and continue the launch."""
-        ctx = result.get("ctx", {})
-        pending = self._prelaunch_in_flight.get(int(ctx.get("game_id", -1)))
-        if not pending or pending.get("token") != ctx.get("prelaunch_token"):
-            logger.debug("Ignoring stale prelaunch cloud-operation result for game %s", ctx.get("game_id"))
-            return
-        self._close_prelaunch_progress(ctx)
-
-        if pending.get("cancel_requested") or result.get("cancelled"):
-            self._finish_prelaunch(ctx)
-            self._show_toast(f"Launch cancelled — cloud sync for '{ctx.get('game_name', 'game')}' was stopped.")
-            return
-
-        toast = result.get("toast", "")
-        if result.get("guidance"):
-            toast = f"{toast} {result['guidance']}".strip()
-        if toast:
-            self._show_toast(toast, is_error=bool(result.get("error")))
-
-        if result.get("ok") and ctx.get("game_id") is not None:
-            self.refresh_cloud_status_for_game(ctx["game_id"])
-
-        self._proceed_prelaunch(ctx)
-
 
     def _continue_launch(self, ctx: dict):
         """Perform the actual process launch and follow-up wiring (main thread)."""
@@ -7345,7 +5227,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         selected_mode = ctx["selected_mode"]
         selected_proton = ctx["selected_proton"]
         try:
-            launch_result = self.launch_session_coordinator.start(
+            launch_result = self.game_session_controller.start(
                 LaunchSessionContext(
                     game_id=game_id,
                     game_name=game_name,
@@ -7369,88 +5251,11 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             process = launch_result.process
             if launch_result.started and process:
                 logger.info(f"Successfully launched '{game_name}' (PID: {process.pid})")
-                # The coordinator registers the authoritative session before
-                # UI refresh; MainWindow only wires presentation callbacks.
-                session_id = launch_result.session_id
-                tracker = launch_result.tracker
-                tracker.playtime_recorded.connect(self._on_playtime_recorded)
-                tracker.playtime_checkpoint.connect(self._on_playtime_checkpoint)
-                tracker.playtime_session_recorded.connect(self._on_playtime_session_recorded)
-                tracker.finished.connect(lambda t=tracker: self._cleanup_tracker(t))
-                self.playtime_trackers.append(tracker)
-                self._register_worker(tracker)
-                tracker.start()
+                # The controller activates the playtime tracker and owns its
+                # lifetime before feature-specific UI wiring starts here.
                 if self.selected_game and self.selected_game[0] == game_id:
                     self._update_detail_launch_button(game_id)
-                # Update Discord Rich Presence
-                if hasattr(self, 'discord_rpc') and self.discord_rpc:
-                    self.discord_rpc.set_activity(game_name, start_timestamp=int(time.time()), details="Playing in Sandbox")
-
-                # Auto-start GPU recorder / replay buffer on game launch if configured
-                if getattr(self, "gpu_recorder_config", None) and self.gpu_recorder_config.enabled:
-                    if self.gpu_recorder_config.mode in ("replay_buffer", "auto_game"):
-                        rec_svc = GpuRecorderService.instance()
-                        if not rec_svc.is_running():
-                            is_rep = (self.gpu_recorder_config.mode == "replay_buffer")
-                            rec_svc.start_recording(game_name, is_replay=is_rep)
-                            if is_rep:
-                                show_ingame_notification(
-                                    "Replay Buffer Active",
-                                    f"{self.gpu_recorder_config.capture_hotkey} → save clip",
-                                    icon_type="replay",
-                                    enabled=self.gpu_recorder_config.in_game_overlay,
-                                    target_screen=self.gpu_recorder_config.target_screen
-                                )
-
-                # Real-time achievement monitoring
-                if steam_id and str(steam_id).strip() not in ("", "0"):
-                    try:
-                        from core.achievement_watcher import AchievementWatcher
-
-                        cached_achs = self.achievement_persistence_service.schema(game_id)
-                        # Launch is a bounded backfill point: reconcile local
-                        # state even when the schema is already cached. The
-                        # compatibility worker preserves its historical icon
-                        # behavior when no manager is available.
-                        if self._automatic_network_allowed():
-                            if self.request_manager is not None:
-                                # Launch reconciliation uses the same
-                                # manager-backed status resource as selection
-                                # and polling. This shares in-flight work and
-                                # keeps persistence on the managed path.
-                                self.request_achievement_recheck([game_id], tag="launch")
-                            else:
-                                # Compatibility for embedded callers that
-                                # construct a window without the manager.
-                                from core.achievement_schema import SteamAchievementFetcherWorker
-
-                                fetcher = SteamAchievementFetcherWorker(
-                                    game_id,
-                                    str(steam_id).strip(),
-                                    game_path=path,
-                                    proton_path=selected_proton or "",
-                                    download_icons=not bool(cached_achs),
-                                    parent=self,
-                                )
-                                fetcher.resolution_ready.connect(self._on_achievement_resolution_ready)
-                                fetcher.schema_fetched.connect(self._on_achievement_schema_fetched)
-                                self._track_metadata_fetcher(fetcher)
-
-                        if game_id in self.achievement_watchers:
-                            try:
-                                old_watcher = self.achievement_watchers[game_id]
-                                old_watcher.stop()
-                                old_watcher.deleteLater()
-                            except Exception:
-                                pass
-
-                        watcher = AchievementWatcher(game_id, str(steam_id).strip(), selected_proton or "", path or "", parent=self)
-                        watcher.achievement_unlocked.connect(self._on_achievement_unlocked)
-                        watcher.state_refreshed.connect(self._on_achievement_state_refreshed)
-                        watcher.start()
-                        self.achievement_watchers[game_id] = watcher
-                    except Exception as ach_err:
-                        logger.warning(f"Could not initialize achievement watcher for {game_name}: {ach_err}")
+                self.session_features.started(ctx)
 
                 # Show animated Safe Launch Popup with console log stream & greeting (non-blocking)
                 popup = SafeLaunchDialog(
@@ -7616,199 +5421,41 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
     def _open_achievement_profile(self):
         self._show_profile_page()
 
+    def _open_public_profile_prompt(self):
+        self.profile_controller.open_friends(focus_find=True)
+
+    def _open_friends_popup(self, focus_find=False):
+        self.profile_controller.open_friends(focus_find=focus_find)
+
+    def _open_public_profile_handle(self, handle):
+        self.profile_controller.open_public(handle)
+
+    def _on_profile_changed(self):
+        self.profile_controller.profile_changed()
+
+    def _on_private_profile_changed(self):
+        self.profile_controller.profile_changed(private_only=True)
+
+    def _sync_profile_metadata_async(self):
+        self.profile_controller.sync_private()
+
     def _show_profile_page(self):
-        """Switch the central surface to the persistent owner profile page."""
-        if getattr(self, "_profile_view_active", False):
-            self.profile_page.show_owner()
-            return
-        self._profile_view_active = True
-        self._profile_sidebar_visible = self.sidebar.isVisible()
-        self._profile_footer_visible = self.footer_bar.isVisible()
-        self.library_header_bar.hide()
-        self.collection_banner.hide()
-        self.scroll_area.hide()
-        self.detail_panel.hide()
-        self.btn_reveal_detail.hide()
-        self.sidebar.hide()
-        self.footer_bar.hide()
-        self.right_layout.setContentsMargins(0, 0, 0, 0)
-        self.right_layout.setSpacing(0)
-        self.profile_page.show_owner()
-        self.profile_page.show()
+        self.library_navigation.show_profile()
 
     def _close_profile_page(self):
-        """Return from a profile page without changing the library mode."""
-        if not getattr(self, "_profile_view_active", False):
-            return
-        self._profile_view_active = False
-        self.profile_page.hide()
-        self.scroll_area.show()
-        self.footer_bar.setVisible(getattr(self, "_profile_footer_visible", True))
-        self.sidebar.setVisible(getattr(self, "_profile_sidebar_visible", True))
-        compact = self.library_view_mode in ("compact", "steam")
-        self.library_header_bar.setVisible(not compact)
-        self.collection_banner.setVisible(bool(self.collection_filter) and not compact)
-        if compact:
-            self.detail_panel.hide()
-            self.btn_reveal_detail.hide()
-            self.right_layout.setContentsMargins(0, 0, 0, 0)
-            self.right_layout.setSpacing(0)
-        else:
-            self.right_layout.setContentsMargins(18, 14, 18, 14)
-            self.right_layout.setSpacing(12)
-            if self.selected_game:
-                self._animate_left_panel(True)
-            else:
-                self.detail_panel.hide()
-                self.btn_reveal_detail.show()
-        self._update_detail_panel()
+        self.library_navigation.close_profile()
 
     def _on_achievement_unlocked(self, game_id: int, app_id: str, data: dict):
-        """Handle real-time achievement unlock event from watcher."""
-        api_name = data.get("api_name", "")
-        unlock_time = float(data.get("unlock_time", 0.0) or 0.0)
-        if not api_name:
-            return
-
-        schema = self.achievement_persistence_service.schema(game_id)
-        schema_has_api = any(a.get("api_name") == api_name for a in schema)
-        if not schema_has_api:
-            self.achievement_state.pending_for(game_id)[api_name] = unlock_time
-            logger.info(
-                "Queued achievement %s for game %s until its schema is available.", api_name, game_id
-            )
-            self.request_achievement_recheck([game_id], tag="realtime_schema")
-            return
-
-        # Database transition is the deduplication authority.  A duplicate
-        # inotify/poll event must not emit a second toast or cloud sync.
-        persistence = self.achievement_persistence_service.unlock(
-            game_id,
-            api_name,
-            unlock_time,
-            provenance=str(data.get("provenance", "local_emulator") or "local_emulator"),
-            verified=bool(data.get("verified", False)),
-            source_format=str(data.get("source_format", "") or ""),
-            source_path=str(data.get("source_path", "") or ""),
-        )
-        # The service's row-level claim handles both the normal transition
-        # and the race where a resolver persisted the same state first.
-        if not persistence.claimed:
-            return
-
-        if hasattr(self, "profile_page"):
-            self.profile_page.mark_local_data_changed()
-
-        projection = persistence.projection
-        self.achievement_state.set_status(
-            game_id,
-            (
-                projection.unlocked_count,
-                projection.total_count,
-                projection.percentage,
-                list(projection.recent),
-            ),
-        )
-        self._save_persistent_cache()
-        self._sync_launcher_metadata_async(game_id)
-
-        # Retrieve display metadata
-        ach_meta = next((a for a in schema if a.get("api_name") == api_name), None)
-        display_name = ach_meta.get("display_name", api_name) if ach_meta else api_name
-        description = ach_meta.get("description", "") if ach_meta else ""
-        icon_path = ach_meta.get("icon_path", "") if ach_meta else ""
-
-        toasts_enabled = self.settings.value("achievement_notifications_enabled", True, type=bool)
-        desktop_enabled = self.settings.value("achievement_desktop_notifications", True, type=bool)
-
-        if toasts_enabled:
-            from ui.components.achievement_toast import AchievementToast
-            toast = AchievementToast(display_name, description, icon_path=icon_path, parent=self)
-            toast.show_animated(parent_widget=self)
-            self.active_toasts.append(toast)
-            # Prune closed toasts
-            self.active_toasts = [t for t in self.active_toasts if t.isVisible()]
-
-        if desktop_enabled:
-            from ui.components.achievement_toast import send_desktop_notification
-            send_desktop_notification(f"Achievement Unlocked: {display_name}", description, icon_path=icon_path)
-
-        if self.selected_game and self.selected_game[0] == game_id:
-            steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
-            self._update_achievement_inspector(game_id, steam_id)
-            self._update_compact_game_page()
+        self.achievement_sync_controller.handle_unlock(game_id, app_id, data)
 
     def _on_achievement_state_refreshed(self, game_id: int, app_id: str, state: dict):
-        """Persist a watcher snapshot as a silent, append-only reconciliation.
-
-        The per-achievement signal drives notifications. This snapshot signal
-        is a safety net for emulators that write several achievements in one
-        atomic replacement or for an unlock that arrived before its schema was
-        cached. The database/profile ledger remains the deduplication and
-        append-only authority, so it cannot remove an earlier unlock.
-        """
-        if not state or not app_id:
-            return
-        try:
-            persistence = self.achievement_persistence_service.record_state(
-                game_id, app_id, state,
-                provenance="local_emulator", verified=False,
-                source_format="json", source_path="",
-            )
-            projection = persistence.projection
-            self.achievement_state.set_status(
-                game_id,
-                (
-                    projection.unlocked_count,
-                    projection.total_count,
-                    projection.percentage,
-                    list(projection.recent),
-                ),
-            )
-            if persistence.changed:
-                if hasattr(self, "_sync_launcher_metadata_async"):
-                    self._sync_launcher_metadata_async(game_id)
-                if hasattr(self, "profile_page"):
-                    self.profile_page.mark_local_data_changed()
-            self._save_persistent_cache()
-            if self.selected_game and self.selected_game[0] == game_id:
-                steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
-                self._update_achievement_inspector(game_id, steam_id)
-        except Exception as exc:
-            logger.debug("Could not persist achievement state snapshot for game %s: %s", game_id, exc)
+        self.achievement_sync_controller.handle_state_refreshed(game_id, app_id, state)
 
     def _on_achievement_schema_fetched(self, game_id: int, app_id: str, achievements: list):
-        """Persist schema then commit live unlocks that arrived before it."""
-        if not achievements:
-            return
-        self.achievement_persistence_service.save_schema(game_id, app_id, achievements)
-        pending = self.achievement_state.pop_pending(game_id)
-        for api_name, unlock_time in pending.items():
-            self.achievement_persistence_service.arm_notification(game_id, api_name)
-            self._on_achievement_unlocked(
-                game_id, app_id, {"api_name": api_name, "unlock_time": unlock_time}
-            )
+        self.achievement_sync_controller.handle_schema_fetched(game_id, app_id, achievements)
 
     def _on_achievement_resolution_ready(self, game_id: int, app_id: str, resolution):
-        """Apply one local-first resolution to the durable DB and inspector."""
-        self.achievement_state.set_resolution(game_id, resolution)
-        self.achievement_persistence_service.persist_resolution(game_id, app_id, resolution)
-
-        # A watcher may report an unlock before the schema request completes.
-        # Replaying through the normal DB transition keeps notifications
-        # exactly-once while preserving the event.
-        if getattr(resolution, "schema", None) and game_id in self.achievement_state.pending_unlocks:
-            pending = self.achievement_state.pop_pending(game_id)
-            for api_name, unlock_time in pending.items():
-                self.achievement_persistence_service.arm_notification(game_id, api_name)
-                self._on_achievement_unlocked(
-                    game_id, app_id,
-                    {"api_name": api_name, "unlock_time": unlock_time},
-                )
-
-        if self.selected_game and self.selected_game[0] == game_id:
-            steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
-            self._update_achievement_inspector(game_id, steam_id)
+        self.achievement_sync_controller.handle_resolution_ready(game_id, app_id, resolution)
 
     def _open_prefix_maintenance(self):
         game = self._get_selected_game()
@@ -7966,8 +5613,9 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         super().keyPressEvent(event)
 
     def _on_playtime_recorded(self, game_id: int, elapsed_seconds: int):
-        """Called after the session ledger is finalized when a game exits."""
-        total = self.library_service.record_playtime_finished(game_id)
+        self.session_features.playtime_recorded(game_id)
+
+    def _render_playtime_changed(self, game_id, total):
         if game_id in self.banner_widgets:
             self.banner_widgets[game_id].set_playtime(total)
         self._update_detail_panel()
@@ -7975,117 +5623,18 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             self.profile_page.mark_local_data_changed()
 
     def _on_playtime_checkpoint(self, session_id: str, elapsed_seconds: int):
-        """Persist an in-progress session without changing the visible total."""
-        self.library_service.checkpoint_playtime_session(session_id, elapsed_seconds)
+        self.session_features.checkpoint(session_id, elapsed_seconds)
 
     def _on_playtime_session_recorded(self, session_id: str, elapsed_seconds: int, ended_at: int, finalized: bool):
-        """Finalize the idempotent session event used by cloud metadata sync."""
-        game_id = self.library_service.checkpoint_playtime_session(
-            session_id,
-            elapsed_seconds,
-            finalized=finalized,
-            ended_at=ended_at,
-        )
-        if game_id is not None:
-            self._sync_launcher_metadata_async(game_id)
+        self.session_features.session_recorded(session_id, elapsed_seconds, ended_at, finalized)
 
     def _sync_launcher_metadata_async(self, game_id: int):
-        """Sync launcher-owned metadata without blocking the GUI thread."""
-        game = self.games_by_id.get(game_id)
-        if not game:
-            return
-        name = game[1]
-        app_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
-        db_path = getattr(self.db, "db_path", None)
-        target = CloudMetadataTarget(game_id, name, app_id)
-        return self.cloud_metadata_service.request_latest_game(
-            target,
-            db_path,
-            priority=RequestPriority.BACKGROUND,
-            tag="game_metadata",
-        )
+        return self.session_features.sync_metadata(game_id)
 
-    def _cleanup_tracker(self, tracker: PlaytimeTrackerThread):
-        """Remove finished tracker from the list so it can be garbage collected."""
-        session = self.launch_session_coordinator.finish_tracker(tracker)
-        self._stopping_game_ids.discard(tracker.game_id)
-        if tracker in self.playtime_trackers:
-            self.playtime_trackers.remove(tracker)
+    def _on_game_session_finished(self, tracker, _session=None):
         if self.selected_game and self.selected_game[0] == tracker.game_id:
             self._update_detail_launch_button(tracker.game_id)
-        if hasattr(self, 'discord_rpc') and self.discord_rpc and len(self.playtime_trackers) == 0:
-            self.discord_rpc.clear_activity()
-
-        # Keep terminal sessions until diagnostics and UI consumers release
-        # them. This prevents tracker completion from racing final reports.
-        self.game_sessions.release(tracker.game_id)
-
-        # Stop Achievement Watcher for this game
-        if tracker.game_id in getattr(self, "achievement_watchers", {}):
-            try:
-                watcher = self.achievement_watchers[tracker.game_id]
-                watcher.stop()
-                watcher.deleteLater()
-                del self.achievement_watchers[tracker.game_id]
-            except Exception as ach_clean_err:
-                logger.debug(f"Error stopping achievement watcher: {ach_clean_err}")
-
-        # Recheck achievements upon game exit to persist any new unlocks
-        self.request_achievement_recheck([tracker.game_id], tag="game_exit")
-        # Some Wine/Goldberg builds flush achievement state during their final
-        # shutdown sequence, after the tracked process has exited. Give that
-        # write a short grace period and perform one bounded second read.
-        QTimer.singleShot(
-            1500,
-            lambda game_id=tracker.game_id: self.request_achievement_recheck(
-                [game_id], tag="game_exit_flush"
-            ),
-        )
-
-        # Standby: if no games are running, stop automatic recorder so launcher stays idle
-        if not self.running_game_ids:
-            if getattr(self, "gpu_recorder_config", None) and self.gpu_recorder_config.enabled:
-                if self.gpu_recorder_config.mode in ("replay_buffer", "auto_game"):
-                    rec_svc = GpuRecorderService.instance()
-                    if rec_svc.is_running():
-                        rec_svc.stop_recording()
-                        logger.info("GPU recorder put on standby (all games closed)")
-
-        # Offline mode must also cover the automatic exit upload. Otherwise
-        # closing a game would create a cloud worker after all visible UI work
-        # had already stopped, which is exactly the kind of hidden operation
-        # that makes an offline shutdown appear hung.
-        if not self._automatic_network_allowed():
-            return
-
-        # Auto Cloud Save Sync on Game Exit. Runs on a worker thread — zipping
-        # multi-GB save trees must never freeze the GUI. Only uploads when
-        # local state is genuinely newer; an unconditional upload would clobber
-        # a cloud archive a newer session on another machine produced.
-        try:
-            game_rec = self.games_by_id.get(tracker.game_id)
-            if game_rec:
-                g_name = game_rec[1]
-                g_path = game_rec[2]
-                g_steam_id = str(game_rec[6]).strip() if len(game_rec) > 6 and game_rec[6] else ""
-
-                target = CloudOperationTarget(tracker.game_id, g_name, g_path, g_steam_id)
-                handle = self.cloud_exit_sync_service.request(
-                    target,
-                    settle_seconds=0.5,
-                    priority=RequestPriority.BACKGROUND,
-                    tag="game_exit",
-                )
-
-                def _deliver(future):
-                    result = self.cloud_exit_sync_service.resolve(target, future)
-                    self._save_op_done.emit(result)
-
-                handle.future.add_done_callback(_deliver)
-                # _save_op_done → _on_exit_save_sync_done is connected once in
-                # __init__; concurrent exits each carry their own payload.
-        except Exception as sync_exit_err:
-            logger.warning(f"Auto cloud save sync on game exit failed: {sync_exit_err}")
+        self.session_features.finished(tracker.game_id)
 
     def _on_exit_save_sync_done_legacy(self, payload: dict):
         """GUI-thread slot reporting the outcome of the background exit upload."""
@@ -8178,128 +5727,8 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         *,
         auto_sync: bool = False,
     ):
-        """THE single entry point for cloud status re-checks.
-
-        Every feature routes through here — startup scan, poll timer, settings
-        and account dialogs, game properties, exit uploads — so the re-check
-        policy (backend gating, duplicate suppression, in-flight limits,
-        prioritisation) is defined exactly once and behaves predictably.
-
-        game_ids=None  -> every game (startup, cloud config change)
-        game_ids=[]    -> only games whose cloud copy changed (listing diff)
-        game_ids=[…]   -> exactly these games (after uploads, restores, edits)
-        """
-        if not MainWindow._request_manager_accepts_work(self):
-            logger.debug("Ignoring cloud recheck during launcher shutdown")
-            return
-        context = self.cloud_status_service.current_context()
-        if not context.network_allowed:
-            if game_ids is None or game_ids:
-                self._mark_cloud_offline(game_ids)
-            return
-        if not context.backend_active:
-            return
-        # The SafeLauncherCloud API deliberately fails closed without its
-        # client secret. Do not start one worker per game just to receive the
-        # same 401; render a useful setup state synchronously instead.
-        if not context.authentication_configured:
-            if game_ids is None:
-                self._mark_cloud_auth_required()
-            elif game_ids:
-                self._mark_cloud_auth_required(game_ids)
-            return
-        tag = f" ({reason})" if reason else ""
-        # Explicit recovery and user actions must not be satisfied by the
-        # resource-cache entry created before the action. Startup and polling
-        # retain normal TTL behavior to avoid unnecessary network traffic.
-        force_refresh = reason not in {"", "startup", "poll", "listing-diff"}
-        generation = context.generation
-        games_snapshot = [
-            (g[0], g[1], g[2], str(g[6]).strip() if len(g) > 6 and g[6] else "")
-            for g in list(self.games)
-        ]
-        targets_snapshot = [CloudStatusTarget(int(gid), str(name), str(path or ""), str(steam_id or ""))
-                            for gid, name, path, steam_id in games_snapshot]
-
-        if game_ids is None:
-            plan = self.cloud_status_service.plan_recheck(
-                targets_snapshot,
-                None,
-                reason=reason,
-            )
-            targets = [
-                (target.game_id, target.game_name, target.game_path, target.steam_id)
-                for target in plan.targets
-            ]
-            if not targets:
-                logger.info(f"Cloud recheck{tag}: nothing to scan.")
-                return
-            self._spawn_status_fetchers(
-                targets,
-                lambda gid, status, local, cloud, g=generation, should_auto_sync=auto_sync:
-                self._accept_cloud_status_for_context(
-                    g,
-                    gid,
-                    status,
-                    local,
-                    cloud,
-                    auto_sync=should_auto_sync,
-                ),
-                tag,
-                generation=generation,
-                force=force_refresh,
-                on_batch_complete=lambda results, g=generation: self._managed_cloud_batch_done.emit(
-                    (g, results)
-                ),
-            )
-            return
-
-        if game_ids:
-            by_id = {g[0]: g for g in games_snapshot}
-            plan = self.cloud_status_service.plan_recheck(
-                targets_snapshot,
-                game_ids,
-                reason=reason,
-            )
-            callback = self._on_cloud_save_status_calculated
-            if auto_sync:
-                callback = lambda gid, status, local, cloud: self._on_cloud_save_status_calculated(
-                    gid,
-                    status,
-                    local,
-                    cloud,
-                    auto_sync=True,
-                )
-            self._spawn_status_fetchers(
-                [(target.game_id, target.game_name, target.game_path, target.steam_id)
-                 for target in plan.targets if target.game_id in by_id],
-                callback,
-                tag,
-                generation=generation,
-                force=force_refresh,
-            )
-            return
-
-        # Changed-only: diff a fresh listing against the cached statuses on a
-        # service, then fetch full statuses for the games that moved.
-        def _finish_diff(changed, expected_generation=generation):
-            if not self.cloud_sync_coordinator.accepts(expected_generation):
-                logger.debug(
-                    "Discarded cloud listing diff from retired context %s",
-                    expected_generation,
-                )
-                return
-            if changed:
-                self._cloud_poll_changed.emit([
-                    (target.game_id, target.game_name, target.game_path, target.steam_id)
-                    for target in changed
-                ])
-
-        self.cloud_status_service.request_changed_diff(
-            targets_snapshot,
-            generation=generation,
-            on_complete=_finish_diff,
-            force=True,
+        self.cloud_status_controller.request_recheck(
+            game_ids, reason, auto_sync=auto_sync
         )
 
     def _mark_cloud_auth_required(self, game_ids=None):
@@ -8382,149 +5811,17 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         on_batch_complete=None,
         force: bool = False,
     ):
-        """Request per-game cloud statuses through the shared manager."""
-        if not MainWindow._request_manager_accepts_work(self):
-            return
-        if not self._automatic_network_allowed():
-            return
-        if generation is None:
-            generation = self.cloud_sync_coordinator.generation
-
-        if self.request_manager is None:
-            logger.error("Cloud status refresh requested without the application RequestManager")
-            return
-        status_targets = []
-        priority = (
-            RequestPriority.CRITICAL
-            if "detail" in tag.lower()
-            else RequestPriority.NORMAL
+        self.cloud_status_controller.request_statuses(
+            targets,
+            on_result,
+            tag,
+            generation=generation,
+            on_batch_complete=on_batch_complete,
+            force=force,
         )
-        for item in targets:
-            if isinstance(item, CloudStatusTarget):
-                target = item
-            else:
-                gid, name, path, steam_id = item
-                target = CloudStatusTarget(
-                    int(gid),
-                    str(name),
-                    str(path or ""),
-                    str(steam_id or ""),
-                )
-            status_targets.append(target)
-            spec = self.cloud_status_service.status_spec(
-                target,
-                priority=priority,
-                generation=generation,
-                tag=tag,
-            )
-            key = spec.key
-            self._cloud_status_callbacks.setdefault(key, []).append(
-                (generation, target.game_id, on_result)
-            )
-            self._cloud_status_target_ids[key] = target.game_id
-            if key not in self._cloud_status_bindings:
-                self._cloud_status_bindings[key] = bind_resource(
-                    self.request_manager,
-                    key,
-                    lambda result, key=key: self._on_managed_cloud_status_state(
-                        key, result
-                    ),
-                    self,
-                    cancel_on_close=True,
-                )
-
-        try:
-            self.cloud_status_service.request_many(
-                status_targets,
-                priority=priority,
-                generation=generation,
-                tag=tag,
-                force=force,
-                on_complete=on_batch_complete,
-            )
-        except RuntimeError as exc:
-            # closeEvent can retire the shared manager between a queued Qt
-            # callback and this submission.  Late UI work is harmless and
-            # must not become an unhandled exception during shutdown.
-            if "shut down" in str(exc).lower() or getattr(self, "_closing", False):
-                logger.debug("Cloud status request ignored during shutdown: %s", exc)
-                return
-            raise
 
     def _on_managed_cloud_status_state(self, key: RequestKey, result) -> None:
-        """Apply a managed cloud status only on the current UI generation."""
-        callback_data = list(self._cloud_status_callbacks.get(key, ()))
-        if not callback_data:
-            return
-        if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
-            return
-
-        # A stale notification without an error is the normal first phase of
-        # stale-while-revalidate. Keep subscribers until the network result
-        # arrives. A stale notification carrying an error is terminal.
-        if result.status == ResourceStatus.STALE and result.error is None:
-            return
-
-        if result.status != ResourceStatus.READY:
-            status = self._cloud_status_failure_status(result)
-            self._deliver_managed_cloud_status(
-                key,
-                callback_data,
-                status,
-                None,
-                None,
-                error=result.error or result.status.value,
-            )
-            return
-
-        status = None
-        local_stats = None
-        cloud_stats = None
-        if isinstance(result.value, CloudStatusResult):
-            if result.value.error is not None:
-                logger.debug(
-                    "Managed cloud status result failed for game %s: %s",
-                    self._cloud_status_target_ids.get(key, "unknown"),
-                    result.value.error.error,
-                )
-                failure = self._cloud_status_failure_status(
-                    result,
-                    domain_error=result.value.error,
-                )
-                self._deliver_managed_cloud_status(
-                    key,
-                    callback_data,
-                    failure,
-                    None,
-                    None,
-                    error=result.value.error.error,
-                )
-                return
-            status = result.value.status
-            local_stats = result.value.local_stats
-            cloud_stats = result.value.cloud_stats
-        elif isinstance(result.value, tuple) and len(result.value) == 3:
-            # Compatibility with any already-completed request submitted by
-            # an older embedding caller during the service migration.
-            status, local_stats, cloud_stats = result.value
-        if status is None:
-            failure = self._cloud_status_failure_status(result)
-            self._deliver_managed_cloud_status(
-                key,
-                callback_data,
-                failure,
-                None,
-                None,
-                error="invalid cloud status payload",
-            )
-            return
-        self._deliver_managed_cloud_status(
-            key,
-            callback_data,
-            status,
-            local_stats,
-            cloud_stats,
-        )
+        self.cloud_status_controller.handle_managed_state(key, result)
 
     def _deliver_managed_cloud_status(
         self,
@@ -8536,93 +5833,20 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         *,
         error=None,
     ) -> None:
-        """Fan out one terminal resource state and retire its subscribers."""
-        try:
-            for generation, game_id, callback in callback_data:
-                if not self.cloud_sync_coordinator.accepts(generation):
-                    logger.debug(
-                        "Discarded cloud status for game %s from retired context %s",
-                        game_id,
-                        generation,
-                    )
-                    continue
-                if error is not None:
-                    logger.debug(
-                        "Managed cloud status request failed for game %s: %s",
-                        game_id,
-                        error,
-                    )
-                try:
-                    callback(game_id, status, local_stats, cloud_stats)
-                except Exception:
-                    logger.exception(
-                        "Cloud status consumer failed for game %s",
-                        game_id,
-                    )
-        finally:
-            current = self._cloud_status_callbacks.get(key, [])
-            if current[:len(callback_data)] == callback_data:
-                remaining = current[len(callback_data):]
-            else:
-                remaining = [item for item in current if item not in callback_data]
-            if remaining:
-                self._cloud_status_callbacks[key] = remaining
-            else:
-                self._cloud_status_callbacks.pop(key, None)
+        self.cloud_status_controller._deliver_managed_status(
+            key, callback_data, status, local_stats, cloud_stats, error=error
+        )
 
     def _cloud_status_failure_status(self, result, *, domain_error=None):
-        """Map every managed request failure to a final cloud-save verdict."""
-        if result.status == ResourceStatus.OFFLINE or not self._automatic_network_allowed():
-            return SyncStatus.CLOUD_OFFLINE
-        category = str(
-            getattr(domain_error, "category", "")
-            or getattr(result, "error_category", "")
-            or ""
-        ).strip().lower().replace("-", "_")
-        if result.status == ResourceStatus.AUTHENTICATION_REQUIRED or category in {
-            "auth",
-            "authentication",
-            "authentication_required",
-            "auth_required",
-            "unauthorized",
-        }:
-            return SyncStatus.CLOUD_AUTH_REQUIRED
-        return SyncStatus.CLOUD_UNAVAILABLE
+        return self.cloud_status_controller._failure_status(
+            result, domain_error=domain_error
+        )
 
     def _on_managed_cloud_batch_done(self, payload: object) -> None:
-        generation, results = payload
-        if not self.cloud_sync_coordinator.accepts(generation):
-            return
-        uploaded = []
-        newer_in_cloud = []
-        for result in results if isinstance(results, list) else []:
-            if result.status != ResourceStatus.READY:
-                continue
-            if isinstance(result.value, CloudStatusResult):
-                if result.value.error is not None:
-                    continue
-                status = result.value.status
-            elif isinstance(result.value, tuple) and result.value:
-                status = result.value[0]
-            else:
-                continue
-            game_id = self._cloud_status_target_ids.get(result.key)
-            name = ""
-            if game_id is not None:
-                game = self.games_by_id.get(game_id)
-                name = game[1] if game and len(game) > 1 else ""
-            if status == SyncStatus.LOCAL_NEWER:
-                uploaded.append(name)
-            elif status in (SyncStatus.CLOUD_NEWER, SyncStatus.CLOUD_ONLY):
-                newer_in_cloud.append(name)
-        self._on_cloud_batch_finished(uploaded, newer_in_cloud)
+        self.cloud_status_controller.handle_batch_done(payload)
 
     def _close_managed_cloud_status_bindings(self) -> None:
-        for binding in self._cloud_status_bindings.take_all():
-            binding.close()
-            binding.deleteLater()
-        self._cloud_status_callbacks.clear()
-        self._cloud_status_target_ids.clear()
+        self.cloud_status_controller.close()
 
     def _start_background_cloud_sync(self):
         """Startup cloud save check & sync queue across the library."""
@@ -8653,15 +5877,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
 
     def _cloud_status_targets_snapshot(self) -> tuple[CloudStatusTarget, ...]:
         """Return a detached target snapshot for the polling service."""
-        return tuple(
-            CloudStatusTarget(
-                int(game[0]),
-                str(game[1] or ""),
-                str(game[2] or "") if len(game) > 2 else "",
-                str(game[6] or "") if len(game) > 6 else "",
-            )
-            for game in list(self.games)
-        )
+        return self.cloud_status_controller.targets_snapshot()
 
     def _on_cloud_poll_changed(self, changed: list):
         """GUI-thread: re-derive full status for games whose cloud copy changed."""
@@ -8691,207 +5907,19 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             )
 
     def _ensure_managed_achievement_binding(self, key: RequestKey) -> None:
-        if self.achievement_coordinator.binding(key) is not None:
-            return
-        binding = bind_resource(
-            self.request_manager,
-            key,
-            lambda result, key=key: self._on_managed_achievement_state(key, result),
-            self,
-            cancel_on_close=True,
-        )
-        self.achievement_coordinator.attach_binding(key, binding)
+        self.achievement_sync_controller.ensure_binding(key)
 
     def _on_managed_achievement_state(self, key: RequestKey, result) -> None:
-        if result.status == ResourceStatus.CANCELLED:
-            return
-        if result.status != ResourceStatus.READY or not isinstance(result.value, tuple):
-            if result.status in {
-                ResourceStatus.ERROR,
-                ResourceStatus.OFFLINE,
-                ResourceStatus.UNAVAILABLE,
-                ResourceStatus.AUTHENTICATION_REQUIRED,
-                ResourceStatus.PERMISSION_DENIED,
-                ResourceStatus.CONFLICT,
-            }:
-                log = logger.warning if result.status == ResourceStatus.ERROR else logger.debug
-                log(
-                    "Managed achievement request ended for %s (status=%s): %s",
-                    key,
-                    result.status.value,
-                    result.error or result.status.value,
-                )
-            return
-        callback_data = self.achievement_coordinator.callback_data(key)
-        if callback_data is None:
-            return
-        game_id, app_id = callback_data
-        resolution, unlocked_count, total_count, pct, recent = result.value
-        self._on_achievement_resolution_ready(game_id, app_id, resolution)
-        self._on_achievement_status_calculated(
-            game_id, unlocked_count, total_count, pct, recent
-        )
+        self.achievement_sync_controller.handle_managed_state(key, result)
 
     def _on_managed_achievement_batch_done(self, results: object) -> None:
-        self.achievement_coordinator.set_batch_in_flight(False)
-        total_games = 0
-        total_unlocked = 0
-        for result in results if isinstance(results, list) else []:
-            if result.status != ResourceStatus.READY or not isinstance(result.value, tuple):
-                continue
-            _resolution, unlocked_count, total_count, _pct, _recent = result.value
-            if total_count > 0:
-                total_games += 1
-                total_unlocked += unlocked_count
-        self._on_achievement_batch_finished(total_games, total_unlocked)
+        self.achievement_sync_controller.handle_managed_batch_done(results)
 
     def _close_managed_achievement_bindings(self) -> None:
-        for binding in self.achievement_coordinator.close():
-            binding.close()
-            binding.deleteLater()
+        self.achievement_sync_controller.close_bindings()
 
     def request_achievement_recheck(self, game_ids: Optional[list] = None, tag: str = ""):
-        """Queue background achievement schema fetching and local unlock sync.
-
-        game_ids:
-          None  -> full library scan (startup, bulk reload).
-          [id]  -> targeted recheck for specific game(s) (post-launch, selection).
-        """
-        if not self._automatic_network_allowed():
-            logger.debug("Achievement recheck skipped: offline mode is enabled.")
-            return
-        tag = f" ({tag})" if tag else ""
-        games_snapshot = list(self.games)
-        if not games_snapshot:
-            return
-
-        if game_ids is None:
-            now = time.time()
-            uncached, stale, fresh = [], [], []
-            for g in games_snapshot:
-                steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
-                if not steam_id:
-                    continue
-                gid = g[0]
-                cached = self.achievement_state.get_status(gid)
-                if cached is None:
-                    uncached.append(g)
-                elif self.achievement_state.is_stale(gid, 3600, now=now):
-                    stale.append(g)
-                else:
-                    fresh.append(g)
-            targets = uncached + stale + fresh
-            if not targets:
-                logger.debug(f"Achievement recheck{tag}: no games with Steam IDs to scan.")
-                return
-            if self.request_manager is not None:
-                if self.achievement_coordinator.batch_in_flight:
-                    logger.debug(f"Achievement recheck{tag} skipped: batch already running.")
-                    return
-                self.achievement_coordinator.set_batch_in_flight(True)
-                achievement_targets = []
-                for game in targets:
-                    if len(game) < 3:
-                        continue
-                    game_id, name, path = game[0], game[1], game[2]
-                    app_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
-                    proton_path = str(game[12]).strip() if len(game) > 12 and game[12] else ""
-                    if not app_id:
-                        continue
-                    target = AchievementTarget(
-                        int(game_id), app_id, str(path or ""), proton_path
-                    )
-                    plan = self.achievement_coordinator.prepare(target)
-                    self._ensure_managed_achievement_binding(plan.key)
-                    achievement_targets.append(target)
-                if not achievement_targets:
-                    self.achievement_coordinator.set_batch_in_flight(False)
-                    return
-                self.achievement_resource_service.request_many(
-                    achievement_targets,
-                    db_path=getattr(self.db, "db_path", None),
-                    priority=(
-                        RequestPriority.CRITICAL
-                        if "running" in tag.lower() or "realtime" in tag.lower()
-                        else RequestPriority.NORMAL
-                    ),
-                    tag=tag,
-                    on_complete=lambda results: self._managed_achievement_batch_done.emit(
-                        results
-                    ),
-                )
-                return
-            if any(
-                f.isRunning() and f.__class__.__name__ in {
-                    "AchievementBatchQueueWorker", "AchievementStatusFetcherThread", "SteamAchievementFetcherWorker"
-                }
-                for f in self.metadata_fetchers
-            ):
-                logger.debug(f"Achievement recheck{tag} skipped: batch worker already running.")
-                return
-            db_path = getattr(self.db, "db_path", None)
-            worker = AchievementBatchQueueWorker(
-                targets, max_workers=3, db_path=db_path, parent=self,
-                request_manager=self.request_manager,
-            )
-            worker.game_status_ready.connect(self._on_achievement_status_calculated)
-            worker.batch_finished.connect(self._on_achievement_batch_finished)
-            self._track_metadata_fetcher(worker)
-            return
-
-        if game_ids:
-            by_id = {g[0]: g for g in games_snapshot}
-            for gid in game_ids:
-                if gid not in by_id:
-                    continue
-                g = by_id[gid]
-                g_name = g[1]
-                g_path = g[2]
-                g_steam_id = str(g[6]).strip() if len(g) > 6 and g[6] else ""
-                # GameRecord layout: index 9 is last_played; index 12 is proton_path.
-                g_proton_path = str(g[12]).strip() if len(g) > 12 and g[12] else ""
-                if not g_steam_id:
-                    continue
-                if self.request_manager is not None:
-                    target = AchievementTarget(
-                        int(gid), g_steam_id, str(g_path or ""), g_proton_path
-                    )
-                    self.achievement_resource_service.invalidate(target)
-                    plan = self.achievement_coordinator.prepare(target)
-                    key = plan.key
-                    self._ensure_managed_achievement_binding(key)
-                    self.achievement_resource_service.request_status(
-                        target,
-                        db_path=getattr(self.db, "db_path", None),
-                        priority=RequestPriority.CRITICAL,
-                        tag=tag,
-                    )
-                    continue
-                if any(
-                    f.isRunning()
-                    and f.__class__.__name__ in {"AchievementStatusFetcherThread", "SteamAchievementFetcherWorker"}
-                    and getattr(f, "game_id", None) == gid
-                    for f in self.metadata_fetchers
-                ):
-                    continue
-                from core.achievement_coordinator import invalidate
-                invalidate(g_steam_id, g_path or "", g_proton_path)
-                db_path = getattr(self.db, "db_path", None)
-                fetcher = AchievementStatusFetcherThread(
-                    gid,
-                    g_name,
-                    g_path or "",
-                    g_steam_id,
-                    g_proton_path,
-                    db_path=db_path,
-                    parent=self,
-                    request_manager=self.request_manager,
-                )
-                fetcher.resolution_ready.connect(self._on_achievement_resolution_ready)
-                fetcher.achievement_status_calculated.connect(self._on_achievement_status_calculated)
-                self._track_metadata_fetcher(fetcher)
-                # _track_metadata_fetcher owns and starts the targeted worker,
-                # matching the full-library queue path above.
+        self.achievement_sync_controller.request_recheck(game_ids, tag)
 
     def _start_background_achievement_sync(self):
         """Start bounded achievement monitoring without a library-wide scan."""
@@ -8905,15 +5933,9 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             if game and len(game) > 0:
                 self._sync_launcher_metadata_async(int(game[0]))
     def _on_achievement_status_calculated(self, game_id: int, unlocked_count: int, total_count: int, pct: float, recent: list):
-        """GUI-thread slot when an achievement worker finishes computing status for a game."""
-        self.achievement_state.set_status(
-            game_id, (unlocked_count, total_count, pct, recent)
+        self.achievement_sync_controller.handle_status_calculated(
+            game_id, unlocked_count, total_count, pct, recent
         )
-        if self.selected_game and self.selected_game[0] == game_id:
-            steam_id = str(self.selected_game[6]).strip() if len(self.selected_game) > 6 and self.selected_game[6] else ""
-            self._update_achievement_inspector(game_id, steam_id)
-        self._sync_launcher_metadata_async(game_id)
-        self._save_persistent_cache()
 
     def _on_achievement_batch_finished(self, total_games: int, total_unlocked: int):
         """GUI-thread slot when library background achievement batch queue completes."""
@@ -8938,166 +5960,99 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         return progress
 
     def _abort_shutdown(self):
-        """Return control instead of indefinitely hiding a stuck shutdown."""
-        if not getattr(self, "_shutdown_deadline", 0.0):
-            return
+        self.shutdown_controller.abort()
+
+    def _close_shutdown_progress(self):
         progress = getattr(self, "_shutdown_progress", None)
         if progress is not None:
+            progress.blockSignals(True)
             progress.close()
             progress.deleteLater()
         self._shutdown_progress = None
-        self._shutdown_deadline = 0.0
-        self._shutdown_overdue_logged = False
-        # A timer may already have queued one more close() pass. Consume it
-        # rather than immediately starting a new shutdown after the user chose
-        # to keep the launcher open.
-        self._shutdown_abort_requested = True
+
+    def _resume_after_shutdown(self):
+        self._close_shutdown_progress()
         self._closing = False
         self.setEnabled(True)
         self.show()
         self.raise_()
         self.activateWindow()
-        # A cancellation request is intentionally cooperative. It may have
-        # stopped an optional refresh, so restore the recurring sources once
-        # the user chooses to keep the launcher open.
+        self.network_monitor.start()
         if self._automatic_network_allowed():
             self.cloud_status_polling.start()
-        for timer_name in ("drive_check_timer",):
-            timer = getattr(self, timer_name, None)
-            if timer is not None and not timer.isActive():
-                timer.start()
+        if not self.drive_check_timer.isActive():
+            self.drive_check_timer.start()
         self.game_sessions.start_observing()
+        self.achievement_sync_controller.resume(self.running_game_ids)
         listener = getattr(self, "global_hotkeys", None)
         if listener is not None and QGuiApplication.platformName().lower() not in ("offscreen", "minimal"):
             try:
                 listener.start()
             except Exception:
-                pass
+                logger.exception("Could not resume global hotkeys")
         self._show_toast("Shutdown cancelled. Some background work did not stop in time.", is_error=True)
 
-    def closeEvent(self, event):
-        """Cooperatively stop work without corrupting saves or freezing UI."""
-        import time as _time
+    def _begin_shutdown(self):
+        self._closing = True
+        self._show_shutdown_progress()
+        self.prelaunch_controller.cancel_pending_for_shutdown()
+        self.manual_restore_controller.cancel()
+        self.network_monitor.stop()
+        self.achievement_sync_controller.suspend()
+        dialog = self._network_loss_dialog
+        if dialog is not None:
+            dialog.close()
+            self._network_loss_dialog = None
+        self.game_sessions.stop_observing()
+        self.cloud_status_polling.stop()
+        for name in ("drive_check_timer", "_size_resort_timer", "_update_status_refresh_timer", "_update_check_timer"):
+            timer = getattr(self, name, None)
+            if timer is not None:
+                timer.stop()
+        listener = getattr(self, "global_hotkeys", None)
+        if listener is not None:
+            try:
+                listener.stop()
+            except Exception:
+                logger.exception("Could not stop global hotkeys")
 
-        if getattr(self, "_shutdown_abort_requested", False):
-            self._shutdown_abort_requested = False
-            event.ignore()
-            return
-
-        first_attempt = getattr(self, "_shutdown_deadline", 0.0) == 0.0
-        if first_attempt:
-            self._closing = True
-            self._shutdown_deadline = _time.monotonic() + 12.0
-            self._show_shutdown_progress()
-            self._network_probe_timer.stop()
-            pending_network_dialog = self._network_loss_dialog
-            if pending_network_dialog is not None:
-                try:
-                    pending_network_dialog.close()
-                except RuntimeError:
-                    pass
-                self._network_loss_dialog = None
-            self.game_sessions.stop_observing()
-
-            # Halt every source that schedules new background work while we
-            # are trying to shut down.
-            self.cloud_status_polling.stop()
-            for timer_name in ("drive_check_timer", "_size_resort_timer", "_update_status_refresh_timer", "_update_check_timer"):
-                timer = getattr(self, timer_name, None)
-                if timer is not None:
-                    try:
-                        timer.stop()
-                    except RuntimeError:
-                        pass
-            listener = getattr(self, "global_hotkeys", None)
-            if listener is not None:
-                try:
-                    listener.stop()
-                except Exception:
-                    pass
-
-        # These lists are compatibility-only indexes. WorkerSupervisor owns
-        # the actual QThread lifetimes and is the sole shutdown registry.
-        self._pending_auto_fetchers.clear()  # queued fetchers were never started
-        for fetcher in list(self.metadata_fetchers):
-            if fetcher.isRunning():
-                fetcher.requestInterruption()
-        for fetcher in list(self.auto_fetchers):
-            if fetcher.isRunning() and hasattr(fetcher, "requestInterruption"):
-                fetcher.requestInterruption()
-        for tracker in list(self.playtime_trackers):
+    def _cancel_shutdown_work(self):
+        self.request_manager.cancel_matching(lambda _spec: True)
+        self.artwork_controller.cancel_compatibility_fetches()
+        for tracker in list(self.game_session_controller.trackers):
             if tracker.process:
                 self._stop_game(tracker.game_id)
             tracker.stop()
+        for worker in self.worker_supervisor.workers(running_only=True):
+            cancel = getattr(worker, "request_cancel", worker.requestInterruption)
+            try:
+                cancel()
+            except Exception:
+                logger.exception("Could not request worker cancellation")
 
-        # WorkerSupervisor is the authoritative registry. Semantic lists are
-        # feature indexes only and may overlap.
-        workers = self.worker_supervisor.workers(running_only=True)
-        for worker in workers:
-            if worker.isRunning():
-                if hasattr(worker, "request_cancel"):
-                    try:
-                        worker.request_cancel()
-                    except Exception:
-                        pass
-                elif hasattr(worker, "requestInterruption"):
-                    try:
-                        worker.requestInterruption()
-                    except Exception:
-                        pass
-                # Network requests use short timeouts, but allow enough time
-                # for the active request to return before Qt destroys QThread.
-                # This is deliberately tiny: closeEvent is re-entered by a
-                # timer, keeping the progress dialog responsive.
-                worker.wait(25)
+    def _pending_shutdown_work(self):
+        workers = self.worker_supervisor.wait(0)
+        names = [self.worker_supervisor.describe(worker) for worker in workers]
+        requests = self.request_manager.pending_work_count()
+        if requests:
+            names.append(f"{requests} managed request(s), including rollback/cleanup")
+        return names
 
-        still_running = self.worker_supervisor.wait(25)
-        if still_running and _time.monotonic() < self._shutdown_deadline:
-            progress = self._show_shutdown_progress()
-            names = ", ".join(self.worker_supervisor.describe(worker) for worker in still_running[:4])
-            if len(still_running) > 4:
-                names += f" (+{len(still_running) - 4} more)"
-            progress.setLabelText(
-                f"Ending {len(still_running)} running operation(s) safely…\n{names}"
-            )
-            QTimer.singleShot(100, self.close)
+    def _show_shutdown_waiting(self, names):
+        self._show_shutdown_progress().setLabelText(
+            "Ending running operations safely…\n" + ", ".join(names[:5])
+        )
+
+    def closeEvent(self, event):
+        if not self.shutdown_controller.request():
             event.ignore()
             return
+        super().closeEvent(event)
 
-        if still_running:
-            # QThread.terminate() can stop Python or a Qt extension while it
-            # owns allocator/interpreter state. That turns a slow shutdown
-            # into an intermittent native crash (and can corrupt a save
-            # operation). Keep the hidden window alive until cooperative
-            # cancellation finishes instead; every owned network task has a
-            # bounded timeout and workers suppress completion after an
-            # interruption request.
-            if not getattr(self, "_shutdown_overdue_logged", False):
-                self._shutdown_overdue_logged = True
-                names = ", ".join(
-                    self.worker_supervisor.describe(worker)
-                    for worker in still_running
-                )
-                logger.warning(
-                    "Cancelling shutdown after %d worker(s) missed its safe deadline: %s",
-                    len(still_running), names,
-                )
-            # Never force-kill a Python/Qt worker: that can corrupt allocator
-            # state or an in-progress save restore. Returning the window is
-            # deterministic and leaves the user able to resolve the external
-            # process instead of a permanently hidden launcher.
-            QTimer.singleShot(0, self._abort_shutdown)
-            event.ignore()
-            return
-
-        progress = getattr(self, "_shutdown_progress", None)
-        if progress is not None:
-            progress.close()
-            progress.deleteLater()
-            self._shutdown_progress = None
-
-        if hasattr(self, "_game_termination_tasks"):
-            self._game_termination_tasks.shutdown(wait_ms=0)
+    def _finish_shutdown(self):
+        self._close_shutdown_progress()
+        if hasattr(self, "game_session_controller"):
+            self.game_session_controller.shutdown(wait_ms=0)
 
         if hasattr(self, "tray_icon") and self.tray_icon:
             try:
@@ -9105,46 +6060,16 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             except Exception:
                 pass
 
-        try:
-            from core.plugins.gpu_screen_recorder import GpuRecorderService
-            GpuRecorderService.instance().stop_recording()
-        except Exception:
-            pass
+        self.cloud_workflow_controller.dispose()
+        self.manual_restore_controller.dispose()
+        self.session_features.dispose()
 
-        if hasattr(self, "discord_rpc") and self.discord_rpc:
-            try:
-                self.discord_rpc.clear_activity()
-            except Exception:
-                pass
+        self.achievement_sync_controller.dispose()
 
-        for watcher in list(getattr(self, "achievement_watchers", {}).values()):
-            try:
-                watcher.stop()
-                watcher.deleteLater()
-            except Exception:
-                pass
-        getattr(self, "achievement_watchers", {}).clear()
+        if hasattr(self, "app_update_controller"):
+            self.app_update_controller.shutdown()
 
-        for toast in list(getattr(self, "active_toasts", [])):
-            try:
-                toast.close()
-            except Exception:
-                pass
-        getattr(self, "active_toasts", []).clear()
-
-        if hasattr(self, "_update_worker") and self._update_worker:
-            try:
-                self._update_worker.stop()
-            except Exception:
-                pass
-
-        if getattr(self, "_public_profile_binding", None) is not None:
-            try:
-                self._public_profile_binding.close()
-                self._public_profile_binding.deleteLater()
-            except RuntimeError:
-                pass
-            self._public_profile_binding = None
+        self.profile_controller.dispose()
         if getattr(self, "_cloud_center_overview_binding", None) is not None:
             try:
                 self._cloud_center_overview_binding.close()
@@ -9154,45 +6079,19 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             self._cloud_center_overview_binding = None
         self._close_managed_cloud_status_bindings()
         self._close_managed_achievement_bindings()
-        self._close_managed_artwork_bindings()
-        self._close_managed_steam_metadata_bindings()
+        self.artwork_controller.shutdown()
+        self.steam_metadata_controller.dispose()
 
-        # All workers have been reaped above. Close long-lived client pools
-        # explicitly so repeated embedded launches do not retain sockets or
-        # stale backend sessions until Python garbage collection.
-        try:
-            if getattr(self, "sgdb_client", None) is not None:
-                self.sgdb_client.close()
-        except Exception:
-            pass
-        try:
-            if getattr(self, "steam_client", None) is not None:
-                self.steam_client.close()
-        except Exception:
-            pass
-        try:
-            if getattr(self, "central_auth", None) is not None:
-                self.central_auth.close()
-        except Exception:
-            pass
-        try:
-            self.cloud_account_service.reset_backend()
-        except Exception:
-            pass
-        try:
-            if getattr(self, "request_manager", None) is not None:
-                logger.info("Request manager metrics at shutdown: %s", self.request_manager.metrics())
-                logger.info("Resource performance metrics at shutdown: %s", self.performance_metrics())
-                self.request_manager.shutdown(wait=True)
-        except Exception:
-            logger.exception("Failed to shut down the cloud request manager cleanly")
+        self.managed_tasks.dispose()
+        logger.info("Request manager metrics at shutdown: %s", self.request_manager.metrics())
+        logger.info("Resource performance metrics at shutdown: %s", self.performance_metrics())
+        self.runtime.close_resources()
         try:
             from core.achievement_schema import close_achievement_http_session
             close_achievement_http_session()
         except Exception:
             pass
 
-        super().closeEvent(event)
 
     def _on_add(self, collection_name: object = ""):
         # QPushButton.clicked carries a boolean checked argument when this
@@ -9426,7 +6325,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             QMessageBox.warning(self, "Warning", "Please select a game.")
             return
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
-        SaveManagerDialog(game[0], game[1], game[2], steam_id, self).exec()
+        SaveManagerDialog(game[0], game[1], game[2], steam_id, self, services=self.save_dialog_services).exec()
         self.refresh_cloud_status_for_game(game[0])
 
     def _game_by_id(self, game_id: int):
@@ -9519,7 +6418,7 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
         """Open the existing managed Save Manager without auto-destructive work."""
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
         dialog = SaveManagerDialog(
-            game[0], game[1], game[2], steam_id, self
+            game[0], game[1], game[2], steam_id, self, services=self.save_dialog_services
         )
         if tab == "history" and hasattr(dialog, "tab_history"):
             dialog.tabs.setCurrentWidget(dialog.tab_history)
@@ -9537,6 +6436,6 @@ class MainWindow(MainWindowProfileMixin, QMainWindow):
             self._show_toast("Please select a game to import save.", is_error=True)
             return
         steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
-        dlg = SaveManagerDialog(game[0], game[1], game[2], steam_id, self)
+        dlg = SaveManagerDialog(game[0], game[1], game[2], steam_id, self, services=self.save_dialog_services)
         dlg._import_snapshot()
         self.refresh_cloud_status_for_game(game[0])

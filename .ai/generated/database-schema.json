@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T22:35:28+00:00",
+  "generated_at": "2026-10-04T11:20:02+00:00",
   "schema": [
     {
       "columns": [
@@ -32,7 +32,8 @@
           "type": "TEXT"
         }
       ],
-      "line": 320,
+      "file": "core/local_database/schema.py",
+      "line": 53,
       "table": "games"
     },
     {
@@ -42,7 +43,8 @@
           "type": "TEXT"
         }
       ],
-      "line": 369,
+      "file": "core/local_database/schema.py",
+      "line": 102,
       "table": "collections"
     },
     {
@@ -92,7 +94,8 @@
           "type": "INTEGER"
         }
       ],
-      "line": 375,
+      "file": "core/local_database/schema.py",
+      "line": 108,
       "table": "achievements"
     },
     {
@@ -138,7 +141,8 @@
           "type": "TEXT"
         }
       ],
-      "line": 407,
+      "file": "core/local_database/schema.py",
+      "line": 140,
       "table": "achievement_profile"
     },
     {
@@ -180,7 +184,8 @@
           "type": "REAL"
         }
       ],
-      "line": 465,
+      "file": "core/local_database/schema.py",
+      "line": 198,
       "table": "profile_games"
     },
     {
@@ -214,174 +219,203 @@
           "type": "INTEGER"
         }
       ],
-      "line": 502,
+      "file": "core/local_database/schema.py",
+      "line": 235,
       "table": "playtime_sessions"
     },
     {
       "added_column": "banner_url",
-      "line": 336,
+      "file": "core/local_database/schema.py",
+      "line": 69,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "steam_id",
-      "line": 338,
+      "file": "core/local_database/schema.py",
+      "line": 71,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "playtime_seconds",
-      "line": 340,
+      "file": "core/local_database/schema.py",
+      "line": 73,
       "table": "games",
       "type": "INTEGER"
     },
     {
       "added_column": "is_favorite",
-      "line": 342,
+      "file": "core/local_database/schema.py",
+      "line": 75,
       "table": "games",
       "type": "INTEGER"
     },
     {
       "added_column": "last_played",
-      "line": 344,
+      "file": "core/local_database/schema.py",
+      "line": 77,
       "table": "games",
       "type": "INTEGER"
     },
     {
       "added_column": "tags",
-      "line": 346,
+      "file": "core/local_database/schema.py",
+      "line": 79,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "build_id",
-      "line": 348,
+      "file": "core/local_database/schema.py",
+      "line": 81,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "proton_path",
-      "line": 350,
+      "file": "core/local_database/schema.py",
+      "line": 83,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "collection",
-      "line": 352,
+      "file": "core/local_database/schema.py",
+      "line": 85,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "install_date",
-      "line": 354,
+      "file": "core/local_database/schema.py",
+      "line": 87,
       "table": "games",
       "type": "INTEGER"
     },
     {
       "added_column": "version_override",
-      "line": 356,
+      "file": "core/local_database/schema.py",
+      "line": 89,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "patch_notes_url",
-      "line": 358,
+      "file": "core/local_database/schema.py",
+      "line": 91,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "is_archived",
-      "line": 360,
+      "file": "core/local_database/schema.py",
+      "line": 93,
       "table": "games",
       "type": "INTEGER"
     },
     {
       "added_column": "icon_url",
-      "line": 362,
+      "file": "core/local_database/schema.py",
+      "line": 95,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "env_vars",
-      "line": 364,
+      "file": "core/local_database/schema.py",
+      "line": 97,
       "table": "games",
       "type": "TEXT"
     },
     {
       "added_column": "build_date",
-      "line": 366,
+      "file": "core/local_database/schema.py",
+      "line": 99,
       "table": "games",
       "type": "INTEGER"
     },
     {
       "added_column": "unlock_provenance",
-      "line": 396,
+      "file": "core/local_database/schema.py",
+      "line": 129,
       "table": "achievements",
       "type": "TEXT"
     },
     {
       "added_column": "unlock_verified",
-      "line": 398,
+      "file": "core/local_database/schema.py",
+      "line": 131,
       "table": "achievements",
       "type": "INTEGER"
     },
     {
       "added_column": "unlock_source_format",
-      "line": 400,
+      "file": "core/local_database/schema.py",
+      "line": 133,
       "table": "achievements",
       "type": "TEXT"
     },
     {
       "added_column": "unlock_source_path",
-      "line": 402,
+      "file": "core/local_database/schema.py",
+      "line": 135,
       "table": "achievements",
       "type": "TEXT"
     },
     {
       "added_column": "notification_sent",
-      "line": 404,
+      "file": "core/local_database/schema.py",
+      "line": 137,
       "table": "achievements",
       "type": "INTEGER"
     },
     {
       "added_column": "last_seen_at",
-      "line": 425,
+      "file": "core/local_database/schema.py",
+      "line": 158,
       "table": "achievement_profile",
       "type": "REAL"
     },
     {
       "added_column": "provenance",
-      "line": 427,
+      "file": "core/local_database/schema.py",
+      "line": 160,
       "table": "achievement_profile",
       "type": "TEXT"
     },
     {
       "added_column": "verified",
-      "line": 429,
+      "file": "core/local_database/schema.py",
+      "line": 162,
       "table": "achievement_profile",
       "type": "INTEGER"
     },
     {
       "added_column": "validation_state",
-      "line": 431,
+      "file": "core/local_database/schema.py",
+      "line": 164,
       "table": "achievement_profile",
       "type": "TEXT"
     },
     {
       "added_column": "source_format",
-      "line": 433,
+      "file": "core/local_database/schema.py",
+      "line": 166,
       "table": "achievement_profile",
       "type": "TEXT"
     },
     {
       "added_column": "source_path",
-      "line": 435,
+      "file": "core/local_database/schema.py",
+      "line": 168,
       "table": "achievement_profile",
       "type": "TEXT"
     },
     {
       "added_column": "display_name",
-      "line": 481,
+      "file": "core/local_database/schema.py",
+      "line": 214,
       "table": "profile_games",
       "type": "TEXT"
     }

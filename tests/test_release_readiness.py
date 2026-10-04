@@ -21,14 +21,15 @@ class ReleaseReadinessTests(unittest.TestCase):
                 "full harness",
                 "security audit",
                 "worker audit",
+                "architecture audit",
                 "offline performance guard",
                 "build AI manifest",
                 "validate AI cache",
                 "diff check",
             ],
         )
-        self.assertIn("--max-render-ms", steps[6].command)
-        self.assertIn("--max-workers-peak", steps[6].command)
+        self.assertIn("--max-render-ms", steps[7].command)
+        self.assertIn("--max-workers-peak", steps[7].command)
         self.assertIn("17", steps[2].command)
 
     def test_environment_isolated_from_existing_xdg_values(self):
@@ -40,12 +41,14 @@ class ReleaseReadinessTests(unittest.TestCase):
                     "XDG_DATA_HOME": "/developer/data",
                     "XDG_CONFIG_HOME": "/developer/config",
                     "XDG_CACHE_HOME": "/developer/cache",
+                    "XDG_STATE_HOME": "/developer/state",
                     "SAFELAUNCHER_GATE_TEST_SECRET": "must-remain-unlogged",
                 },
             )
             self.assertNotEqual(environment["XDG_DATA_HOME"], "/developer/data")
             self.assertNotEqual(environment["XDG_CONFIG_HOME"], "/developer/config")
             self.assertNotEqual(environment["XDG_CACHE_HOME"], "/developer/cache")
+            self.assertNotEqual(environment["XDG_STATE_HOME"], "/developer/state")
             self.assertEqual(environment["QT_QPA_PLATFORM"], "offscreen")
             self.assertEqual(environment["SAFELAUNCHER_OFFLINE_TEST_MODE"], "1")
             self.assertNotIn("SAFELAUNCHER_GATE_TEST_SECRET", environment)

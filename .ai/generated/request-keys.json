@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T22:35:28+00:00",
+  "generated_at": "2026-10-04T11:20:02+00:00",
   "request_keys": [
     {
       "file": "ci/performance_baseline.py",
@@ -62,6 +62,11 @@
       "resource": "steam-app-details"
     },
     {
+      "file": "core/steam_resource_service.py",
+      "line": 147,
+      "resource": "steam-description"
+    },
+    {
       "file": "docs/request_manager.md",
       "line": 33,
       "resource": "steam-build"
@@ -80,6 +85,21 @@
       "file": "tests/test_achievement_schema_cache.py",
       "line": 21,
       "resource": "achievement-schema"
+    },
+    {
+      "file": "tests/test_achievement_sync_controller.py",
+      "line": 24,
+      "resource": "achievement-status"
+    },
+    {
+      "file": "tests/test_artwork_controller.py",
+      "line": 33,
+      "resource": "artwork-"
+    },
+    {
+      "file": "tests/test_feature_ownership.py",
+      "line": 192,
+      "resource": "ownership-test"
     },
     {
       "file": "tests/test_library_achievement_coordinator.py",
@@ -103,12 +123,12 @@
     },
     {
       "file": "tests/test_offline_update_status.py",
-      "line": 196,
+      "line": 197,
       "resource": "cloud-save-status"
     },
     {
       "file": "tests/test_offline_update_status.py",
-      "line": 221,
+      "line": 228,
       "resource": "cloud-save-status"
     },
     {
@@ -497,23 +517,28 @@
       "resource": "library"
     },
     {
-      "file": "ui/main_window.py",
-      "line": 1683,
-      "resource": "internet-connectivity"
+      "file": "tests/test_settings_lifecycle.py",
+      "line": 37,
+      "resource": "fixture"
     },
     {
       "file": "ui/main_window.py",
-      "line": 3842,
-      "resource": "window-task"
-    },
-    {
-      "file": "ui/main_window.py",
-      "line": 5544,
+      "line": 4327,
       "resource": "library-metadata-projection"
     },
     {
-      "file": "ui/main_window_profile.py",
-      "line": 103,
+      "file": "ui/managed_task_controller.py",
+      "line": 56,
+      "resource": "application-task"
+    },
+    {
+      "file": "ui/network_monitor_controller.py",
+      "line": 79,
+      "resource": "internet-connectivity"
+    },
+    {
+      "file": "ui/profile_controller.py",
+      "line": 97,
       "resource": "public-profile"
     },
     {

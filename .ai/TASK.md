@@ -4,7 +4,40 @@ The repository is establishing a durable `.ai` architecture cache. This file is 
 
 Stable architecture belongs in `CONTEXT.md`, `ARCHITECTURE.md`, `MODULES.md`, or the relevant reference/map/workflow page. Regenerate `generated/` after source structure changes.
 
-## Current deployment verification note
+## Desktop architecture refactor in progress
+
+ApplicationRuntime now owns shared services; CLI/GUI bootstrap is separate.
+ManagedTaskController and ShutdownController own task delivery and nonblocking
+drain/re-entry. Steam, automatic save mutations, public/private profile workflows,
+and session effects have explicit controllers. AchievementSyncController owns
+local watchers and delayed exit reads, including offline mode. Save Manager and
+Game Properties receive explicit dependency bundles. CI now guards migrated
+boundaries and isolates XDG_STATE_HOME as well as data/config/cache.
+
+The next boundary pass is implemented: manual restore has a context-aware,
+cancellable owner; library card construction and layout navigation are separate;
+the inspector and five Settings pages have explicit actions/inputs. Settings
+uses managed tasks and direct account subscriptions, and drains work on every
+exit path before rollback/destruction. Media/storage/install dialogs are separate
+modules with compatible exports. SQLite recovery, migrations, records and domain
+repositories are separated behind the serialized GameDatabase facade.
+Existing backend protocols and database schema remain unchanged.
+
+Residual shell work is still visible: query/selection presentation, top-level
+chrome, Settings-result application, collection/edit/archive action orchestration
+and some compatibility worker paths remain in MainWindow. Large individual
+dialogs also retain their own editing/presentation methods. Do not describe the
+entire application as fully decoupled solely because these boundaries moved.
+
+The complete isolated release-readiness gate passed after these migrations,
+including localhost health fixtures, smoke/full harness, boundary audits, and
+the offline performance guard (527 discovered unit tests). Regression tests now
+cover manual-restore cancellation/context, one-worker account subscriptions,
+Settings drain/rollback, repository serialization and navigation roundtrips.
+Physical desktop and live production behavior
+remain unverified.
+
+## Deployment verification detail
 
 Convex deployment output may identify a `.convex.cloud` client host while
 SafeLauncher HTTP routes live on the paired `.convex.site` host. Managed

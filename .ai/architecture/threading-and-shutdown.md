@@ -2,7 +2,7 @@
 
 Qt UI objects live on the Qt thread. `RequestManager` workers are Qt-free daemon workers and communicate through listeners; `ResourceBinding` queues results back to Qt. `SafeQThread` and `TaskSupervisor` support feature workers that cannot yet be migrated or are intentionally standalone.
 
-`WorkerSupervisor` is the single MainWindow-owned registry for QThread shutdown.
+`WorkerSupervisor` is the single ApplicationRuntime-owned registry for QThread shutdown.
 Feature-level lists such as `metadata_fetchers` and `auto_fetchers` are only
 compatibility indexes and must not become a second lifetime registry.
 
@@ -15,9 +15,9 @@ Cancellation is cooperative: queued tasks can be removed or marked cancelled, an
 
 The strong ownership of thread wrappers until supervisor shutdown is intentional. Removing that retention can reintroduce late `deleteLater`/signal races during Qt teardown.
 
-MainWindow's `closeEvent()` uses the same cooperative boundary in the live UI:
-it stops recurring work, requests cancellation, waits in short bounded slices,
-and re-enters through the event loop while a worker remains. A visible progress
+MainWindow's `closeEvent()` delegates state and re-entry to `ShutdownController`:
+it stops recurring work, requests cancellation, polls without blocking,
+and re-enters through the event loop while a worker or managed loader remains. A visible progress
 dialog lets the user keep the launcher open if the safe deadline is exceeded;
 unsafe `QThread.terminate()` is deliberately avoided. Regression coverage
 includes active/queued request cancellation and a cooperative slow-worker reap.

@@ -614,7 +614,10 @@ class PopupDialog(QDialog):
         super().resizeEvent(event)
 
     def _popup_tasks_running(self) -> bool:
-        """Return whether this popup owns a TaskSupervisor worker still running."""
+        """Include managed loaders still committing or rolling back files."""
+        managed = getattr(self, "_managed_tasks", None)
+        if managed is not None and managed.has_pending_work():
+            return True
         supervisor = getattr(self, "_task_supervisor", None) or getattr(self, "_tasks", None)
         if supervisor is None or not hasattr(supervisor, "has_running_tasks"):
             return False
@@ -634,9 +637,12 @@ class PopupDialog(QDialog):
             supervisor = getattr(self, "_task_supervisor", None) or getattr(self, "_tasks", None)
             if supervisor is not None:
                 try:
-                    supervisor.cancel_all(100)
+                    supervisor.cancel_all(0)
                 except RuntimeError:
                     pass
+            managed = getattr(self, "_managed_tasks", None)
+            if managed is not None:
+                managed.dispose()
             self.hide()
         QTimer.singleShot(50, self._finish_popup_done)
         return True
@@ -654,7 +660,7 @@ class PopupDialog(QDialog):
         QDialog.done(self, result)
 
     def done(self, result: int) -> None:
-        """Protect all TaskSupervisor-backed popups, including modal accept()."""
+        """Protect supervised and managed tasks, including modal accept()."""
         if self._defer_popup_done(result):
             return
         QDialog.done(self, result)

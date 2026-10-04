@@ -18,6 +18,10 @@ from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from ui.maintenance_dialogs import PrefixMaintenanceDialog
 from ui.dialogs.save_manager_dialog import SaveManagerDialog
+from ui.save_dialog_services import SaveDialogServices
+from ui.managed_task_controller import ManagedTaskController
+from core.operation_registry import OperationRegistry
+from dataclasses import replace
 from core.host_process import host_process_env
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp, format_timestamp
@@ -75,15 +79,23 @@ class GamePropertiesDialog(PopupDialog):
             retry_safe=False,
         )
 
-    def __init__(self, game: tuple, parent=None):
+    def __init__(self, game: tuple, parent=None, *, services=None):
         super().__init__(f"Game Properties: {game[1]}", parent)
         self.game = game
         self.parent_window = parent
-        self._task_supervisor = TaskSupervisor(self, logger)
-        self.cloud_center_service = getattr(parent, "cloud_center_service", None)
-        self.cloud_operation_service = getattr(parent, "cloud_operation_service", None)
-        self.cloud_status_service = getattr(parent, "cloud_status_service", None)
-        self.request_manager = getattr(parent, "request_manager", None)
+        self.services = services if services is not None else SaveDialogServices.from_parent(parent)
+        self.cloud_center_service = self.services.cloud_center
+        self.cloud_operation_service = self.services.cloud_operations
+        self.cloud_status_service = self.services.cloud_status
+        self.request_manager = self.services.request_manager
+        self._task_supervisor = TaskSupervisor(self, logger, worker_registry=self.services.worker_registry)
+        self._closing = False
+        self._managed_tasks = None
+        if self.request_manager is not None:
+            self._managed_tasks = ManagedTaskController(
+                self.request_manager, self.services.operation_registry or OperationRegistry(self),
+                parent=self, category="Game Properties", game_id=game[0], game_name=game[1],
+            )
         self._resource_bindings: dict[str, ResourceBinding] = {}
         self._save_stats_generation = 0
         self.backup_mgr = ZipBackupManager()
@@ -807,7 +819,11 @@ class GamePropertiesDialog(PopupDialog):
         return scroll
 
     def _start_managed_task(self, name: str, work, on_complete):
-        registry = getattr(self.parent_window, "operation_registry", None)
+        if self._closing:
+            return None
+        if self._managed_tasks is not None:
+            return self._managed_tasks.start(name, work, on_complete, allow_offline=True)
+        registry = self.services.operation_registry
         operation = None
         if registry is not None:
             operation = registry.start(
@@ -831,16 +847,18 @@ class GamePropertiesDialog(PopupDialog):
             )
         return worker
 
-    def closeEvent(self, event):
+    def done(self, result):
+        self._closing = True
         for binding in tuple(self._resource_bindings.values()):
             binding.close()
         self._resource_bindings.clear()
-        self._task_supervisor.cancel_all(100)
-        if self._task_supervisor.has_running_tasks():
-            QTimer.singleShot(100, self.close)
-            event.ignore()
-            return
-        super().closeEvent(event)
+        if self._managed_tasks is not None:
+            self._managed_tasks.dispose()
+        super().done(result)
+
+    def closeEvent(self, event):
+        self.reject()
+        event.ignore()
 
     def _load_registered_devices(self) -> None:
         """Load the account device roster for the per-game history view."""
@@ -1572,6 +1590,13 @@ class GamePropertiesDialog(PopupDialog):
                 logger.warning(f"Failed to open game directory: {e}")
 
     def _open_save_manager(self):
-        SaveManagerDialog(self.game_id, self.game_name, self.game_path, self.steam_id, self).exec()
+        def changed(game_id):
+            self._load_save_stats_async()
+            if self.services.on_changed is not None:
+                self.services.on_changed(game_id)
+        SaveManagerDialog(
+            self.game_id, self.game_name, self.game_path, self.steam_id, self,
+            services=replace(self.services, on_changed=changed),
+        ).exec()
         self._load_save_stats_async()
         self._notify_parent_cloud_changed()

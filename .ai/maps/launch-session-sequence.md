@@ -2,13 +2,15 @@
 
 ```text
 library selection
- → prelaunch checks/diagnostics
+ → PrelaunchController lock and cloud-save resolution
+ → conflict/quota choice or local-save fallback
  → prefix/runtime/environment preparation
- → sandbox runner
- → host process/session
- → playtime/session checkpoints
- → process exit
- → finalized local playtime
+ → LaunchSessionCoordinator sandbox runner and durable session record
+ → GameSessionController tracker activation
+ → process/session observation and managed stop task
+ → tracker completion and terminal session finalization
+ → SessionFeatureController cleanup before terminal session release
+ → AchievementSyncController bounded delayed local exit read
  → optional private metadata sync
 ```
 

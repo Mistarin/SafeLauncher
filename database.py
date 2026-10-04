@@ -1,1807 +1,305 @@
-import sqlite3
+"""Compatibility facade over local SQLite lifetime and domain repositories."""
 import os
-import json
-import shutil
-import time
-import uuid
-import re
-import threading
-import math
-import tempfile
-from core.logger import get_logger
-from core.game_names import (
-    MAX_GAME_NAME_LENGTH,
-    fallback_game_name,
-    display_name_key,
-    is_identity_placeholder_name,
-    local_profile_identity,
-    meaningful_game_name,
-    preferred_game_name,
+from typing import Any, Dict, List, Optional, Tuple
+from core.local_database.connection import (
+    DatabaseSession, DatabaseRecoveryError, DEFAULT_DB_PATH, _APP_DATA_DIR,
+    _migrate_legacy_db, _create_database_backup, _BACKUP_CREATED,
 )
-
-logger = get_logger("Database")
-
-_XDG_DATA_HOME = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
-_APP_DATA_DIR = os.path.join(_XDG_DATA_HOME, "safelauncher")
-DEFAULT_DB_PATH = os.path.join(_APP_DATA_DIR, "library.db")
-
-_LEGACY_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library.db")
-_OLD_APP_DB_PATH = os.path.join(_XDG_DATA_HOME, "mglauncher", "library.db")
-
-
-def _migrate_legacy_db(new_path: str) -> None:
-    """Move databases from pre-SafeLauncher locations into the current XDG path."""
-    if os.path.isfile(new_path):
-        return
-
-    for legacy_path in (_LEGACY_DB_PATH, _OLD_APP_DB_PATH):
-        if not os.path.isfile(legacy_path):
-            continue
-        try:
-            shutil.move(legacy_path, new_path)
-            logger.info(f"Migrated legacy database {legacy_path} → {new_path}")
-            return
-        except Exception as e:
-            logger.error(f"Could not migrate legacy DB {legacy_path}: {e}")
-
-
-_BACKUP_CREATED: set = set()
-_SCHEMA_INITIALIZED: set = set()
-_DUPLICATE_REPAIR_DONE: set = set()
-
-
-class DatabaseRecoveryError(RuntimeError):
-    """Raised when the local library and its recovery copy are unusable."""
-
-
-def _create_database_backup(db_path: str, source_connection=None, *, force: bool = False) -> None:
-    """Create auto-backup copy (library.db.bak) on startup.
-
-    Only called after the database file has passed a consistency check, so a
-    corrupted database can never overwrite the last known-good recovery copy.
-    Guarded to run at most once per process lifetime to avoid multi-thread I/O races.
-    """
-    if db_path == ":memory:" or not os.path.isfile(db_path):
-        return
-    if not force and db_path in _BACKUP_CREATED:
-        return
-    _BACKUP_CREATED.add(db_path)
-    bak_path = f"{db_path}.bak"
-    try:
-        # A file copy of a WAL-mode SQLite database can omit committed pages
-        # which have not been checkpointed into library.db yet. SQLite's backup
-        # API takes a consistent snapshot across the main database and WAL.
-        source = source_connection
-        owns_source = source is None
-        if source is None:
-            source = sqlite3.connect(db_path, timeout=10)
-        destination = sqlite3.connect(bak_path, timeout=10)
-        try:
-            source.backup(destination)
-        finally:
-            destination.close()
-            if owns_source:
-                source.close()
-        logger.debug(f"Created database backup: {bak_path}")
-    except Exception as e:
-        logger.warning(f"Could not create database backup: {e}")
-
-
-from dataclasses import dataclass
-from typing import Optional, List, Dict, Tuple, Any
-
-_ACHIEVEMENT_DB_LOCK = threading.RLock()
-_ACHIEVEMENT_API_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
-_ACHIEVEMENT_PROVENANCES = {
-    "steam_verified", "local_emulator", "cloud_profile", "cache", "unknown",
-}
-_ACHIEVEMENT_APP_RE = re.compile(r"^[0-9]{1,16}$")
-
-
-def _valid_achievement_api_name(value: Any) -> str:
-    name = str(value or "").strip()
-    return name if _ACHIEVEMENT_API_RE.fullmatch(name) else ""
-
-
-def _normalise_achievement_provenance(value: Any) -> str:
-    candidate = str(value or "unknown").strip()
-    return candidate if candidate in _ACHIEVEMENT_PROVENANCES else "unknown"
-
-
-def _safe_achievement_timestamp(value: Any, fallback: Optional[float] = None) -> float:
-    """Return a finite, non-negative achievement timestamp."""
-    try:
-        timestamp = float(value or 0)
-    except (TypeError, ValueError, OverflowError):
-        timestamp = 0.0
-    if not math.isfinite(timestamp) or timestamp <= 0:
-        return float(fallback if fallback is not None else time.time())
-    return timestamp
-
-
-
-@dataclass
-class GameRecord:
-    id: int
-    name: str
-    path: str
-    executable: str
-    mode: str
-    banner_url: Optional[str] = ""
-    steam_id: Optional[str] = ""
-    playtime_seconds: int = 0
-    is_favorite: int = 0
-    last_played: int = 0
-    tags: str = ""
-    build_id: str = ""
-    proton_path: str = ""
-    collection: str = ""
-    install_date: int = 0
-    version_override: str = ""
-    patch_notes_url: str = ""
-    is_archived: int = 0
-    icon_url: str = ""
-    env_vars: str = "{}"
-    build_date: int = 0
-
-    def __getitem__(self, idx):
-        fields = (
-            self.id, self.name, self.path, self.executable, self.mode,
-            self.banner_url or "", self.steam_id or "", self.playtime_seconds,
-            self.is_favorite, self.last_played, self.tags, self.build_id,
-            self.proton_path, self.collection, self.install_date,
-            self.version_override, self.patch_notes_url,
-            self.is_archived, self.icon_url, self.env_vars or "{}", self.build_date
-        )
-        return fields[idx]
-
-    def __len__(self):
-        return 21
-
-    def __hash__(self):
-        return hash(self.id)
-
-    def __iter__(self):
-        return iter((
-            self.id, self.name, self.path, self.executable, self.mode,
-            self.banner_url or "", self.steam_id or "", self.playtime_seconds,
-            self.is_favorite, self.last_played, self.tags, self.build_id,
-            self.proton_path, self.collection, self.install_date,
-            self.version_override, self.patch_notes_url,
-            self.is_archived, self.icon_url, self.env_vars or "{}", self.build_date
-        ))
+from core.local_database.records import GameRecord, GAME_COLUMNS, profile_identity
+from core.local_database.validation import _ACHIEVEMENT_DB_LOCK
+from core.local_database.schema import SchemaMigrator, _SCHEMA_INITIALIZED
+from core.local_database.games import GameRepository
+from core.local_database.profiles import ProfileRepository
+from core.local_database.playtime import PlaytimeRepository
+from core.local_database.achievements import AchievementRepository
+from core.local_database.reconciliation import IdentityReconciler, _DUPLICATE_REPAIR_DONE
 
 
 class GameDatabase:
-    GAME_COLUMNS = (
-        "id, name, path, executable, mode, banner_url, steam_id, "
-        "playtime_seconds, is_favorite, last_played, tags, build_id"
-        ", proton_path, collection, install_date"
-        ", version_override, patch_notes_url"
-        ", is_archived, icon_url, env_vars, build_date"
-    )
+    """Stable API with serialized repository calls and one connection lifetime.
+
+    The raw conn property is retained for legacy callers and diagnostics only.
+    """
+    GAME_COLUMNS = GAME_COLUMNS
+    profile_identity = staticmethod(profile_identity)
 
     def __init__(self, db_path: str = None):
         if db_path is None or db_path == "library.db":
             db_path = DEFAULT_DB_PATH
-
         self.db_path = db_path
-
         if db_path != ":memory:":
-            os.makedirs(os.path.dirname(db_path), mode=0o700, exist_ok=True)
+            os.makedirs(os.path.dirname(db_path) or ".", mode=0o700, exist_ok=True)
             _migrate_legacy_db(db_path)
+        self._session = DatabaseSession(db_path)
+        try:
+            self._connect_with_retry()
+            self._schema = SchemaMigrator(self._session)
+            self._profiles = ProfileRepository(self._session)
+            self._games = GameRepository(self._session, self._profiles)
+            self._playtime = PlaytimeRepository(self._session)
+            self._achievements = AchievementRepository(self._session)
+            self._reconciliation = IdentityReconciler(self._session, self._games, self._profiles)
+            self._create_table()
+            self.consolidate_duplicate_games()
+            if db_path != ":memory:":
+                try:
+                    os.chmod(db_path, 0o600)
+                except OSError:
+                    pass
+                _create_database_backup(db_path, self.conn)
+        except BaseException:
+            self._session.close()
+            raise
 
-        self.conn = None
-        self._connect_with_retry()
-
-        self._create_table()
-        # Repair identities materialized by older cloud-sync versions before
-        # the database is projected into the UI.  The repair is idempotent and
-        # preserves the canonical row's local data and dependent ledgers.
-        self.consolidate_duplicate_games()
-
-        if db_path != ":memory:":
-            try:
-                os.chmod(db_path, 0o600)
-            except Exception:
-                pass
-            # Back up only after the connection was verified consistent, so the
-            # recovery copy always holds the newest healthy snapshot.
-            _create_database_backup(db_path, self.conn)
+    @property
+    def conn(self):
+        return self._session.conn
 
     def _connect_with_retry(self):
-        """Open a consistent database or restore a verified backup atomically."""
-        def _is_consistent(conn) -> bool:
-            # sqlite3.connect does not touch data pages; corruption only surfaces
-            # on the first real query, so force an explicit integrity check.
-            try:
-                row = conn.execute("PRAGMA quick_check(1)").fetchone()
-            except sqlite3.DatabaseError:
-                return False
-            return bool(row) and str(row[0]).lower() == "ok"
-
-        try:
-            self.conn = sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
-            self.conn.execute("PRAGMA busy_timeout = 5000")
-            self.conn.execute("PRAGMA foreign_keys = ON")
-            if self.db_path != ":memory:":
-                try:
-                    self.conn.execute("PRAGMA journal_mode = WAL")
-                    self.conn.execute("PRAGMA synchronous = NORMAL")
-                except Exception:
-                    pass
-            if not _is_consistent(self.conn):
-                raise sqlite3.DatabaseError(f"Integrity check failed for {self.db_path}")
-        except sqlite3.DatabaseError as e:
-            logger.error(f"Failed to open SQLite database {self.db_path}: {e}")
-            if self.conn is not None:
-                try:
-                    self.conn.close()
-                except sqlite3.DatabaseError:
-                    pass
-            self.conn = None
-            bak_path = f"{self.db_path}.bak"
-            if os.path.isfile(bak_path):
-                logger.warning(f"Attempting self-healing recovery from backup: {bak_path}")
-                candidate_path = None
-                try:
-                    descriptor, candidate_path = tempfile.mkstemp(
-                        prefix=".safelauncher-db-restore-",
-                        suffix=".tmp",
-                        dir=os.path.dirname(self.db_path) or ".",
-                    )
-                    os.close(descriptor)
-                    shutil.copy2(bak_path, candidate_path)
-                    candidate = sqlite3.connect(candidate_path, timeout=5)
-                    try:
-                        candidate.execute("PRAGMA busy_timeout = 5000")
-                        candidate_is_consistent = _is_consistent(candidate)
-                    finally:
-                        candidate.close()
-                    if not candidate_is_consistent:
-                        raise sqlite3.DatabaseError("Recovery copy failed its integrity check.")
-
-                    # Do not replace the active database until the copied
-                    # recovery file has passed an integrity check. Discard
-                    # sidecars from the corrupt database so they cannot be
-                    # replayed against the restored snapshot.
-                    for suffix in ("-wal", "-shm"):
-                        try:
-                            os.unlink(f"{self.db_path}{suffix}")
-                        except FileNotFoundError:
-                            pass
-                    os.replace(candidate_path, self.db_path)
-                    candidate_path = None
-                    conn = sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
-                    conn.execute("PRAGMA busy_timeout = 5000")
-                    conn.execute("PRAGMA foreign_keys = ON")
-                    try:
-                        conn.execute("PRAGMA journal_mode = WAL")
-                        conn.execute("PRAGMA synchronous = NORMAL")
-                    except sqlite3.DatabaseError:
-                        pass
-                    if not _is_consistent(conn):
-                        conn.close()
-                        raise sqlite3.DatabaseError("Restored database failed its integrity check.")
-                    self.conn = conn
-                    logger.info("Successfully restored database from backup.")
-                    return
-                except Exception as restore_err:
-                    logger.error(f"Backup restore failed: {restore_err}")
-                finally:
-                    if candidate_path is not None:
-                        try:
-                            os.unlink(candidate_path)
-                        except OSError:
-                            pass
-
-            # Never present an empty in-memory library as if it were the
-            # user's persistent database. Startup handles this error visibly.
-            message = (
-                f"Could not open the SafeLauncher library at {self.db_path}. "
-                "Automatic recovery failed; no temporary in-memory library was created, "
-                "and the recovery copy was preserved. "
-                "Check their permissions or restore a known-good backup before retrying."
-            )
-            logger.critical(message)
-            raise DatabaseRecoveryError(message) from e
+        self._session.open()
 
     def _create_table(self):
-        """Create/migrate the shared schema without racing worker connections."""
-        with _ACHIEVEMENT_DB_LOCK:
+        with self._session.lock, _ACHIEVEMENT_DB_LOCK:
             self._create_table_locked()
 
     def _create_table_locked(self):
-        if self.db_path != ":memory:" and self.db_path in _SCHEMA_INITIALIZED:
-            return
-        try:
-            with self.conn:
-                self.conn.execute('''
-                    CREATE TABLE IF NOT EXISTS games (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL,
-                        path TEXT NOT NULL,
-                        executable TEXT NOT NULL,
-                        mode TEXT NOT NULL,
-                        banner_url TEXT,
-                        steam_id TEXT
-                    )
-                ''')
+        return self._schema.apply()
 
-                cursor = self.conn.cursor()
-                cursor.execute("PRAGMA table_info(games)")
-                columns = [column[1] for column in cursor.fetchall()]
+    def close(self):
+        self._session.close()
 
-                if "banner_url" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN banner_url TEXT")
-                if "steam_id" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN steam_id TEXT")
-                if "playtime_seconds" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN playtime_seconds INTEGER DEFAULT 0")
-                if "is_favorite" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0")
-                if "last_played" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN last_played INTEGER DEFAULT 0")
-                if "tags" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN tags TEXT DEFAULT ''")
-                if "build_id" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN build_id TEXT DEFAULT ''")
-                if "proton_path" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN proton_path TEXT DEFAULT ''")
-                if "collection" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN collection TEXT DEFAULT ''")
-                if "install_date" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN install_date INTEGER DEFAULT 0")
-                if "version_override" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN version_override TEXT DEFAULT ''")
-                if "patch_notes_url" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN patch_notes_url TEXT DEFAULT ''")
-                if "is_archived" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN is_archived INTEGER DEFAULT 0")
-                if "icon_url" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN icon_url TEXT DEFAULT ''")
-                if "env_vars" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN env_vars TEXT DEFAULT '{}'")
-                if "build_date" not in columns:
-                    cursor.execute("ALTER TABLE games ADD COLUMN build_date INTEGER DEFAULT 0")
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS collections (
-                        name TEXT PRIMARY KEY
-                    )
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS achievements (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        game_id INTEGER NOT NULL,
-                        app_id TEXT NOT NULL,
-                        api_name TEXT NOT NULL,
-                        display_name TEXT NOT NULL,
-                        description TEXT DEFAULT '',
-                        icon_path TEXT DEFAULT '',
-                        icongray_path TEXT DEFAULT '',
-                        unlocked INTEGER DEFAULT 0,
-                        unlock_time REAL DEFAULT 0,
-                        hidden INTEGER DEFAULT 0,
-                        UNIQUE(game_id, api_name)
-                    )
-                """)
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_achievements_game ON achievements(game_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_achievements_game_unlocked ON achievements(game_id, unlocked)")
-
-                cursor.execute("PRAGMA table_info(achievements)")
-                achievement_columns = {column[1] for column in cursor.fetchall()}
-                if "unlock_provenance" not in achievement_columns:
-                    cursor.execute("ALTER TABLE achievements ADD COLUMN unlock_provenance TEXT DEFAULT 'unknown'")
-                if "unlock_verified" not in achievement_columns:
-                    cursor.execute("ALTER TABLE achievements ADD COLUMN unlock_verified INTEGER DEFAULT 0")
-                if "unlock_source_format" not in achievement_columns:
-                    cursor.execute("ALTER TABLE achievements ADD COLUMN unlock_source_format TEXT DEFAULT ''")
-                if "unlock_source_path" not in achievement_columns:
-                    cursor.execute("ALTER TABLE achievements ADD COLUMN unlock_source_path TEXT DEFAULT ''")
-                if "notification_sent" not in achievement_columns:
-                    cursor.execute("ALTER TABLE achievements ADD COLUMN notification_sent INTEGER DEFAULT 1")
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS achievement_profile (
-                        app_id TEXT NOT NULL,
-                        api_name TEXT NOT NULL,
-                        unlock_time REAL DEFAULT 0,
-                        first_seen_at REAL NOT NULL,
-                        last_seen_at REAL DEFAULT 0,
-                        provenance TEXT DEFAULT 'local_emulator',
-                        verified INTEGER DEFAULT 0,
-                        validation_state TEXT DEFAULT 'validated',
-                        source_format TEXT DEFAULT '',
-                        source_path TEXT DEFAULT '',
-                        PRIMARY KEY (app_id, api_name)
-                    )
-                """)
-                cursor.execute("PRAGMA table_info(achievement_profile)")
-                profile_columns = {column[1] for column in cursor.fetchall()}
-                legacy_profile_contract = "validation_state" not in profile_columns
-                if "last_seen_at" not in profile_columns:
-                    cursor.execute("ALTER TABLE achievement_profile ADD COLUMN last_seen_at REAL DEFAULT 0")
-                if "provenance" not in profile_columns:
-                    cursor.execute("ALTER TABLE achievement_profile ADD COLUMN provenance TEXT DEFAULT 'local_emulator'")
-                if "verified" not in profile_columns:
-                    cursor.execute("ALTER TABLE achievement_profile ADD COLUMN verified INTEGER DEFAULT 0")
-                if "validation_state" not in profile_columns:
-                    cursor.execute("ALTER TABLE achievement_profile ADD COLUMN validation_state TEXT DEFAULT 'validated'")
-                if "source_format" not in profile_columns:
-                    cursor.execute("ALTER TABLE achievement_profile ADD COLUMN source_format TEXT DEFAULT ''")
-                if "source_path" not in profile_columns:
-                    cursor.execute("ALTER TABLE achievement_profile ADD COLUMN source_path TEXT DEFAULT ''")
-                # Rows written before provenance existed were schema-backed
-                # local observations. Keep them visible, but explicitly mark
-                # them as unverified rather than implying Steam proof.
-                cursor.execute("""
-                    UPDATE achievement_profile
-                    SET provenance = CASE WHEN provenance IS NULL OR provenance = '' OR provenance = 'unknown'
-                                          THEN 'local_emulator' ELSE provenance END,
-                        verified = COALESCE(verified, 0),
-                        validation_state = CASE WHEN validation_state IS NULL OR validation_state = ''
-                                                THEN 'validated' ELSE validation_state END,
-                        last_seen_at = CASE WHEN COALESCE(last_seen_at, 0) <= 0 THEN first_seen_at ELSE last_seen_at END
-                    WHERE provenance IS NULL OR provenance = '' OR provenance = 'unknown'
-                       OR validation_state IS NULL OR validation_state = ''
-                       OR COALESCE(last_seen_at, 0) <= 0
-                """)
-                if legacy_profile_contract:
-                    # Historical rows have no schema fingerprint. Preserve
-                    # them, but quarantine until the current schema confirms
-                    # the API names.
-                    cursor.execute("UPDATE achievement_profile SET validation_state = 'pending_schema' WHERE validation_state = 'validated'")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_achievement_profile_app ON achievement_profile(app_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_achievement_profile_validation ON achievement_profile(app_id, validation_state)")
-                cursor.execute("""
-                    UPDATE achievements
-                    SET unlock_provenance = 'local_emulator', unlock_verified = 0, notification_sent = 1
-                    WHERE unlocked = 1 AND (unlock_provenance IS NULL OR unlock_provenance = '' OR unlock_provenance = 'unknown')
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS profile_games (
-                        identity_key TEXT PRIMARY KEY,
-                        app_id TEXT DEFAULT '',
-                        display_name TEXT DEFAULT '',
-                        favorite INTEGER DEFAULT 0,
-                        favorite_changed_at REAL DEFAULT 0,
-                        favorite_change_id TEXT DEFAULT '',
-                        playtime_baseline_seconds INTEGER DEFAULT 0,
-                        last_played INTEGER DEFAULT 0,
-                        first_seen_at REAL NOT NULL
-                    )
-                """)
-                cursor.execute("PRAGMA table_info(profile_games)")
-                profile_game_columns = {column[1] for column in cursor.fetchall()}
-                if "display_name" not in profile_game_columns:
-                    cursor.execute(
-                        "ALTER TABLE profile_games ADD COLUMN display_name TEXT DEFAULT ''"
-                    )
-                # Recover meaningful titles for history rows created before
-                # display_name existed.  A Steam identity is stable even when
-                # the current row has since been archived or removed.
-                cursor.execute(
-                    """
-                    UPDATE profile_games
-                    SET display_name = (
-                        SELECT name FROM games
-                        WHERE profile_games.app_id != ''
-                          AND games.steam_id = profile_games.app_id
-                        ORDER BY games.id ASC LIMIT 1
-                    )
-                    WHERE COALESCE(display_name, '') = ''
-                      AND app_id != ''
-                    """
-                )
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_profile_games_app ON profile_games(app_id)")
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS playtime_sessions (
-                        session_id TEXT PRIMARY KEY,
-                        game_id INTEGER NOT NULL,
-                        started_at INTEGER NOT NULL,
-                        ended_at INTEGER DEFAULT 0,
-                        duration_seconds INTEGER DEFAULT 0,
-                        finalized INTEGER DEFAULT 0,
-                        updated_at INTEGER NOT NULL
-                    )
-                """)
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_playtime_sessions_game ON playtime_sessions(game_id)")
-
-
-                # Sanitize any accidental combo box formatting in executable column
-                cursor.execute("SELECT id, executable FROM games WHERE executable LIKE '%·%'")
-                for row_id, row_exe in cursor.fetchall():
-                    clean_exe = row_exe.split(" · ")[0].split("  ·  ")[0].strip()
-                    cursor.execute("UPDATE games SET executable = ? WHERE id = ?", (clean_exe, row_id))
-            if self.db_path != ":memory:":
-                _SCHEMA_INITIALIZED.add(self.db_path)
-        except Exception as e:
-            logger.error(f"Error initializing database schema: {e}")
+    def is_game_archived(self, game_id: int) -> bool:
+        with self._session.lock:
+            return self._games.is_archived(game_id)
 
     def update_build_id(self, game_id: int, build_id: str):
-        try:
-            with self.conn:
-                self.conn.execute("UPDATE games SET build_id = ? WHERE id = ?", (build_id, game_id))
-        except Exception as e:
-            logger.error(f"Error updating build_id for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_build_id(game_id, build_id)
 
     def update_build_date(self, game_id: int, build_date: int):
-        try:
-            with self.conn:
-                self.conn.execute(
-                    "UPDATE games SET build_date = ? WHERE id = ?",
-                    (int(build_date or 0), game_id),
-                )
-        except Exception as e:
-            logger.error(f"Error updating build_date for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_build_date(game_id, build_date)
 
     def update_game_version_metadata(self, game_id: int, version_override: str, patch_notes_url: str) -> None:
-        try:
-            with self.conn:
-                self.conn.execute(
-                    "UPDATE games SET version_override = ?, patch_notes_url = ? WHERE id = ?",
-                    (version_override or "", patch_notes_url or "", game_id),
-                )
-        except Exception as e:
-            logger.error(f"Failed to update version metadata for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_game_version_metadata(game_id, version_override, patch_notes_url)
 
     def add_game(self, name: str, path: str, executable: str, mode: str, banner_url: str = None, steam_id: str = None):
-        try:
-            with self.conn:
-                cursor = self.conn.execute('''
-                    INSERT INTO games (name, path, executable, mode, banner_url, steam_id, install_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (name, path, executable, mode, banner_url, steam_id, int(time.time())))
-                logger.info(f"Added game '{name}' (path: {path}) to database.")
-                return cursor.lastrowid
-        except Exception as e:
-            logger.error(f"Failed to add game '{name}': {e}")
-            return None
+        with self._session.lock:
+            return self._games.add_game(name, path, executable, mode, banner_url, steam_id)
 
     def find_game_by_profile_identity(self, identity_key: str):
-        """Find a local game matching an account-profile identity."""
-        identity_key = str(identity_key or "").strip()
-        if not identity_key:
-            return None
-        for game in self.get_all_games():
-            if self.profile_identity(game.name, game.steam_id) == identity_key:
-                return game
-        return None
+        'Find a local game matching an account-profile identity.'
+        with self._session.lock:
+            return self._games.find_game_by_profile_identity(identity_key)
 
     def ensure_cloud_game(self, value: dict):
-        """Materialize a cloud-only game as a not-installed local record."""
-        identity = str(value.get("identity_key", "")).strip()
-        app_id = str(value.get("app_id", "") or "").strip()
-        incoming_name = preferred_game_name(
-            app_id,
-            value.get("name"),
-            value.get("display_name"),
-        ) or fallback_game_name(app_id, identity)
-
-        # Profile reconciliation can be invoked by several independent UI
-        # resources.  Keep the identity lookup and possible INSERT in one
-        # process-wide critical section; otherwise two worker connections can
-        # both observe the missing row and materialize it.
-        with _ACHIEVEMENT_DB_LOCK:
-            existing = self.find_game_by_profile_identity(identity)
-            if existing is None and not app_id:
-                # Older profile documents may retain a local alias alongside a
-                # later Steam identity.  The alias repair can remove the
-                # local row before this method runs, so match only a unique,
-                # archived, pathless Steam row by its meaningful title.  An
-                # installed game is deliberately excluded to avoid merging
-                # unrelated non-Steam titles.
-                incoming_key = display_name_key(incoming_name, "")
-                candidates = [
-                    game for game in self.get_all_games()
-                    if str(game.steam_id or "").strip()
-                    and bool(game.is_archived)
-                    and not str(game.path or "").strip()
-                    and not str(game.executable or "").strip()
-                    and display_name_key(game.name, game.steam_id) == incoming_key
-                ]
-                if len(candidates) == 1:
-                    existing = candidates[0]
-                    # Preserve the canonical Steam identity when the legacy
-                    # alias is only a projection of the same cloud game.
-                    value = dict(value)
-                    value["identity_key"] = self.profile_identity(
-                        existing.name, existing.steam_id
-                    )
-
-            if existing:
-                # A previously materialized placeholder must be upgraded in
-                # place; the Steam AppID remains the identity and no duplicate
-                # is made.
-                self.project_profile_library(existing.id, value)
-                if is_identity_placeholder_name(existing.name):
-                    self.update_game_name_from_metadata(
-                        existing.id,
-                        fallback_game_name(app_id or existing.steam_id, identity),
-                    )
-                return existing.id
-
-            game_id = self.add_game(
-                incoming_name[:MAX_GAME_NAME_LENGTH], "", "",
-                str(value.get("mode", "linux") or "linux"),
-                str(value.get("banner_url", "") or "")[:1024], app_id or None,
-            )
-            if game_id:
-                self.archive_game(game_id, True)
-            return game_id
+        'Materialize a cloud-only game as a not-installed local record.'
+        with self._session.lock:
+            return self._games.ensure_cloud_game(value)
 
     def toggle_favorite(self, game_id: int) -> bool:
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT is_favorite FROM games WHERE id = ?", (game_id,))
-            row = cursor.fetchone()
-            current = row[0] if row and row[0] else 0
-            new_val = 0 if current else 1
-            with self.conn:
-                self.conn.execute("UPDATE games SET is_favorite = ? WHERE id = ?", (new_val, game_id))
-                row = self.conn.execute(
-                    "SELECT name, steam_id FROM games WHERE id = ?", (game_id,)
-                ).fetchone()
-                if row:
-                    identity = self.profile_identity(row[0], row[1])
-                    self.conn.execute(
-                        """INSERT INTO profile_games
-                           (identity_key, app_id, display_name, favorite, favorite_changed_at, favorite_change_id, first_seen_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)
-                           ON CONFLICT(identity_key) DO UPDATE SET
-                             app_id = excluded.app_id,
-                             display_name = CASE WHEN excluded.display_name != '' THEN excluded.display_name ELSE profile_games.display_name END,
-                             favorite = excluded.favorite,
-                             favorite_changed_at = excluded.favorite_changed_at,
-                             favorite_change_id = excluded.favorite_change_id""",
-                        (
-                            identity,
-                            str(row[1] or "").strip(),
-                            meaningful_game_name(row[0], row[1]),
-                            new_val,
-                            time.time(),
-                            str(uuid.uuid4()),
-                            time.time(),
-                        ),
-                    )
-            return bool(new_val)
-        except Exception as e:
-            logger.error(f"Failed to toggle favorite for game {game_id}: {e}")
-            return False
+        with self._session.lock:
+            return self._games.toggle_favorite(game_id)
 
     def update_last_played(self, game_id: int, timestamp: int):
-        try:
-            with self.conn:
-                self.conn.execute("UPDATE games SET last_played = ? WHERE id = ?", (timestamp, game_id))
-        except Exception as e:
-            logger.error(f"Failed to update last_played for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_last_played(game_id, timestamp)
 
     def update_game_tags(self, game_id: int, tags: str):
-        try:
-            with self.conn:
-                self.conn.execute("UPDATE games SET tags = ? WHERE id = ?", (tags, game_id))
-        except Exception as e:
-            logger.error(f"Failed to update tags for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_game_tags(game_id, tags)
 
     def add_playtime(self, game_id: int, seconds: int) -> None:
-        if seconds > 0:
-            try:
-                with self.conn:
-                    self.conn.execute(
-                        'UPDATE games SET playtime_seconds = COALESCE(playtime_seconds, 0) + ? WHERE id = ?',
-                        (seconds, game_id)
-                    )
-                logger.debug(f"Added {seconds}s playtime to game {game_id}.")
-            except Exception as e:
-                logger.error(f"Failed to add playtime to game {game_id}: {e}")
+        with self._session.lock:
+            return self._playtime.add_playtime(game_id, seconds)
 
     def get_playtime(self, game_id: int) -> int:
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('SELECT playtime_seconds FROM games WHERE id = ?', (game_id,))
-            row = cursor.fetchone()
-            return row[0] if row and row[0] else 0
-        except Exception as e:
-            logger.error(f"Failed to get playtime for game {game_id}: {e}")
-            return 0
+        with self._session.lock:
+            return self._playtime.get_playtime(game_id)
 
     def merge_playtime_metadata(self, game_id: int, playtime_seconds: int, last_played: int) -> None:
-        """Merge a cloud snapshot without double-counting sessions."""
-        try:
-            with self.conn:
-                self.conn.execute(
-                    """UPDATE games SET
-                       playtime_seconds = MAX(COALESCE(playtime_seconds, 0), ?),
-                       last_played = MAX(COALESCE(last_played, 0), ?)
-                       WHERE id = ?""",
-                    (max(0, int(playtime_seconds or 0)), max(0, int(last_played or 0)), game_id),
-                )
-        except Exception as e:
-            logger.error(f"Failed to merge playtime metadata for game {game_id}: {e}")
-
-    @staticmethod
-    def profile_identity(name: str, app_id: str = "") -> str:
-        """Return the portable account-profile identity for a game."""
-        sid = str(app_id or "").strip()
-        if sid and sid not in ("0", "None"):
-            return f"steam:{sid}"
-        # A prior cloud-only fallback could persist the identity itself as
-        # the title (``local:dub-together``), or repeatedly prefix it while
-        # rematerializing the same record.  Always collapse those spellings
-        # to one stable local identity.
-        return local_profile_identity(name)
+        'Merge a cloud snapshot without double-counting sessions.'
+        with self._session.lock:
+            return self._playtime.merge_playtime_metadata(game_id, playtime_seconds, last_played)
 
     def get_profile_games(self) -> List[dict]:
-        rows = self.conn.execute(
-            """SELECT identity_key, app_id, favorite, favorite_changed_at,
-                      favorite_change_id, playtime_baseline_seconds, last_played,
-                      display_name
-               FROM profile_games ORDER BY identity_key"""
-        ).fetchall()
-        return [{"identity_key": r[0], "app_id": r[1] or "", "favorite": bool(r[2]),
-                 "favorite_changed_at": float(r[3] or 0), "favorite_change_id": r[4] or "",
-                 "playtime_baseline_seconds": int(r[5] or 0), "last_played": int(r[6] or 0),
-                 "display_name": meaningful_game_name(r[7], r[1])} for r in rows]
+        with self._session.lock:
+            return self._profiles.get_profile_games()
 
     def merge_profile_game(self, value: dict) -> None:
-        """Merge one generalized profile record and project it to matching games."""
-        identity = str(value.get("identity_key", "")).strip()
-        if not identity:
-            return
-        incoming_ts = float(value.get("favorite_changed_at", 0) or 0)
-        incoming_id = str(value.get("favorite_change_id", "") or "")
-        app_id = str(value.get("app_id", "") or "").strip()
-        incoming_name = preferred_game_name(
-            app_id,
-            value.get("name"),
-            value.get("display_name"),
-        )
-        with self.conn:
-            current = self.conn.execute(
-                "SELECT favorite, favorite_changed_at, favorite_change_id, display_name FROM profile_games WHERE identity_key = ?",
-                (identity,),
-            ).fetchone()
-            if current:
-                current_key = (float(current[1] or 0), str(current[2] or ""))
-                incoming_key = (incoming_ts, incoming_id)
-                if current_key == incoming_key == (0, ""):
-                    # Legacy records have no causal marker. Treat an old
-                    # favorite as a positive fact instead of allowing a
-                    # marker-less remote false value to erase it.
-                    favorite = int(bool(current[0]) or bool(value.get("favorite")))
-                elif incoming_key < current_key:
-                    favorite = int(bool(current[0]))
-                    incoming_ts, incoming_id = current_key[0], current_key[1]
-                else:
-                    favorite = int(bool(value.get("favorite")))
-            else:
-                favorite = int(bool(value.get("favorite")))
-            self.conn.execute(
-                """INSERT INTO profile_games
-                   (identity_key, app_id, display_name, favorite, favorite_changed_at, favorite_change_id,
-                    playtime_baseline_seconds, last_played, first_seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(identity_key) DO UPDATE SET
-                     app_id = excluded.app_id,
-                     display_name = CASE WHEN excluded.display_name != '' THEN excluded.display_name ELSE profile_games.display_name END,
-                     favorite = excluded.favorite,
-                     favorite_changed_at = excluded.favorite_changed_at,
-                     favorite_change_id = excluded.favorite_change_id,
-                     playtime_baseline_seconds = MAX(profile_games.playtime_baseline_seconds, excluded.playtime_baseline_seconds),
-                     last_played = MAX(profile_games.last_played, excluded.last_played)""",
-                (identity, app_id, incoming_name, favorite, incoming_ts, incoming_id,
-                 max(0, int(value.get("playtime_baseline_seconds", 0) or 0)),
-                 max(0, int(value.get("last_played", 0) or 0)), time.time()),
-            )
+        'Merge one generalized profile record and project it to matching games.'
+        with self._session.lock:
+            return self._profiles.merge_profile_game(value)
 
     def project_profile_game(self, game_id: int, value: dict) -> None:
-        identity = str(value.get("identity_key", "")).strip()
-        with self.conn:
-            self.conn.execute(
-                "UPDATE games SET is_favorite = ?, playtime_seconds = MAX(COALESCE(playtime_seconds, 0), ?), last_played = MAX(COALESCE(last_played, 0), ?) WHERE id = ?",
-                (int(bool(value.get("favorite"))), max(0, int(value.get("playtime_seconds", 0) or 0)),
-                 max(0, int(value.get("last_played", 0) or 0)), game_id),
-            )
+        with self._session.lock:
+            return self._profiles.project_profile_game(game_id, value)
 
     def project_profile_library(self, game_id: int, value: dict) -> None:
-        """Apply portable cloud catalog fields without touching local paths."""
-        try:
-            row = self.conn.execute(
-                "SELECT name, steam_id FROM games WHERE id = ?", (game_id,)
-            ).fetchone()
-            current_name = str(row[0] or "") if row else ""
-            app_id = str(value.get("app_id", "") or (row[1] if row else "") or "").strip()
-            incoming_name = preferred_game_name(
-                app_id,
-                value.get("name"),
-                value.get("display_name"),
-            )
-            # Local meaningful names win.  Remote metadata may repair a
-            # generated placeholder, but must not rename a user's local title.
-            name_update = (
-                incoming_name
-                if not meaningful_game_name(current_name, app_id)
-                else ""
-            )
-            with self.conn:
-                self.conn.execute(
-                    """UPDATE games SET name = COALESCE(NULLIF(?, ''), name),
-                       banner_url = COALESCE(NULLIF(?, ''), banner_url),
-                       mode = COALESCE(NULLIF(?, ''), mode),
-                       collection = ?, tags = ? WHERE id = ?""",
-                    (
-                        name_update[:MAX_GAME_NAME_LENGTH],
-                        str(value.get("banner_url", "") or "")[:1024],
-                        str(value.get("mode", "") or "")[:32],
-                        str(value.get("collection", "") or ""),
-                        str(value.get("tags", "") or "")[:2048],
-                        game_id,
-                    ),
-                )
-        except Exception as e:
-            logger.error(f"Failed to project cloud library metadata for game {game_id}: {e}")
+        'Apply portable cloud catalog fields without touching local paths.'
+        with self._session.lock:
+            return self._profiles.project_profile_library(game_id, value)
 
     def update_game_name_from_metadata(self, game_id: int, name: str) -> bool:
-        """Repair a generated Steam title without replacing a local title."""
-        try:
-            with self.conn:
-                row = self.conn.execute(
-                    "SELECT name, steam_id FROM games WHERE id = ?", (game_id,)
-                ).fetchone()
-                if not row:
-                    return False
-                app_id = str(row[1] or "").strip()
-                candidate = meaningful_game_name(name, app_id)
-                if not candidate or meaningful_game_name(row[0], app_id):
-                    return False
-                self.conn.execute(
-                    "UPDATE games SET name = ? WHERE id = ?",
-                    (candidate[:MAX_GAME_NAME_LENGTH], game_id),
-                )
-                identity = self.profile_identity(candidate, app_id)
-                self.conn.execute(
-                    "UPDATE profile_games SET display_name = ? WHERE identity_key = ?",
-                    (candidate[:MAX_GAME_NAME_LENGTH], identity),
-                )
-                return True
-        except Exception as e:
-            logger.error(f"Failed to update metadata name for game {game_id}: {e}")
-            return False
+        'Repair a generated Steam title without replacing a local title.'
+        with self._session.lock:
+            return self._games.update_game_name_from_metadata(game_id, name)
 
     def create_playtime_session(self, game_id: int, started_at: Optional[int] = None, session_id: str = "") -> str:
-        """Create an idempotent playtime event for metadata synchronization."""
-        sid = session_id.strip() or str(uuid.uuid4())
-        started = max(0, int(started_at or time.time()))
-        try:
-            with self.conn:
-                self.conn.execute(
-                    "INSERT OR IGNORE INTO playtime_sessions(session_id, game_id, started_at, updated_at) VALUES (?, ?, ?, ?)",
-                    (sid, game_id, started, started),
-                )
-        except Exception as e:
-            logger.error(f"Failed to create playtime session for game {game_id}: {e}")
-        return sid
+        'Create an idempotent playtime event for metadata synchronization.'
+        with self._session.lock:
+            return self._playtime.create_playtime_session(game_id, started_at, session_id)
 
     def checkpoint_playtime_session(self, session_id: str, duration_seconds: int, finalized: bool = False, ended_at: int = 0) -> None:
-        """Persist progress and keep the aggregate derived from the session ledger."""
-        try:
-            with self.conn:
-                self.conn.execute(
-                    """UPDATE playtime_sessions SET duration_seconds = MAX(duration_seconds, ?),
-                       finalized = MAX(finalized, ?), ended_at = MAX(ended_at, ?), updated_at = ?
-                       WHERE session_id = ?""",
-                    (max(0, int(duration_seconds or 0)), int(bool(finalized)), max(0, int(ended_at or 0)), int(time.time()), session_id),
-                )
-                row = self.conn.execute(
-                    "SELECT game_id FROM playtime_sessions WHERE session_id = ?", (session_id,)
-                ).fetchone()
-                if row:
-                    game_id = int(row[0])
-                    total = self.conn.execute(
-                        "SELECT COALESCE(SUM(duration_seconds), 0) FROM playtime_sessions WHERE game_id = ?",
-                        (game_id,),
-                    ).fetchone()[0]
-                    # Existing installations may have a pre-ledger aggregate.
-                    # Preserve that baseline while making all tracked sessions
-                    # idempotent rather than adding the same elapsed time twice.
-                    self.conn.execute(
-                        "UPDATE games SET playtime_seconds = MAX(COALESCE(playtime_seconds, 0), ?) WHERE id = ?",
-                        (int(total or 0), game_id),
-                    )
-        except Exception as e:
-            logger.error(f"Failed to checkpoint playtime session {session_id}: {e}")
+        'Persist progress and keep the aggregate derived from the session ledger.'
+        with self._session.lock:
+            return self._playtime.checkpoint_playtime_session(session_id, duration_seconds, finalized, ended_at)
 
     def get_playtime_session_game_id(self, session_id: str) -> Optional[int]:
-        """Return the owning game for one session-ledger event."""
-        try:
-            row = self.conn.execute(
-                "SELECT game_id FROM playtime_sessions WHERE session_id = ?",
-                (str(session_id or ""),),
-            ).fetchone()
-            return int(row[0]) if row else None
-        except Exception as e:
-            logger.error(f"Failed to resolve playtime session {session_id}: {e}")
-            return None
+        'Return the owning game for one session-ledger event.'
+        with self._session.lock:
+            return self._playtime.get_playtime_session_game_id(session_id)
 
     def get_playtime_sessions(self, game_id: int) -> List[dict]:
-        try:
-            rows = self.conn.execute(
-                "SELECT session_id, started_at, ended_at, duration_seconds, finalized FROM playtime_sessions WHERE game_id = ? ORDER BY started_at",
-                (game_id,),
-            ).fetchall()
-            return [{"session_id": r[0], "started_at": int(r[1] or 0), "ended_at": int(r[2] or 0),
-                     "duration_seconds": int(r[3] or 0), "finalized": bool(r[4])} for r in rows]
-        except Exception as e:
-            logger.error(f"Failed to read playtime sessions for game {game_id}: {e}")
-            return []
+        with self._session.lock:
+            return self._playtime.get_playtime_sessions(game_id)
 
     def merge_playtime_sessions(self, game_id: int, sessions: List[dict]) -> None:
-        """Merge remote sessions by ID and rebuild the aggregate counter."""
-        if not sessions:
-            return
-        try:
-            with self.conn:
-                for item in sessions:
-                    sid = str(item.get("session_id", "")).strip()
-                    if not sid:
-                        continue
-                    self.conn.execute(
-                        """INSERT INTO playtime_sessions(session_id, game_id, started_at, ended_at, duration_seconds, finalized, updated_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)
-                           ON CONFLICT(session_id) DO UPDATE SET
-                             ended_at = MAX(playtime_sessions.ended_at, excluded.ended_at),
-                             duration_seconds = MAX(playtime_sessions.duration_seconds, excluded.duration_seconds),
-                             finalized = MAX(playtime_sessions.finalized, excluded.finalized),
-                             updated_at = MAX(playtime_sessions.updated_at, excluded.updated_at)""",
-                        (sid, game_id, max(0, int(item.get("started_at", 0) or 0)), max(0, int(item.get("ended_at", 0) or 0)),
-                         max(0, int(item.get("duration_seconds", 0) or 0)), int(bool(item.get("finalized"))), int(time.time())),
-                    )
-                total = self.conn.execute("SELECT COALESCE(SUM(duration_seconds), 0) FROM playtime_sessions WHERE game_id = ?", (game_id,)).fetchone()[0]
-                self.conn.execute("UPDATE games SET playtime_seconds = MAX(COALESCE(playtime_seconds, 0), ?) WHERE id = ?", (int(total or 0), game_id))
-        except Exception as e:
-            logger.error(f"Failed to merge playtime sessions for game {game_id}: {e}")
+        'Merge remote sessions by ID and rebuild the aggregate counter.'
+        with self._session.lock:
+            return self._playtime.merge_playtime_sessions(game_id, sessions)
 
     def update_game(self, game_id: int, name: str, path: str, executable: str, mode: str, banner_url: str = None):
-        try:
-            with self.conn:
-                self.conn.execute('''
-                    UPDATE games 
-                    SET name = ?, path = ?, executable = ?, mode = ?, banner_url = ?
-                    WHERE id = ?
-                ''', (name, path, executable, mode, banner_url, game_id))
-                logger.info(f"Updated game {game_id} ('{name}').")
-        except Exception as e:
-            logger.error(f"Failed to update game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_game(game_id, name, path, executable, mode, banner_url)
 
     def update_game_mode(self, game_id: int, mode: str):
-        try:
-            with self.conn:
-                self.conn.execute("UPDATE games SET mode = ? WHERE id = ?", (mode, game_id))
-        except Exception as e:
-            logger.error(f"Failed to update game mode for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_game_mode(game_id, mode)
 
     def update_game_banner(self, game_id: int, banner_url: str):
-        try:
-            with self.conn:
-                self.conn.execute('''
-                    UPDATE games SET banner_url = ? WHERE id = ?
-                ''', (banner_url, game_id))
-        except Exception as e:
-            logger.error(f"Failed to update banner for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_game_banner(game_id, banner_url)
 
     def update_game_steam_id(self, game_id: int, steam_id: str) -> None:
-        """Persist the Steam AppID discovered by metadata fetchers."""
-        try:
-            with self.conn:
-                self.conn.execute(
-                    "UPDATE games SET steam_id = ? WHERE id = ?",
-                    (str(steam_id), game_id),
-                )
-        except Exception as e:
-            logger.error(f"Failed to update Steam ID for game {game_id}: {e}")
+        'Persist the Steam AppID discovered by metadata fetchers.'
+        with self._session.lock:
+            return self._games.update_game_steam_id(game_id, steam_id)
 
     def update_game_proton_path(self, game_id: int, proton_path: str) -> None:
-        try:
-            with self.conn:
-                self.conn.execute("UPDATE games SET proton_path = ? WHERE id = ?", (proton_path or "", game_id))
-        except Exception as e:
-            logger.error(f"Failed to update Proton path for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_game_proton_path(game_id, proton_path)
 
     def update_game_collection(self, game_id: int, collection: str) -> None:
-        try:
-            with self.conn:
-                self.conn.execute("UPDATE games SET collection = ? WHERE id = ?", (collection or "", game_id))
-        except Exception as e:
-            logger.error(f"Failed to update collection for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_game_collection(game_id, collection)
 
     def add_collection(self, name: str) -> None:
-        name = name.strip()
-        if not name:
-            return
-        try:
-            with self.conn:
-                self.conn.execute("INSERT OR IGNORE INTO collections (name) VALUES (?)", (name,))
-        except Exception as e:
-            logger.error(f"Failed to add collection '{name}': {e}")
+        with self._session.lock:
+            return self._games.add_collection(name)
 
     def delete_collection(self, name: str) -> None:
-        name = name.strip()
-        if not name:
-            return
-        try:
-            with self.conn:
-                self.conn.execute("DELETE FROM collections WHERE name = ?", (name,))
-                self.conn.execute("UPDATE games SET collection = '' WHERE collection = ?", (name,))
-        except Exception as e:
-            logger.error(f"Failed to delete collection '{name}': {e}")
+        with self._session.lock:
+            return self._games.delete_collection(name)
 
     def rename_collection(self, old_name: str, new_name: str) -> None:
-        old_name = old_name.strip()
-        new_name = new_name.strip()
-        if not old_name or not new_name:
-            return
-        try:
-            with self.conn:
-                self.conn.execute("DELETE FROM collections WHERE name = ?", (old_name,))
-                self.conn.execute("INSERT OR REPLACE INTO collections (name) VALUES (?)", (new_name,))
-                self.conn.execute("UPDATE games SET collection = ? WHERE collection = ?", (new_name, old_name))
-        except Exception as e:
-            logger.error(f"Failed to rename collection '{old_name}' -> '{new_name}': {e}")
+        with self._session.lock:
+            return self._games.rename_collection(old_name, new_name)
 
     def get_all_collections(self) -> List[str]:
-        try:
-            cursor = self.conn.cursor()
-            cols = set()
-            for row in cursor.execute("SELECT name FROM collections"):
-                if row[0]:
-                    cols.add(str(row[0]).strip())
-            for row in cursor.execute("SELECT DISTINCT collection FROM games WHERE collection != ''"):
-                if row[0]:
-                    cols.add(str(row[0]).strip())
-            return sorted(list(cols), key=lambda x: x.lower())
-        except Exception as e:
-            logger.error(f"Failed to fetch collections: {e}")
-            return []
+        with self._session.lock:
+            return self._games.get_all_collections()
 
     def archive_game(self, game_id: int, is_archived: bool = True) -> bool:
-        """Mark a game as archived (or unarchived) without losing its data."""
-        try:
-            with self.conn:
-                cursor = self.conn.execute(
-                    "UPDATE games SET is_archived = ? WHERE id = ?",
-                    (1 if is_archived else 0, game_id),
-                )
-                if cursor.rowcount != 1:
-                    return False
-                logger.info(f"{'Archived' if is_archived else 'Restored'} game ID {game_id}")
-                return True
-        except Exception as e:
-            logger.error(f"Failed to set archived status for game {game_id}: {e}")
-            return False
+        'Mark a game as archived (or unarchived) without losing its data.'
+        with self._session.lock:
+            return self._games.archive_game(game_id, is_archived)
 
     def restore_game(self, game_id: int) -> bool:
-        """Restore an archived game back to the active library."""
-        return self.archive_game(game_id, is_archived=False)
+        'Restore an archived game back to the active library.'
+        with self._session.lock:
+            return self._games.restore_game(game_id)
 
     def update_game_icon(self, game_id: int, icon_url: str) -> None:
-        try:
-            with self.conn:
-                self.conn.execute("UPDATE games SET icon_url = ? WHERE id = ?", (icon_url or "", game_id))
-        except Exception as e:
-            logger.error(f"Failed to update icon for game {game_id}: {e}")
+        with self._session.lock:
+            return self._games.update_game_icon(game_id, icon_url)
 
     def update_game_env_vars(self, game_id: int, env_vars: dict | str) -> None:
-        """Update per-game environment variables and presets (stored as JSON string)."""
-        try:
-            val_str = json.dumps(env_vars) if isinstance(env_vars, dict) else str(env_vars or "{}")
-            with self.conn:
-                self.conn.execute("UPDATE games SET env_vars = ? WHERE id = ?", (val_str, game_id))
-            logger.info(f"Updated environment variables for game {game_id}")
-        except Exception as e:
-            logger.error(f"Failed to update env_vars for game {game_id}: {e}")
+        'Update per-game environment variables and presets (stored as JSON string).'
+        with self._session.lock:
+            return self._games.update_game_env_vars(game_id, env_vars)
 
     def get_game_env_vars(self, game_id: int) -> dict:
-        """Retrieve per-game environment variables as a dictionary."""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT env_vars FROM games WHERE id = ?", (game_id,))
-            row = cursor.fetchone()
-            if row and row[0]:
-                return json.loads(row[0])
-            return {}
-        except Exception as e:
-            logger.error(f"Failed to get env_vars for game {game_id}: {e}")
-            return {}
+        'Retrieve per-game environment variables as a dictionary.'
+        with self._session.lock:
+            return self._games.get_game_env_vars(game_id)
 
     def get_all_games(self) -> List[GameRecord]:
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(f'SELECT {self.GAME_COLUMNS} FROM games')
-            rows = cursor.fetchall()
-            return [
-                GameRecord(
-                    id=r[0], name=r[1], path=r[2], executable=r[3], mode=r[4],
-                    banner_url=r[5] or "", steam_id=r[6] or "", playtime_seconds=r[7] or 0,
-                    is_favorite=r[8] or 0, last_played=r[9] or 0, tags=r[10] or "",
-                    build_id=r[11] or "", proton_path=r[12] or "", collection=r[13] or "",
-                    install_date=r[14] or 0, version_override=r[15] or "", patch_notes_url=r[16] or "",
-                    is_archived=r[17] if len(r) > 17 and r[17] else 0,
-                    icon_url=r[18] if len(r) > 18 and r[18] else "",
-                    env_vars=r[19] if len(r) > 19 and r[19] else "{}",
-                    build_date=r[20] if len(r) > 20 and r[20] else 0,
-                )
-                for r in rows
-            ]
-        except Exception as e:
-            logger.error(f"Failed to fetch games list: {e}")
-            return []
+        with self._session.lock:
+            return self._games.get_all_games()
 
     def _merge_profile_identity_alias(self, source_identity: str, target_identity: str, app_id: str) -> None:
-        """Move one legacy profile alias onto a canonical identity.
-
-        Profile history is append-only for ordinary removal, but an identity
-        alias is not a separate game.  Merge it before deleting the alias so
-        favorites, playtime baselines, and causal favorite markers survive.
-        """
-        if not source_identity or not target_identity or source_identity == target_identity:
-            return
-        source = self.conn.execute(
-            """SELECT display_name, favorite, favorite_changed_at,
-                      favorite_change_id, playtime_baseline_seconds, last_played
-               FROM profile_games WHERE identity_key = ?""",
-            (source_identity,),
-        ).fetchone()
-        if not source:
-            return
-        self.merge_profile_game({
-            "identity_key": target_identity,
-            "app_id": app_id,
-            "name": source[0] or fallback_game_name("", source_identity),
-            "display_name": source[0] or "",
-            "favorite": bool(source[1]),
-            "favorite_changed_at": source[2] or 0,
-            "favorite_change_id": source[3] or "",
-            "playtime_baseline_seconds": source[4] or 0,
-            "last_played": source[5] or 0,
-        })
-        self.conn.execute(
-            "DELETE FROM profile_games WHERE identity_key = ?",
-            (source_identity,),
-        )
+        'Move one legacy profile alias onto a canonical identity.\n\nProfile history is append-only for ordinary removal, but an identity\nalias is not a separate game.  Merge it before deleting the alias so\nfavorites, playtime baselines, and causal favorite markers survive.'
+        with self._session.lock:
+            return self._reconciliation._merge_profile_identity_alias(source_identity, target_identity, app_id)
 
     def consolidate_duplicate_games(self, *, force: bool = False) -> int:
-        """Consolidate rows that resolve to the same portable game identity.
-
-        Older cloud-only materialization treated ``local:<slug>`` as a title,
-        then derived ``local:local-<slug>`` on the next pass.  It could also
-        leave a non-Steam placeholder beside the later-known Steam identity.
-        This repair runs once per persistent database during startup and can be
-        forced by a sync pass.  It keeps the best row, merges dependent
-        achievement/session ledgers, preserves profile history, and only then
-        removes redundant rows.
-        """
-        repair_key = self.db_path
-        if not force and repair_key != ":memory:" and repair_key in _DUPLICATE_REPAIR_DONE:
-            return 0
-
-        removed = 0
-        try:
-            with _ACHIEVEMENT_DB_LOCK:
-                # Normalize legacy local profile-history keys first.  The
-                # profile table is append-only by design, but old identity
-                # spellings are aliases rather than separate games.
-                history_rows = self.conn.execute(
-                    """SELECT identity_key, app_id, display_name, favorite,
-                              favorite_changed_at, favorite_change_id,
-                              playtime_baseline_seconds, last_played
-                       FROM profile_games"""
-                ).fetchall()
-                for row in history_rows:
-                    old_identity = str(row[0] or "").strip()
-                    app_id = str(row[1] or "").strip()
-                    if app_id or not old_identity.casefold().startswith("local:"):
-                        continue
-                    canonical_identity = local_profile_identity(old_identity)
-                    if canonical_identity == old_identity:
-                        continue
-                    self.merge_profile_game({
-                        "identity_key": canonical_identity,
-                        "app_id": "",
-                        "name": preferred_game_name("", row[2]) or fallback_game_name("", old_identity),
-                        "display_name": row[2] or "",
-                        "favorite": bool(row[3]),
-                        "favorite_changed_at": row[4] or 0,
-                        "favorite_change_id": row[5] or "",
-                        "playtime_baseline_seconds": row[6] or 0,
-                        "last_played": row[7] or 0,
-                    })
-                    self.conn.execute(
-                        "DELETE FROM profile_games WHERE identity_key = ?",
-                        (old_identity,),
-                    )
-
-                # A cloud-only record may have been materialized before the
-                # backend knew its Steam AppID.  Reconcile only records that
-                # are unmistakably placeholders: archived, pathless, and
-                # executable-less.  An installed local game with the same
-                # title must never be merged solely by name.
-                games_before_alias_repair = self.get_all_games()
-                steam_games = [
-                    game for game in games_before_alias_repair
-                    if str(game.steam_id or "").strip() not in ("", "0", "None")
-                ]
-                local_aliases = [
-                    game for game in games_before_alias_repair
-                    if not str(game.steam_id or "").strip()
-                    and bool(game.is_archived)
-                    and not str(game.path or "").strip()
-                    and not str(game.executable or "").strip()
-                ]
-                profile_names = {
-                    str(row[0]): str(row[2] or "")
-                    for row in self.conn.execute(
-                        "SELECT identity_key, app_id, display_name FROM profile_games"
-                    ).fetchall()
-                }
-                preferred_steam_row_ids = set()
-                for local_game in local_aliases:
-                    local_identity = self.profile_identity(local_game.name, "")
-                    local_name = display_name_key(
-                        profile_names.get(local_identity) or local_game.name,
-                        "",
-                    )
-                    if not local_name:
-                        continue
-                    matches = []
-                    for steam_game in steam_games:
-                        app_id = str(steam_game.steam_id or "").strip()
-                        steam_identity = self.profile_identity(steam_game.name, app_id)
-                        steam_name = display_name_key(
-                            profile_names.get(steam_identity) or steam_game.name,
-                            app_id,
-                        )
-                        if steam_name and steam_name == local_name:
-                            matches.append((steam_game, app_id, steam_identity))
-                    if len(matches) != 1:
-                        continue
-                    steam_game, app_id, steam_identity = matches[0]
-                    preferred_steam_row_ids.add(int(steam_game.id))
-                    self._merge_profile_identity_alias(
-                        local_identity,
-                        steam_identity,
-                        app_id,
-                    )
-                    with self.conn:
-                        self.conn.execute(
-                            "UPDATE games SET steam_id = ? WHERE id = ?",
-                            (app_id, local_game.id),
-                        )
-
-                games_by_identity = {}
-                for game in self.get_all_games():
-                    identity = self.profile_identity(game.name, game.steam_id)
-                    games_by_identity.setdefault(identity, []).append(game)
-
-                duplicate_groups = [
-                    (identity, rows)
-                    for identity, rows in games_by_identity.items()
-                    if len(rows) > 1
-                ]
-                for identity, rows in duplicate_groups:
-                    def _rank(game):
-                        installed = bool(not game.is_archived and game.path)
-                        meaningful = bool(meaningful_game_name(game.name, game.steam_id))
-                        has_steam_identity = bool(str(game.steam_id or "").strip())
-                        preferred_steam_row = int(game.id) in preferred_steam_row_ids
-                        return (installed, preferred_steam_row, has_steam_identity, meaningful, bool(game.path), -int(game.id))
-
-                    ordered = sorted(rows, key=_rank, reverse=True)
-                    canonical = ordered[0]
-                    duplicates = ordered[1:]
-                    app_id = str(canonical.steam_id or "").strip()
-                    if not app_id:
-                        app_id = next((str(game.steam_id or "").strip() for game in rows if game.steam_id), "")
-
-                    title = next(
-                        (
-                            meaningful_game_name(game.name, app_id)
-                            for game in ordered
-                            if meaningful_game_name(game.name, app_id)
-                        ),
-                        fallback_game_name(app_id, identity),
-                    )[:MAX_GAME_NAME_LENGTH]
-
-                    def _first_text(*values):
-                        for value in values:
-                            text = str(value or "").strip()
-                            if text:
-                                return text
-                        return ""
-
-                    path_source = next((game for game in ordered if game.path), canonical)
-                    executable_source = next((game for game in ordered if game.executable), canonical)
-                    banner = _first_text(canonical.banner_url, *(game.banner_url for game in duplicates))[:1024]
-                    tags = _first_text(canonical.tags, *(game.tags for game in duplicates))[:2048]
-                    build_id = _first_text(canonical.build_id, *(game.build_id for game in duplicates))
-                    proton_path = _first_text(canonical.proton_path, *(game.proton_path for game in duplicates))
-                    collection = _first_text(canonical.collection, *(game.collection for game in duplicates))
-                    version_override = _first_text(canonical.version_override, *(game.version_override for game in duplicates))
-                    patch_notes_url = _first_text(canonical.patch_notes_url, *(game.patch_notes_url for game in duplicates))
-                    icon_url = _first_text(canonical.icon_url, *(game.icon_url for game in duplicates))[:1024]
-                    env_vars = _first_text(canonical.env_vars, *(game.env_vars for game in duplicates)) or "{}"
-                    mode = _first_text(path_source.mode, canonical.mode, *(game.mode for game in duplicates))[:32]
-                    install_dates = [int(game.install_date or 0) for game in rows if int(game.install_date or 0) > 0]
-                    install_date = min(install_dates) if install_dates else 0
-
-                    with self.conn:
-                        self.conn.execute(
-                            """UPDATE games SET
-                               name = ?, path = ?, executable = ?, mode = ?,
-                               banner_url = ?, steam_id = ?,
-                               playtime_seconds = ?, is_favorite = ?,
-                               last_played = ?, tags = ?, build_id = ?,
-                               proton_path = ?, collection = ?, install_date = ?,
-                               version_override = ?, patch_notes_url = ?,
-                               is_archived = ?, icon_url = ?, env_vars = ?, build_date = ?
-                               WHERE id = ?""",
-                            (
-                                title,
-                                _first_text(canonical.path, path_source.path),
-                                _first_text(canonical.executable, executable_source.executable),
-                                mode,
-                                banner,
-                                app_id or _first_text(canonical.steam_id),
-                                max(int(game.playtime_seconds or 0) for game in rows),
-                                int(any(bool(game.is_favorite) for game in rows)),
-                                max(int(game.last_played or 0) for game in rows),
-                                tags,
-                                build_id,
-                                proton_path,
-                                collection,
-                                install_date,
-                                version_override,
-                                patch_notes_url,
-                                int(all(bool(game.is_archived) for game in rows)),
-                                icon_url,
-                                env_vars,
-                                max(int(game.build_date or 0) for game in rows),
-                                canonical.id,
-                            ),
-                        )
-
-                        for duplicate in duplicates:
-                            achievement_rows = self.conn.execute(
-                                """SELECT app_id, api_name, display_name, description,
-                                          icon_path, icongray_path, unlocked, unlock_time,
-                                          hidden, unlock_provenance, unlock_verified,
-                                          unlock_source_format, unlock_source_path,
-                                          notification_sent
-                                   FROM achievements WHERE game_id = ?""",
-                                (duplicate.id,),
-                            ).fetchall()
-                            for achievement in achievement_rows:
-                                current = self.conn.execute(
-                                    """SELECT id, app_id, display_name, description,
-                                              icon_path, icongray_path, unlocked, unlock_time,
-                                              hidden, unlock_provenance, unlock_verified,
-                                              unlock_source_format, unlock_source_path,
-                                              notification_sent
-                                       FROM achievements
-                                       WHERE game_id = ? AND api_name = ?""",
-                                    (canonical.id, achievement[1]),
-                                ).fetchone()
-                                if not current:
-                                    self.conn.execute(
-                                        """INSERT INTO achievements
-                                           (game_id, app_id, api_name, display_name, description,
-                                            icon_path, icongray_path, unlocked, unlock_time, hidden,
-                                            unlock_provenance, unlock_verified, unlock_source_format,
-                                            unlock_source_path, notification_sent)
-                                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                                        (canonical.id, *achievement),
-                                    )
-                                    continue
-                                current_time = float(current[7] or 0)
-                                incoming_time = float(achievement[7] or 0)
-                                if current_time > 0 and incoming_time > 0:
-                                    unlock_time = min(current_time, incoming_time)
-                                else:
-                                    unlock_time = max(current_time, incoming_time)
-                                provenance = _first_text(current[9], achievement[9]) or "unknown"
-                                self.conn.execute(
-                                    """UPDATE achievements SET
-                                           app_id = COALESCE(NULLIF(app_id, ''), ?),
-                                           display_name = COALESCE(NULLIF(display_name, ''), ?),
-                                           description = COALESCE(NULLIF(description, ''), ?),
-                                           icon_path = COALESCE(NULLIF(icon_path, ''), ?),
-                                           icongray_path = COALESCE(NULLIF(icongray_path, ''), ?),
-                                           unlocked = MAX(unlocked, ?),
-                                           unlock_time = ?,
-                                           hidden = MAX(hidden, ?),
-                                           unlock_provenance = ?,
-                                           unlock_verified = MAX(unlock_verified, ?),
-                                           unlock_source_format = COALESCE(NULLIF(unlock_source_format, ''), ?),
-                                           unlock_source_path = COALESCE(NULLIF(unlock_source_path, ''), ?),
-                                           notification_sent = MAX(notification_sent, ?)
-                                       WHERE id = ?""",
-                                    (
-                                        achievement[0], achievement[2], achievement[3],
-                                        achievement[4], achievement[5], achievement[6],
-                                        unlock_time, achievement[8], provenance,
-                                        achievement[10], achievement[11], achievement[12],
-                                        achievement[13], current[0],
-                                    ),
-                                )
-                            self.conn.execute("DELETE FROM achievements WHERE game_id = ?", (duplicate.id,))
-
-                            session_rows = self.conn.execute(
-                                """SELECT session_id, started_at, ended_at,
-                                          duration_seconds, finalized, updated_at
-                                   FROM playtime_sessions WHERE game_id = ?""",
-                                (duplicate.id,),
-                            ).fetchall()
-                            for session in session_rows:
-                                existing_session = self.conn.execute(
-                                    "SELECT game_id, started_at, ended_at, duration_seconds, finalized, updated_at FROM playtime_sessions WHERE session_id = ?",
-                                    (session[0],),
-                                ).fetchone()
-                                if existing_session and int(existing_session[0]) == canonical.id:
-                                    self.conn.execute(
-                                        """UPDATE playtime_sessions SET
-                                               started_at = MIN(started_at, ?),
-                                               ended_at = MAX(ended_at, ?),
-                                               duration_seconds = MAX(duration_seconds, ?),
-                                               finalized = MAX(finalized, ?),
-                                               updated_at = MAX(updated_at, ?)
-                                           WHERE session_id = ?""",
-                                        (session[1], session[2], session[3], session[4], session[5], session[0]),
-                                    )
-                                    self.conn.execute("DELETE FROM playtime_sessions WHERE session_id = ? AND game_id = ?", (session[0], duplicate.id))
-                                elif not existing_session:
-                                    self.conn.execute(
-                                        "UPDATE playtime_sessions SET game_id = ? WHERE session_id = ?",
-                                        (canonical.id, session[0]),
-                                    )
-                            self.conn.execute("DELETE FROM games WHERE id = ?", (duplicate.id,))
-                            removed += 1
-
-                        total_sessions = self.conn.execute(
-                            "SELECT COALESCE(SUM(duration_seconds), 0) FROM playtime_sessions WHERE game_id = ?",
-                            (canonical.id,),
-                        ).fetchone()[0]
-                        self.conn.execute(
-                            "UPDATE games SET playtime_seconds = MAX(playtime_seconds, ?) WHERE id = ?",
-                            (int(total_sessions or 0), canonical.id),
-                        )
-
-                if removed:
-                    logger.info("Consolidated %d duplicate local game rows", removed)
-            if repair_key != ":memory:":
-                _DUPLICATE_REPAIR_DONE.add(repair_key)
-        except Exception as e:
-            logger.error(f"Failed to consolidate duplicate game rows: {e}")
-        return removed
+        'Consolidate rows that resolve to the same portable game identity.\n\nOlder cloud-only materialization treated ``local:<slug>`` as a title,\nthen derived ``local:local-<slug>`` on the next pass.  It could also\nleave a non-Steam placeholder beside the later-known Steam identity.\nThis repair runs once per persistent database during startup and can be\nforced by a sync pass.  It keeps the best row, merges dependent\nachievement/session ledgers, preserves profile history, and only then\nremoves redundant rows.'
+        with self._session.lock:
+            return self._reconciliation.consolidate_duplicate_games(force=force)
 
     def remove_game(self, game_id: int) -> bool:
-        """Remove a launcher game row while retaining append-only profile history."""
-        try:
-            with self.conn:
-                cursor = self.conn.execute('DELETE FROM games WHERE id = ?', (game_id,))
-                if cursor.rowcount != 1:
-                    return False
-                self.conn.execute('DELETE FROM achievements WHERE game_id = ?', (game_id,))
-                logger.info(f"Removed game {game_id} and its achievements from database.")
-                return True
-        except Exception as e:
-            logger.error(f"Failed to remove game {game_id}: {e}")
-            return False
+        'Remove a launcher game row while retaining append-only profile history.'
+        with self._session.lock:
+            return self._games.remove_game(game_id)
 
     def delete_all_game_data(self, game_id: int) -> bool:
-        """Permanently purge one game's local projection and history.
-
-        This is intentionally separate from :meth:`remove_game`, whose
-        append-only profile history is needed for cross-device reconciliation.
-        Cloud save generations are remote account data and require an explicit
-        cloud-save operation; they are never silently deleted here.
-        """
-        try:
-            with _ACHIEVEMENT_DB_LOCK, self.conn:
-                row = self.conn.execute(
-                    "SELECT name, steam_id FROM games WHERE id = ?", (int(game_id),)
-                ).fetchone()
-                if not row:
-                    return False
-                identity = self.profile_identity(row[0], row[1])
-                app_id = str(row[1] or "").strip()
-                self.conn.execute("DELETE FROM achievements WHERE game_id = ?", (int(game_id),))
-                self.conn.execute("DELETE FROM playtime_sessions WHERE game_id = ?", (int(game_id),))
-                self.conn.execute(
-                    "DELETE FROM profile_games WHERE identity_key = ?", (identity,)
-                )
-                # The account-wide achievement ledger is local persistence for
-                # this AppID. Only remove it when no other local projection
-                # still references the same Steam game.
-                if app_id and not self.conn.execute(
-                    "SELECT 1 FROM games WHERE id != ? AND steam_id = ? LIMIT 1",
-                    (int(game_id), app_id),
-                ).fetchone():
-                    self.conn.execute(
-                        "DELETE FROM achievement_profile WHERE app_id = ?", (app_id,)
-                    )
-                deleted = self.conn.execute(
-                    "DELETE FROM games WHERE id = ?", (int(game_id),)
-                ).rowcount
-                if deleted:
-                    logger.info("Deleted all local data for game %s", int(game_id))
-                return deleted == 1
-        except Exception as e:
-            logger.error(f"Failed to delete all local data for game {game_id}: {e}")
-            return False
+        "Permanently purge one game's local projection and history.\n\nThis is intentionally separate from :meth:`remove_game`, whose\nappend-only profile history is needed for cross-device reconciliation.\nCloud save generations are remote account data and require an explicit\ncloud-save operation; they are never silently deleted here."
+        with self._session.lock:
+            return self._games.delete_all_game_data(game_id)
 
     def save_achievement_schema(self, game_id: int, app_id: str, achievements: List[dict]) -> int:
-        """Insert or update achievement schema definitions for a game, preserving existing unlocked state."""
-        app_id = str(app_id or "").strip()
-        if not _ACHIEVEMENT_APP_RE.fullmatch(app_id) or app_id == "0":
-            return 0
-        if not achievements:
-            return 0
-        inserted = 0
-        valid_names = set()
-        try:
-            with _ACHIEVEMENT_DB_LOCK, self.conn:
-                for ach in achievements:
-                    api_name = _valid_achievement_api_name(ach.get("api_name", ""))
-                    if not api_name:
-                        continue
-                    valid_names.add(api_name)
-                    display_name = str(ach.get("display_name", api_name)).strip()
-                    desc = str(ach.get("description", "")).strip()
-                    icon_path = str(ach.get("icon_path") or ach.get("icon_url", "")).strip()
-                    icongray_path = str(ach.get("icongray_path") or ach.get("icongray_url", "")).strip()
-                    hidden = int(ach.get("hidden", 0))
-
-                    self.conn.execute("""
-                        INSERT INTO achievements (game_id, app_id, api_name, display_name, description, icon_path, icongray_path, hidden)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(game_id, api_name) DO UPDATE SET
-                            app_id = excluded.app_id,
-                            display_name = excluded.display_name,
-                            description = excluded.description,
-                            icon_path = CASE WHEN excluded.icon_path != '' THEN excluded.icon_path ELSE achievements.icon_path END,
-                            icongray_path = CASE WHEN excluded.icongray_path != '' THEN excluded.icongray_path ELSE achievements.icongray_path END,
-                            hidden = excluded.hidden
-                    """, (game_id, str(app_id), api_name, display_name, desc, icon_path, icongray_path, hidden))
-                    inserted += 1
-                # A state file can be observed before the network/local
-                # schema arrives. Promote only matching pending records.
-                if valid_names:
-                    placeholders = ",".join("?" for _ in valid_names)
-                    self.conn.execute(
-                        f"UPDATE achievement_profile SET validation_state = 'validated' WHERE app_id = ? AND api_name IN ({placeholders})",
-                        (str(app_id), *sorted(valid_names)),
-                    )
-            # Rehydrate a newly added/re-added game from the account-wide
-            # append-only ledger without allowing the schema to delete it.
-            self.project_profile_achievements(game_id, app_id)
-            return inserted
-        except Exception as e:
-            logger.error(f"Error saving achievement schema for game {game_id}: {e}")
-            return 0
+        'Insert or update achievement schema definitions for a game, preserving existing unlocked state.'
+        with self._session.lock:
+            return self._achievements.save_achievement_schema(game_id, app_id, achievements)
 
     def unlock_achievement(
         self, game_id: int, api_name: str, unlock_time: float = 0.0,
         *, provenance: str = "local_emulator", verified: bool = False,
         source_format: str = "", source_path: str = "",
     ) -> bool:
-        """Mark a schema-backed achievement as unlocked with provenance."""
-        api_name = _valid_achievement_api_name(api_name)
-        if not api_name:
-            return False
-        provenance = _normalise_achievement_provenance(provenance)
-        verified = provenance == "steam_verified"
-        unlock_time = _safe_achievement_timestamp(unlock_time)
-        try:
-            app_row = self.conn.execute("SELECT app_id FROM achievements WHERE game_id = ? AND api_name = ?", (game_id, api_name)).fetchone()
-            if app_row and app_row[0]:
-                profile_row = self.conn.execute(
-                    "SELECT provenance, verified FROM achievement_profile WHERE app_id = ? AND api_name = ?",
-                    (str(app_row[0]), api_name),
-                ).fetchone()
-                if profile_row and bool(profile_row[1]):
-                    provenance = _normalise_achievement_provenance(profile_row[0] or "steam_verified")
-                    verified = provenance == "steam_verified"
-            with _ACHIEVEMENT_DB_LOCK, self.conn:
-                cursor = self.conn.execute("""
-                    UPDATE achievements 
-                    SET unlocked = 1, unlock_time = ?, unlock_provenance = ?,
-                        unlock_verified = ?, unlock_source_format = ?, unlock_source_path = ?, notification_sent = 0
-                    WHERE game_id = ? AND api_name = ? AND unlocked = 0
-                """, (unlock_time, provenance, int(bool(verified)), source_format or "", source_path or "", game_id, api_name))
-                changed = cursor.rowcount > 0
-            if changed:
-                if app_row and app_row[0]:
-                    self.merge_profile_unlocks(
-                        str(app_row[0]), {api_name: unlock_time},
-                        provenance=provenance, verified=verified,
-                        validation_state="validated", source_format=source_format,
-                        source_path=source_path,
-                    )
-            return changed
-        except Exception as e:
-            logger.error(f"Error unlocking achievement {api_name} for game {game_id}: {e}")
-            return False
+        'Mark a schema-backed achievement as unlocked with provenance.'
+        with self._session.lock:
+            return self._achievements.unlock_achievement(game_id, api_name, unlock_time, provenance=provenance, verified=verified, source_format=source_format, source_path=source_path)
 
     def unlock_achievements_batch(
         self, game_id: int, unlocks: Dict[str, float], *, app_id: str = "",
         provenance: str = "local_emulator", verified: bool = False,
         source_format: str = "", source_path: str = "",
     ) -> int:
-        """Record a batch, promoting only schema-backed names to visible rows.
-
-        Unknown names are retained in the profile as ``pending_schema`` when
-        an AppID is available, but never affect per-game counts.
-        """
-        if not unlocks:
-            return 0
-        provenance = _normalise_achievement_provenance(provenance)
-        verified = provenance == "steam_verified"
-        now = time.time()
-        normalized = {}
-        for api_name, raw_value in unlocks.items():
-            name = _valid_achievement_api_name(api_name)
-            if not name:
-                continue
-            raw_time = raw_value.get("unlock_time", 0) if isinstance(raw_value, dict) else raw_value
-            try:
-                stamp = float(raw_time or 0)
-            except (TypeError, ValueError, OverflowError):
-                stamp = 0.0
-            normalized[name] = _safe_achievement_timestamp(stamp, now)
-        if not normalized:
-            return 0
-        if app_id and (not _ACHIEVEMENT_APP_RE.fullmatch(str(app_id).strip()) or str(app_id).strip() == "0"):
-            return 0
-        try:
-            schema_rows = self.conn.execute(
-                "SELECT api_name, app_id FROM achievements WHERE game_id = ?", (game_id,)
-            ).fetchall()
-            known_names = {str(row[0]) for row in schema_rows}
-            if not app_id:
-                app_id = str(schema_rows[0][1] or "") if schema_rows else ""
-            params = [
-                (stamp, provenance, int(bool(verified)), source_format or "", source_path or "", game_id, api_name)
-                for api_name, stamp in normalized.items() if api_name in known_names
-            ]
-            with _ACHIEVEMENT_DB_LOCK, self.conn:
-                cursor = self.conn.executemany("""
-                    UPDATE achievements
-                    SET unlocked = 1, unlock_time = ?, unlock_provenance = ?,
-                        unlock_verified = ?, unlock_source_format = ?, unlock_source_path = ?
-                    WHERE game_id = ? AND api_name = ? AND unlocked = 0
-                """, params)
-                changed = cursor.rowcount
-            if app_id:
-                self.merge_profile_unlocks(
-                    app_id, normalized, provenance=provenance, verified=verified,
-                    validation_state="validated", source_format=source_format,
-                    source_path=source_path, allowed_api_names=known_names,
-                )
-            return changed
-        except Exception as e:
-            logger.error(f"Error in batch achievement unlock for game {game_id}: {e}")
-            return 0
+        'Record a batch, promoting only schema-backed names to visible rows.\n\nUnknown names are retained in the profile as ``pending_schema`` when\nan AppID is available, but never affect per-game counts.'
+        with self._session.lock:
+            return self._achievements.unlock_achievements_batch(game_id, unlocks, app_id=app_id, provenance=provenance, verified=verified, source_format=source_format, source_path=source_path)
 
     def claim_achievement_notification(self, game_id: int, api_name: str) -> bool:
-        """Atomically claim the one user-facing notification for an unlock."""
-        api_name = _valid_achievement_api_name(api_name)
-        if not api_name:
-            return False
-        try:
-            with _ACHIEVEMENT_DB_LOCK, self.conn:
-                cursor = self.conn.execute("""
-                    UPDATE achievements SET notification_sent = 1
-                    WHERE game_id = ? AND api_name = ? AND unlocked = 1 AND notification_sent = 0
-                """, (game_id, api_name))
-                return cursor.rowcount > 0
-        except Exception as e:
-            logger.debug(f"Could not claim achievement notification {api_name}: {e}")
-            return False
+        'Atomically claim the one user-facing notification for an unlock.'
+        with self._session.lock:
+            return self._achievements.claim_achievement_notification(game_id, api_name)
 
     def arm_achievement_notification(self, game_id: int, api_name: str) -> None:
-        """Mark a schema-late live event as pending user notification."""
-        api_name = _valid_achievement_api_name(api_name)
-        if not api_name:
-            return
-        try:
-            with _ACHIEVEMENT_DB_LOCK, self.conn:
-                self.conn.execute(
-                    "UPDATE achievements SET notification_sent = 0 WHERE game_id = ? AND api_name = ? AND unlocked = 1",
-                    (game_id, api_name),
-                )
-        except Exception as e:
-            logger.debug(f"Could not arm achievement notification {api_name}: {e}")
+        'Mark a schema-late live event as pending user notification.'
+        with self._session.lock:
+            return self._achievements.arm_achievement_notification(game_id, api_name)
 
     def merge_profile_unlocks(
         self, app_id: str, unlocks: Dict[str, float], *, provenance: str = "local_emulator",
         verified: bool = False, validation_state: str = "validated", source_format: str = "",
         source_path: str = "", allowed_api_names: Optional[set[str]] = None,
     ) -> int:
-        """Append observations to the account ledger without deleting proof."""
-        app_id = str(app_id or "").strip()
-        if not _ACHIEVEMENT_APP_RE.fullmatch(app_id) or app_id == "0" or not unlocks:
-            return 0
-        provenance = _normalise_achievement_provenance(provenance)
-        verified = provenance == "steam_verified"
-        now = time.time()
-        changed = 0
-        try:
-            with _ACHIEVEMENT_DB_LOCK, self.conn:
-                for api_name, raw_value in unlocks.items():
-                    name = _valid_achievement_api_name(api_name)
-                    if not name:
-                        continue
-                    is_record = isinstance(raw_value, dict)
-                    value = raw_value if is_record else {}
-                    incoming_provenance = _normalise_achievement_provenance(
-                        value.get("provenance", provenance)
-                    )
-                    incoming_verified = incoming_provenance == "steam_verified"
-                    incoming_state = str(value.get("validation_state", validation_state) or validation_state)
-                    if allowed_api_names is not None and name not in allowed_api_names:
-                        incoming_state = "pending_schema"
-                    if incoming_state not in {"validated", "pending_schema"}:
-                        incoming_state = "pending_schema"
-                    raw_time = value.get("unlock_time", 0) if is_record else raw_value
-                    try:
-                        stamp = float(raw_time or 0) if raw_time else 0.0
-                    except (TypeError, ValueError, OverflowError):
-                        stamp = 0.0
-                    stamp = _safe_achievement_timestamp(stamp, now)
-                    existing = self.conn.execute(
-                        "SELECT unlock_time, provenance, verified, validation_state, source_format, source_path FROM achievement_profile WHERE app_id = ? AND api_name = ?",
-                        (app_id, name),
-                    ).fetchone()
-                    if existing:
-                        old_time, old_provenance, old_verified, old_state, old_format, old_path = existing
-                        from core.achievement_models import provenance_priority
-                        old_stamp = _safe_achievement_timestamp(old_time, 0.0)
-                        old_priority = provenance_priority(str(old_provenance or "unknown"))
-                        new_priority = provenance_priority(incoming_provenance)
-                        chosen_provenance = incoming_provenance if new_priority >= old_priority else str(old_provenance or incoming_provenance)
-                        chosen_format = source_format or (value.get("source_format", "") if isinstance(value, dict) else "") or old_format or ""
-                        chosen_path = source_path or (value.get("source_path", "") if isinstance(value, dict) else "") or old_path or ""
-                        chosen_state = "validated" if str(old_state) == "validated" or incoming_state == "validated" else "pending_schema"
-                        chosen_time = min(old_stamp, stamp) if old_stamp > 0 and stamp > 0 else max(old_stamp, stamp)
-                        chosen_verified = chosen_provenance == "steam_verified"
-                        self.conn.execute("""
-                            UPDATE achievement_profile
-                            SET unlock_time = ?, last_seen_at = ?, provenance = ?, verified = ?,
-                                validation_state = ?, source_format = ?, source_path = ?
-                            WHERE app_id = ? AND api_name = ?
-                        """, (chosen_time, now, chosen_provenance, int(chosen_verified), chosen_state, chosen_format, chosen_path, app_id, name))
-                        changed += int(
-                            old_stamp != chosen_time
-                            or str(old_provenance or "") != chosen_provenance
-                            or bool(old_verified) != chosen_verified
-                            or str(old_state or "") != chosen_state
-                            or str(old_format or "") != chosen_format
-                            or str(old_path or "") != chosen_path
-                        )
-                    else:
-                        self.conn.execute("""
-                            INSERT INTO achievement_profile
-                              (app_id, api_name, unlock_time, first_seen_at, last_seen_at, provenance, verified, validation_state, source_format, source_path)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (app_id, name, stamp, now, now, incoming_provenance, int(incoming_verified), incoming_state, source_format or (value.get("source_format", "") if isinstance(value, dict) else ""), source_path or (value.get("source_path", "") if isinstance(value, dict) else "")))
-                        changed += 1
-            return changed
-        except Exception as e:
-            logger.error(f"Error merging achievement profile for AppID {app_id}: {e}")
-            return 0
+        'Append observations to the account ledger without deleting proof.'
+        with self._session.lock:
+            return self._achievements.merge_profile_unlocks(app_id, unlocks, provenance=provenance, verified=verified, validation_state=validation_state, source_format=source_format, source_path=source_path, allowed_api_names=allowed_api_names)
 
     def record_achievement_state(
         self, game_id: int, app_id: str, state: Dict[str, float], *,
@@ -1811,334 +309,56 @@ class GameDatabase:
         provenance_by_name: Optional[Dict[str, str]] = None,
         verified_by_name: Optional[Dict[str, bool]] = None,
     ) -> int:
-        """Persist one resolver snapshot atomically at the two DB layers."""
-        app_id = str(app_id or "").strip()
-        if not _ACHIEVEMENT_APP_RE.fullmatch(app_id) or app_id == "0":
-            return 0
-        provenance = _normalise_achievement_provenance(provenance)
-        verified = provenance == "steam_verified"
-        state = state or {}
-        pending = pending or {}
-        provenance_by_name = provenance_by_name or {}
-        verified_by_name = verified_by_name or {}
-        try:
-            schema_names = {
-                str(row[0]) for row in self.conn.execute(
-                    "SELECT api_name FROM achievements WHERE game_id = ?", (game_id,)
-                ).fetchall()
-            }
-            known = {name: stamp for name, stamp in state.items() if name in schema_names}
-            unknown = {name: stamp for name, stamp in state.items() if name not in schema_names}
-            unknown.update(pending)
-            total = 0
-            # Update each known item with its own source. Official Steam data
-            # must be able to upgrade a previous local/unverified projection.
-            with _ACHIEVEMENT_DB_LOCK, self.conn:
-                for api_name, raw_time in known.items():
-                    name = _valid_achievement_api_name(api_name)
-                    if not name:
-                        continue
-                    try:
-                        stamp = float(raw_time or 0)
-                    except (TypeError, ValueError, OverflowError):
-                        stamp = 0.0
-                    stamp = _safe_achievement_timestamp(stamp)
-                    item_provenance = _normalise_achievement_provenance(
-                        provenance_by_name.get(name, provenance) or provenance
-                    )
-                    item_verified = item_provenance == "steam_verified"
-                    total += self.conn.execute("""
-                        UPDATE achievements
-                        SET unlocked = 1,
-                            unlock_time = CASE WHEN unlock_time <= 0 THEN ? ELSE MIN(unlock_time, ?) END,
-                            unlock_provenance = CASE WHEN ? OR unlock_verified = 0 THEN ? ELSE unlock_provenance END,
-                            unlock_verified = MAX(unlock_verified, ?),
-                            unlock_source_format = CASE WHEN ? != '' THEN ? ELSE unlock_source_format END,
-                            unlock_source_path = CASE WHEN ? != '' THEN ? ELSE unlock_source_path END,
-                            notification_sent = CASE WHEN unlocked = 1 THEN notification_sent ELSE 1 END
-                        WHERE game_id = ? AND api_name = ?
-                    """, (stamp, stamp, int(item_verified), item_provenance, int(item_verified), source_format or "", source_format or "", source_path or "", source_path or "", game_id, name)).rowcount
-            observations = {
-                name: {
-                    "unlock_time": stamp,
-                    "provenance": provenance_by_name.get(name, provenance),
-                    "verified": _normalise_achievement_provenance(
-                        provenance_by_name.get(name, provenance) or provenance
-                    ) == "steam_verified",
-                    "validation_state": "validated",
-                    "source_format": source_format,
-                    "source_path": source_path,
-                }
-                for name, stamp in known.items()
-            }
-            observations.update({
-                name: {
-                    "unlock_time": stamp,
-                    "provenance": provenance_by_name.get(name, provenance),
-                    "verified": _normalise_achievement_provenance(
-                        provenance_by_name.get(name, provenance) or provenance
-                    ) == "steam_verified",
-                    "validation_state": "pending_schema",
-                    "source_format": source_format,
-                    "source_path": source_path,
-                }
-                for name, stamp in unknown.items()
-            })
-            if observations:
-                total += self.merge_profile_unlocks(
-                    app_id, observations, allowed_api_names=schema_names,
-                )
-            return total
-        except Exception as e:
-            logger.error(f"Error recording achievement state for game {game_id}: {e}")
-            return 0
+        'Persist one resolver snapshot atomically at the two DB layers.'
+        with self._session.lock:
+            return self._achievements.record_achievement_state(game_id, app_id, state, pending=pending, provenance=provenance, verified=verified, source_format=source_format, source_path=source_path, provenance_by_name=provenance_by_name, verified_by_name=verified_by_name)
 
     def get_profile_unlocks(self, app_id: Optional[str] = None, *, include_pending: bool = False) -> Dict[str, Dict[str, float]]:
-        """Return schema-validated append-only unlocks grouped by AppID."""
-        try:
-            if app_id:
-                query = "SELECT app_id, api_name, unlock_time FROM achievement_profile WHERE app_id = ?"
-                if not include_pending:
-                    query += " AND validation_state = 'validated'"
-                rows = self.conn.execute(query, (str(app_id),)).fetchall()
-            else:
-                query = "SELECT app_id, api_name, unlock_time FROM achievement_profile"
-                if not include_pending:
-                    query += " WHERE validation_state = 'validated'"
-                rows = self.conn.execute(query).fetchall()
-            result: Dict[str, Dict[str, float]] = {}
-            for sid, name, stamp in rows:
-                result.setdefault(str(sid), {})[str(name)] = float(stamp or 0)
-            return result
-        except Exception as e:
-            logger.error(f"Error reading achievement profile: {e}")
-            return {}
+        'Return schema-validated append-only unlocks grouped by AppID.'
+        with self._session.lock:
+            return self._achievements.get_profile_unlocks(app_id, include_pending=include_pending)
 
     def get_profile_unlock_records(self, app_id: Optional[str] = None, *, include_pending: bool = True) -> Dict[str, Dict[str, dict]]:
-        """Return provenance-aware profile records for cloud sync/diagnostics."""
-        try:
-            query = "SELECT app_id, api_name, unlock_time, provenance, verified, validation_state, source_format FROM achievement_profile"
-            args: tuple = ()
-            if app_id:
-                query += " WHERE app_id = ?"
-                args = (str(app_id),)
-            if not include_pending:
-                query += " AND " if args else " WHERE "
-                query += "validation_state = 'validated'"
-            result: Dict[str, Dict[str, dict]] = {}
-            for sid, name, stamp, provenance, verified, validation_state, source_format in self.conn.execute(query, args).fetchall():
-                result.setdefault(str(sid), {})[str(name)] = {
-                    "unlock_time": float(stamp or 0),
-                    "provenance": str(provenance or "unknown"),
-                    "verified": _normalise_achievement_provenance(provenance) == "steam_verified",
-                    "validation_state": str(validation_state or "pending_schema"),
-                    "source_format": str(source_format or ""),
-                }
-            return result
-        except Exception as e:
-            logger.error(f"Error reading achievement profile records: {e}")
-            return {}
+        'Return provenance-aware profile records for cloud sync/diagnostics.'
+        with self._session.lock:
+            return self._achievements.get_profile_unlock_records(app_id, include_pending=include_pending)
 
     def collect_profile_from_games(self) -> int:
-        """Promote all existing per-game unlock projections into the ledger."""
-        rows = self.conn.execute("SELECT app_id, api_name, unlock_time, unlock_provenance, unlock_verified, unlock_source_format, unlock_source_path FROM achievements WHERE unlocked = 1 AND app_id != ''").fetchall()
-        grouped: Dict[str, Dict[str, dict]] = {}
-        for app_id, api_name, stamp, provenance, verified, source_format, source_path in rows:
-            grouped.setdefault(str(app_id), {})[str(api_name)] = {
-                "unlock_time": float(stamp or 0), "provenance": provenance or "local_emulator",
-                "verified": _normalise_achievement_provenance(provenance) == "steam_verified", "validation_state": "validated",
-                "source_format": source_format or "", "source_path": source_path or "",
-            }
-        total = 0
-        for app_id, unlocks in grouped.items():
-            total += self.merge_profile_unlocks(app_id, unlocks)
-        return total
+        'Promote all existing per-game unlock projections into the ledger.'
+        with self._session.lock:
+            return self._achievements.collect_profile_from_games()
 
     def project_profile_achievements(self, game_id: int, app_id: str = "") -> int:
-        """Apply profile unlocks to matching current game schema rows only."""
-        app_id = str(app_id or "").strip()
-        if not app_id:
-            row = self.conn.execute("SELECT app_id FROM achievements WHERE game_id = ? LIMIT 1", (game_id,)).fetchone()
-            app_id = str(row[0] or "") if row else ""
-        unlocks = self.get_profile_unlock_records(app_id, include_pending=False)
-        values = unlocks.get(app_id, {})
-        if not values:
-            return 0
-        changed = 0
-        try:
-            with _ACHIEVEMENT_DB_LOCK, self.conn:
-                for api_name, value in values.items():
-                    changed += self.conn.execute("""
-                        UPDATE achievements
-                        SET unlocked = 1,
-                            unlock_time = CASE WHEN unlock_time <= 0 THEN ? ELSE MIN(unlock_time, ?) END,
-                            unlock_provenance = ?, unlock_verified = ?,
-                            unlock_source_format = ?, notification_sent = 1
-                        WHERE game_id = ? AND api_name = ?
-                    """, (float(value.get("unlock_time", 0) or time.time()), float(value.get("unlock_time", 0) or time.time()), _normalise_achievement_provenance(value.get("provenance", "unknown")), int(_normalise_achievement_provenance(value.get("provenance", "unknown")) == "steam_verified"), value.get("source_format", ""), game_id, api_name)).rowcount
-            return changed
-        except Exception as e:
-            logger.error(f"Error projecting achievement profile for game {game_id}: {e}")
-            return 0
+        'Apply profile unlocks to matching current game schema rows only.'
+        with self._session.lock:
+            return self._achievements.project_profile_achievements(game_id, app_id)
 
     def get_game_achievements(self, game_id: int) -> List[dict]:
-        """Return all achievements for a game, ordered by unlocked status and name."""
-        try:
-            cursor = self.conn.execute("""
-                SELECT id, game_id, app_id, api_name, display_name, description, icon_path, icongray_path, unlocked, unlock_time, hidden, unlock_provenance, unlock_verified, unlock_source_format
-                FROM achievements
-                WHERE game_id = ?
-                ORDER BY unlocked DESC, unlock_time DESC, display_name ASC
-            """, (game_id,))
-            rows = cursor.fetchall()
-            return [
-                {
-                    "id": r[0],
-                    "game_id": r[1],
-                    "app_id": r[2],
-                    "api_name": r[3],
-                    "display_name": r[4],
-                    "description": r[5],
-                    "icon_path": r[6],
-                    "icongray_path": r[7],
-                    "unlocked": bool(r[8]),
-                    "unlock_time": float(r[9]),
-                    "hidden": bool(r[10]),
-                    "provenance": _normalise_achievement_provenance(r[11]),
-                    "verified": _normalise_achievement_provenance(r[11]) == "steam_verified",
-                    "source_format": r[13] or "",
-                }
-                for r in rows
-            ]
-        except Exception as e:
-            logger.error(f"Error getting achievements for game {game_id}: {e}")
-            return []
+        'Return all achievements for a game, ordered by unlocked status and name.'
+        with self._session.lock:
+            return self._achievements.get_game_achievements(game_id)
 
     def get_profile_achievement_rows(self) -> Dict[int, List[dict]]:
-        """Return the small achievement projection needed by public profiles.
-
-        Public profile rendering used to issue one full achievement query per
-        game. Keep the existing detailed API for the achievements page, but
-        provide this narrow bulk read for profile generation so a large local
-        library does not create an N+1 query pattern.
-        """
-        try:
-            rows = self.conn.execute("""
-                SELECT game_id, app_id, api_name, display_name
-                FROM achievements
-                ORDER BY game_id, unlocked DESC, unlock_time DESC, display_name ASC
-            """).fetchall()
-            result: Dict[int, List[dict]] = {}
-            for game_id, app_id, api_name, display_name in rows:
-                result.setdefault(int(game_id), []).append({
-                    "app_id": str(app_id or ""),
-                    "api_name": str(api_name or ""),
-                    "display_name": str(display_name or ""),
-                })
-            return result
-        except Exception as e:
-            logger.error(f"Error getting profile achievement rows: {e}")
-            return {}
+        'Return the small achievement projection needed by public profiles.\n\nPublic profile rendering used to issue one full achievement query per\ngame. Keep the existing detailed API for the achievements page, but\nprovide this narrow bulk read for profile generation so a large local\nlibrary does not create an N+1 query pattern.'
+        with self._session.lock:
+            return self._achievements.get_profile_achievement_rows()
 
     def get_achievement_stats(self, game_id: int) -> Tuple[int, int, float]:
-        """Return (unlocked_count, total_count, percentage)."""
-        try:
-            cursor = self.conn.execute("""
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN unlocked = 1 THEN 1 ELSE 0 END) as unlocked
-                FROM achievements
-                WHERE game_id = ?
-            """, (game_id,))
-            row = cursor.fetchone()
-            if not row or not row[0]:
-                return 0, 0, 0.0
-            total = int(row[0])
-            unlocked = int(row[1] or 0)
-            pct = round((unlocked / total) * 100.0, 1) if total > 0 else 0.0
-            return unlocked, total, pct
-        except Exception as e:
-            logger.error(f"Error getting achievement stats for game {game_id}: {e}")
-            return 0, 0, 0.0
+        'Return (unlocked_count, total_count, percentage).'
+        with self._session.lock:
+            return self._achievements.get_achievement_stats(game_id)
 
     def get_global_achievement_stats(self) -> Dict[str, Any]:
-        """Return global achievement statistics across all games."""
-        try:
-            cursor = self.conn.execute("""
-                SELECT 
-                    COUNT(DISTINCT game_id) as total_games_with_achs,
-                    COUNT(*) as total_achievements,
-                    SUM(CASE WHEN unlocked = 1 THEN 1 ELSE 0 END) as total_unlocked
-                FROM achievements
-            """)
-            row = cursor.fetchone()
-            if not row or not row[1]:
-                return {"games_count": 0, "total_achievements": 0, "total_unlocked": 0, "percentage": 0.0}
-            games_cnt = int(row[0] or 0)
-            total_achs = int(row[1] or 0)
-            total_unlocked = int(row[2] or 0)
-            pct = round((total_unlocked / total_achs) * 100.0, 1) if total_achs > 0 else 0.0
-            return {
-                "games_count": games_cnt,
-                "total_achievements": total_achs,
-                "total_unlocked": total_unlocked,
-                "percentage": pct
-            }
-        except Exception as e:
-            logger.error(f"Error getting global achievement stats: {e}")
-            return {"games_count": 0, "total_achievements": 0, "total_unlocked": 0, "percentage": 0.0}
+        'Return global achievement statistics across all games.'
+        with self._session.lock:
+            return self._achievements.get_global_achievement_stats()
 
     def get_recent_unlocked_achievements(self, game_id: int, limit: int = 6) -> List[dict]:
-        """Return the most recently unlocked achievements for a game."""
-        try:
-            cursor = self.conn.execute("""
-                SELECT id, game_id, app_id, api_name, display_name, description, icon_path, icongray_path, unlocked, unlock_time, hidden, unlock_provenance, unlock_verified, unlock_source_format
-                FROM achievements
-                WHERE game_id = ? AND unlocked = 1
-                ORDER BY unlock_time DESC, id DESC
-                LIMIT ?
-            """, (game_id, limit))
-            rows = cursor.fetchall()
-            return [
-                {
-                    "id": r[0],
-                    "game_id": r[1],
-                    "app_id": r[2],
-                    "api_name": r[3],
-                    "display_name": r[4],
-                    "description": r[5],
-                    "icon_path": r[6],
-                    "icongray_path": r[7],
-                    "unlocked": bool(r[8]),
-                    "unlock_time": float(r[9]),
-                    "hidden": bool(r[10]),
-                    "provenance": _normalise_achievement_provenance(r[11]),
-                    "verified": _normalise_achievement_provenance(r[11]) == "steam_verified",
-                    "source_format": r[13] or "",
-                }
-                for r in rows
-            ]
-        except Exception as e:
-            logger.error(f"Error getting recent unlocked achievements: {e}")
-            return []
+        'Return the most recently unlocked achievements for a game.'
+        with self._session.lock:
+            return self._achievements.get_recent_unlocked_achievements(game_id, limit)
 
     def reset_game_achievements(self, game_id: int):
-        """Reset unlocked status of all achievements for a game (for testing/re-locking)."""
-        try:
-            with self.conn:
-                self.conn.execute("""
-                    UPDATE achievements
-                    SET unlocked = 0, unlock_time = 0, unlock_provenance = 'unknown',
-                        unlock_verified = 0, unlock_source_format = '', unlock_source_path = '', notification_sent = 1
-                    WHERE game_id = ?
-                """, (game_id,))
-        except Exception as e:
-            logger.error(f"Error resetting achievements for game {game_id}: {e}")
-
-
-    def close(self):
-        if self.conn:
-            try:
-                self.conn.close()
-            except Exception:
-                pass
+        'Reset unlocked status of all achievements for a game (for testing/re-locking).'
+        with self._session.lock:
+            return self._achievements.reset_game_achievements(game_id)

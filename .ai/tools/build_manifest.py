@@ -130,7 +130,7 @@ def request_keys(path: Path, text: str) -> list[dict]:
 
 
 def database_schema(path: Path, text: str) -> list[dict]:
-    if path.name != "database.py":
+    if rel(path) not in {"database.py", "core/local_database/schema.py"}:
         return []
     results = []
     for match in re.finditer(r"CREATE TABLE IF NOT EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)\)", text, re.I | re.S):
@@ -142,9 +142,9 @@ def database_schema(path: Path, text: str) -> list[dict]:
             column = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s+(INTEGER|TEXT|REAL|BLOB|BOOLEAN)", line, re.I)
             if column:
                 columns.append({"name": column.group(1), "type": column.group(2).upper()})
-        results.append({"table": table, "columns": columns, "line": text.count("\n", 0, match.start()) + 1})
+        results.append({"file": rel(path), "table": table, "columns": columns, "line": text.count("\n", 0, match.start()) + 1})
     for match in re.finditer(r"ALTER TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s+ADD COLUMN\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z]+)", text, re.I):
-        results.append({"table": match.group(1), "added_column": match.group(2), "type": match.group(3).upper(), "line": text.count("\n", 0, match.start()) + 1})
+        results.append({"file": rel(path), "table": match.group(1), "added_column": match.group(2), "type": match.group(3).upper(), "line": text.count("\n", 0, match.start()) + 1})
     return results
 
 

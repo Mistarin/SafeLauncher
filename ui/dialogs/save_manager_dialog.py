@@ -40,6 +40,9 @@ from core.safe_thread import TaskSupervisor
 from core.logger import get_logger
 from core.date_formatting import format_datetime_timestamp
 from ui.resource_binding import ResourceBinding, bind_request
+from ui.managed_task_controller import ManagedTaskController
+from ui.save_dialog_services import SaveDialogServices
+from core.operation_registry import OperationRegistry
 from ui.components.save_history_timeline import SaveHistoryTimeline
 from ui.components.cloud_ui import (
     CloudStatusPanel,
@@ -71,7 +74,7 @@ class SaveManagerDialog(PopupDialog):
     _restore_done = pyqtSignal(bool, str)
     _history_loaded = pyqtSignal(object)
 
-    def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None, cloud_coordinator=None):
+    def __init__(self, game_id: int, game_name: str, game_path: str, steam_id: str = "", parent=None, cloud_coordinator=None, *, services=None):
         super().__init__(f"Save Manager: {game_name}", parent)
         self.game_id = game_id
         self.game_name = game_name
@@ -80,11 +83,12 @@ class SaveManagerDialog(PopupDialog):
         # Retain the old parameter for embedders, but never construct or use
         # a dialog-local coordinator. Cloud work must come from the managed
         # application services injected by MainWindow.
-        self.cloud_center_service = getattr(parent, "cloud_center_service", None)
-        self.cloud_operation_service = getattr(parent, "cloud_operation_service", None)
-        self.request_manager = getattr(parent, "request_manager", None)
-        self.backup_mgr = ZipBackupManager()
-        self.save_state_store = getattr(parent, "save_state_store", None) or SaveStateStore()
+        self.services = services if services is not None else SaveDialogServices.from_parent(parent)
+        self.cloud_center_service = self.services.cloud_center
+        self.cloud_operation_service = self.services.cloud_operations
+        self.request_manager = self.services.request_manager
+        self.backup_mgr = self.services.backup or ZipBackupManager()
+        self.save_state_store = self.services.save_state or SaveStateStore()
         self.save_locations: list[SaveLocation] = []
         self.checkboxes: list[tuple[QCheckBox, SaveLocation]] = []
         self._file_path_labels: list[QLabel] = []
@@ -93,7 +97,13 @@ class SaveManagerDialog(PopupDialog):
         # this dialog. Keeping explicit references prevents a QThread from
         # being garbage-collected while it is running and lets closeEvent wait
         # for cooperative cancellation instead of racing a deleted widget.
-        self._task_supervisor = TaskSupervisor(self, logger)
+        self._task_supervisor = TaskSupervisor(self, logger, worker_registry=self.services.worker_registry)
+        self._managed_tasks = None
+        if self.request_manager is not None:
+            self._managed_tasks = ManagedTaskController(
+                self.request_manager, self.services.operation_registry or OperationRegistry(self),
+                parent=self, category="Save Manager", game_id=game_id, game_name=game_name,
+            )
         self._resource_bindings: dict[str, ResourceBinding] = {}
         self._closing = False
         self._scan_generation = 0
@@ -467,7 +477,11 @@ class SaveManagerDialog(PopupDialog):
 
     def _start_managed_task(self, name: str, work, on_complete):
         """Run a dialog operation with an owned, observable lifetime."""
-        registry = getattr(self.parent(), "operation_registry", None)
+        if self._closing:
+            return None
+        if self._managed_tasks is not None:
+            return self._managed_tasks.start(name, work, on_complete, allow_offline=True)
+        registry = self.services.operation_registry
         operation = None
         if registry is not None:
             operation = registry.start(
@@ -611,11 +625,9 @@ class SaveManagerDialog(PopupDialog):
         self._resource_bindings.clear()
 
     def _open_cloud_settings(self) -> None:
-        parent = self.parent()
-        host = getattr(parent, "parent_window", None) or parent
-        if host is not None and hasattr(host, "_open_cloud_center"):
+        if self.services.open_cloud_center is not None:
             self.hide()
-            host._open_cloud_center()
+            self.services.open_cloud_center()
 
     def _copy_error_details(self) -> None:
         result = self._last_operation_result
@@ -638,16 +650,17 @@ class SaveManagerDialog(PopupDialog):
         if target:
             QDesktopServices.openUrl(QUrl.fromLocalFile(target))
 
-    def closeEvent(self, event):
-        """Do not destroy this dialog while an owned worker still runs."""
+    def done(self, result):
+        """Save, Cancel and Escape must drain work just like window-close."""
         self._closing = True
         self._close_resource_bindings()
-        self._task_supervisor.cancel_all(100)
-        if self._task_supervisor.has_running_tasks():
-            QTimer.singleShot(100, self.close)
-            event.ignore()
-            return
-        super().closeEvent(event)
+        if self._managed_tasks is not None:
+            self._managed_tasks.dispose()
+        super().done(result)
+
+    def closeEvent(self, event):
+        self.reject()
+        event.ignore()
 
     def _scan_saves(self):
         """Scan for save locations without blocking the Qt thread."""
@@ -964,16 +977,8 @@ class SaveManagerDialog(PopupDialog):
 
     def _notify_parent_changed(self):
         """Notify parent window or dialog that saves changed so stats refresh immediately."""
-        p = self.parent()
-        if p is not None:
-            if hasattr(p, "refresh_cloud_status_for_game"):
-                p.refresh_cloud_status_for_game(self.game_id)
-            elif hasattr(p, "request_cloud_recheck"):
-                p.request_cloud_recheck([self.game_id], "save_restored")
-            if hasattr(p, "_load_save_stats_async"):
-                p._load_save_stats_async()
-            if hasattr(p, "_notify_parent_cloud_changed"):
-                p._notify_parent_cloud_changed()
+        if self.services.on_changed is not None:
+            self.services.on_changed(self.game_id)
 
     def _cloud_unavailable_result(self, operation: str) -> SaveOperationResult:
         """Return a safe standalone result without creating a second scheduler."""

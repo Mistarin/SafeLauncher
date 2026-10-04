@@ -1,6 +1,19 @@
 # Database and Local Projection
 
-`GameDatabase` opens the XDG data database, performs integrity checking and backup recovery, initializes/migrates the schema, and exposes domain operations. It uses SQLite WAL where available and protects shared schema initialization with a process lock.
+`GameDatabase` remains the public compatibility facade. `DatabaseSession` in
+`core/local_database/connection.py` owns integrity checks, WAL-safe backup
+recovery, the native connection and idempotent close. `SchemaMigrator` owns
+schema initialization/migration and fails visibly rather than presenting an
+empty library when migration fails. Constructor failure closes the connection.
+
+Game, profile, playtime and achievement repositories share that session.
+`IdentityReconciler` receives game/profile repositories explicitly; it retains
+the existing duplicate-repair rules and dependent ledgers. Facade methods keep
+their signatures and serialize whole repository calls under one reentrant
+session lock, including read/modify/write sequences. Cross-connection schema
+and achievement operations still use the existing process-wide lock.
+The legacy raw `conn` property is available for compatibility/diagnostics;
+direct external SQL does not receive facade serialization guarantees.
 
 Important tables:
 

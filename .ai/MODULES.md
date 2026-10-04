@@ -11,6 +11,15 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Resource cache | [`core/resource_cache.py`](../core/resource_cache.py) | `ResourceCache`, `CacheEntry` | active |
 | Qt resource bridge | [`ui/resource_binding.py`](../ui/resource_binding.py) | `ResourceBinding`, `ResourceBindingRegistry`, `bind_resource`, `bind_request` | active |
 | Remote error/state contract | [`core/request_contracts.py`](../core/request_contracts.py) | `RemoteErrorCategory`, `classify_remote_error`, `resource_status_for_error` | active |
+| Application service composition | [`ui/application_runtime.py`](../ui/application_runtime.py) | `ApplicationRuntime` | active; shared service graph and transport disposal |
+| Owned background tasks | [`ui/managed_task_controller.py`](../ui/managed_task_controller.py) | `ManagedTaskController` | active; GUI-thread completion and cancelled-loader drain |
+| Cooperative shutdown state | [`ui/shutdown_controller.py`](../ui/shutdown_controller.py) | `ShutdownController`, `ShutdownState` | active; nonblocking re-entry, deadline, resume |
+| Automatic save workflows | [`ui/cloud_workflow_controller.py`](../ui/cloud_workflow_controller.py) | `CloudWorkflowController` | active; upload/restore retries and terminal delivery |
+| Steam subscription lifecycle | [`ui/steam_metadata_controller.py`](../ui/steam_metadata_controller.py) | `SteamMetadataController` | active; build/tag/name/description bindings |
+| Session feature hooks | [`ui/session_feature_controller.py`](../ui/session_feature_controller.py) | `SessionFeatureController` | active; isolated RPC/recorder/achievement/exit effects |
+| Profile workflow lifecycle | [`ui/profile_controller.py`](../ui/profile_controller.py) | `ProfileController` | active; public/social and private reconciliation separation |
+| Save dialog dependencies | [`ui/save_dialog_services.py`](../ui/save_dialog_services.py) | `SaveDialogServices` | active; explicit injection plus legacy adapter |
+| Architecture guard | [`ci/architecture_audit.py`](../ci/architecture_audit.py) | `inspect_source` | active; migrated service construction and dependency checks |
 | Qt worker shutdown | [`core/safe_thread.py`](../core/safe_thread.py) | `WorkerSupervisor` | active; sole MainWindow QThread registry |
 | Global hotkeys | [`core/global_hotkeys.py`](../core/global_hotkeys.py) | `GlobalHotkeyListener` | active; listener-owned Xlib lifecycle and cooperative stop |
 | Security diagnostics | [`core/security_diagnostics.py`](../core/security_diagnostics.py) | `inspect_security_health`, `run_live_sandbox_verification` | active; friendly UI result with optional technical details |
@@ -19,6 +28,11 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | UI presentation cache | [`core/presentation_cache.py`](../core/presentation_cache.py) | `PresentationCache` | active; bounded decoded-value LRU only |
 | Library query/state | [`core/library_controller.py`](../core/library_controller.py), [`core/library_state.py`](../core/library_state.py) | `LibraryController`, `LibraryStateStore` | active |
 | Local database | [`database.py`](../database.py) | `GameDatabase`, `GameRecord` | active |
+| SQLite internals | [`core/local_database/`](../core/local_database/) | `DatabaseSession`, `SchemaMigrator`, game/profile/playtime/achievement repositories, `IdentityReconciler` | active; one connection and serialized facade calls |
+| Manual cloud restore | [`ui/manual_restore_controller.py`](../ui/manual_restore_controller.py) | `ManualRestoreController` | active; version/plan, confirmation, context and cancellation ownership |
+| Library presentation | [`ui/library_card_renderer.py`](../ui/library_card_renderer.py), [`ui/library_navigation_controller.py`](../ui/library_navigation_controller.py), [`ui/components/game_inspector.py`](../ui/components/game_inspector.py) | card construction, page transitions, inspector form | active |
+| Settings forms and lifetime | [`ui/dialogs/settings_pages/`](../ui/dialogs/settings_pages/), [`ui/settings_dialog_services.py`](../ui/settings_dialog_services.py), [`ui/settings_account_controller.py`](../ui/settings_account_controller.py), [`core/settings_session.py`](../core/settings_session.py) | explicit page inputs/dependencies, managed reads, cloud Cancel baseline | active |
+| Media/storage/install dialogs | [`ui/dialogs/media_dialogs.py`](../ui/dialogs/media_dialogs.py), [`ui/dialogs/storage_dialog.py`](../ui/dialogs/storage_dialog.py), [`ui/dialogs/plugin_install_dialog.py`](../ui/dialogs/plugin_install_dialog.py) | galleries, disk usage, install instructions | active; old Settings module exports remain compatible |
 | Portable game naming | [`core/game_names.py`](../core/game_names.py) | `meaningful_game_name`, `preferred_game_name`, `local_profile_identity`, `display_name_key`, placeholder/fallback rules | active |
 | Library application service | [`core/library_service.py`](../core/library_service.py) | `LibraryService`, `LibraryProjection`, archive/remove/purge actions | active |
 | Game lifecycle service | [`core/game_lifecycle_service.py`](../core/game_lifecycle_service.py) | `GameLifecycleService`, `GameLifecycleResult`; stages filesystem changes with local library mutations | active |
@@ -36,11 +50,18 @@ Status values: `active` is a normal production path; `compatibility` is retained
 | Achievement resource service | [`core/achievement_resource_service.py`](../core/achievement_resource_service.py) | `AchievementResourceService`, `AchievementTarget` | active |
 | Achievement persistence service | [`core/achievement_persistence_service.py`](../core/achievement_persistence_service.py) | `AchievementPersistenceService`, `AchievementProjection` | active; SQLite-backed local authority |
 | Library achievement coordination | [`core/library_achievement_coordinator.py`](../core/library_achievement_coordinator.py) | `LibraryAchievementCoordinator`, `AchievementRequestPlan` | active; Qt-free MainWindow orchestration boundary |
+| UI achievement lifecycle | [`ui/achievement_sync_controller.py`](../ui/achievement_sync_controller.py) | `AchievementSyncController` | active; explicit dependencies for request scheduling, watcher reconciliation, notifications, managed bindings, and legacy-worker fallback; composed by MainWindow |
+| UI cloud status lifecycle | [`ui/cloud_status_controller.py`](../ui/cloud_status_controller.py) | `CloudStatusController` | active; explicit dependencies for status request policy, managed bindings, subscriber delivery, context failures, and batch results; composed by MainWindow |
+| UI connectivity lifecycle | [`ui/network_monitor_controller.py`](../ui/network_monitor_controller.py) | `NetworkMonitorController` | active; owns recurring probes, transient request gating, and stale-result invalidation; MainWindow retains offline preference and user-facing recovery policy |
+| UI artwork lifecycle | [`ui/artwork_controller.py`](../ui/artwork_controller.py) | `ArtworkController` | active; owns artwork request bindings, game-ID fan-out, attempt deduplication, and compatibility-fetch queue; MainWindow applies results to presentation/local projection |
+| App release update lifecycle | [`ui/app_update_controller.py`](../ui/app_update_controller.py) | `AppUpdateController` | active; owns release/download workers and update-banner action flow; MainWindow joins app and backend results for one startup notice |
+| UI prelaunch orchestration | [`ui/prelaunch_controller.py`](../ui/prelaunch_controller.py) | `PrelaunchController` | active; owns per-game preflight lock, cloud resolution/conflict/quota flow, progress/cancellation, and launch handoff |
+| UI game session lifecycle | [`ui/game_session_controller.py`](../ui/game_session_controller.py) | `GameSessionController` | active; composes core process/session registration with tracker activation/finalization and cooperative process-stop tasks |
 | Steam resource service | [`core/steam_resource_service.py`](../core/steam_resource_service.py) | `SteamResourceService`, cached `request_app_details` | active |
 | Steam AppID/build identity | [`core/steam_ids.py`](../core/steam_ids.py), [`core/steam_build_tracker.py`](../core/steam_build_tracker.py) | `normalize_steam_app_id`, manifest/public build comparison | active |
 | Library Steam metadata coordination | [`core/library_steam_metadata_coordinator.py`](../core/library_steam_metadata_coordinator.py) | `LibrarySteamMetadataCoordinator`, build/tag plans | active; Qt-free MainWindow orchestration boundary |
 | Achievement presentation state | [`core/achievement_state_store.py`](../core/achievement_state_store.py) | `AchievementStateStore` | active; local UI projection only |
-| Launch/session coordination | [`core/launch_session_coordinator.py`](../core/launch_session_coordinator.py) | `LaunchSessionCoordinator`, `LaunchSessionContext` | active; process/session registration boundary |
+| Launch/session coordination | [`core/launch_session_coordinator.py`](../core/launch_session_coordinator.py), [`ui/game_session_controller.py`](../ui/game_session_controller.py) | `LaunchSessionCoordinator`, `LaunchSessionContext`, `GameSessionController` | active; core runner/session registration plus UI tracker lifecycle and stop-work ownership |
 | Launch entry policy | [`core/launch_policy.py`](../core/launch_policy.py) | `LaunchPolicy`, `LaunchDecision`, `LaunchAction` | active; Qt-free archived/running/mode decision |
 | Artwork resource service | [`core/artwork_resource_service.py`](../core/artwork_resource_service.py) | `ArtworkResourceService`, `ArtworkTarget` | active |
 | Library artwork coordination | [`core/library_artwork_coordinator.py`](../core/library_artwork_coordinator.py) | `LibraryArtworkCoordinator`, `ArtworkRequestPlan` | active; Qt-free MainWindow orchestration boundary |
@@ -80,7 +101,14 @@ Status values: `active` is a normal production path; `compatibility` is retained
 ## UI entrypoints
 
 - Main shell: [`ui/main_window.py`](../ui/main_window.py)
-- Main window public profile/friends workflows: [`ui/main_window_profile.py`](../ui/main_window_profile.py) (`MainWindowProfileMixin`)
+- Public profile/friends workflows: [`ui/profile_controller.py`](../ui/profile_controller.py) (`ProfileController`); [`ui/main_window_profile.py`](../ui/main_window_profile.py) is a state-free compatibility adapter.
+- Achievement request, watcher reconciliation, notification, and binding lifecycle: [`ui/achievement_sync_controller.py`](../ui/achievement_sync_controller.py) (`AchievementSyncController`)
+- Per-game cloud status request, subscription, and result lifecycle: [`ui/cloud_status_controller.py`](../ui/cloud_status_controller.py) (`CloudStatusController`)
+- Connectivity probe and transient request-gate lifecycle: [`ui/network_monitor_controller.py`](../ui/network_monitor_controller.py) (`NetworkMonitorController`)
+- Library artwork request/binding and compatibility-fetch lifecycle: [`ui/artwork_controller.py`](../ui/artwork_controller.py) (`ArtworkController`)
+- Application release check, AppImage update, and restart-banner lifecycle: [`ui/app_update_controller.py`](../ui/app_update_controller.py) (`AppUpdateController`)
+- Cloud-safe preflight, save-conflict resolution, cancellation, and launch handoff: [`ui/prelaunch_controller.py`](../ui/prelaunch_controller.py) (`PrelaunchController`)
+- Playtime tracker, active-session, and process-stop lifecycle: [`ui/game_session_controller.py`](../ui/game_session_controller.py) (`GameSessionController`)
 - Shared icons: [`ui/icons.py`](../ui/icons.py) (`get_icon`, `get_icon_pixmap`, `get_app_icon_pixmap`, `icon_pixmap`; DPI-aware QIcon-to-QPixmap rendering)
 - Shared sort control: [`ui/components/sort_combo.py`](../ui/components/sort_combo.py) (`SortComboBox` uses a platform-independent chevron and native popup)
 - Library views: [`ui/library_list.py`](../ui/library_list.py), [`ui/components/library_view_host.py`](../ui/components/library_view_host.py), [`ui/components/compact_game_page.py`](../ui/components/compact_game_page.py), [`ui/components/virtual_grid.py`](../ui/components/virtual_grid.py)

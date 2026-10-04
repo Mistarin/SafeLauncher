@@ -3,21 +3,24 @@
 ## System shape
 
 ```text
-main.py
-  └─ bootstrap / QApplication
-      └─ MainWindow
-          ├─ GameDatabase (local authority)
-          ├─ RequestManager ── ResourceCache
-          │       ├─ CloudCenterService ── CloudAccountService / CloudStatusService / CloudMetadataService
-          │       │                         └─ CloudClient ── SafeLauncherCloud
-          │       ├─ SteamClient ── Steam services
-          │       ├─ ArtworkClient ── SteamGridDBClient
-          │       └─ Profile/resource adapters
-          ├─ library/state/view components
-          ├─ GameLifecycleService ── LibraryService
-          ├─ MainWindowProfileMixin (profile/friends workflows)
-          ├─ launch/session/sandbox services
-          └─ compatibility workers and dialogs
+main.py → CLI dispatch / GUI bootstrap / QApplication
+  ├─ ApplicationRuntime (shared service graph)
+  │   ├─ GameDatabase reference (caller-owned local authority)
+  │   ├─ RequestManager ── ResourceCache
+  │   ├─ library/state/persistence services
+  │   ├─ private cloud services ── SafeLauncherCloud
+  │   ├─ Steam/artwork services ── transport clients
+  │   └─ WorkerSupervisor / session manager / operation registry
+  └─ MainWindow (view composition)
+      ├─ library views, detail, navigation, dialogs
+      ├─ ManagedTaskController / ShutdownController
+      ├─ SteamMetadataController / ArtworkController
+      ├─ ProfileController / AppUpdateController
+      ├─ CloudStatusController / CloudWorkflowController
+      ├─ ManualRestoreController / SettingsAccountController
+      ├─ LibraryCardRenderer / LibraryNavigationController / GameInspectorWidget
+      ├─ NetworkMonitorController / PrelaunchController
+      └─ GameSessionController / SessionFeatureController / AchievementSyncController
 ```
 
 The authoritative source files are mapped in [MODULES.md](MODULES.md) and [maps/module-map.md](maps/module-map.md).
@@ -32,6 +35,9 @@ backend deployment checkout, not the client's local SQLite database. See
 ## Ownership boundaries
 
 - `GameDatabase` owns the local SQLite projection and local-first mutations.
+  Its stable facade delegates to `core/local_database` repositories. A single
+  `DatabaseSession` owns connection/recovery/lifetime and serializes facade
+  calls; `SchemaMigrator` owns idempotent migration and surfaces failures.
 - Library lifecycle actions are explicit: archive preserves the local record;
   remove-from-archive restores it; ordinary removal preserves append-only
   profile history; delete-all-local-data purges the local record, history,
@@ -56,12 +62,61 @@ backend deployment checkout, not the client's local SQLite database. See
 - `ResourceCache` owns reusable resource retention and freshness.
 - Transport clients own HTTP sessions, authentication headers, encryption transport, response validation, and parsing.
 - UI owns presentation and subscriptions, not remote request lifecycles.
+  Settings pages are independent form widgets with explicit inputs/actions.
+  `SettingsAccountController` subscribes directly to managed account reads;
+  it never waits on a nested request from a scheduler worker.
+  `CloudSettingsSession` owns the accepted cloud-preference Cancel baseline.
+  Settings drains cancelled work on Save, Cancel and window close before
+  rollback or native destruction. Its normal path uses shared managed tasks.
 - `GameLifecycleService` stages installation files and coordinates archive,
   removal, and restore transitions through `LibraryService`; the window shell
   applies the resulting UI updates.
-- `MainWindowProfileMixin` owns public profile and friends navigation plus
+- `ApplicationRuntime` owns shared service construction and client disposal.
+  MainWindow exposes references to the same graph, not independently owned copies.
+- `ProfileController` owns public profile and friends navigation plus
   private profile reconciliation callbacks, keeping those workflows out of
   the library and game-session methods on `MainWindow`.
+- `AchievementSyncController` owns achievement request scheduling,
+  deduplication, managed resource bindings, batch completion, watcher-event
+  reconciliation, and achievement notifications. It receives persistence,
+  state, request, settings, and UI callbacks explicitly; `MainWindow` remains
+  the view composition root and retains view-update delegates for selection,
+  launch, and dialog workflows. SQLite persistence remains authoritative in
+  `AchievementPersistenceService`, and the window still owns inspector widgets.
+  The controller owns watcher creation/teardown and delayed exit reads, including offline mode.
+- `CloudStatusController` owns per-game status request scheduling, managed
+  resource bindings, subscriber fan-out, failure mapping, and batch/listing
+  result delivery. It receives network/shutdown policy and presentation
+  callbacks from `MainWindow`; the window continues to own status rendering
+  while CloudWorkflowController owns automatic save mutation policy.
+- `NetworkMonitorController` owns the periodic connectivity probe, probe
+  deduplication, stale-completion invalidation, and transient-unavailable
+  request gate. `MainWindow` owns the offline-mode preference, recovery actions,
+  footer presentation, and network-loss dialog.
+- `ArtworkController` owns library cover/hero/icon request grouping, Qt
+  `ResourceBinding` lifetimes, per-game attempt deduplication, and the bounded
+  compatibility-fetch queue. `MainWindow` applies successful results to the
+  local projection and active widgets; the artwork service remains the
+  transport/cache boundary.
+- `AppUpdateController` owns GitHub release-check and AppImage download worker
+  lifetimes plus the update-banner action state. `MainWindow` keeps the
+  combined startup notice because it joins app-release and backend-health
+  results.
+- `PrelaunchController` owns the per-game prelaunch lock, cloud-save preflight,
+  progress/cancellation lifecycle, conflict and quota decisions, and exactly-once
+  launch handoff. Cancelling keeps the lock until the cloud operation reaches a
+  terminal result so save-restore rollback cannot race game startup. Shutdown
+  cancels pending operations and suppresses any later launch continuation. It
+  receives presentation and launch callbacks from the window.
+  `ManualRestoreController` owns explicit restore preflight, confirmation,
+  selected version/plan, cancellation and cloud-context generation checks.
+  A manual restore keeps launch blocked until the operation reaches terminal
+  state, including rollback; modal confirmation revalidates game/account state.
+- `GameSessionController` composes `LaunchSessionCoordinator` with Qt tracker
+  lifetime and asynchronous process termination. It owns tracker registration,
+  per-game stopping state, and terminal-session release after feature cleanup;
+  `SessionFeatureController` owns playtime service calls and failure-isolated
+  achievement, recorder, Discord, and cloud-exit hooks.
 - Compatibility workers remain for manager-less dialogs, plugins, tests, and older integrations.
 
 Details: [ownership-and-boundaries.md](architecture/ownership-and-boundaries.md), [manager-ownership-map.md](maps/manager-ownership-map.md).

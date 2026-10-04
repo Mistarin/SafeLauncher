@@ -138,6 +138,28 @@ class SteamResourceService:
         spec = self.app_details_spec(app_id, **kwargs)
         return self._request_cached(spec, self.APP_DETAILS_TTL_SECONDS)
 
+    def request_description(self, game_name: str, app_id: str = "", *, priority=RequestPriority.NORMAL):
+        """Share App Details when linked; cache name-search fallback otherwise."""
+        normalized = normalize_steam_app_id(app_id)
+        if normalized:
+            return self.request_app_details(normalized, priority=priority, tag="game_description")
+        name = str(game_name or "").strip()
+        key = RequestKey("steam-description", name.casefold(), "store-v1")
+
+        def load(token):
+            token.raise_if_cancelled()
+            items = self.client.search(name, timeout=6)
+            token.raise_if_cancelled()
+            if not items or not items[0].get("id"):
+                return {}
+            details = self.client.app_details(str(items[0]["id"]), timeout=6)
+            token.raise_if_cancelled()
+            return details or {}
+
+        spec = RequestSpec(key, load, priority=priority, timeout_seconds=15,
+                           metadata={"tag": "game_description", "resource_type": "steam-app-details"})
+        return self._request_cached(spec, self.APP_DETAILS_TTL_SECONDS)
+
     def _request_cached(self, spec: RequestSpec, max_age_seconds: float):
         cache = getattr(self.request_manager, "cache", None)
         if cache is None:

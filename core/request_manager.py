@@ -676,6 +676,15 @@ class RequestManager:
         )
         return snapshot
 
+    def pending_work_count(self) -> int:
+        """Queued/running work, including invalidated loaders still unwinding.
+
+        Active resource keys alone are not a safe shutdown barrier: invalidation
+        can remove a key while its old loader still owns a transport or file.
+        """
+        with self._queue.mutex:
+            return self._queue.unfinished_tasks
+
     def cached_request(
         self,
         spec: RequestSpec,

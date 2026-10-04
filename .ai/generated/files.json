@@ -1,14 +1,14 @@
 {
   "files": [
     {
-      "bytes": 9053,
-      "lines": 145,
+      "bytes": 13110,
+      "lines": 200,
       "path": ".ai/ARCHITECTURE.md",
       "suffix": ".md"
     },
     {
-      "bytes": 2169,
-      "lines": 35,
+      "bytes": 2261,
+      "lines": 36,
       "path": ".ai/CONTEXT.md",
       "suffix": ".md"
     },
@@ -19,8 +19,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 15061,
-      "lines": 98,
+      "bytes": 21420,
+      "lines": 126,
       "path": ".ai/MODULES.md",
       "suffix": ".md"
     },
@@ -31,8 +31,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 3546,
-      "lines": 63,
+      "bytes": 5585,
+      "lines": 96,
       "path": ".ai/TASK.md",
       "suffix": ".md"
     },
@@ -43,8 +43,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 2041,
-      "lines": 23,
+      "bytes": 2447,
+      "lines": 24,
       "path": ".ai/architecture/artwork-and-steam-data.md",
       "suffix": ".md"
     },
@@ -67,8 +67,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 1150,
-      "lines": 17,
+      "bytes": 1875,
+      "lines": 30,
       "path": ".ai/architecture/database-and-local-projection.md",
       "suffix": ".md"
     },
@@ -85,8 +85,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 1466,
-      "lines": 16,
+      "bytes": 1934,
+      "lines": 22,
       "path": ".ai/architecture/game-launch-and-sandbox.md",
       "suffix": ".md"
     },
@@ -133,7 +133,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 1187,
+      "bytes": 2096,
       "lines": 18,
       "path": ".ai/architecture/runtime-lifecycle.md",
       "suffix": ".md"
@@ -157,14 +157,14 @@
       "suffix": ".md"
     },
     {
-      "bytes": 1996,
+      "bytes": 2018,
       "lines": 26,
       "path": ".ai/architecture/threading-and-shutdown.md",
       "suffix": ".md"
     },
     {
-      "bytes": 1690,
-      "lines": 18,
+      "bytes": 3960,
+      "lines": 43,
       "path": ".ai/architecture/ui-architecture.md",
       "suffix": ".md"
     },
@@ -253,8 +253,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 427,
-      "lines": 16,
+      "bytes": 735,
+      "lines": 18,
       "path": ".ai/maps/launch-session-sequence.md",
       "suffix": ".md"
     },
@@ -289,8 +289,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 687,
-      "lines": 27,
+      "bytes": 931,
+      "lines": 28,
       "path": ".ai/maps/startup-shutdown-sequence.md",
       "suffix": ".md"
     },
@@ -559,8 +559,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 2973,
-      "lines": 40,
+      "bytes": 3786,
+      "lines": 43,
       "path": ".ai/references/ui/main-window.md",
       "suffix": ".md"
     },
@@ -583,7 +583,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 9787,
+      "bytes": 9864,
       "lines": 231,
       "path": ".ai/tools/build_manifest.py",
       "suffix": ".py"
@@ -625,8 +625,8 @@
       "suffix": ".md"
     },
     {
-      "bytes": 467,
-      "lines": 10,
+      "bytes": 690,
+      "lines": 14,
       "path": ".ai/workflows/artwork-loading.md",
       "suffix": ".md"
     },
@@ -649,7 +649,7 @@
       "suffix": ".md"
     },
     {
-      "bytes": 575,
+      "bytes": 1028,
       "lines": 11,
       "path": ".ai/workflows/game-launch.md",
       "suffix": ".md"
@@ -727,14 +727,20 @@
       "suffix": ".md"
     },
     {
+      "bytes": 4387,
+      "lines": 77,
+      "path": "ci/architecture_audit.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 5937,
       "lines": 176,
       "path": "ci/performance_baseline.py",
       "suffix": ".py"
     },
     {
-      "bytes": 7651,
-      "lines": 205,
+      "bytes": 7764,
+      "lines": 206,
       "path": "ci/release_readiness.py",
       "suffix": ".py"
     },
@@ -868,6 +874,12 @@
       "bytes": 456,
       "lines": 23,
       "path": "core/clerk_auth.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 954,
+      "lines": 20,
+      "path": "core/cli.py",
       "suffix": ".py"
     },
     {
@@ -1147,6 +1159,66 @@
       "suffix": ".py"
     },
     {
+      "bytes": 68,
+      "lines": 2,
+      "path": "core/local_database/__init__.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 33153,
+      "lines": 623,
+      "path": "core/local_database/achievements.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 8493,
+      "lines": 202,
+      "path": "core/local_database/connection.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 21340,
+      "lines": 461,
+      "path": "core/local_database/games.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 7967,
+      "lines": 159,
+      "path": "core/local_database/playtime.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 6842,
+      "lines": 140,
+      "path": "core/local_database/profiles.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 19822,
+      "lines": 360,
+      "path": "core/local_database/reconciliation.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 2561,
+      "lines": 76,
+      "path": "core/local_database/records.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 14281,
+      "lines": 260,
+      "path": "core/local_database/schema.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 1119,
+      "lines": 34,
+      "path": "core/local_database/validation.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 6361,
       "lines": 163,
       "path": "core/logger.py",
@@ -1273,8 +1345,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 48212,
-      "lines": 1204,
+      "bytes": 48585,
+      "lines": 1213,
       "path": "core/request_manager.py",
       "suffix": ".py"
     },
@@ -1357,6 +1429,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 1530,
+      "lines": 41,
+      "path": "core/settings_session.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 10768,
       "lines": 239,
       "path": "core/steam_build_tracker.py",
@@ -1375,8 +1453,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 6099,
-      "lines": 191,
+      "bytes": 7222,
+      "lines": 213,
       "path": "core/steam_resource_service.py",
       "suffix": ".py"
     },
@@ -1423,8 +1501,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 111570,
-      "lines": 2145,
+      "bytes": 19149,
+      "lines": 365,
       "path": "database.py",
       "suffix": ".py"
     },
@@ -1453,8 +1531,8 @@
       "suffix": ".sh"
     },
     {
-      "bytes": 7402,
-      "lines": 174,
+      "bytes": 481,
+      "lines": 22,
       "path": "main.py",
       "suffix": ".py"
     },
@@ -1789,9 +1867,45 @@
       "suffix": ".py"
     },
     {
+      "bytes": 10135,
+      "lines": 246,
+      "path": "tests/test_achievement_sync_controller.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 6765,
       "lines": 150,
       "path": "tests/test_achievement_ui.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 866,
+      "lines": 17,
+      "path": "tests/test_ai_schema_manifest.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 3816,
+      "lines": 103,
+      "path": "tests/test_app_update_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 9032,
+      "lines": 194,
+      "path": "tests/test_application_architecture.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 1861,
+      "lines": 34,
+      "path": "tests/test_architecture_audit.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 7427,
+      "lines": 207,
+      "path": "tests/test_artwork_controller.py",
       "suffix": ".py"
     },
     {
@@ -1849,6 +1963,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 4294,
+      "lines": 113,
+      "path": "tests/test_cloud_status_controller.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 3049,
       "lines": 102,
       "path": "tests/test_cloud_status_polling_service.py",
@@ -1891,9 +2011,21 @@
       "suffix": ".py"
     },
     {
+      "bytes": 13701,
+      "lines": 263,
+      "path": "tests/test_database_repositories.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 2814,
       "lines": 69,
       "path": "tests/test_desktop_integration.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 10517,
+      "lines": 207,
+      "path": "tests/test_feature_ownership.py",
       "suffix": ".py"
     },
     {
@@ -1912,6 +2044,12 @@
       "bytes": 10379,
       "lines": 251,
       "path": "tests/test_game_name_resolution.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 6370,
+      "lines": 168,
+      "path": "tests/test_game_session_controller.py",
       "suffix": ".py"
     },
     {
@@ -1963,6 +2101,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 5697,
+      "lines": 116,
+      "path": "tests/test_library_presentation_architecture.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 5592,
       "lines": 125,
       "path": "tests/test_library_service.py",
@@ -1975,14 +2119,26 @@
       "suffix": ".py"
     },
     {
+      "bytes": 5380,
+      "lines": 118,
+      "path": "tests/test_manual_restore_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 4394,
+      "lines": 127,
+      "path": "tests/test_network_monitor_controller.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 3995,
       "lines": 113,
       "path": "tests/test_network_policy.py",
       "suffix": ".py"
     },
     {
-      "bytes": 9474,
-      "lines": 249,
+      "bytes": 9678,
+      "lines": 262,
       "path": "tests/test_offline_update_status.py",
       "suffix": ".py"
     },
@@ -2023,6 +2179,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 14747,
+      "lines": 392,
+      "path": "tests/test_prelaunch_controller.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 591,
       "lines": 24,
       "path": "tests/test_presentation_cache.py",
@@ -2041,8 +2203,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 2191,
-      "lines": 57,
+      "bytes": 2370,
+      "lines": 60,
       "path": "tests/test_release_readiness.py",
       "suffix": ".py"
     },
@@ -2083,6 +2245,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 3234,
+      "lines": 62,
+      "path": "tests/test_save_dialog_lifecycle.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 5248,
       "lines": 128,
       "path": "tests/test_save_history.py",
@@ -2101,6 +2269,18 @@
       "suffix": ".py"
     },
     {
+      "bytes": 7419,
+      "lines": 150,
+      "path": "tests/test_settings_lifecycle.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 2296,
+      "lines": 56,
+      "path": "tests/test_settings_session.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 2597,
       "lines": 79,
       "path": "tests/test_steam_client.py",
@@ -2113,8 +2293,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 28718,
-      "lines": 681,
+      "bytes": 26978,
+      "lines": 624,
       "path": "tests/test_ui_consistency.py",
       "suffix": ".py"
     },
@@ -2122,6 +2302,48 @@
       "bytes": 0,
       "lines": 0,
       "path": "ui/__init__.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 21991,
+      "lines": 535,
+      "path": "ui/achievement_sync_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 7436,
+      "lines": 203,
+      "path": "ui/app_update_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 6733,
+      "lines": 168,
+      "path": "ui/application_entrypoint.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 7682,
+      "lines": 148,
+      "path": "ui/application_runtime.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 9482,
+      "lines": 268,
+      "path": "ui/artwork_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 14943,
+      "lines": 391,
+      "path": "ui/cloud_status_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 14922,
+      "lines": 370,
+      "path": "ui/cloud_workflow_controller.py",
       "suffix": ".py"
     },
     {
@@ -2179,6 +2401,12 @@
       "suffix": ".py"
     },
     {
+      "bytes": 20742,
+      "lines": 455,
+      "path": "ui/components/game_inspector.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 6070,
       "lines": 141,
       "path": "ui/components/hero_background.py",
@@ -2203,8 +2431,8 @@
       "suffix": ".py"
     },
     {
-      "bytes": 33669,
-      "lines": 939,
+      "bytes": 33930,
+      "lines": 945,
       "path": "ui/components/popup_shell.py",
       "suffix": ".py"
     },
@@ -2305,15 +2533,27 @@
       "suffix": ".py"
     },
     {
-      "bytes": 71952,
-      "lines": 1578,
+      "bytes": 73041,
+      "lines": 1603,
       "path": "ui/dialogs/game_properties_dialog.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 20695,
+      "lines": 484,
+      "path": "ui/dialogs/media_dialogs.py",
       "suffix": ".py"
     },
     {
       "bytes": 2491,
       "lines": 69,
       "path": "ui/dialogs/network_dialog.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 3881,
+      "lines": 88,
+      "path": "ui/dialogs/plugin_install_dialog.py",
       "suffix": ".py"
     },
     {
@@ -2341,15 +2581,57 @@
       "suffix": ".py"
     },
     {
-      "bytes": 57123,
-      "lines": 1338,
+      "bytes": 57386,
+      "lines": 1343,
       "path": "ui/dialogs/save_manager_dialog.py",
       "suffix": ".py"
     },
     {
-      "bytes": 156553,
-      "lines": 3405,
+      "bytes": 83707,
+      "lines": 1783,
       "path": "ui/dialogs/settings_dialog.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 83,
+      "lines": 2,
+      "path": "ui/dialogs/settings_pages/__init__.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 18027,
+      "lines": 368,
+      "path": "ui/dialogs/settings_pages/cloud.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 9712,
+      "lines": 208,
+      "path": "ui/dialogs/settings_pages/general.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 12311,
+      "lines": 251,
+      "path": "ui/dialogs/settings_pages/plugins.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 5604,
+      "lines": 135,
+      "path": "ui/dialogs/settings_pages/security.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 5736,
+      "lines": 140,
+      "path": "ui/dialogs/settings_pages/storage.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 10178,
+      "lines": 245,
+      "path": "ui/dialogs/storage_dialog.py",
       "suffix": ".py"
     },
     {
@@ -2359,9 +2641,21 @@
       "suffix": ".py"
     },
     {
+      "bytes": 8301,
+      "lines": 212,
+      "path": "ui/game_session_controller.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 8788,
       "lines": 229,
       "path": "ui/icons.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 4594,
+      "lines": 96,
+      "path": "ui/library_card_renderer.py",
       "suffix": ".py"
     },
     {
@@ -2371,14 +2665,20 @@
       "suffix": ".py"
     },
     {
-      "bytes": 447004,
-      "lines": 9543,
+      "bytes": 3177,
+      "lines": 88,
+      "path": "ui/library_navigation_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 310534,
+      "lines": 6442,
       "path": "ui/main_window.py",
       "suffix": ".py"
     },
     {
-      "bytes": 8777,
-      "lines": 219,
+      "bytes": 1037,
+      "lines": 29,
       "path": "ui/main_window_profile.py",
       "suffix": ".py"
     },
@@ -2386,6 +2686,36 @@
       "bytes": 8573,
       "lines": 193,
       "path": "ui/maintenance_dialogs.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 4607,
+      "lines": 118,
+      "path": "ui/managed_task_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 6057,
+      "lines": 142,
+      "path": "ui/manual_restore_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 4745,
+      "lines": 130,
+      "path": "ui/network_monitor_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 22720,
+      "lines": 560,
+      "path": "ui/prelaunch_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 8726,
+      "lines": 189,
+      "path": "ui/profile_controller.py",
       "suffix": ".py"
     },
     {
@@ -2401,6 +2731,42 @@
       "suffix": ".py"
     },
     {
+      "bytes": 1877,
+      "lines": 43,
+      "path": "ui/save_dialog_services.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 6059,
+      "lines": 143,
+      "path": "ui/session_feature_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 3323,
+      "lines": 78,
+      "path": "ui/settings_account_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 956,
+      "lines": 22,
+      "path": "ui/settings_dialog_services.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 2174,
+      "lines": 66,
+      "path": "ui/shutdown_controller.py",
+      "suffix": ".py"
+    },
+    {
+      "bytes": 13683,
+      "lines": 323,
+      "path": "ui/steam_metadata_controller.py",
+      "suffix": ".py"
+    },
+    {
       "bytes": 12480,
       "lines": 422,
       "path": "ui/theme.py",
@@ -2413,5 +2779,5 @@
       "suffix": ".py"
     }
   ],
-  "generated_at": "2026-10-02T22:35:28+00:00"
+  "generated_at": "2026-10-04T11:20:02+00:00"
 }

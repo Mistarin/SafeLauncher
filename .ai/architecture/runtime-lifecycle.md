@@ -2,9 +2,9 @@
 
 ## Startup
 
-`main.py` applies CLI offline mode, handles doctor/setup/desktop commands, initializes the environment, creates `QApplication`, checks single-instance state, verifies dependencies, creates the database and runner, and opens `MainWindow`.
+`main.py` applies CLI offline mode and dispatches terminal commands through `core.cli` before importing GUI bootstrap. `ui.application_entrypoint` creates Qt, reserves the single-instance listener before starting application work, verifies dependencies, and constructs the database/runner/backup and shared `ApplicationRuntime` before opening `MainWindow`.
 
-`MainWindow` creates shared clients and services before presenting the library. Local database data is available before optional Steam, artwork, achievement, and cloud refreshes.
+`ApplicationRuntime` owns the shared clients, services, cache, state stores, request manager, worker supervisor, and operation registry. MainWindow accepts an injected runtime or creates a compatibility runtime for its historical three-argument constructor. Caller-supplied databases are not closed by the runtime; GUI bootstrap closes its own database. Partial runtime construction unwinds created resources. Local database data precedes optional remote refreshes.
 
 ## Active runtime
 
@@ -12,6 +12,6 @@ Views query a local `LibrarySnapshot`, then request optional resources through t
 
 ## Shutdown
 
-The window closes page bindings and active feature work, finalizes relevant session/playtime state, closes transport clients, logs request/performance metrics, shuts down the request manager, and lets Qt finish destruction. `SafeQThread`/`TaskSupervisor` retain worker wrappers long enough to avoid late signal/destruction races.
+`ShutdownController` owns running/draining/cancelled/closed transitions, deadlines, and generation-safe Qt re-entry. Window hooks stop producers and request cancellation. The drain barrier includes supervised QThreads and RequestManager queued/running work, including invalidated loaders still unwinding. Timeout or user cancellation resumes observation without closing services. After draining, feature bindings are disposed, requests are shut down, and only then are transports closed. `ManagedTaskController` suppresses late callbacks and retains cancelled handles while local save commits/rollbacks finish.
 
-Sources: [`main.py`](../../main.py), [`ui/main_window.py`](../../ui/main_window.py), [`core/safe_thread.py`](../../core/safe_thread.py).
+Sources: [`main.py`](../../main.py), [`ui/application_entrypoint.py`](../../ui/application_entrypoint.py), [`ui/application_runtime.py`](../../ui/application_runtime.py), [`ui/shutdown_controller.py`](../../ui/shutdown_controller.py), [`ui/managed_task_controller.py`](../../ui/managed_task_controller.py), [`core/safe_thread.py`](../../core/safe_thread.py).

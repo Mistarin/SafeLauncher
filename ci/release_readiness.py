@@ -37,7 +37,7 @@ class GateStep:
 def isolated_environment(xdg_root: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
     """Return a deterministic test environment without exposing credentials."""
     environment = dict(base or os.environ)
-    for variable in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"):
+    for variable in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
         path = xdg_root / variable.removeprefix("XDG_").lower()
         path.mkdir(parents=True, exist_ok=True)
         environment[variable] = str(path)
@@ -84,6 +84,7 @@ def gate_steps(
         GateStep("full harness", (python, "test.py"), timeout_seconds),
         GateStep("security audit", (python, "ci/security_audit.py"), timeout_seconds),
         GateStep("worker audit", (python, "ci/worker_audit.py"), timeout_seconds),
+        GateStep("architecture audit", (python, "ci/architecture_audit.py"), timeout_seconds),
         GateStep(
             "offline performance guard",
             (

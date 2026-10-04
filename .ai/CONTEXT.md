@@ -22,7 +22,8 @@ SafeLauncher is a PyQt6 desktop launcher for Linux games. It manages a local SQL
 
 - GUI: [`main.py`](../main.py)
 - Environment/bootstrap: [`core/bootstrap.py`](../core/bootstrap.py)
-- Main application owner: [`ui/main_window.py`](../ui/main_window.py)
+- Shared application services: [`ui/application_runtime.py`](../ui/application_runtime.py)
+- Window/view composition: [`ui/main_window.py`](../ui/main_window.py)
 - Local database: [`database.py`](../database.py)
 - Test harness: [`test.py`](../test.py)
 - Phase smoke tests: [`ci/smoke_phase.py`](../ci/smoke_phase.py)
