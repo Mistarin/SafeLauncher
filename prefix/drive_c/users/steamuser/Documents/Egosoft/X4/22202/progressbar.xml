@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<progressbar>
+  <type name="newgame" loaded="7">
+    <step name="init" duration="11.1448"/>
+    <step name="map" duration="2.05492"/>
+    <step name="cutscenes" duration="1.87283"/>
+    <step name="scripts" duration="2.57077"/>
+    <step name="stations" duration="2.56197"/>
+    <step name="jobs" duration="0.286721"/>
+    <step name="starting" duration="1.99672"/>
+  </type>
+  <type name="savedgame">
+    <step name="init" duration="3.5"/>
+    <step name="map" duration="20"/>
+    <step name="scripts" duration="2.5"/>
+    <step name="init2" duration="0.2"/>
+    <step name="map2" duration="8"/>
+    <step name="economylog" duration="1"/>
+    <step name="scripts2" duration="2.5"/>
+    <step name="patch" duration="0.1"/>
+    <step name="scripts3" duration="2.8"/>
+    <step name="jobs" duration="0.3"/>
+  </type>
+</progressbar>

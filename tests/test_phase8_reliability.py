@@ -6,7 +6,7 @@ import threading
 import time
 import unittest
 
-from core.request_contracts import RequestKey, RequestSpec, ResourceStatus
+from core.request_contracts import RequestKey, RequestPriority, RequestSpec, ResourceStatus
 from core.request_manager import RequestManager
 
 
@@ -86,6 +86,36 @@ class RequestManagerReliabilityTests(unittest.TestCase):
         finally:
             release.set()
             manager.shutdown()
+
+    def test_shutdown_drains_background_queue_beyond_running_limit(self):
+        manager = RequestManager(max_workers=4)
+        started = threading.Event()
+        started_count = [0]
+        lock = threading.Lock()
+
+        def background(token):
+            with lock:
+                started_count[0] += 1
+                if started_count[0] == 2:
+                    started.set()
+            while True:
+                token.raise_if_cancelled()
+                time.sleep(0.002)
+
+        handles = [
+            manager.request(
+                RequestKey("background-shutdown", str(index)),
+                background,
+                priority=RequestPriority.BACKGROUND,
+            )
+            for index in range(10)
+        ]
+        self.assertTrue(started.wait(2))
+        manager.shutdown(wait=True)
+        self.assertTrue(all(handle.future.done() for handle in handles))
+        self.assertTrue(all(handle.future.result(timeout=1).status == ResourceStatus.CANCELLED
+                            for handle in handles))
+        self.assertEqual(manager.pending_work_count(), 0)
 
 
 if __name__ == "__main__":

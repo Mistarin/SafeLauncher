@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional, Set
 
 from PyQt6 import sip
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QRect
 from PyQt6.QtWidgets import QLabel, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
 from core.library_controller import LibrarySnapshot
@@ -191,6 +191,49 @@ class LibraryViewHost(QStackedWidget):
         """Return IDs visible in the active renderer from the shared model."""
         if self.snapshot is not None:
             return set(self.snapshot.visible_ids)
+        return set()
+
+    def visible_game_ids(self, *, lookahead_rows: int = 2) -> set[int]:
+        """Return cards near the active grid viewport, including scroll lookahead."""
+        viewport = None
+        parent = self.parentWidget()
+        if parent is not None and hasattr(parent, "viewport"):
+            try:
+                viewport = parent.viewport()
+            except RuntimeError:
+                viewport = None
+        if self.currentIndex() == self.VIRTUAL_GRID:
+            view = self.virtual_grid
+            rect = view.viewport().rect()
+            row_height = max(1, view.delegate.total_height + view.spacing())
+            expanded = rect.adjusted(0, -row_height * lookahead_rows, 0, row_height * lookahead_rows)
+            visible = set()
+            for row in range(view.model.rowCount()):
+                index = view.model.index(row, 0)
+                if view.visualRect(index).intersects(expanded):
+                    game_id = index.data(Qt.ItemDataRole.UserRole + 1)
+                    if game_id is not None:
+                        visible.add(int(game_id))
+            return visible
+        if self.currentIndex() == self.GRID:
+            container = self.grid_container
+            if viewport is None:
+                visible_rect = container.rect()
+                map_widget = container
+            else:
+                visible_rect = viewport.rect()
+                map_widget = viewport
+            row_height = max(1, container.card_width * 3 // 2 + container.spacing)
+            expanded = visible_rect.adjusted(0, -row_height * lookahead_rows, 0, row_height * lookahead_rows)
+            visible = set()
+            for index, card in enumerate(container.widgets):
+                try:
+                    top_left = card.mapTo(map_widget, QPoint(0, 0))
+                    if QRect(top_left, card.size()).intersects(expanded):
+                        visible.add(int(card.game_id))
+                except (RuntimeError, AttributeError, TypeError):
+                    continue
+            return visible
         return set()
 
     def update_cloud_status(self, game_id: int, status, local_stats=None, cloud_stats=None) -> None:

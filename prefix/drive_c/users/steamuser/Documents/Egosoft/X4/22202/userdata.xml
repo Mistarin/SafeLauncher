@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <unlock_x4gamestart_boso>0</unlock_x4gamestart_boso>
+  <firsttimestartmenu>false</firsttimestartmenu>
+  <tutorial_started_from>0</tutorial_started_from>
+  <timelines_hub_currenthack>1</timelines_hub_currenthack>
+  <tutorial_firstperson_completed>1</tutorial_firstperson_completed>
+  <tutorial_flight_completed>1</tutorial_flight_completed>
+  <tutorial_docking_completed>1</tutorial_docking_completed>
+  <tutorial_travel_completed>1</tutorial_travel_completed>
+  <tutorial_highways_gates_completed>1</tutorial_highways_gates_completed>
+  <tutorial_combat_completed>1</tutorial_combat_completed>
+</root>

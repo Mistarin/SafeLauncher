@@ -59,6 +59,48 @@ class RequestManagerTests(unittest.TestCase):
             release.set()
             manager.shutdown()
 
+    def test_background_work_is_bounded_and_foreground_keeps_capacity(self):
+        manager = RequestManager(max_workers=4)
+        background_started = []
+        background_release = threading.Event()
+        foreground_started = threading.Event()
+
+        def background(token, identity):
+            background_started.append(identity)
+            while not background_release.wait(0.005):
+                token.raise_if_cancelled()
+            return identity
+
+        try:
+            background_handles = [
+                manager.request(
+                    RequestKey("background", str(index)),
+                    lambda token, index=index: background(token, index),
+                    priority=RequestPriority.BACKGROUND,
+                )
+                for index in range(6)
+            ]
+            deadline = time.monotonic() + 2
+            while len(background_started) < 2 and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertEqual(len(background_started), 2)
+
+            foreground = manager.request(
+                RequestKey("foreground", "visible"),
+                lambda _token: (foreground_started.set(), "visible")[1],
+                priority=RequestPriority.NORMAL,
+            )
+            self.assertTrue(foreground_started.wait(1))
+            self.assertEqual(manager.metrics()["background_workers_limit"], 2)
+            self.assertLessEqual(manager.metrics()["workers_peak"], 4)
+            background_release.set()
+            self.assertEqual(foreground.future.result(timeout=2).value, "visible")
+            self.assertTrue(all(handle.future.result(timeout=2).status == ResourceStatus.READY
+                                for handle in background_handles))
+        finally:
+            background_release.set()
+            manager.shutdown()
+
     def test_retries_failures_with_backoff(self):
         sleeps = []
         manager = RequestManager(max_workers=1, sleep=sleeps.append, random_value=lambda: 0.5)
@@ -398,17 +440,29 @@ class RequestManagerTests(unittest.TestCase):
 
     def test_manager_cancel_detaches_projection_for_resource_bindings(self):
         manager = RequestManager(max_workers=1)
+        started = threading.Event()
+        release = threading.Event()
+
+        def load(token):
+            started.set()
+            release.wait(2)
+            token.raise_if_cancelled()
+            return "ok"
+
         try:
-            source = manager.request(RequestKey("source", "binding-cancel"), lambda _token: "ok")
+            source = manager.request(RequestKey("source", "binding-cancel"), load)
+            self.assertTrue(started.wait(2))
             projected = manager.project(
                 source,
                 RequestKey("projection", "binding-cancel"),
                 lambda value: value,
             )
             self.assertTrue(manager.cancel(projected.key, projected.generation))
+            release.set()
             self.assertEqual(projected.future.result(timeout=2).status, ResourceStatus.CANCELLED)
             self.assertEqual(source.future.result(timeout=2).status, ResourceStatus.READY)
         finally:
+            release.set()
             manager.shutdown()
 
     def test_invalidating_source_retires_all_projections(self):

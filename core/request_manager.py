@@ -96,7 +96,10 @@ class RequestManager:
         self._sleep = sleep
         self._interruptible_sleep = sleep is time.sleep
         self._random_value = random_value
-        self._queue: queue.PriorityQueue[tuple[int, int, _RequestRecord | None]] = queue.PriorityQueue()
+        self._foreground_queue: queue.PriorityQueue[tuple[int, int, _RequestRecord]] = queue.PriorityQueue()
+        self._background_queue: queue.PriorityQueue[tuple[int, int, _RequestRecord]] = queue.PriorityQueue()
+        self._background_workers_limit = max(1, min(2, self.max_workers - 1))
+        self._background_workers_active = 0
         self._condition = threading.Condition()
         self._active: dict[RequestKey, _RequestRecord] = {}
         self._states: dict[RequestKey, ResourceResult] = {}
@@ -122,9 +125,14 @@ class RequestManager:
             "duration_seconds_max": 0.0,
             "queue_wait_seconds_total": 0.0,
             "queue_wait_seconds_max": 0.0,
+            "foreground_queue_wait_seconds_total": 0.0,
+            "foreground_queue_wait_seconds_max": 0.0,
+            "background_queue_wait_seconds_total": 0.0,
+            "background_queue_wait_seconds_max": 0.0,
             "active_peak": 0,
             "workers_peak": 0,
             "workers_configured": self.max_workers,
+            "background_workers_limit": self._background_workers_limit,
         }
         self._sequence = 0
         self._workers_active = 0
@@ -185,7 +193,12 @@ class RequestManager:
                 generation=spec.generation,
             )
             self._states[spec.key] = loading_result
-            self._queue.put((int(spec.priority), record.sequence, record))
+            target_queue = (
+                self._background_queue
+                if int(spec.priority) >= int(RequestPriority.BACKGROUND)
+                else self._foreground_queue
+            )
+            target_queue.put((int(spec.priority), record.sequence, record))
             self._condition.notify_all()
             handle = self._handle_for(record)
         self._notify(spec.key, loading_result)
@@ -682,8 +695,11 @@ class RequestManager:
         Active resource keys alone are not a safe shutdown barrier: invalidation
         can remove a key while its old loader still owns a transport or file.
         """
-        with self._queue.mutex:
-            return self._queue.unfinished_tasks
+        with self._foreground_queue.mutex:
+            foreground_pending = self._foreground_queue.unfinished_tasks
+        with self._background_queue.mutex:
+            background_pending = self._background_queue.unfinished_tasks
+        return foreground_pending + background_pending
 
     def cached_request(
         self,
@@ -970,13 +986,6 @@ class RequestManager:
             self._closed = True
             for record in self._active.values():
                 record.token.cancel()
-            for _ in self._workers:
-                # Let already-queued records observe cancellation and resolve
-                # their futures before a worker exits. No new submissions are
-                # accepted after _closed is set, so background sentinels are
-                # guaranteed to be last in the existing queue.
-                self._queue.put((RequestPriority.BACKGROUND, self._sequence, None))
-                self._sequence += 1
             self._condition.notify_all()
         if wait:
             for worker in self._workers:
@@ -1001,10 +1010,29 @@ class RequestManager:
 
     def _worker_loop(self) -> None:
         while True:
-            _priority, _sequence, record = self._queue.get()
-            if record is None:
-                self._queue.task_done()
-                return
+            record = None
+            lane = "foreground"
+            with self._condition:
+                while record is None:
+                    try:
+                        _priority, _sequence, record = self._foreground_queue.get_nowait()
+                        lane = "foreground"
+                    except queue.Empty:
+                        if (
+                            self._background_workers_active < self._background_workers_limit
+                            or self._closed
+                        ):
+                            try:
+                                _priority, _sequence, record = self._background_queue.get_nowait()
+                                lane = "background"
+                                self._background_workers_active += 1
+                            except queue.Empty:
+                                pass
+                    if record is not None:
+                        break
+                    if self._closed:
+                        return
+                    self._condition.wait()
             try:
                 with self._condition:
                     self._workers_active += 1
@@ -1015,7 +1043,10 @@ class RequestManager:
             finally:
                 with self._condition:
                     self._workers_active = max(0, self._workers_active - 1)
-                self._queue.task_done()
+                    if lane == "background":
+                        self._background_workers_active = max(0, self._background_workers_active - 1)
+                    self._condition.notify_all()
+                (self._background_queue if lane == "background" else self._foreground_queue).task_done()
 
     def _run_record(self, record: _RequestRecord) -> None:
         record.started_at = time.monotonic()
@@ -1025,6 +1056,11 @@ class RequestManager:
             self._metrics["queue_wait_seconds_max"] = max(
                 self._metrics["queue_wait_seconds_max"], queue_wait
             )
+            lane = "background" if int(record.spec.priority) >= int(RequestPriority.BACKGROUND) else "foreground"
+            total_key = f"{lane}_queue_wait_seconds_total"
+            max_key = f"{lane}_queue_wait_seconds_max"
+            self._metrics[total_key] += queue_wait
+            self._metrics[max_key] = max(self._metrics[max_key], queue_wait)
         if queue_wait >= 1.0:
             tag = str(record.spec.metadata.get("tag", "") or "")
             logger.debug(

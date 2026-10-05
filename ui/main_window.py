@@ -1256,6 +1256,12 @@ class MainWindow(QMainWindow):
             actions=LibraryCardActions(self._select_game_by_id, self._on_double_click_game,
                 self._on_card_favorite_clicked, self._launch_game_by_id,
                 self._show_game_cloud_menu, self._on_card_cloud_badge_clicked))
+        self.scroll_area.verticalScrollBar().valueChanged.connect(
+            self._on_library_artwork_view_changed
+        )
+        self.virtual_grid.verticalScrollBar().valueChanged.connect(
+            self._on_library_artwork_view_changed
+        )
         self.banner_widgets = self.library_card_renderer.cards
         self.library_navigation = LibraryNavigationController(
             LibraryNavigationViews(self.library_view_host, self.scroll_area,
@@ -2827,6 +2833,12 @@ class MainWindow(QMainWindow):
         self._update_tray_menu()
 
         self.library_card_renderer.prefetch(self.games)
+
+    def _on_library_artwork_view_changed(self, *_args):
+        """Prioritize artwork that has entered the current library viewport."""
+        renderer = getattr(self, "library_card_renderer", None)
+        if renderer is not None:
+            renderer.request_visible_artwork()
 
     def _update_sidebar_counts(self):
         """Recompute sidebar stats; called on refresh and after drive re-checks."""

@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import QApplication
 from database import GameDatabase
 from core.operation_registry import OperationRegistry
 from core.request_contracts import ResourceStatus
-from ui.application_runtime import ApplicationRuntime
+from ui.application_runtime import ApplicationRuntime, recommended_request_workers
 from ui.managed_task_controller import ManagedTaskController
 from ui.shutdown_controller import ShutdownController, ShutdownState
 from ui.main_window import MainWindow
@@ -45,6 +45,12 @@ class ApplicationArchitectureTests(unittest.TestCase):
                 # Caller-owned databases remain usable after runtime disposal.
                 self.assertEqual(db.get_all_games(), [])
                 db.close()
+
+    def test_recommended_request_worker_count_is_bounded(self):
+        self.assertEqual(recommended_request_workers(1), 4)
+        self.assertEqual(recommended_request_workers(8), 4)
+        self.assertEqual(recommended_request_workers(16), 6)
+        self.assertEqual(recommended_request_workers(64), 6)
 
     def test_partial_runtime_construction_closes_created_clients(self):
         artwork = Mock()

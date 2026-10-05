@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<uidata version="1">
+  <data environment="menus">
+__CORE_CHAT_WINDOW = {
+[&quot;version&quot;]=3.000000,
+[&quot;x&quot;]=50.000000,
+[&quot;size&quot;]=&quot;normal&quot;,
+[&quot;announcements&quot;]={},
+[&quot;y&quot;]=720.000000,}
+
+__CORE_DEBUGLOG_LOG = {
+[&quot;lastClear&quot;]={
+[&quot;minor&quot;]=0.000000,
+[&quot;major&quot;]=9.000000,},
+[&quot;version&quot;]=4.000000,
+[&quot;data&quot;]={
+[2.000000]={
+[&quot;gamestart&quot;]=1.000000,
+[&quot;timestamp&quot;]=1786974229.000000,
+[&quot;message&quot;]=&quot;Info: 'NVIDIA GeForce RTX 3080' NVIDIA v610.57.1024 (Vulkan 1.4.341) check=1&quot;,},
+[5.000000]={
+[&quot;gamestart&quot;]=3.000000,
+[&quot;timestamp&quot;]=1786974768.000000,
+[&quot;message&quot;]=&quot;Error: Error in MD cue md.NPC_UseCases.UseCase&lt;inst:22e37&gt;: Failed to add component.{0x21ea8L}\
+* Expression: $Actors.{$actordef.$name}\
+* Action: &lt;add_to_group&gt;, line 1176&quot;,},
+[4.000000]={
+[&quot;gamestart&quot;]=3.000000,
+[&quot;timestamp&quot;]=1786974768.000000,
+[&quot;message&quot;]=&quot;Error: Error in MD cue md.NPC_UseCases.UseCase&lt;inst:22e37&gt;: Failed to add component.{0x21ea8L}\
+* Expression: $actor\
+* Action: &lt;add_to_group&gt;, line 1165&quot;,},
+[10.000000]={
+[&quot;gamestart&quot;]=4.000000,
+[&quot;timestamp&quot;]=1786975128.000000,
+[&quot;message&quot;]=&quot;Error: S:/X4 Foundations/.../widget_fullscreen.lua(15802): GetFrameLayer(): GetFrameLayer(): invalid frame ID 254 - frame might have been destroyed already.&quot;,},
+[9.000000]={
+[&quot;gamestart&quot;]=3.000000,
+[&quot;timestamp&quot;]=1786974801.000000,
+[&quot;message&quot;]=&quot;Error: Error in MD cue md.NPC_UseCases.UseCase&lt;inst:230ec&gt;: Failed to add component.{0x21ea8L}\
+* Expression: $Actors.{$actordef.$name}\
+* Action: &lt;add_to_group&gt;, line 1176&quot;,},
+[8.000000]={
+[&quot;gamestart&quot;]=3.000000,
+[&quot;timestamp&quot;]=1786974801.000000,
+[&quot;message&quot;]=&quot;Error: Error in MD cue md.NPC_UseCases.UseCase&lt;inst:230ec&gt;: Failed to add component.{0x21ea8L}\
+* Expression: $actor\
+* Action: &lt;add_to_group&gt;, line 1165&quot;,},
+[3.000000]={
+[&quot;gamestart&quot;]=2.000000,
+[&quot;timestamp&quot;]=1786974653.000000,
+[&quot;message&quot;]=&quot;Error: Error in MD cue md.Scenario_Tutorials.QuitToStartmenu: Property lookup failed: player.latestsave.name\
+* Expression: $NextModule? and player.latestsave.name == $NextModule and event.param2 == 'selected' and event.param3 == 'yes' or @userdata.force_load_latest_save_after_tutorial\
+* Action: &lt;do_if&gt;, line 19371&quot;,},
+[7.000000]={
+[&quot;gamestart&quot;]=3.000000,
+[&quot;timestamp&quot;]=1786974768.000000,
+[&quot;message&quot;]=&quot;Error: Error in MD cue md.NPC_UseCases.UseCase&lt;inst:22e48&gt;: Failed to add component.{0x21ea8L}\
+* Expression: $Actors.{$actordef.$name}\
+* Action: &lt;add_to_group&gt;, line 1176&quot;,},
+[1.000000]={
+[&quot;gamestart&quot;]=1.000000,
+[&quot;timestamp&quot;]=1786974228.000000,
+[&quot;message&quot;]=&quot;Error: Failed to retrieve subscribed Workshop items, skipping Workshop sync&quot;,},
+[6.000000]={
+[&quot;gamestart&quot;]=3.000000,
+[&quot;timestamp&quot;]=1786974768.000000,
+[&quot;message&quot;]=&quot;Error: Error in MD cue md.NPC_UseCases.UseCase&lt;inst:22e48&gt;: Failed to add component.{0x21ea8L}\
+* Expression: $actor\
+* Action: &lt;add_to_group&gt;, line 1165&quot;,},},}
+
+__CORE_DETAILMONITOR_MAPFILTER = {
+[&quot;mining_resource_ware&quot;]=&quot;all&quot;,
+[&quot;other_misc_missions&quot;]=true,
+[&quot;think_diplomacy_factioncolor_targetsystem&quot;]=false,
+[&quot;think_diplomacy_factioncolor_radar&quot;]=false,
+[&quot;other_misc_rendersatelliteradarrange&quot;]=true,
+[&quot;other_misc_coveroverride&quot;]=false,
+[&quot;other_misc_opacity&quot;]=false,
+[&quot;other_misc_ecliptic&quot;]=true,
+[&quot;think_diplomacy_factioncolor&quot;]=false,
+[&quot;layer_diplo&quot;]=false,
+[&quot;layer_build&quot;]=false,
+[&quot;layer_fight&quot;]=false,
+[&quot;other_misc_orderqueue&quot;]=true,
+[&quot;trade_price_maxprice&quot;]=0.000000,
+[&quot;other_misc_gate_connections&quot;]=false,
+[&quot;trade_relation_enemy&quot;]=true,
+[&quot;other_misc_selection_lines&quot;]=true,
+[&quot;trade_playeroffer_sell&quot;]=0.000000,
+[&quot;trade_playeroffer_buy&quot;]=0.000000,
+[&quot;other_misc_wrecks&quot;]=true,
+[&quot;other_misc_allyorderqueue&quot;]=true,
+[&quot;trade_volume&quot;]=0.000000,
+[&quot;version&quot;]=23.000000,
+[&quot;trade_offer_number&quot;]=3.000000,
+[&quot;other_misc_civilian&quot;]=true,
+[&quot;mining_resource_display&quot;]=true,
+[&quot;layer_think&quot;]=true,
+[&quot;layer_mining&quot;]=true,
+[&quot;think_diplomacy_highlightvisitor&quot;]=true,
+[&quot;layer_other&quot;]=true,
+[&quot;layer_trade&quot;]=true,
+[&quot;think_alert&quot;]=1.000000,
+[&quot;mining_renderresourceproberange&quot;]=true,}
+__CORE_DETAILMONITOR_USERQUESTION = {}
+__CORE_DETAILMONITOR_STATIONBUILD = {
+[&quot;environment&quot;]=true,
+[&quot;gizmo&quot;]=true,
+[&quot;discreteanglestep&quot;]=15.000000,
+[&quot;moduleoverlap&quot;]=false,
+[&quot;version&quot;]=2.000000,}
+__CORE_DETAILMONITOR_SHIPBUILD = {
+[&quot;showStatsPaintMod2&quot;]=&quot;hidden&quot;,
+[&quot;version&quot;]=3.000000,
+[&quot;showStats2&quot;]=&quot;limited&quot;,}
+__CORE_DETAILMONITOR_MAPEDITOR = {
+[&quot;opacity&quot;]=98.000000,}
+
+__CORE_GAMEOPTIONS_RESTOREINFO = {}
+__CORE_GAMEOPTIONS_PRIVACYPOLICY = false
+__CORE_GAMEOPTIONS_VENTURECONFIG = {
+[&quot;allow_update_once&quot;]=false,
+[&quot;allow_update&quot;]=false,
+[&quot;allow_validation&quot;]=false,}
+</data>
+</uidata>

@@ -10,6 +10,12 @@ resource-oriented terminology. The application manager is constructed with a
 shared `ResourceCache`; feature code may pass an isolated cache to
 `cached_request()` when it needs a separate retention policy.
 
+Foreground requests are scheduled ahead of background requests. At most two
+workers run background work at once, leaving capacity for visible and
+user-triggered requests; idle foreground capacity can still serve background
+work. The application chooses a worker bound from the logical CPU count,
+between four and six workers.
+
 Transport code stays separate:
 
 - `core/cloud_client.py` owns SafeLauncherCloud/Convex HTTP and encrypted-save
@@ -52,8 +58,11 @@ close; they must not directly mutate widgets from a manager callback.
 fallbacks for standalone dialogs, plugins, and tests. New production call
 sites should not create feature-local executors or request pools.
 
-The main library uses direct manager subscriptions for hero/icon prefetches,
-automatic cover/icon resolution, cloud-save status, achievement status,
+The main library requests artwork for the current viewport and two nearby rows
+first, then submits the rest in paced batches of twelve games. Background
+requests cannot occupy the full worker pool. The main library uses direct
+manager subscriptions for hero/icon prefetches, automatic cover/icon
+resolution, cloud-save status, achievement status,
 Steam build/tag metadata, and profile artwork. The bulk Steam update action
 uses one cached batch request per distinct AppID. Add Game cover
 search/download uses the same binding; its legacy banner workers remain only
@@ -114,6 +123,8 @@ time to first visible artwork, library refresh count/rate, and visible artwork
 updates/rate, allowing startup/render performance to be compared with the
 request counters without adding metrics logic to widgets. The request snapshot
 also reports current active requests and the configured worker bound.
+It separates foreground and background queue wait, which helps distinguish
+startup contention from background throughput.
 
 Private profile reconciliation is local-first. If the configured cloud backend
 is offline, unauthenticated, or temporarily fails, `CloudMetadataSync` records

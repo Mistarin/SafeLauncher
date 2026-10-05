@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea
 from database import GameRecord
 from core.library_controller import LibraryController, LibraryQuery
+from core.request_contracts import RequestPriority
 from ui.library_card_renderer import LibraryCardRenderer, LibraryCardActions
 from ui.library_navigation_controller import LibraryNavigationController, LibraryNavigationViews
 
@@ -113,3 +114,18 @@ class LibraryPresentationTests(unittest.TestCase):
         renderer.artwork.request_hero.assert_not_called()
         renderer.artwork.request_icon.assert_not_called()
         renderer.cache.get_icon_cached_path.assert_not_called()
+
+    def test_visible_artwork_is_requested_at_foreground_priority(self):
+        renderer = self.renderer(online=True)
+        games = [
+            (index, f"Game {index}", "", "", "umu", "", str(index), 0, 0,
+             0, "", "", "", "", 0, "", "", 0, "")
+            for index in range(1, 31)
+        ]
+        renderer.prefetch(games, visible_ids={3, 5})
+        auto_calls = renderer.artwork.request_auto.call_args_list
+        self.assertEqual([call.args[0] for call in auto_calls], [3, 5])
+        self.assertTrue(all(call.kwargs["priority"] == RequestPriority.NORMAL
+                            for call in auto_calls))
+        self.assertEqual(renderer.artwork.request_hero.call_count, 2)
+        self.assertEqual(renderer.artwork.request_icon.call_count, 2)

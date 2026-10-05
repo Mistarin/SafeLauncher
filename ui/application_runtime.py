@@ -6,6 +6,7 @@ construct a second graph. Caller-supplied databases remain caller-owned.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 
 from PyQt6.QtCore import QObject, QSettings
@@ -47,6 +48,12 @@ from core.steam_resource_service import SteamResourceService
 logger = get_logger("ApplicationRuntime")
 
 
+def recommended_request_workers(cpu_count: int | None = None) -> int:
+    """Pick a modest runtime worker bound without assuming network speed."""
+    count = int(cpu_count or os.cpu_count() or 1)
+    return min(6, max(4, count // 2))
+
+
 class ApplicationRuntime(QObject):
     """Own the shared service graph and its transport lifetime.
 
@@ -86,7 +93,8 @@ class ApplicationRuntime(QObject):
             self.library_service = LibraryService(db, self.library_state)
             self.game_lifecycle_service = GameLifecycleService(self.library_service)
             self.request_manager = RequestManager(
-                max_workers=3, cache=self.resource_cache, offline_check=self.network_unavailable,
+                max_workers=recommended_request_workers(),
+                cache=self.resource_cache, offline_check=self.network_unavailable,
             )
             self.achievement_resource_service = AchievementResourceService(self.request_manager)
             self.achievement_coordinator = LibraryAchievementCoordinator(self.achievement_resource_service)

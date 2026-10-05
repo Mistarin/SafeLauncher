@@ -1,0 +1,114 @@
+{
+  "General": {
+    "PowerInHorsePower": false,
+    "SpeedInMph": false,
+    "UnlockScenarioEras": false,
+    "PlaceAnywhere": false,
+    "NoPostureLimits": false,
+    "UnlimitedOperateDistance": false,
+    "HideContextControls": false,
+    "AestheticAppliqueArmour": false,
+    "ExperimentalFeatures": false,
+    "DiagnosticsEnabled": false,
+    "CustomGraphicHostWhitelist": [
+      "imgur.com",
+      "sprockettools.github.io",
+      "cdn.discordapp.com"
+    ]
+  },
+  "Graphics": {
+    "Preset": 0,
+    "VSyncCount": 0,
+    "AnisotropicFiltering": 1,
+    "ScreenMode": 1,
+    "Resolution": {
+      "width": 0,
+      "height": 0,
+      "refreshRate": 0.0
+    },
+    "AntialiasingMode": 3,
+    "AntiAliasingQuality": 2,
+    "QualityLevel": 2,
+    "Display": 0,
+    "ShadowDistance": 500.0,
+    "ShadowCascadeCount": 4,
+    "AmbientOcclusionIntensity": 2.0,
+    "VignetteIntensity": 0.35,
+    "VignetteSmoothness": 0.4,
+    "ChromaticAberrationIntensity": 0.05,
+    "BloomIntensity": 0.45,
+    "GammaAdjust": 0.0,
+    "BrightnessAdjust": 0.0,
+    "MaximumEffectsPerVehicle": 3,
+    "TerrainQualityLevel": 0,
+    "MicroShadows": true,
+    "TrackTrailEffects": false,
+    "DepthOfFieldEnabled": true,
+    "MotionBlurEnabled": true,
+    "ContactShadowsEnabled": true,
+    "FilmGrainEnabled": true,
+    "FPSCounter": false,
+    "ScreenSpaceReflections": false,
+    "DynamicResolutionMode": 0,
+    "DLSS": false,
+    "DlssQualityMode": 1,
+    "ShaderQualityLevel": 0
+  },
+  "Audio": {
+    "MasterVolume": 0.75,
+    "EffectsVolume": 0.5,
+    "UIVolume": 0.5,
+    "MusicVolume": 0.15,
+    "AmbientVolume": 0.35,
+    "Mix": {
+      "MasterVolume": 0.75,
+      "MusicVolume": 0.15,
+      "AmbianceVolume": 0.35,
+      "EffectsVolume": 0.5,
+      "UIVolume": 0.5
+    }
+  },
+  "Gameplay": {
+    "HoldScope": true,
+    "HoldAimLock": true,
+    "EnterScopeAtMinZoom": true,
+    "StaticCrosshair": false,
+    "PartDestroyRange": -1
+  },
+  "Camera": {
+    "HorizontalLookSensitivity": 0.5,
+    "HorizontalPanSensitivity": 0.4,
+    "VerticalLookSensitivity": 0.5,
+    "VerticalPanSensitivity": 0.4,
+    "VerticalLookSquashing": 0.75,
+    "ZoomSensitivity": 0.5,
+    "MaxPanDistanceOverride": -1.0,
+    "MinDistanceOverride": -1.0,
+    "MaxDistanceOverride": -1.0,
+    "ScopeHorizontalSensitivity": 0.5,
+    "ScopeVerticalSensitivity": 0.5,
+    "ScopeZoomSensitivity": 1.0,
+    "GameplayFOV": 65.0,
+    "DesignerFOV": 65.0,
+    "InvertY": false,
+    "ShakeAmplitude": 1.0,
+    "PhotomodeMoveSpeed": 1.0,
+    "PhotomodeMoveBoostMultiplier": 7.5,
+    "PhotomodeLookSensitivity": 1.0
+  },
+  "Display": {
+    "ScreenMode": 1,
+    "ResolutionX": 2560,
+    "ResolutionY": 1440,
+    "RefreshRateNumerator": 144,
+    "RefreshRateDenominator": 1,
+    "VSyncCount": 1,
+    "Display": 0,
+    "LimitFrameRate": false,
+    "TargetFrameRate": 60,
+    "FPSCounter": false
+  },
+  "Rebinds": {
+    "rebindMap": {}
+  }
+}

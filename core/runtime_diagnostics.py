@@ -40,8 +40,15 @@ _METRIC_KEYS = frozenset({
     "workers_peak",
     "workers_current",
     "workers_configured",
+    "background_workers_limit",
     "duration_seconds_total",
     "duration_seconds_max",
+    "queue_wait_seconds_total",
+    "queue_wait_seconds_max",
+    "foreground_queue_wait_seconds_total",
+    "foreground_queue_wait_seconds_max",
+    "background_queue_wait_seconds_total",
+    "background_queue_wait_seconds_max",
 })
 
 

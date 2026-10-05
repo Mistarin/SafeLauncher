@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <!-- graphic options -->
+  <fullscreen>true</fullscreen>
+  <borderless>false</borderless>
+  <antialiasing>temporal</antialiasing>
+  <upmode>none</upmode>
+  <fsr3g>off</fsr3g>
+  <presentmode>immediate</presentmode>
+  <colorcorrection>0</colorcorrection>
+  <gamma>1.00</gamma>
+  <fov>1.0000</fov>
+  <capturehq>false</capturehq>
+  <frameratelimit>true</frameratelimit>
+  <frameratetarget>120</frameratetarget>
+  <!-- displayed gfx quality: 0 = custom, 1 = low, 2 = medium, 3 = high (default, use preset below), 4 = ultra -->
+  <gfxquality>3</gfxquality>
+  <!-- high gfx preset -->
+  <shaderquality>2</shaderquality>
+  <shadows>2</shadows>
+  <softshadows>true</softshadows>
+  <ssao>2</ssao>
+  <glow>3</glow>
+  <uiglow>3</uiglow>
+  <uiglowintensity>0.75</uiglowintensity>
+  <lodfactor>0.70</lodfactor>
+  <effectdistance>0.70</effectdistance>
+  <distortion>true</distortion>
+  <disableradar>false</disableradar>
+  <radarquality>1</radarquality>
+  <ssr>true</ssr>
+  <ssrquality>low</ssrquality>
+  <texturequality>high</texturequality>
+  <chromaticaberration>true</chromaticaberration>
+  <volumetric>2</volumetric>
+  <pom>high</pom>
+  <envmapprobes>high</envmapprobes>
+  <envmapinsideglassfactor>1.0</envmapinsideglassfactor>
+  <!-- sound options -->
+  <nosound>false</nosound>
+  <volumetotal>1.00</volumetotal>
+  <volumemusic>0.75</volumemusic>
+  <volumevoice>1.00</volumevoice>
+  <volumeambient>1.00</volumeambient>
+  <volumeui>1.00</volumeui>
+  <volumeeffects>1.00</volumeeffects>
+  <!-- game options -->
+  <subtitles>true</subtitles>
+  <autosave>true</autosave>
+  <autoroll>true</autoroll>
+  <toggleboost2>false</toggleboost2>
+  <togglemouselook>false</togglemouselook>
+  <rumbleintensity>1.00</rumbleintensity>
+  <aimassist>1</aimassist>
+  <collisionassist>true</collisionassist>
+  <controlmodemessages>true</controlmodemessages>
+  <radarmode>0</radarmode>
+  <stopshipinmenu>true</stopshipinmenu>
+  <forceshootatcursor>false</forceshootatcursor>
+  <fpusecameraforward>false</fpusecameraforward>
+  <separateRadar>true</separateRadar>
+  <speaktargetname>true</speaktargetname>
+  <autosaveintervalfactor>0.25</autosaveintervalfactor>
+  <emergencyeject>true</emergencyeject>
+  <mouseovertext>true</mouseovertext>
+  <cockpitcamerascale>1.00</cockpitcamerascale>
+  <hudscale>all</hudscale>
+  <inputfeedback>text</inputfeedback>
+  <autozoomreset>true</autozoomreset>
+  <orderqueue>clear</orderqueue>
+  <!-- input options -->
+  <confinemouse>false</confinemouse>
+  <gamepadmode>2</gamepadmode>
+  <improvedcontrollermode>0</improvedcontrollermode>
+  <persistentmousesteering>false</persistentmousesteering>
+  <mousesteeringline>true</mousesteeringline>
+  <tobiimode>combined</tobiimode>
+  <tobiianglefactor>1.00</tobiianglefactor>
+  <tobiigazeanglefactor>0.40</tobiigazeanglefactor>
+  <tobiipositionfactor>1.00</tobiipositionfactor>
+  <tobiideadzoneangle>0.00</tobiideadzoneangle>
+  <tobiideadzoneposition>0.00</tobiideadzoneposition>
+  <tobiigazedeadzone>0.10</tobiigazedeadzone>
+  <tobiifilterstrength>5</tobiifilterstrength>
+  <tobiigazefilterstrength>30</tobiigazefilterstrength>
+  <!-- online options -->
+  <showvisitornames>false</showvisitornames>
+  <highlightvisitors>true</highlightvisitors>
+  <!-- privacy options -->
+  <sendcrashreports>true</sendcrashreports>
+  <!-- accessibility options -->
+  <showsignalleakviz>true</showsignalleakviz>
+  <showlongrangescanviz>true</showlongrangescanviz>
+  <globallightscale>1.0</globallightscale>
+  <gamespeed>0.5</gamespeed>
+  <stardustintensity>1.00</stardustintensity>
+  <!-- config patching version -->
+  <configversion>4</configversion>
+  <!-- modified settings -->
+  <chardensity>0.50</chardensity>
+  <trafficdensity>0.50</trafficdensity>
+</root>

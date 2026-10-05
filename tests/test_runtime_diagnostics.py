@@ -18,6 +18,8 @@ class RuntimeDiagnosticsTests(unittest.TestCase):
             request_metrics={
                 "submitted": 4,
                 "workers_peak": 3,
+                "foreground_queue_wait_seconds_max": 1.25,
+                "background_workers_limit": 2,
                 "secret": "do-not-export",
                 "resource_value": "/home/user/private/game",
             },
@@ -35,6 +37,8 @@ class RuntimeDiagnosticsTests(unittest.TestCase):
         self.assertEqual(report["network"]["offline"], True)
         self.assertEqual(report["requests"]["submitted"], 4)
         self.assertEqual(report["requests"]["workers_peak"], 3)
+        self.assertEqual(report["requests"]["foreground_queue_wait_seconds_max"], 1.25)
+        self.assertEqual(report["requests"]["background_workers_limit"], 2)
         self.assertEqual(report["requests"]["cache_hits"], 2)
         self.assertEqual(report["requests"]["errors"], 1)
         self.assertNotIn("do-not-export", encoded)
