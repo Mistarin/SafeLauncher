@@ -1386,6 +1386,13 @@ class ProfilePageTests(unittest.TestCase):
             self.assertIs(header.findChild(QPushButton, "windowMinimize"), header.btn_min)
             self.assertIs(header.findChild(QPushButton, "windowMaximize"), header.btn_max)
             self.assertIs(header.findChild(QPushButton, "windowClose"), header.btn_close)
+            self.assertTrue(header.lbl_controller_status.isHidden())
+            header.set_controller_status(1)
+            self.assertFalse(header.lbl_controller_status.isHidden())
+            self.assertFalse(header.lbl_controller_status.pixmap().isNull())
+            self.assertIn("1 game controller connected", header.lbl_controller_status.toolTip())
+            header.set_controller_status(0)
+            self.assertTrue(header.lbl_controller_status.isHidden())
         finally:
             header.deleteLater()
             window.deleteLater()

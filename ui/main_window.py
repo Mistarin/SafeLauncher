@@ -136,6 +136,7 @@ from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
 from core.operation_registry import OperationRegistry
 from core.secret_store import get_secret
 from core.network_policy import automatic_network_allowed, is_offline_mode, set_offline_mode
+from core.game_controller_monitor import GameControllerMonitor
 from ui.dialogs.network_dialog import NetworkUnavailableDialog
 from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
@@ -606,6 +607,11 @@ class MainWindow(QMainWindow):
         # Top Custom Draggable Title Bar with Tools Dropdown and Search Bar
         self.title_bar = CustomTitleBar(self)
         root_vbox.addWidget(self.title_bar)
+        self.game_controller_monitor = GameControllerMonitor(parent=self)
+        self.game_controller_monitor.controller_count_changed.connect(
+            self.title_bar.set_controller_status
+        )
+        self.game_controller_monitor.start()
         self.title_bar.search_changed.connect(self._on_search_query_changed)
         self.title_bar.filter_requested.connect(self._set_filter)
         self.title_bar.profile_requested.connect(self._open_achievement_profile)
@@ -6161,6 +6167,8 @@ class MainWindow(QMainWindow):
 
     def _finish_shutdown(self):
         self._close_shutdown_progress()
+        if hasattr(self, "game_controller_monitor"):
+            self.game_controller_monitor.stop()
         if getattr(self, "_cloud_connection_timer", None) is not None:
             self._cloud_connection_timer.stop()
         self._close_cloud_connection_probe_binding()

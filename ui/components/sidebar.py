@@ -698,6 +698,14 @@ class HeaderBar(QFrame):
         self.btn_cloud_center.clicked.connect(self.cloud_center_requested.emit)
         layout.addWidget(self.btn_cloud_center)
 
+        self.lbl_controller_status = QLabel(self)
+        self.lbl_controller_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_controller_status.setFixedSize(24, 30)
+        self.lbl_controller_status.setVisible(False)
+        self.lbl_controller_status.setAccessibleName("Game controller status")
+        self.lbl_controller_status.setStyleSheet("background: transparent; border: none;")
+        layout.addWidget(self.lbl_controller_status)
+
         # One atomic identity control sits immediately beside the native window
         # controls. Keeping the avatar, display name, and menu on the same
         # button avoids the old dead-label/active-icon split hit target.
@@ -788,6 +796,25 @@ class HeaderBar(QFrame):
                 "setup_required": "Cloud setup required · open Cloud Center",
                 "local": "Local sync active · open Cloud Center",
             }.get(connection, "Cloud status unavailable · open Cloud Center")
+        )
+
+    def set_controller_status(self, controller_count: int) -> None:
+        """Show a passive gamepad icon only while controllers are connected."""
+        count = max(0, int(controller_count))
+        self.lbl_controller_status.setVisible(count > 0)
+        if count <= 0:
+            self.lbl_controller_status.clear()
+            self.lbl_controller_status.setToolTip("")
+            return
+        self.lbl_controller_status.setPixmap(
+            get_icon("ph.game-controller-bold", color="#35C98A").pixmap(QSize(18, 18))
+        )
+        noun = "controller" if count == 1 else "controllers"
+        self.lbl_controller_status.setToolTip(
+            f"{count} game {noun} connected · status indicator only; app navigation is not gamepad-enabled"
+        )
+        self.lbl_controller_status.setAccessibleName(
+            f"{count} game {noun} connected; status indicator only"
         )
 
 
