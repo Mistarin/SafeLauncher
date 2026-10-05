@@ -3608,15 +3608,16 @@ class MainWindow(QMainWindow):
                         icon_type="replay",
                         enabled=self.gpu_recorder_config.in_game_overlay,
                         play_sound=True,
+                        target_screen=self.gpu_recorder_config.target_screen,
                     )
                 else:
                     self._show_toast("Failed to start replay buffer.", is_error=True)
-                    show_ingame_notification("Replay Buffer Failed", "Could not start recorder", icon_type="warning", enabled=self.gpu_recorder_config.in_game_overlay)
+                    show_ingame_notification("Replay Buffer Failed", "Could not start recorder", icon_type="warning", enabled=self.gpu_recorder_config.in_game_overlay, target_screen=self.gpu_recorder_config.target_screen)
             else:
                 # Buffer is running — save a clip
                 if rec_svc.save_replay_clip():
                     self._show_toast("Saved replay clip to videos folder.")
-                    show_ingame_notification("Replay Clip Saved", "Clip written to Videos", icon_type="replay", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True)
+                    show_ingame_notification("Replay Clip Saved", "Clip written to Videos", icon_type="replay", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True, target_screen=self.gpu_recorder_config.target_screen)
                 else:
                     self._show_toast("Failed to save replay clip.", is_error=True)
         else:
@@ -3625,7 +3626,7 @@ class MainWindow(QMainWindow):
                 self._set_detail_record_label(" Record Video", "ph.video-camera-bold")
                 fn = os.path.basename(saved_path) if saved_path else "video.mp4"
                 self._show_toast(f"Recording saved: {fn}")
-                show_ingame_notification("Recording Saved", fn, icon_type="info", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True)
+                show_ingame_notification("Recording Saved", fn, icon_type="info", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True, target_screen=self.gpu_recorder_config.target_screen)
             else:
                 if rec_svc.start_recording(game_name, is_replay=False):
                     self._set_detail_record_label(" Stop Recording")
@@ -3636,10 +3637,11 @@ class MainWindow(QMainWindow):
                         icon_type="recording",
                         enabled=self.gpu_recorder_config.in_game_overlay,
                         play_sound=True,
+                        target_screen=self.gpu_recorder_config.target_screen,
                     )
                 else:
                     self._show_toast("Failed to start recording.", is_error=True)
-                    show_ingame_notification("Recording Failed", "Check GPU recorder in Settings", icon_type="warning", enabled=self.gpu_recorder_config.in_game_overlay)
+                    show_ingame_notification("Recording Failed", "Check GPU recorder in Settings", icon_type="warning", enabled=self.gpu_recorder_config.in_game_overlay, target_screen=self.gpu_recorder_config.target_screen)
 
     def _trigger_replay_save(self):
         """Dedicated action to capture instant replay clip."""
@@ -3662,13 +3664,14 @@ class MainWindow(QMainWindow):
                     icon_type="replay",
                     enabled=self.gpu_recorder_config.in_game_overlay,
                     play_sound=True,
+                    target_screen=self.gpu_recorder_config.target_screen,
                 )
             else:
                 self._show_toast("Failed to start replay buffer.", is_error=True)
         else:
             if rec_svc.save_replay_clip():
                 self._show_toast("Saved replay clip to videos folder.")
-                show_ingame_notification("Replay Clip Saved", "Clip written to Videos", icon_type="replay", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True)
+                show_ingame_notification("Replay Clip Saved", "Clip written to Videos", icon_type="replay", enabled=self.gpu_recorder_config.in_game_overlay, play_sound=True, target_screen=self.gpu_recorder_config.target_screen)
             else:
                 self._show_toast("Failed to save replay clip.", is_error=True)
 

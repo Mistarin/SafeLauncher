@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QHBoxLayout, QVBoxLayout, QFrame, QGraphicsOpacityEffect,
     QApplication, QSizePolicy
@@ -58,6 +58,11 @@ class AchievementToast(QWidget):
         self.description = description
         self.icon_path = icon_path
         self.duration_ms = duration_ms
+        self._anchor_parent = None
+        self._watched_screen = None
+        self._screen_connections = []
+        self._window_screen_signal = None
+        self._detached = False
 
         self._build_ui()
 
@@ -125,6 +130,7 @@ class AchievementToast(QWidget):
         title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         title_lbl.setToolTip(self.display_name)
         text_layout.addWidget(title_lbl)
+        self.title_label = title_lbl
 
         if self.description:
             desc_lbl = QLabel(self.description)
@@ -135,6 +141,9 @@ class AchievementToast(QWidget):
             desc_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             desc_lbl.setToolTip(self.description)
             text_layout.addWidget(desc_lbl)
+            self.description_label = desc_lbl
+        else:
+            self.description_label = None
 
         card_layout.addLayout(text_layout)
         root_layout.addWidget(self.card)
@@ -143,20 +152,17 @@ class AchievementToast(QWidget):
 
     def show_animated(self, parent_widget: Optional[QWidget] = None):
         """Position toast in top-right or screen corner and show with fade-in."""
-        if parent_widget:
-            p_geo = parent_widget.geometry()
-            target_x = p_geo.x() + p_geo.width() - self.width() - 20
-            target_y = p_geo.y() + 40
-        else:
-            screen = QApplication.primaryScreen()
-            if screen:
-                s_geo = screen.availableGeometry()
-                target_x = s_geo.x() + s_geo.width() - self.width() - 24
-                target_y = s_geo.y() + 48
-            else:
-                target_x, target_y = 100, 100
-
-        self.move(target_x, target_y)
+        self._anchor_parent = parent_widget or self.parentWidget()
+        if self._anchor_parent is not None:
+            self._anchor_parent.installEventFilter(self)
+            toasts = [
+                toast for toast in getattr(self._anchor_parent, "_safelauncher_achievement_toasts", [])
+                if toast is not self and not toast._detached
+            ]
+            while len(toasts) >= 3:
+                toasts.pop(0).close()
+            toasts.append(self)
+            self._anchor_parent._safelauncher_achievement_toasts = toasts
 
         # Fade in opacity animation
         self.opacity_effect = QGraphicsOpacityEffect(self)
@@ -169,10 +175,152 @@ class AchievementToast(QWidget):
         self.fade_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         self.show()
+        self._watch_anchor_screen()
+        self._relayout_toasts()
         self.fade_anim.start()
 
         # Auto-dismiss timer
         QTimer.singleShot(self.duration_ms, self._fade_out)
+
+    def _watch_anchor_screen(self):
+        parent = self._anchor_parent
+        window = parent.windowHandle() if parent is not None else None
+        if window is not None:
+            try:
+                window.screenChanged.connect(self._on_parent_screen_changed)
+                self._window_screen_signal = window.screenChanged
+            except (TypeError, RuntimeError):
+                pass
+        self._on_parent_screen_changed(self._screen_for_anchor())
+
+    def _screen_for_anchor(self):
+        parent = self._anchor_parent
+        if parent is not None:
+            try:
+                window = parent.windowHandle()
+                if window is not None and window.screen() is not None:
+                    return window.screen()
+                if parent.screen() is not None:
+                    return parent.screen()
+            except RuntimeError:
+                pass
+        return QApplication.primaryScreen()
+
+    def _on_parent_screen_changed(self, screen=None):
+        for signal, slot in self._screen_connections:
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._screen_connections.clear()
+        if self._window_screen_signal is not None:
+            try:
+                self._window_screen_signal.disconnect(self._on_parent_screen_changed)
+            except (TypeError, RuntimeError):
+                pass
+            self._window_screen_signal = None
+        self._watched_screen = screen or self._screen_for_anchor()
+        if self._watched_screen is not None:
+            for signal in (
+                self._watched_screen.geometryChanged,
+                self._watched_screen.availableGeometryChanged,
+                self._watched_screen.logicalDotsPerInchChanged,
+            ):
+                try:
+                    signal.connect(self._on_screen_geometry_changed)
+                    self._screen_connections.append((signal, self._on_screen_geometry_changed))
+                except (TypeError, RuntimeError):
+                    pass
+        self._relayout_toasts()
+
+    def _on_screen_geometry_changed(self, *_args):
+        self._relayout_toasts()
+
+    def _relayout_toasts(self):
+        if self._detached:
+            return
+        parent = self._anchor_parent
+        screen = self._watched_screen or self._screen_for_anchor()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        if parent is not None:
+            try:
+                anchor = parent.frameGeometry().intersected(available)
+                if anchor.isEmpty():
+                    anchor = available
+            except RuntimeError:
+                anchor = available
+        else:
+            anchor = available
+        margin, gap = 18, 10
+        max_width = max(180, min(440, anchor.width() - 2 * margin))
+        toasts = [
+            toast for toast in getattr(parent, "_safelauncher_achievement_toasts", [self])
+            if not toast._detached
+        ] if parent is not None else [self]
+        bottom = anchor.y() + 48
+        for toast in toasts:
+            toast._set_layout_width(max_width)
+            x = anchor.x() + anchor.width() - toast.width() - margin
+            y = bottom
+            toast.move(
+                max(available.left() + margin, min(x, available.right() - toast.width() - margin + 1)),
+                max(available.top() + margin, min(y, available.bottom() - toast.height() - margin + 1)),
+            )
+            bottom = toast.y() + toast.height() + gap
+
+    def _set_layout_width(self, max_width: int):
+        self.setMaximumWidth(max_width)
+        text_width = max(80, max_width - 10 - 10 - 28 - 48 - 12 - 12)
+        self.title_label.setMaximumWidth(text_width)
+        if self.description_label is not None:
+            self.description_label.setMaximumWidth(text_width)
+        self.adjustSize()
+
+    def eventFilter(self, watched, event):
+        if watched is self._anchor_parent and event.type() in {
+            QEvent.Type.Resize,
+            QEvent.Type.Move,
+        }:
+            self._relayout_toasts()
+        return super().eventFilter(watched, event)
+
+    def _detach(self):
+        if self._detached:
+            return
+        self._detached = True
+        parent = self._anchor_parent
+        if parent is not None:
+            try:
+                parent.removeEventFilter(self)
+                parent._safelauncher_achievement_toasts = [
+                    toast for toast in getattr(parent, "_safelauncher_achievement_toasts", [])
+                    if toast is not self and not toast._detached
+                ]
+            except RuntimeError:
+                pass
+        for signal, slot in self._screen_connections:
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._screen_connections.clear()
+        if parent is not None:
+            QTimer.singleShot(0, lambda parent=parent: self._relayout_parent(parent))
+
+    @staticmethod
+    def _relayout_parent(parent):
+        try:
+            toasts = getattr(parent, "_safelauncher_achievement_toasts", [])
+            if toasts:
+                toasts[0]._relayout_toasts()
+        except (RuntimeError, AttributeError):
+            pass
+
+    def closeEvent(self, event):
+        self._detach()
+        super().closeEvent(event)
 
     def _fade_out(self):
         if not self.isVisible():

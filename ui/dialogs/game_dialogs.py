@@ -2160,25 +2160,133 @@ class ToastNotification(QFrame):
         layout.addWidget(icon_label)
         
         text_label = QLabel(message)
+        text_label.setWordWrap(True)
+        text_label.setMinimumWidth(0)
+        text_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout.addWidget(text_label)
+        self.text_label = text_label
         
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self._auto_close)
         self.duration_ms = duration_ms
+        self._layout_parent = None
+        self._detached = False
+        self._window_screen_signal = None
+        self._screen_signals = []
 
     def show_toast(self, parent_widget: QWidget):
-        self.adjustSize()
-        px = parent_widget.width() - self.width() - 25
-        py = parent_widget.height() - self.height() - 25
-        self.move(max(10, px), max(10, py))
+        self._layout_parent = parent_widget
+        self._detached = False
+        parent_widget.installEventFilter(self)
+        toasts = list(getattr(parent_widget, "_safelauncher_toasts", []))
+        toasts = [toast for toast in toasts if toast is not self and toast.isVisible()]
+        while len(toasts) >= 3:
+            toasts.pop(0).close()
+        toasts.append(self)
+        parent_widget._safelauncher_toasts = toasts
+        window = parent_widget.windowHandle()
+        if window is not None and self._window_screen_signal is None:
+            self._window_screen_signal = window.screenChanged
+            try:
+                self._window_screen_signal.connect(self._on_parent_screen_changed)
+            except (TypeError, RuntimeError):
+                self._window_screen_signal = None
+        self._watch_parent_screen()
+        self._relayout_toasts(parent_widget)
         self.raise_()
         self.show()
         self.timer.start(self.duration_ms)
 
+    @classmethod
+    def _relayout_toasts(cls, parent_widget: QWidget):
+        toasts = [
+            toast for toast in getattr(parent_widget, "_safelauncher_toasts", [])
+            if toast is not None and not toast._detached
+        ]
+        parent_widget._safelauncher_toasts = toasts
+        margin, gap, max_width = 18, 10, min(420, max(180, parent_widget.width() - 2 * 18))
+        bottom = max(margin, parent_widget.height() - margin)
+        for toast in reversed(toasts):
+            toast.setMaximumWidth(max_width)
+            text_width = max(80, max_width - 14 - 14 - 16 - 8)
+            toast.text_label.setMaximumWidth(text_width)
+            toast.adjustSize()
+            y = max(margin, bottom - toast.height())
+            toast.move(max(margin, parent_widget.width() - toast.width() - margin), y)
+            bottom = y - gap
+
+    def _detach_from_stack(self):
+        if self._detached:
+            return
+        self._detached = True
+        parent_widget = self._layout_parent
+        if parent_widget is None:
+            return
+        try:
+            parent_widget.removeEventFilter(self)
+            parent_widget._safelauncher_toasts = [
+                toast for toast in getattr(parent_widget, "_safelauncher_toasts", [])
+                if toast is not self and not toast._detached
+            ]
+            self._relayout_toasts(parent_widget)
+        except RuntimeError:
+            pass
+        for signal, slot in self._screen_signals:
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._screen_signals.clear()
+        if self._window_screen_signal is not None:
+            try:
+                self._window_screen_signal.disconnect(self._on_parent_screen_changed)
+            except (TypeError, RuntimeError):
+                pass
+            self._window_screen_signal = None
+
+    def _watch_parent_screen(self):
+        parent = self._layout_parent
+        try:
+            window = parent.windowHandle() if parent is not None else None
+            screen = window.screen() if window is not None else None
+        except RuntimeError:
+            screen = None
+        for signal, slot in self._screen_signals:
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._screen_signals.clear()
+        if screen is not None:
+            for signal in (screen.availableGeometryChanged, screen.logicalDotsPerInchChanged):
+                try:
+                    signal.connect(self._on_parent_screen_changed)
+                    self._screen_signals.append((signal, self._on_parent_screen_changed))
+                except (TypeError, RuntimeError):
+                    pass
+
+    def _on_parent_screen_changed(self, *_args):
+        if self._layout_parent is not None:
+            self._watch_parent_screen()
+            self._relayout_toasts(self._layout_parent)
+
+    def eventFilter(self, watched, event):
+        if watched is self._layout_parent and event.type() in {
+            QEvent.Type.Resize,
+        }:
+            self._relayout_toasts(self._layout_parent)
+        return super().eventFilter(watched, event)
+
     def _auto_close(self):
         self.hide()
+        self._detach_from_stack()
         self.deleteLater()
+
+    def closeEvent(self, event):
+        self.timer.stop()
+        self._detach_from_stack()
+        super().closeEvent(event)
 
 
 class CustomRemoveDialog(PopupDialog):
