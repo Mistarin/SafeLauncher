@@ -10,6 +10,7 @@ listener.
 from __future__ import annotations
 
 import queue
+import heapq
 import random
 import threading
 import time
@@ -45,8 +46,11 @@ class RequestHandle:
     generation: int
     future: Future
     _cancel: Callable[[], bool]
+    _cancel_with_reason: Callable[[str], bool] | None = None
 
-    def cancel(self) -> bool:
+    def cancel(self, reason: str = "caller") -> bool:
+        if self._cancel_with_reason is not None:
+            return self._cancel_with_reason(reason)
         return self._cancel()
 
 
@@ -60,6 +64,7 @@ class _RequestRecord:
     queued_at: float
     queued: bool = True
     started_at: float = 0.0
+    cancellation_reason: str = "caller"
 
 
 @dataclass
@@ -87,10 +92,25 @@ class RequestManager:
         cache: ResourceCache | None = None,
         sleep: Callable[[float], None] = time.sleep,
         random_value: Callable[[], float] = random.random,
+        service_limits: dict[str, int] | None = None,
     ) -> None:
         if max_workers < 1:
             raise ValueError("max_workers must be at least 1")
         self.max_workers = int(max_workers)
+        self._service_limits = {
+            "artwork": min(3, self.max_workers),
+            "steam": min(3, self.max_workers),
+            "cloud": min(2, self.max_workers),
+            "profile": min(2, self.max_workers),
+            "achievements": min(2, self.max_workers),
+        }
+        if service_limits is not None:
+            for name, limit in service_limits.items():
+                service_name = str(name).strip().lower()
+                if not service_name or int(limit) < 1:
+                    raise ValueError("service limits require a name and positive limit")
+                self._service_limits[service_name] = min(self.max_workers, int(limit))
+        self._service_active: dict[str, int] = {}
         self._offline_check = offline_check or (lambda: False)
         self.cache = cache
         self._sleep = sleep
@@ -114,6 +134,12 @@ class RequestManager:
             "errors": 0,
             "retries": 0,
             "cancelled": 0,
+            "cancelled_caller": 0,
+            "cancelled_consumer_detached": 0,
+            "cancelled_superseded": 0,
+            "cancelled_invalidated": 0,
+            "cancelled_shutdown": 0,
+            "cancelled_policy": 0,
             "offline": 0,
             "invalidated": 0,
             "cache_hits": 0,
@@ -134,6 +160,8 @@ class RequestManager:
             "workers_configured": self.max_workers,
             "background_workers_limit": self._background_workers_limit,
         }
+        for service_name, limit in self._service_limits.items():
+            self._metrics[f"service_limit_{service_name}"] = limit
         self._sequence = 0
         self._workers_active = 0
         self._closed = False
@@ -160,7 +188,7 @@ class RequestManager:
                 if spec.generation <= current.spec.generation:
                     self._metrics["deduplicated"] += 1
                     return self._handle_for(current)
-                current.token.cancel()
+                self._cancel_record_locked(current, "superseded")
 
             # Generation zero is the convenience API's implicit generation.
             # After invalidate(), the manager has advanced the tombstone so a
@@ -630,7 +658,7 @@ class RequestManager:
                 self._metrics["invalidated"] += 1
             cache = self._cache_by_key.pop(key, None)
             if record is not None:
-                record.token.cancel()
+                self._cancel_record_locked(record, "invalidated")
                 # Remove the cancelled record immediately. Its worker may
                 # still be unwinding, but the next request must be allowed to
                 # start and its older completion will be suppressed by the
@@ -676,6 +704,9 @@ class RequestManager:
             snapshot = dict(self._metrics)
             snapshot["active_current"] = len(self._active)
             snapshot["workers_current"] = self._workers_active
+            for service_name, limit in self._service_limits.items():
+                snapshot[f"service_active_{service_name}"] = self._service_active.get(service_name, 0)
+                snapshot[f"service_limit_{service_name}"] = limit
         cache_lookups = (
             snapshot.get("cache_hits", 0)
             + snapshot.get("cache_stale", 0)
@@ -910,14 +941,14 @@ class RequestManager:
 
         return unsubscribe
 
-    def cancel(self, key: RequestKey, generation: int | None = None) -> bool:
+    def cancel(self, key: RequestKey, generation: int | None = None, *, reason: str = "caller") -> bool:
         projection = None
         with self._condition:
             record = self._active.get(key)
             if record is not None:
                 if generation is not None and record.spec.generation != generation:
                     return False
-                record.token.cancel()
+                self._cancel_record_locked(record, reason)
                 return True
             projection = self._projections.get(key)
             if projection is None or (
@@ -932,6 +963,7 @@ class RequestManager:
         *,
         request_id: str | None = None,
         generation: int | None = None,
+        reason: str = "consumer_detached",
     ) -> bool:
         """Cancel work only when no listeners still need the request.
 
@@ -948,7 +980,7 @@ class RequestManager:
                     return False
                 if generation is not None and record.spec.generation != generation:
                     return False
-                record.token.cancel()
+                self._cancel_record_locked(record, reason)
                 return True
             projection = self._projections.get(key)
             if projection is None:
@@ -959,7 +991,9 @@ class RequestManager:
                 return False
         return self._cancel_projection(projection, require_unsubscribed=True)
 
-    def cancel_matching(self, predicate: Callable[[RequestSpec], bool]) -> int:
+    def cancel_matching(
+        self, predicate: Callable[[RequestSpec], bool], *, reason: str = "caller"
+    ) -> int:
         """Cooperatively cancel active requests whose specs match ``predicate``."""
         if not callable(predicate):
             raise TypeError("predicate must be callable")
@@ -972,7 +1006,7 @@ class RequestManager:
                     logger.exception("Request cancellation predicate failed")
                     continue
                 if matches and not record.token.cancelled:
-                    record.token.cancel()
+                    self._cancel_record_locked(record, reason)
                     cancelled += 1
             if cancelled:
                 self._condition.notify_all()
@@ -985,7 +1019,7 @@ class RequestManager:
                 return
             self._closed = True
             for record in self._active.values():
-                record.token.cancel()
+                self._cancel_record_locked(record, "shutdown")
             self._condition.notify_all()
         if wait:
             for worker in self._workers:
@@ -998,15 +1032,63 @@ class RequestManager:
             generation=record.spec.generation,
             future=record.future,
             _cancel=lambda record=record: self._cancel_record(record),
+            _cancel_with_reason=lambda reason, record=record: self._cancel_record(record, reason),
         )
 
-    def _cancel_record(self, record: _RequestRecord) -> bool:
+    def _cancel_record(self, record: _RequestRecord, reason: str = "caller") -> bool:
         with self._condition:
             current = self._active.get(record.spec.key)
             if current is not record:
                 return False
-            record.token.cancel()
+            self._cancel_record_locked(record, reason)
             return True
+
+    @staticmethod
+    def _normalize_cancel_reason(reason: str) -> str:
+        allowed = {"caller", "consumer_detached", "superseded", "invalidated", "shutdown", "policy"}
+        value = str(reason or "caller").strip().lower()
+        return value if value in allowed else "caller"
+
+    def _cancel_record_locked(self, record: _RequestRecord, reason: str) -> None:
+        record.cancellation_reason = self._normalize_cancel_reason(reason)
+        record.token.cancel()
+
+    def _service_for(self, record: _RequestRecord) -> str:
+        declared = str(record.spec.metadata.get("service", "") or "").strip().lower()
+        if declared in self._service_limits:
+            return declared
+        resource = record.spec.key.resource.lower()
+        if resource.startswith("artwork-"):
+            return "artwork"
+        if resource.startswith("steam-"):
+            return "steam"
+        if resource.startswith("cloud-"):
+            return "cloud"
+        if resource.startswith("profile-"):
+            return "profile"
+        if resource.startswith("achievement-"):
+            return "achievements"
+        return ""
+
+    def _take_eligible(self, work_queue):
+        """Take the highest-priority request whose service has free capacity."""
+        with work_queue.mutex:
+            eligible = []
+            for index, (_priority, _sequence, record) in enumerate(work_queue.queue):
+                service = self._service_for(record)
+                limit = self._service_limits.get(service, self.max_workers)
+                if not service or self._service_active.get(service, 0) < limit:
+                    eligible.append((work_queue.queue[index], index))
+            if not eligible:
+                return None
+            _item, selected_index = min(eligible, key=lambda pair: pair[0][:2])
+            item = work_queue.queue[selected_index]
+            tail = work_queue.queue.pop()
+            if selected_index < len(work_queue.queue):
+                work_queue.queue[selected_index] = tail
+                heapq.heapify(work_queue.queue)
+            work_queue.not_full.notify()
+            return item[2]
 
     def _worker_loop(self) -> None:
         while True:
@@ -1014,21 +1096,22 @@ class RequestManager:
             lane = "foreground"
             with self._condition:
                 while record is None:
-                    try:
-                        _priority, _sequence, record = self._foreground_queue.get_nowait()
+                    record = self._take_eligible(self._foreground_queue)
+                    if record is not None:
                         lane = "foreground"
-                    except queue.Empty:
+                    else:
                         if (
                             self._background_workers_active < self._background_workers_limit
                             or self._closed
                         ):
-                            try:
-                                _priority, _sequence, record = self._background_queue.get_nowait()
+                            record = self._take_eligible(self._background_queue)
+                            if record is not None:
                                 lane = "background"
                                 self._background_workers_active += 1
-                            except queue.Empty:
-                                pass
                     if record is not None:
+                        service = self._service_for(record)
+                        if service:
+                            self._service_active[service] = self._service_active.get(service, 0) + 1
                         break
                     if self._closed:
                         return
@@ -1045,6 +1128,11 @@ class RequestManager:
                     self._workers_active = max(0, self._workers_active - 1)
                     if lane == "background":
                         self._background_workers_active = max(0, self._background_workers_active - 1)
+                    service = self._service_for(record)
+                    if service:
+                        self._service_active[service] = max(
+                            0, self._service_active.get(service, 0) - 1
+                        )
                     self._condition.notify_all()
                 (self._background_queue if lane == "background" else self._foreground_queue).task_done()
 
@@ -1178,6 +1266,9 @@ class RequestManager:
             self._increment_metric("errors")
         elif result.status == ResourceStatus.CANCELLED:
             self._increment_metric("cancelled")
+            self._increment_metric(
+                f"cancelled_{self._normalize_cancel_reason(record.cancellation_reason)}"
+            )
         with self._condition:
             current = self._active.get(record.spec.key)
             last_generation = self._last_generation.get(record.spec.key, -1)

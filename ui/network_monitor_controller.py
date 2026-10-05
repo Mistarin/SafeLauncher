@@ -118,7 +118,8 @@ class NetworkMonitorController(QObject):
         self.transient_unavailable = not reachable
         if not reachable:
             self.request_manager.cancel_matching(
-                lambda spec: not bool(spec.metadata.get("allow_offline", False))
+                lambda spec: not bool(spec.metadata.get("allow_offline", False)),
+                reason="policy",
             )
         self.result_ready.emit({
             "reachable": reachable,

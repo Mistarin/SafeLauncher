@@ -6029,7 +6029,7 @@ class MainWindow(QMainWindow):
                 logger.exception("Could not stop global hotkeys")
 
     def _cancel_shutdown_work(self):
-        self.request_manager.cancel_matching(lambda _spec: True)
+        self.request_manager.cancel_matching(lambda _spec: True, reason="shutdown")
         self.artwork_controller.cancel_compatibility_fetches()
         for tracker in list(self.game_session_controller.trackers):
             if tracker.process:

@@ -101,6 +101,47 @@ class RequestManagerTests(unittest.TestCase):
             background_release.set()
             manager.shutdown()
 
+    def test_per_service_limit_does_not_block_other_services(self):
+        manager = RequestManager(max_workers=3, service_limits={"steam": 1})
+        started_steam = threading.Event()
+        started_other = threading.Event()
+        release = threading.Event()
+        active_steam = 0
+        peak_steam = 0
+        lock = threading.Lock()
+
+        def steam_loader(_token):
+            nonlocal active_steam, peak_steam
+            with lock:
+                active_steam += 1
+                peak_steam = max(peak_steam, active_steam)
+                started_steam.set()
+            release.wait(2)
+            with lock:
+                active_steam -= 1
+            return "steam"
+
+        try:
+            first = manager.request(RequestKey("steam-build", "one"), steam_loader)
+            self.assertTrue(started_steam.wait(2))
+            second = manager.request(RequestKey("steam-tags", "two"), steam_loader)
+            other = manager.request(
+                RequestKey("other-service", "one"),
+                lambda _token: (started_other.set(), "other")[1],
+            )
+            self.assertTrue(started_other.wait(2))
+            self.assertEqual(peak_steam, 1)
+            release.set()
+            self.assertEqual(first.future.result(timeout=2).value, "steam")
+            self.assertEqual(second.future.result(timeout=2).value, "steam")
+            self.assertEqual(other.future.result(timeout=2).value, "other")
+            metrics = manager.metrics()
+            self.assertEqual(metrics["service_limit_steam"], 1)
+            self.assertEqual(metrics["service_active_steam"], 0)
+        finally:
+            release.set()
+            manager.shutdown()
+
     def test_retries_failures_with_backoff(self):
         sleeps = []
         manager = RequestManager(max_workers=1, sleep=sleeps.append, random_value=lambda: 0.5)
@@ -153,12 +194,14 @@ class RequestManagerTests(unittest.TestCase):
             )
             self.assertEqual(
                 manager.cancel_matching(
-                    lambda spec: not bool(spec.metadata.get("allow_offline", False))
+                    lambda spec: not bool(spec.metadata.get("allow_offline", False)),
+                    reason="policy",
                 ),
                 1,
             )
             self.assertEqual(first.future.result(timeout=2).status, ResourceStatus.CANCELLED)
             self.assertEqual(second.future.result(timeout=2).value, "local")
+            self.assertEqual(manager.metrics()["cancelled_policy"], 1)
         finally:
             manager.shutdown()
 
@@ -674,6 +717,7 @@ class RequestManagerTests(unittest.TestCase):
             self.assertEqual(queued.future.result(timeout=2).status, ResourceStatus.CANCELLED)
             self.assertEqual(blocker.future.result(timeout=2).value, "blocker")
             self.assertEqual(calls, [])
+            self.assertEqual(manager.metrics()["cancelled_caller"], 1)
         finally:
             release_blocker.set()
             manager.shutdown()

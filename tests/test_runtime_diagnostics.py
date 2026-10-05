@@ -20,6 +20,9 @@ class RuntimeDiagnosticsTests(unittest.TestCase):
                 "workers_peak": 3,
                 "foreground_queue_wait_seconds_max": 1.25,
                 "background_workers_limit": 2,
+                "cancelled_policy": 3,
+                "service_limit_steam": 2,
+                "service_active_steam": 1,
                 "secret": "do-not-export",
                 "resource_value": "/home/user/private/game",
             },
@@ -39,6 +42,9 @@ class RuntimeDiagnosticsTests(unittest.TestCase):
         self.assertEqual(report["requests"]["workers_peak"], 3)
         self.assertEqual(report["requests"]["foreground_queue_wait_seconds_max"], 1.25)
         self.assertEqual(report["requests"]["background_workers_limit"], 2)
+        self.assertEqual(report["requests"]["cancelled_policy"], 3)
+        self.assertEqual(report["requests"]["service_limit_steam"], 2)
+        self.assertEqual(report["requests"]["service_active_steam"], 1)
         self.assertEqual(report["requests"]["cache_hits"], 2)
         self.assertEqual(report["requests"]["errors"], 1)
         self.assertNotIn("do-not-export", encoded)

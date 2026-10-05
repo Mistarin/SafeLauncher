@@ -20,8 +20,9 @@ class _RequestManager:
         future.set_result(self.result)
         return SimpleNamespace(future=future)
 
-    def cancel_matching(self, predicate):
+    def cancel_matching(self, predicate, *, reason="caller"):
         self.cancelled += 1
+        self.cancel_reason = reason
 
 
 class NetworkMonitorControllerTests(unittest.TestCase):
