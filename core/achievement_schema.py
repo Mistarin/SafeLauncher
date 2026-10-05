@@ -144,6 +144,42 @@ def _validated_schema(records: Any) -> List[Dict[str, Any]]:
     return clean
 
 
+def _community_api_name(display_name: str, index: int, used: set[str], explicit: str = "") -> str:
+    """Return a valid, unique identifier for HTML rows lacking API names."""
+    candidate = str(explicit or "").strip()
+    if not _SCHEMA_API_RE.fullmatch(candidate):
+        slug = re.sub(r"[^A-Za-z0-9_]", "_", str(display_name).upper().strip()).strip("_")
+        candidate = slug or f"ACH_{index + 1}"
+    base = candidate[:120]
+    candidate = base
+    suffix = 2
+    while candidate in used:
+        tail = f"_{suffix}"
+        candidate = f"{base[:128 - len(tail)]}{tail}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
+
+
+def _valid_icon_path_map(value: Any, achievement: Dict[str, Any]) -> bool:
+    """Validate every icon URL requested for an achievement, not just the map shape."""
+    if not isinstance(value, dict):
+        return False
+    expected = []
+    if str(achievement.get("icon_url") or "").startswith("http"):
+        expected.append("icon_path")
+    if str(achievement.get("icongray_url") or "").startswith("http"):
+        expected.append("icongray_path")
+    if not expected:
+        return False
+    return all(
+        isinstance(value.get(field), str)
+        and os.path.isfile(value[field])
+        and os.path.getsize(value[field]) > 0
+        for field in expected
+    )
+
+
 def _write_schema_cache(path: Path, records: List[Dict[str, Any]]) -> None:
     """Atomically replace a schema cache so a killed worker cannot corrupt it."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,6 +274,14 @@ def download_achievement_icons_batch(
     if not achievements or not app_id:
         return achievements
 
+    icon_items = [
+        item for item in achievements
+        if str(item.get("icon_url") or "").startswith("http")
+        or str(item.get("icongray_url") or "").startswith("http")
+    ]
+    if not icon_items:
+        return achievements
+
     schema_cache_file, app_icon_dir = _ensure_cache_dirs(app_id)
     session = _get_http_session()
 
@@ -252,7 +296,7 @@ def download_achievement_icons_batch(
         clean_name = re.sub(r"[^A-Za-z0-9_.-]", "_", api_name)
         paths: dict[str, str] = {}
 
-        icon_url = item.get("icon_url", "")
+        icon_url = str(item.get("icon_url") or "")
         if icon_url and icon_url.startswith("http"):
             target = app_icon_dir / f"{clean_name}_unlocked.png"
             if (
@@ -276,7 +320,7 @@ def download_achievement_icons_batch(
             if target.is_file() and target.stat().st_size > 0:
                 paths["icon_path"] = str(target)
 
-        gray_url = item.get("icongray_url", "")
+        gray_url = str(item.get("icongray_url") or "")
         if gray_url and gray_url.startswith("http"):
             target_gray = app_icon_dir / f"{clean_name}_locked.png"
             if (
@@ -309,16 +353,6 @@ def download_achievement_icons_batch(
         cache = getattr(request_manager, "cache", None)
         policy = cache_policy("achievement-icons")
 
-        def valid_paths(value: Any) -> bool:
-            return isinstance(value, dict) and all(
-                not value.get(field) or (
-                    isinstance(value.get(field), str)
-                    and os.path.isfile(value[field])
-                    and os.path.getsize(value[field]) > 0
-                )
-                for field in ("icon_path", "icongray_path")
-            )
-
         def _icon_spec(item):
             identity = str(item.get("api_name", "ACH")).strip() or "ACH"
             key = RequestKey("achievement-icons", f"{app_id}:{identity}", "v1")
@@ -326,7 +360,7 @@ def download_achievement_icons_batch(
                 key,
                 lambda token, item=item: (
                     token.raise_if_cancelled(),
-                    _dl_one(item, force_refresh=True),
+                    _dl_one(item),
                     token.raise_if_cancelled(),
                 )[1],
                 priority=RequestPriority.BACKGROUND,
@@ -334,10 +368,10 @@ def download_achievement_icons_batch(
             )
 
         if cache is None:
-            request_manager.request_many([_icon_spec(item) for item in achievements])
+            request_manager.request_many([_icon_spec(item) for item in icon_items])
             return achievements
 
-        for item in achievements:
+        for item in icon_items:
             identity = str(item.get("api_name", "ACH")).strip() or "ACH"
             key = RequestKey("achievement-icons", f"{app_id}:{identity}", "v1")
             cached = cache.get(key)
@@ -346,14 +380,14 @@ def download_achievement_icons_batch(
                 if legacy_paths:
                     cache.put(key, legacy_paths, content_type=policy.content_type)
                     item.update(legacy_paths)
-            elif valid_paths(cached.value):
+            elif _valid_icon_path_map(cached.value, item):
                 item.update(cached.value)
 
             handle = request_manager.cached_request(
                 _icon_spec(item),
                 cache,
                 max_age_seconds=policy.max_age_seconds,
-                cache_validator=valid_paths,
+                cache_validator=lambda value, item=item: _valid_icon_path_map(value, item),
                 content_type=policy.content_type,
             )
 
@@ -371,7 +405,7 @@ def download_achievement_icons_batch(
     # Synchronous compatibility callers already own the calling context. The
     # managed path above provides bounded parallelism through RequestManager;
     # this fallback must not create a hidden feature-local scheduler.
-    for item in achievements:
+    for item in icon_items:
         item.update(_dl_one(item))
 
     prune_asset_cache(_CACHE_DIR, _ASSET_CACHE_BUDGET)
@@ -499,6 +533,7 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
         try:
             soup = BeautifulSoup(response_content, "html.parser")
             rows = soup.find_all("div", class_="achieveRow")
+            used_names: set[str] = set()
             for i, row in enumerate(rows):
                 img = row.find("img")
                 txt = row.find("div", class_="achieveTxt")
@@ -509,18 +544,24 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
                 desc = h5.text.strip() if h5 else ""
                 icon_url = img["src"].strip() if img and "src" in img.attrs else ""
 
-                clean_api_name = re.sub(r"[^A-Za-z0-9_]", "_", display_name.upper().strip()).strip("_")
-                if not clean_api_name:
-                    clean_api_name = f"ACH_{i+1}"
+                explicit_api_name = next((
+                    str(value).strip()
+                    for key, value in row.attrs.items()
+                    if str(key).lower() in {"data-apiname", "data-api-name", "data-achievement-id", "data-achievement"}
+                    and value
+                ), "")
+                clean_api_name = _community_api_name(display_name, i, used_names, explicit_api_name)
 
                 achievements.append({
                     "api_name": clean_api_name,
                     "display_name": display_name,
                     "description": desc,
                     "icon_url": icon_url,
-                    "icongray_url": icon_url,
+                    # The public HTML exposes one icon only. Do not pretend
+                    # that it is also Steam's locked/gray badge.
+                    "icongray_url": "",
                     "icon_path": icon_url,
-                    "icongray_path": icon_url,
+                    "icongray_path": "",
                     "hidden": 0,
                     "unlocked": 0,
                     "unlock_time": 0.0,
@@ -536,21 +577,20 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
                 response_text,
                 re.DOTALL
             )
+            used_names: set[str] = set()
             for i, (icon_url, d_name, d_desc) in enumerate(matches):
                 display_name = re.sub(r"<[^>]+>", "", d_name).strip()
                 desc = re.sub(r"<[^>]+>", "", d_desc).strip()
-                clean_api_name = re.sub(r"[^A-Za-z0-9_]", "_", display_name.upper().strip()).strip("_")
-                if not clean_api_name:
-                    clean_api_name = f"ACH_{i+1}"
+                clean_api_name = _community_api_name(display_name, i, used_names)
 
                 achievements.append({
                     "api_name": clean_api_name,
                     "display_name": display_name,
                     "description": desc,
                     "icon_url": icon_url,
-                    "icongray_url": icon_url,
+                    "icongray_url": "",
                     "icon_path": icon_url,
-                    "icongray_path": icon_url,
+                    "icongray_path": "",
                     "hidden": 0,
                     "unlocked": 0,
                     "unlock_time": 0.0,
@@ -591,6 +631,16 @@ def fetch_steam_achievements_schema(
     schema_cache_file, app_icon_dir = _ensure_cache_dirs(app_id)
 
     shared_key = RequestKey("achievement-schema", app_id, "v1")
+    stale_shared_data: List[Dict[str, Any]] = []
+    if schema_cache is not None:
+        try:
+            cached_entry = schema_cache.get(shared_key)
+            if cached_entry is not None and not cached_entry.is_fresh(
+                cache_policy("achievement-schema").max_age_seconds
+            ):
+                stale_shared_data = _validated_schema(cached_entry.value)
+        except Exception:
+            stale_shared_data = []
 
     def _shared_schema():
         if schema_cache is None:
@@ -717,12 +767,10 @@ def fetch_steam_achievements_schema(
                 except Exception:
                     pass
 
-    # 4. Try public Steam Community HTML scraper (100% keyless, public, 1 single HTTP request)
-    if not achievements:
-        achievements = _fetch_steam_community_html(app_id, timeout=timeout, app_icon_dir=app_icon_dir, download_icons=False, request_manager=request_manager)
-
-    # 5. Try Steam Community XML stats endpoint
-    if not achievements:
+    # Try the public XML endpoint before scraping HTML: it supplies canonical
+    # API names, and avoids an extra request whenever it succeeds.
+    xml_achievements: List[Dict[str, Any]] = []
+    if not achievements and automatic_network_allowed():
         resp = None
         try:
             if _COMMUNITY_RATE_LIMITER.acquire(1.0, timeout=timeout):
@@ -744,7 +792,7 @@ def fetch_steam_achievements_schema(
                             icongray_url = icon_url
                         hidden = int(node.get("hidden", "0"))
 
-                        achievements.append({
+                        xml_achievements.append({
                             "api_name": api_name,
                             "display_name": name,
                             "description": desc,
@@ -764,6 +812,27 @@ def fetch_steam_achievements_schema(
                     resp.close()
                 except Exception:
                     pass
+
+    if xml_achievements:
+        achievements = xml_achievements
+    elif not achievements:
+        achievements = _fetch_steam_community_html(
+            app_id,
+            timeout=timeout,
+            app_icon_dir=app_icon_dir,
+            download_icons=False,
+            request_manager=request_manager,
+        )
+
+    # Network refresh is best-effort. Keep the last known complete definition
+    # set visible when every remote provider is unavailable.
+    if not achievements and stale_shared_data:
+        achievements = stale_shared_data
+        if download_icons and automatic_network_allowed():
+            download_achievement_icons_batch(
+                achievements, app_id, timeout=timeout, request_manager=request_manager
+            )
+        return achievements
 
     # If icons were explicitly requested, download in parallel
     achievements = _validated_schema(achievements)

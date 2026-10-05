@@ -41,6 +41,7 @@ STEAM_ID_ROLE = Qt.ItemDataRole.UserRole + 12
 UPDATE_SOURCE_ROLE = Qt.ItemDataRole.UserRole + 13
 UPDATE_CHECKED_AT_ROLE = Qt.ItemDataRole.UserRole + 14
 CLOUD_TOOLTIP_ROLE = Qt.ItemDataRole.UserRole + 15
+IS_RUNNING_ROLE = Qt.ItemDataRole.UserRole + 16
 
 
 def _format_playtime_str(seconds: int) -> str:
@@ -110,6 +111,7 @@ class GameCardItemDelegate(QStyledItemDelegate):
         update_source = index.data(UPDATE_SOURCE_ROLE) or "unknown"
         update_checked_at = index.data(UPDATE_CHECKED_AT_ROLE) or 0.0
         cloud_status = index.data(CLOUD_STATUS_ROLE)
+        is_running = bool(index.data(IS_RUNNING_ROLE))
 
         is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
         is_hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
@@ -184,7 +186,7 @@ class GameCardItemDelegate(QStyledItemDelegate):
             painter.setBrush(QColor("#3B9FE8"))
             painter.drawEllipse(play_rect)
 
-            play_icon = get_icon("ph.play-fill", color="#FFFFFF")
+            play_icon = get_icon("ph.stop-fill" if is_running else "ph.play-fill", color="#FFFFFF")
             icon_inner = QRect(play_x + 13, play_y + 13, 18, 18)
             play_icon.paint(painter, icon_inner)
 
@@ -477,6 +479,13 @@ class VirtualizedGameGridView(QListView):
             item.setData(is_missing, IS_MISSING_ROLE)
             self.viewport().update(self.visualRect(item.index()))
 
+    def update_running(self, game_id: int, is_running: bool) -> None:
+        item = self._items_by_game_id.get(int(game_id))
+        if item:
+            item.setData(bool(is_running), IS_RUNNING_ROLE)
+            self._set_item_tooltip(item, item.data(CLOUD_STATUS_ROLE))
+            self.viewport().update(self.visualRect(item.index()))
+
     def update_update_available(self, game_id: int, is_available: bool) -> None:
         item = self._items_by_game_id.get(game_id)
         if item:
@@ -511,13 +520,16 @@ class VirtualizedGameGridView(QListView):
             checked_at=float(item.data(UPDATE_CHECKED_AT_ROLE) or 0.0),
         )
         cloud_meta = cloud_indicator(cloud_status)
-        tooltips = [text for text in (update_meta.tooltip, cloud_meta.tooltip) if text]
+        is_running = bool(item.data(IS_RUNNING_ROLE))
+        running_tip = "Game is running; activate the center action to stop it." if is_running else ""
+        tooltips = [text for text in (update_meta.tooltip, cloud_meta.tooltip, running_tip) if text]
         tooltip = "\n".join(dict.fromkeys(tooltips))
         item.setData(tooltip, CLOUD_TOOLTIP_ROLE)
         item.setData(tooltip, Qt.ItemDataRole.ToolTipRole)
         item.setData(tooltip, Qt.ItemDataRole.StatusTipRole)
         name = str(item.data(NAME_ROLE) or "Game")
-        accessible = f"{name}. Cloud save action available. {tooltip}" if tooltip else name
+        action = "Running; center action stops the game." if is_running else "Activate to launch."
+        accessible = f"{name}. {action} {tooltip}" if tooltip else f"{name}. {action}"
         item.setData(accessible, Qt.ItemDataRole.AccessibleTextRole)
         item.setData(
             "SafeLauncher will upload newer local saves automatically when safe."

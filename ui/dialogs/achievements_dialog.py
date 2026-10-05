@@ -172,29 +172,7 @@ class AppleAchievementCard(QFrame):
         self.icon_lbl.setFixedSize(52, 52)
         self.icon_lbl.setStyleSheet("background: transparent; border: none;")
 
-        icon_path = self.ach.get("icon_path") if unlocked else (self.ach.get("icongray_path") or self.ach.get("icon_path"))
-        loaded_pix = False
-        if icon_path and os.path.isfile(icon_path):
-            raw_pix = QPixmap(icon_path)
-            if not raw_pix.isNull():
-                self.icon_lbl.setPixmap(create_rounded_pixmap(raw_pix, QSize(52, 52), radius=10))
-                loaded_pix = True
-
-        if not loaded_pix:
-            fallback = QPixmap(52, 52)
-            fallback.fill(Qt.GlobalColor.transparent)
-            painter = QPainter(fallback)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setBrush(QColor("#063D24" if unlocked else "#1C1C1E"))
-            painter.setPen(QColor("#35C98A" if unlocked else "#3A3A3C"))
-            painter.drawRoundedRect(1, 1, 50, 50, 10, 10)
-            if unlocked:
-                ico = get_icon_pixmap("ph.trophy-fill", 26, color="#35C98A")
-            else:
-                ico = get_icon_pixmap("ph.lock-simple-bold", 24, color="#71717A")
-            painter.drawPixmap((52 - ico.width()) // 2, (52 - ico.height()) // 2, ico)
-            painter.end()
-            self.icon_lbl.setPixmap(fallback)
+        self._refresh_badge_icon()
 
         layout.addWidget(self.icon_lbl)
 
@@ -288,6 +266,37 @@ class AppleAchievementCard(QFrame):
 
         # 4. Rich Formatted Tooltip
         self._update_rich_tooltip()
+
+    def _refresh_badge_icon(self) -> None:
+        unlocked = bool(self.ach.get("unlocked", False))
+        # Never use a colored/unlocked badge as the locked badge fallback.
+        icon_path = self.ach.get("icon_path") if unlocked else self.ach.get("icongray_path")
+        if icon_path and os.path.isfile(icon_path):
+            raw_pix = QPixmap(icon_path)
+            if not raw_pix.isNull():
+                self.icon_lbl.setPixmap(create_rounded_pixmap(raw_pix, QSize(52, 52), radius=10))
+                return
+
+        fallback = QPixmap(52, 52)
+        fallback.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(fallback)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QColor("#063D24" if unlocked else "#1C1C1E"))
+        painter.setPen(QColor("#35C98A" if unlocked else "#3A3A3C"))
+        painter.drawRoundedRect(1, 1, 50, 50, 10, 10)
+        ico = get_icon_pixmap(
+            "ph.trophy-fill" if unlocked else "ph.lock-simple-bold",
+            26 if unlocked else 24,
+            color="#35C98A" if unlocked else "#71717A",
+        )
+        painter.drawPixmap((52 - ico.width()) // 2, (52 - ico.height()) // 2, ico)
+        painter.end()
+        self.icon_lbl.setPixmap(fallback)
+
+    def set_icon_paths(self, paths: Dict[str, Any]) -> None:
+        """Apply asynchronously materialized local icon paths to this card."""
+        self.ach.update(paths)
+        self._refresh_badge_icon()
 
     def _update_rich_tooltip(self):
         unlocked = bool(self.ach.get("unlocked", False))
@@ -435,6 +444,9 @@ class AchievementsDialog(PopupDialog):
         self.fetch_worker = None
         self._schema_binding: ResourceBinding | None = None
         self._schema_request_key: RequestKey | None = None
+        self._icon_bindings: list[ResourceBinding] = []
+        self._icon_items_by_key: dict[RequestKey, Dict[str, Any]] = {}
+        self._achievement_cards: dict[str, AppleAchievementCard] = {}
         self._close_requested = False
         self._pending_result = None
         self._last_resolution = None
@@ -508,6 +520,7 @@ class AchievementsDialog(PopupDialog):
     def closeEvent(self, event):
         """Do not destroy a dialog-owned resolver while its QThread runs."""
         self._close_managed_schema_binding()
+        self._close_icon_bindings()
         worker = self.fetch_worker
         if worker is not None and worker.isRunning():
             self._close_requested = True
@@ -543,6 +556,7 @@ class AchievementsDialog(PopupDialog):
     def done(self, result: int) -> None:
         """Defer accept/reject until the resolver has stopped emitting."""
         self._close_managed_schema_binding()
+        self._close_icon_bindings()
         worker = self.fetch_worker
         if worker is not None and worker.isRunning():
             self._close_requested = True
@@ -1012,6 +1026,55 @@ class AchievementsDialog(PopupDialog):
         if binding is not None:
             binding.close()
 
+    def _close_icon_bindings(self) -> None:
+        bindings, self._icon_bindings = self._icon_bindings, []
+        self._icon_items_by_key.clear()
+        for binding in bindings:
+            binding.close()
+
+    def _watch_achievement_icons(self, schema: list[dict]) -> None:
+        """Queue missing badge downloads and apply each result on the UI thread."""
+        if self.request_manager is None or not schema or not self.game_steam_id:
+            return
+        self._close_icon_bindings()
+        from core.achievement_schema import download_achievement_icons_batch
+
+        # Always submit this idempotent batch here. A shared status request may
+        # have been deduplicated against a caller that did not request icons.
+        download_achievement_icons_batch(
+            schema, self.game_steam_id, request_manager=self.request_manager
+        )
+        for achievement in schema:
+            if not (achievement.get("icon_url") or achievement.get("icongray_url")):
+                continue
+            key = RequestKey(
+                "achievement-icons",
+                f"{self.game_steam_id}:{achievement.get('api_name', 'ACH')}",
+                "v1",
+            )
+            self._icon_items_by_key[key] = achievement
+            binding = ResourceBinding(self.request_manager, key, parent=self)
+            binding.state_changed.connect(self._on_achievement_icon_state)
+            self._icon_bindings.append(binding)
+
+    def _on_achievement_icon_state(self, result: ResourceResult) -> None:
+        if self._close_requested or result.status not in {ResourceStatus.READY, ResourceStatus.STALE}:
+            return
+        achievement = self._icon_items_by_key.get(result.key)
+        if achievement is None or not isinstance(result.value, dict):
+            return
+        paths = {
+            field: path for field, path in result.value.items()
+            if field in {"icon_path", "icongray_path"}
+            and isinstance(path, str) and os.path.isfile(path)
+        }
+        if not paths:
+            return
+        achievement.update(paths)
+        card = self._achievement_cards.get(str(achievement.get("api_name", "")))
+        if card is not None:
+            card.set_icon_paths(paths)
+
     def _read_game_achievements(self) -> list[dict]:
         if self.library_service is not None:
             return self.library_service.game_achievements(self.game_id)
@@ -1026,6 +1089,7 @@ class AchievementsDialog(PopupDialog):
         if game_id != self.game_id or self._close_requested:
             return
         self._last_resolution = resolution
+        self._watch_achievement_icons(getattr(resolution, "schema", []) or [])
         if self.library_service is not None:
             self.library_service.persist_achievement_resolution(game_id, app_id, resolution)
         else:
@@ -1136,6 +1200,7 @@ class AchievementsDialog(PopupDialog):
             filtered.sort(key=lambda x: x.get("display_name", "").lower())
 
         if not filtered:
+            self._achievement_cards = {}
             no_match = QFrame()
             no_match.setStyleSheet("""
                 QFrame {
@@ -1160,8 +1225,10 @@ class AchievementsDialog(PopupDialog):
 
             self.cards_layout.insertWidget(0, no_match)
         else:
+            self._achievement_cards = {}
             for ach in filtered:
                 card = AppleAchievementCard(ach, self.cards_container)
+                self._achievement_cards[str(ach.get("api_name", ""))] = card
                 self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
 
         self.stats_footer_lbl.setText(f"Showing {len(filtered)} of {total_count} achievements")

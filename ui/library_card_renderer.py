@@ -21,9 +21,10 @@ class LibraryCardActions:
 
 
 class LibraryCardRenderer:
-    def __init__(self, host, artwork_cache, artwork, *, network_allowed, actions):
+    def __init__(self, host, artwork_cache, artwork, *, network_allowed, actions, running_games=None):
         self.host, self.cache, self.artwork = host, artwork_cache, artwork
         self.network_allowed, self.actions = network_allowed, actions
+        self.running_games = running_games or (lambda: ())
         self.cards = {}
         self._prefetch_games = []
         self._background_games = []
@@ -46,6 +47,7 @@ class LibraryCardRenderer:
 
     def render(self, snapshot, selected_ids, *, use_virtual):
         self.clear()
+        running_ids = {int(game_id) for game_id in self.running_games()}
         widgets = []
         for item in snapshot.items:
             game = item.game
@@ -70,6 +72,7 @@ class LibraryCardRenderer:
                                        checked_at=item.status.update_checked_at)
                 card.set_favorite(item.is_favorite)
                 card.set_selected(game_id in selected_ids)
+                card.set_running(game_id in running_ids)
                 if item.cloud_status is not None:
                     card.set_cloud_status(item.cloud_status)
                 card.clicked.connect(self.actions.select)
@@ -82,6 +85,16 @@ class LibraryCardRenderer:
                 self.cards[game_id] = card
         self.host.set_grid_widgets(widgets)
         self.host.render_snapshot(snapshot, self.cache.cache_dir, selected_ids)
+        if hasattr(self.host, "set_running_game_ids"):
+            self.host.set_running_game_ids(running_ids)
+
+    def set_game_running(self, game_id: int, is_running: bool) -> None:
+        """Update an already-rendered standard card without rebuilding it."""
+        card = self.cards.get(int(game_id))
+        if card is not None and hasattr(card, "set_running"):
+            card.set_running(is_running)
+        if hasattr(self.host, "update_game_running"):
+            self.host.update_game_running(game_id, is_running)
 
     @staticmethod
     def _game_id(game) -> int:

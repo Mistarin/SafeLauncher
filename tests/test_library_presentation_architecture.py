@@ -1,8 +1,9 @@
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea
 from database import GameRecord
 from core.library_controller import LibraryController, LibraryQuery
@@ -103,6 +104,24 @@ class LibraryPresentationTests(unittest.TestCase):
         renderer.actions.select.assert_called_once_with(1)
         renderer.clear()
         self.assertEqual(renderer.cards, {})
+
+    def test_active_game_card_uses_stop_action(self):
+        renderer = self.renderer()
+        renderer.running_games = lambda: {1}
+        snapshot = LibraryController().build_snapshot([GameRecord(1, 'One', '', '', 'umu')], LibraryQuery())
+        with patch('ui.components.banner_card.get_icon', return_value=QIcon()) as get_icon:
+            renderer.render(snapshot, set(), use_virtual=False)
+        card = renderer.cards[1]
+        self.assertTrue(card.is_running)
+        self.assertEqual(card.btn_card_play.toolTip(), 'Stop One')
+        self.assertEqual(get_icon.call_args.args[0], 'ph.stop-fill')
+
+    def test_running_ids_are_forwarded_to_virtual_renderer(self):
+        renderer = self.renderer()
+        renderer.running_games = lambda: {1, 3}
+        snapshot = LibraryController().build_snapshot([GameRecord(1, 'One', '', '', 'umu')], LibraryQuery())
+        renderer.render(snapshot, set(), use_virtual=True)
+        renderer.host.set_running_game_ids.assert_called_once_with({1, 3})
 
     def test_archived_games_never_schedule_artwork(self):
         renderer = self.renderer(online=True)

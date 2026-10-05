@@ -91,6 +91,7 @@ class GameBannerWidget(QFrame):
         self.playtime_seconds = playtime_seconds
         self.version = str(version).strip() if version else ""
         self.selected = False
+        self.is_running = False
         self.is_missing = False
         self.is_favorite = False
         self.is_update_available = False
@@ -401,6 +402,15 @@ class GameBannerWidget(QFrame):
         else:
             self.setToolTip("")
         self.update_appearance()
+
+    def set_running(self, is_running: bool) -> None:
+        """Reflect the action that clicking this card will perform."""
+        self.is_running = bool(is_running)
+        icon_name = "ph.stop-fill" if self.is_running else "ph.play-fill"
+        action = "Stop" if self.is_running else "Launch"
+        self.btn_card_play.setIcon(get_icon(icon_name, color="#FFFFFF"))
+        self.btn_card_play.setToolTip(f"{action} {self.name}")
+        self.btn_card_play.setAccessibleName(f"{action} {self.name}")
 
     def update_appearance(self):
         """Update container styling (borderless when not hovering) and trigger frame render"""

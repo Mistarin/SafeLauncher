@@ -76,6 +76,7 @@ class LibraryViewHost(QStackedWidget):
         self._connect_renderer_events()
         self.snapshot: Optional[LibrarySnapshot] = None
         self.selected_ids: set[int] = set()
+        self.running_game_ids: set[int] = set()
         self._empty_widget: Optional[QWidget] = None
         self._empty_label: Optional[QLabel] = None
         self._empty_add_button: Optional[QPushButton] = None
@@ -139,6 +140,8 @@ class LibraryViewHost(QStackedWidget):
         self.snapshot = snapshot
         self.selected_ids = set(selected_ids or set())
         self.virtual_grid.set_snapshot(snapshot, self.selected_ids)
+        for game_id in self.running_game_ids:
+            self.virtual_grid.update_running(game_id, True)
         self.compact_container.set_snapshot(snapshot, cache_dir, self.selected_ids)
 
         if not snapshot.items:
@@ -261,6 +264,23 @@ class LibraryViewHost(QStackedWidget):
         self.compact_container.update_favorite(game_id, is_favorite)
         if self.detail_page.current_game_id == game_id:
             self.detail_page.update_favorite(is_favorite)
+
+    def set_running_game_ids(self, game_ids) -> None:
+        """Synchronize active-game actions across every library renderer."""
+        previous_ids = self.running_game_ids
+        self.running_game_ids = {int(game_id) for game_id in (game_ids or ())}
+        for game_id in previous_ids - self.running_game_ids:
+            self.virtual_grid.update_running(game_id, False)
+        for game_id in self.running_game_ids:
+            self.virtual_grid.update_running(game_id, True)
+
+    def update_game_running(self, game_id: int, is_running: bool) -> None:
+        game_id = int(game_id)
+        if is_running:
+            self.running_game_ids.add(game_id)
+        else:
+            self.running_game_ids.discard(game_id)
+        self.virtual_grid.update_running(game_id, is_running)
 
     def update_missing(self, game_id: int, missing: bool) -> None:
         self.virtual_grid.update_missing(game_id, missing)

@@ -1253,6 +1253,7 @@ class MainWindow(QMainWindow):
         self.library_card_renderer = LibraryCardRenderer(
             self.library_view_host, self.sgdb_client, self.artwork_controller,
             network_allowed=self._automatic_network_allowed,
+            running_games=lambda: self.running_game_ids,
             actions=LibraryCardActions(self._select_game_by_id, self._on_double_click_game,
                 self._on_card_favorite_clicked, self._launch_game_by_id,
                 self._show_game_cloud_menu, self._on_card_cloud_badge_clicked))
@@ -4179,6 +4180,10 @@ class MainWindow(QMainWindow):
     def _on_game_session_state_changed(self, session) -> None:
         """Keep every presentation bound to the same session state."""
         self._update_detail_launch_button(session.game_id)
+        running = session.state in {"running", "stopping"}
+        renderer = getattr(self, "library_card_renderer", None)
+        if renderer is not None:
+            renderer.set_game_running(session.game_id, running)
         if hasattr(self, "compact_container") and self.compact_container:
             if self.selected_game and self.selected_game[0] == session.game_id:
                 if session.state == "stopping":
