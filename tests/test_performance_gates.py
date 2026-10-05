@@ -17,12 +17,14 @@ class PerformanceGateTests(unittest.TestCase):
                 "requests_errors": 2,
                 "requests_deduplicated": 8,
                 "requests_workers_peak": 3,
+                "requests_foreground_queue_wait_seconds_max": 0.12,
             },
             PerformanceGateThresholds(
                 max_time_to_first_library_render_seconds=2,
                 max_time_to_first_visible_artwork_seconds=3,
                 max_error_rate=0.05,
                 max_duplicate_request_ratio=0.10,
+                max_foreground_queue_wait_seconds=0.2,
                 max_workers_peak=3,
                 require_visible_artwork=True,
             ),
@@ -39,12 +41,14 @@ class PerformanceGateTests(unittest.TestCase):
                 "requests_errors": 3,
                 "requests_deduplicated": 5,
                 "requests_workers_peak": 6,
+                "requests_foreground_queue_wait_seconds_max": 0.5,
             },
             PerformanceGateThresholds(
                 max_time_to_first_library_render_seconds=2,
                 max_time_to_first_visible_artwork_seconds=3,
                 max_error_rate=0.1,
                 max_duplicate_request_ratio=0.2,
+                max_foreground_queue_wait_seconds=0.2,
                 max_workers_peak=4,
                 require_visible_artwork=True,
             ),
@@ -55,6 +59,7 @@ class PerformanceGateTests(unittest.TestCase):
         self.assertIn("request error rate exceeded threshold", result.failures)
         self.assertIn("duplicate request ratio exceeded threshold", result.failures)
         self.assertIn("worker peak missing or exceeded threshold", result.failures)
+        self.assertIn("foreground request queue wait missing or exceeded threshold", result.failures)
         self.assertEqual(result.as_dict()["passed"], False)
 
 

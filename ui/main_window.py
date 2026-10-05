@@ -2739,20 +2739,40 @@ class MainWindow(QMainWindow):
         self._update_sidebar_counts()
 
         if not self.games:
-            self.sidebar.update_collections_list([])
-            empty_snapshot = LibrarySnapshot(
-                query=LibraryQuery(
-                    search=self.search_query,
-                    filter_mode=self.current_filter,
-                    collection=self.collection_filter,
-                    sort_index=self.current_sort,
-                ),
-                total_games=0,
-                empty_message="No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started.",
+            # Collection records outlive their last game. Keep those rows
+            # available so an empty collection can still be selected, renamed,
+            # populated, or deleted after the library itself becomes empty.
+            empty_query = LibraryQuery(
+                search=self.search_query,
+                filter_mode=self.current_filter,
+                collection=self.collection_filter,
+                sort_index=self.current_sort,
             )
+            projection = self.library_service.refresh(empty_query, games=())
+            self.sidebar.update_collections_list(list(projection.collection_counts))
+            collection_active = bool(self.collection_filter)
+            if collection_active:
+                self.lbl_col_banner_title.setText(self.collection_filter)
+                self.lbl_col_banner_stats.setText("0 Game(s)  •  0.0 hrs Total Playtime")
+            empty_snapshot = LibrarySnapshot(
+                query=empty_query,
+                total_games=0,
+                empty_message=(
+                    projection.snapshot.empty_message
+                    if collection_active
+                    else "No games in your library yet.\nClick 'Add Game' or 'Sync Library' to get started."
+                ),
+                collection_counts=dict(projection.collection_counts),
+            )
+            self.library_snapshot = empty_snapshot
             self.library_view_host.render_snapshot(empty_snapshot, self.sgdb_client.cache_dir, set())
-            self.library_view_host.set_empty_grid_message(empty_snapshot.empty_message)
-            self.collection_banner.setVisible(False)
+            self.library_view_host.set_empty_grid_message(
+                empty_snapshot.empty_message,
+                show_add=collection_active,
+            )
+            # Leave detail mode if its selected game vanished, and let the
+            # navigation controller restore the correct grid/compact layout.
+            self.library_navigation.library()
             if hasattr(self, "compact_container"):
                 self._clear_library_selection_state()
                 self.selected_game = None

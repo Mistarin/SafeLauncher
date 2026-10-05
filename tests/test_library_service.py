@@ -28,6 +28,26 @@ class LibraryServiceTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_empty_collection_survives_after_its_last_game_is_removed(self):
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game("Temporary Game", "/missing", "game.exe", "umu", "", "123")
+            db.add_collection("Still Here")
+            db.update_game_collection(game_id, "Still Here")
+            service = LibraryService(db, LibraryStateStore(LibraryController()))
+
+            self.assertTrue(service.remove_game(game_id))
+            projection = service.refresh(
+                LibraryQuery(collection="Still Here"),
+                games=(),
+            )
+
+            self.assertEqual(projection.collection_counts, (("Still Here", 0),))
+            self.assertEqual(projection.snapshot.visible_ids, set())
+            self.assertEqual(projection.snapshot.empty_message, "Collection 'Still Here' is empty.")
+        finally:
+            db.close()
+
     def test_archive_and_restore_preserve_the_same_database_identity(self):
         db = GameDatabase(":memory:")
         try:

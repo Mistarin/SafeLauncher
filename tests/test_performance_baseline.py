@@ -14,8 +14,16 @@ class PerformanceBaselineTests(unittest.TestCase):
         self.assertEqual(report["workload"]["managed_requests"], 12)
         self.assertLessEqual(report["library_snapshot_ms"]["min"], report["library_snapshot_ms"]["max"])
         self.assertLessEqual(report["managed_batch_ms"]["min"], report["managed_batch_ms"]["max"])
+        self.assertLessEqual(
+            report["first_visible_artwork_request_ms"]["min"],
+            report["first_visible_artwork_request_ms"]["max"],
+        )
         self.assertEqual(report["request_metrics"]["completed"], 12)
         self.assertLessEqual(report["request_metrics"]["workers_peak"], 2)
+        self.assertGreaterEqual(
+            report["gate_snapshot"]["time_to_first_visible_artwork_seconds"], 0
+        )
+        self.assertIn("requests_foreground_queue_wait_seconds_max", report["gate_snapshot"])
 
 
 if __name__ == "__main__":

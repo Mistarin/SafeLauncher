@@ -10,6 +10,10 @@ from PyQt6.QtGui import QKeyEvent
 from unittest.mock import Mock, patch
 
 from core.launch_diagnostics import LaunchDiagnostics
+from core.library_controller import LibraryController
+from core.library_service import LibraryService
+from core.library_state import LibraryStateStore
+from database import GameDatabase
 from ui.components.popup_shell import PopupDialog
 from ui.dialogs.game_dialogs import AddGameDialog, SafeLaunchDialog
 from ui.dialogs.settings_dialog import UserSettingsDialog
@@ -328,6 +332,57 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
         finally:
             host.deleteLater()
             self.app.processEvents()
+
+    def test_empty_library_keeps_persisted_collections_available(self):
+        db = GameDatabase(":memory:")
+        try:
+            db.add_collection("Still Here")
+            service = LibraryService(db, LibraryStateStore(LibraryController()))
+            sidebar = SimpleNamespace(update_collections_list=Mock())
+            view_host = SimpleNamespace(
+                render_snapshot=Mock(),
+                set_empty_grid_message=Mock(),
+            )
+            window = SimpleNamespace(
+                performance_tracker=SimpleNamespace(
+                    mark_library_refresh=Mock(), mark_library_render=Mock()
+                ),
+                selected_game=None,
+                library_card_renderer=SimpleNamespace(clear=Mock()),
+                library_service=service,
+                games=[],
+                games_by_id={},
+                _resolve_missing_steam_names=Mock(),
+                cloud_status_polling=SimpleNamespace(set_targets=Mock()),
+                _cloud_status_targets_snapshot=Mock(return_value=()),
+                _replace_library_selection=Mock(),
+                _selected_library_ids=Mock(return_value=set()),
+                stat_label=SimpleNamespace(setText=Mock()),
+                _update_sidebar_counts=Mock(),
+                search_query="",
+                current_filter="",
+                collection_filter="Still Here",
+                current_sort=0,
+                sidebar=sidebar,
+                lbl_col_banner_title=SimpleNamespace(setText=Mock()),
+                lbl_col_banner_stats=SimpleNamespace(setText=Mock()),
+                library_view_mode="grid",
+                library_navigation=SimpleNamespace(library=Mock()),
+                library_view_host=view_host,
+                sgdb_client=SimpleNamespace(cache_dir="/cache"),
+            )
+
+            MainWindow._refresh_library(window)
+
+            sidebar.update_collections_list.assert_called_once_with([("Still Here", 0)])
+            window.library_navigation.library.assert_called_once_with()
+            snapshot = view_host.render_snapshot.call_args.args[0]
+            self.assertEqual(snapshot.empty_message, "Collection 'Still Here' is empty.")
+            view_host.set_empty_grid_message.assert_called_once_with(
+                "Collection 'Still Here' is empty.", show_add=True
+            )
+        finally:
+            db.close()
 
     def test_game_detail_shows_cloud_save_time_and_device(self):
         detail = GameDetailPageWidget()

@@ -134,7 +134,7 @@ class LibraryPresentationTests(unittest.TestCase):
         renderer.artwork.request_icon.assert_not_called()
         renderer.cache.get_icon_cached_path.assert_not_called()
 
-    def test_visible_artwork_is_requested_at_foreground_priority(self):
+    def test_artwork_requests_follow_viewport_without_icon_hero_or_bulk_prefetch(self):
         renderer = self.renderer(online=True)
         games = [
             (index, f"Game {index}", "", "", "umu", "", str(index), 0, 0,
@@ -146,5 +146,13 @@ class LibraryPresentationTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in auto_calls], [3, 5])
         self.assertTrue(all(call.kwargs["priority"] == RequestPriority.NORMAL
                             for call in auto_calls))
-        self.assertEqual(renderer.artwork.request_hero.call_count, 2)
-        self.assertEqual(renderer.artwork.request_icon.call_count, 2)
+        renderer.artwork.request_hero.assert_not_called()
+        renderer.artwork.request_icon.assert_not_called()
+
+        renderer.request_visible_artwork({28})
+        self.assertEqual(
+            [call.args[0] for call in renderer.artwork.request_auto.call_args_list],
+            [3, 5, 28],
+        )
+        self.assertTrue(all(call.kwargs["priority"] == RequestPriority.NORMAL
+                            for call in renderer.artwork.request_auto.call_args_list))

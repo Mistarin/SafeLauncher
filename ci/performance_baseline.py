@@ -9,6 +9,7 @@ database, contacts a backend, or serializes game records.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import FIRST_COMPLETED, wait
 import json
 import statistics
 import sys
@@ -22,7 +23,7 @@ if str(ROOT) not in sys.path:
 from core.library_controller import LibraryController, LibraryQuery
 from core.performance_gates import PerformanceGateThresholds, evaluate_performance_gates
 from core.request_manager import RequestManager
-from core.request_contracts import RequestKey
+from core.request_contracts import RequestKey, RequestPriority, RequestSpec
 
 
 def _synthetic_games(count: int) -> list[tuple]:
@@ -82,16 +83,34 @@ def collect_baseline(*, games: int = 600, requests: int = 100, repetitions: int 
         visible_counts.append(len(snapshot.items))
 
     request_samples = []
+    visible_artwork_samples = []
     request_metrics = {}
     for _index in range(int(repetitions)):
         manager = RequestManager(max_workers=int(workers), offline_check=lambda: False)
         try:
-            keys = [RequestKey("baseline", str(item)) for item in range(int(requests))]
+            visible_count = min(12, int(requests))
+            handles = []
             started = time.perf_counter()
-            handles = manager.request_many(
-                keys,
-                lambda key, token: (token.raise_if_cancelled(), key.identity)[1],
-            )
+            for item in range(int(requests)):
+                key = RequestKey(
+                    "baseline-visible-artwork" if item < visible_count else "baseline-background",
+                    str(item),
+                )
+                priority = (
+                    RequestPriority.NORMAL
+                    if item < visible_count
+                    else RequestPriority.BACKGROUND
+                )
+                handles.append(manager.submit(RequestSpec(
+                    key,
+                    lambda token, request_key=key: (
+                        token.raise_if_cancelled(), request_key.identity
+                    )[1],
+                    priority=priority,
+                )))
+            visible_futures = [handle.future for handle in handles[:visible_count]]
+            wait(visible_futures, return_when=FIRST_COMPLETED)
+            visible_artwork_samples.append(time.perf_counter() - started)
             for handle in handles:
                 handle.future.result(timeout=10)
             request_samples.append(time.perf_counter() - started)
@@ -109,6 +128,9 @@ def collect_baseline(*, games: int = 600, requests: int = 100, repetitions: int 
         },
         "library_snapshot_ms": _milliseconds(library_samples),
         "library_visible_counts": visible_counts,
+        # This is a network-free request-scheduler proxy, not an end-to-end
+        # measurement of Qt painting or remote artwork transport.
+        "first_visible_artwork_request_ms": _milliseconds(visible_artwork_samples),
         "managed_batch_ms": _milliseconds(request_samples),
         "request_metrics": {
             key: request_metrics.get(key)
@@ -121,14 +143,19 @@ def collect_baseline(*, games: int = 600, requests: int = 100, repetitions: int 
                 "workers_configured",
                 "duration_seconds_total",
                 "duration_seconds_max",
+                "foreground_queue_wait_seconds_max",
             )
         },
         "gate_snapshot": {
             "time_to_first_library_render_seconds": statistics.median(library_samples),
+            "time_to_first_visible_artwork_seconds": statistics.median(visible_artwork_samples),
             "requests_submitted": request_metrics.get("submitted", 0),
             "requests_errors": request_metrics.get("errors", 0),
             "requests_deduplicated": request_metrics.get("deduplicated", 0),
             "requests_workers_peak": request_metrics.get("workers_peak"),
+            "requests_foreground_queue_wait_seconds_max": request_metrics.get(
+                "foreground_queue_wait_seconds_max"
+            ),
         },
     }
     return snapshot
@@ -141,6 +168,10 @@ def main() -> int:
     parser.add_argument("--repetitions", type=int, default=5)
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--max-render-ms", type=float)
+    parser.add_argument("--max-visible-artwork-ms", type=float)
+    parser.add_argument("--max-foreground-queue-wait-ms", type=float)
+    parser.add_argument("--max-error-rate", type=float)
+    parser.add_argument("--max-duplicate-request-ratio", type=float)
     parser.add_argument("--max-workers-peak", type=int)
     args = parser.parse_args()
 
@@ -155,13 +186,31 @@ def main() -> int:
         parser.error(str(error))
 
     gate_result = None
-    if args.max_render_ms is not None or args.max_workers_peak is not None:
+    if any(value is not None for value in (
+        args.max_render_ms,
+        args.max_visible_artwork_ms,
+        args.max_foreground_queue_wait_ms,
+        args.max_error_rate,
+        args.max_duplicate_request_ratio,
+        args.max_workers_peak,
+    )):
         gate_result = evaluate_performance_gates(
             report["gate_snapshot"],
             PerformanceGateThresholds(
                 max_time_to_first_library_render_seconds=(
                     args.max_render_ms / 1000 if args.max_render_ms is not None else None
                 ),
+                max_time_to_first_visible_artwork_seconds=(
+                    args.max_visible_artwork_ms / 1000
+                    if args.max_visible_artwork_ms is not None else None
+                ),
+                max_foreground_queue_wait_seconds=(
+                    args.max_foreground_queue_wait_ms / 1000
+                    if args.max_foreground_queue_wait_ms is not None else None
+                ),
+                max_error_rate=args.max_error_rate,
+                max_duplicate_request_ratio=args.max_duplicate_request_ratio,
+                require_visible_artwork=args.max_visible_artwork_ms is not None,
                 max_workers_peak=args.max_workers_peak,
             ),
         ).as_dict()

@@ -15,6 +15,7 @@ class PerformanceGateThresholds:
     max_time_to_first_visible_artwork_seconds: float | None = None
     max_error_rate: float | None = None
     max_duplicate_request_ratio: float | None = None
+    max_foreground_queue_wait_seconds: float | None = None
     max_workers_peak: int | None = None
     require_library_render: bool = True
     require_visible_artwork: bool = False
@@ -63,12 +64,16 @@ def evaluate_performance_gates(
     errors = _number(_value(snapshot, "errors")) or 0.0
     duplicates = _number(_value(snapshot, "deduplicated")) or 0.0
     workers_peak = _number(_value(snapshot, "workers_peak"))
+    foreground_queue_wait = _number(
+        _value(snapshot, "foreground_queue_wait_seconds_max")
+    )
 
     observed["time_to_first_library_render_seconds"] = render
     observed["time_to_first_visible_artwork_seconds"] = artwork
     observed["error_rate"] = errors / submitted if submitted else 0.0
     observed["duplicate_request_ratio"] = duplicates / submitted if submitted else 0.0
     observed["workers_peak"] = workers_peak
+    observed["foreground_queue_wait_seconds_max"] = foreground_queue_wait
 
     if thresholds.require_library_render and render is None:
         failures.append("library render milestone missing")
@@ -93,6 +98,14 @@ def evaluate_performance_gates(
         and observed["duplicate_request_ratio"] > thresholds.max_duplicate_request_ratio
     ):
         failures.append("duplicate request ratio exceeded threshold")
+    if (
+        thresholds.max_foreground_queue_wait_seconds is not None
+        and (
+            foreground_queue_wait is None
+            or foreground_queue_wait > thresholds.max_foreground_queue_wait_seconds
+        )
+    ):
+        failures.append("foreground request queue wait missing or exceeded threshold")
     if (
         thresholds.max_workers_peak is not None
         and (workers_peak is None or workers_peak > thresholds.max_workers_peak)
