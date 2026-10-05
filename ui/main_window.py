@@ -156,6 +156,7 @@ from ui.app_update_controller import AppUpdateController
 from ui.artwork_controller import ArtworkController
 from ui.cloud_status_controller import CloudStatusController
 from ui.network_monitor_controller import NetworkMonitorController
+from ui.gamepad_navigation_controller import GamepadNavigationController
 from ui.prelaunch_controller import PrelaunchController
 from ui.game_session_controller import GameSessionController
 from ui.application_runtime import ApplicationRuntime
@@ -608,14 +609,25 @@ class MainWindow(QMainWindow):
         self.title_bar = CustomTitleBar(self)
         root_vbox.addWidget(self.title_bar)
         self.game_controller_monitor = GameControllerMonitor(parent=self)
+        self.gamepad_navigation_controller = GamepadNavigationController(
+            game_running=lambda: bool(self.game_sessions.active()),
+            parent=self,
+        )
         self.game_controller_monitor.controller_count_changed.connect(
             self.title_bar.set_controller_status
+        )
+        self.game_controller_monitor.controller_event_nodes_changed.connect(
+            self.gamepad_navigation_controller.set_event_nodes
+        )
+        self.gamepad_navigation_controller.navigation_available_changed.connect(
+            self.title_bar.set_controller_navigation_available
         )
         self.game_controller_monitor.start()
         self.title_bar.search_changed.connect(self._on_search_query_changed)
         self.title_bar.filter_requested.connect(self._set_filter)
         self.title_bar.profile_requested.connect(self._open_achievement_profile)
         self.title_bar.cloud_center_requested.connect(self._open_cloud_center)
+        self.title_bar.controller_help_requested.connect(self._show_controller_navigation_help)
         self.title_bar.public_profile_requested.connect(self._open_public_profile_prompt)
         self.title_bar.friends_requested.connect(self._open_friends_popup)
         self.title_bar.settings_requested.connect(self._open_settings)
@@ -1782,6 +1794,21 @@ class MainWindow(QMainWindow):
         dialog.history_requested.connect(self._open_cloud_history_from_center)
         dialog.conflicts_requested.connect(self._open_cloud_history_from_center)
         dialog.exec()
+
+    def _show_controller_navigation_help(self) -> None:
+        """Explain the active controller mapping or resolve input-access issues."""
+        controller = getattr(self, "gamepad_navigation_controller", None)
+        if controller is None or not controller.navigation_available:
+            self._show_toast(
+                "Controller detected, but SafeLauncher cannot read its input events. "
+                "Check this user's /dev/input permissions.",
+                is_error=True,
+            )
+            return
+        self._show_toast(
+            "Controller: D-pad or left stick to navigate, A to select/activate, "
+            "and B to go back. Controls pause while a game is running."
+        )
 
     def _on_cloud_center_overview_changed(self, overview) -> None:
         """Keep the compact header cloud indicator in sync with the center."""
@@ -4266,6 +4293,9 @@ class MainWindow(QMainWindow):
 
     def _on_game_session_state_changed(self, session) -> None:
         """Keep every presentation bound to the same session state."""
+        gamepad = getattr(self, "gamepad_navigation_controller", None)
+        if gamepad is not None:
+            gamepad.set_gameplay_active(bool(self.game_sessions.active()))
         if session.state in {"starting", "running", "stopping"}:
             timer = getattr(self, "_cloud_connection_timer", None)
             if timer is not None:
@@ -6169,6 +6199,8 @@ class MainWindow(QMainWindow):
         self._close_shutdown_progress()
         if hasattr(self, "game_controller_monitor"):
             self.game_controller_monitor.stop()
+        if hasattr(self, "gamepad_navigation_controller"):
+            self.gamepad_navigation_controller.stop()
         if getattr(self, "_cloud_connection_timer", None) is not None:
             self._cloud_connection_timer.stop()
         self._close_cloud_connection_probe_binding()

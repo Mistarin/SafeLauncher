@@ -467,6 +467,7 @@ class HeaderBar(QFrame):
     friends_requested = pyqtSignal()
     public_profile_requested = pyqtSignal()
     cloud_center_requested = pyqtSignal()
+    controller_help_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     toggle_collections_requested = pyqtSignal()
     sync_requested = pyqtSignal()
@@ -698,13 +699,19 @@ class HeaderBar(QFrame):
         self.btn_cloud_center.clicked.connect(self.cloud_center_requested.emit)
         layout.addWidget(self.btn_cloud_center)
 
-        self.lbl_controller_status = QLabel(self)
-        self.lbl_controller_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_controller_status.setFixedSize(24, 30)
-        self.lbl_controller_status.setVisible(False)
-        self.lbl_controller_status.setAccessibleName("Game controller status")
-        self.lbl_controller_status.setStyleSheet("background: transparent; border: none;")
-        layout.addWidget(self.lbl_controller_status)
+        self.btn_controller_status = QToolButton(self)
+        self.btn_controller_status.setIcon(get_icon("ph.game-controller-bold", color="#A1A1AA"))
+        self.btn_controller_status.setIconSize(QSize(18, 18))
+        self.btn_controller_status.setFixedSize(30, 30)
+        self.btn_controller_status.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_controller_status.setToolTip("Controller navigation help")
+        self.btn_controller_status.setAccessibleName("Game controller status and navigation help")
+        self.btn_controller_status.setStyleSheet(profile_control_style)
+        self.btn_controller_status.setVisible(False)
+        self.btn_controller_status.clicked.connect(self.controller_help_requested.emit)
+        self._controller_count = 0
+        self._controller_navigation_available = False
+        layout.addWidget(self.btn_controller_status)
 
         # One atomic identity control sits immediately beside the native window
         # controls. Keeping the avatar, display name, and menu on the same
@@ -799,23 +806,36 @@ class HeaderBar(QFrame):
         )
 
     def set_controller_status(self, controller_count: int) -> None:
-        """Show a passive gamepad icon only while controllers are connected."""
-        count = max(0, int(controller_count))
-        self.lbl_controller_status.setVisible(count > 0)
+        """Show the gamepad status icon while a controller is connected."""
+        self._controller_count = max(0, int(controller_count))
+        self._refresh_controller_status()
+
+    def set_controller_navigation_available(self, available: bool) -> None:
+        """Reflect whether SafeLauncher can read controller events."""
+        self._controller_navigation_available = bool(available)
+        self._refresh_controller_status()
+
+    def _refresh_controller_status(self) -> None:
+        count = self._controller_count
+        self.btn_controller_status.setVisible(count > 0)
         if count <= 0:
-            self.lbl_controller_status.clear()
-            self.lbl_controller_status.setToolTip("")
+            self.btn_controller_status.setToolTip("")
             return
-        self.lbl_controller_status.setPixmap(
-            get_icon("ph.game-controller-bold", color="#35C98A").pixmap(QSize(18, 18))
+        color = "#35C98A" if self._controller_navigation_available else "#E5A93D"
+        self.btn_controller_status.setIcon(
+            get_icon("ph.game-controller-bold", color=color)
         )
         noun = "controller" if count == 1 else "controllers"
-        self.lbl_controller_status.setToolTip(
-            f"{count} game {noun} connected · status indicator only; app navigation is not gamepad-enabled"
-        )
-        self.lbl_controller_status.setAccessibleName(
-            f"{count} game {noun} connected; status indicator only"
-        )
+        if self._controller_navigation_available:
+            detail = "D-pad/stick navigate · A select · B back"
+            accessible_detail = "D-pad or stick to navigate, A to select, B to go back"
+        else:
+            detail = "SafeLauncher cannot read input events; check /dev/input permissions"
+            accessible_detail = "navigation unavailable because input-device access is denied"
+        self.btn_controller_status.setToolTip(f"{count} game {noun} connected · {detail}")
+        accessible_text = f"{count} game {noun} connected; {accessible_detail}"
+        self.btn_controller_status.setAccessibleName(accessible_text)
+        self.btn_controller_status.setAccessibleDescription(accessible_text)
 
 
     def set_profile_identity(self, display_name: str = "", handle: str = "") -> None:

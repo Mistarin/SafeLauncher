@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QApplication
 
 from core.game_controller_monitor import (
     GameControllerMonitor,
+    connected_game_controller_inputs,
     count_connected_game_controllers,
 )
 
@@ -33,6 +34,10 @@ B: ABS=some-axes
 '''
 
         self.assertEqual(count_connected_game_controllers(devices), 2)
+        self.assertEqual(
+            connected_game_controller_inputs(devices)[1],
+            ("event4", "event8"),
+        )
 
     def test_does_not_treat_regular_input_devices_as_controllers(self):
         devices = '''
