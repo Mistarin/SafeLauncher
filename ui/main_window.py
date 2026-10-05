@@ -400,7 +400,10 @@ class MainWindow(QMainWindow):
             save_state=self.save_state_store, backup=self.backup,
             on_changed=self.refresh_cloud_status_for_game, open_cloud_center=self._open_cloud_center,
         )
-        self._cloud_center_overview_binding: ResourceBinding | None = None
+        self._cloud_connection_probe_binding: ResourceBinding | None = None
+        self._cloud_connection_timer = QTimer(self)
+        self._cloud_connection_timer.setInterval(60_000)
+        self._cloud_connection_timer.timeout.connect(self._refresh_cloud_center_indicator)
         self.cloud_save_status_cache = self.cloud_status_service.status_cache
         self._managed_steam_update_batch_done.connect(self._on_managed_steam_update_batch_done)
         self.game_sessions.session_state_changed.connect(self._on_game_session_state_changed)
@@ -1325,6 +1328,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(3200, self._check_backend_update_on_startup)
         self._start_cloud_poll_timer()
         self._start_network_monitor()
+        # Populate the title-bar cloud state independently of opening Cloud
+        # Center. The refresh starts recurring probes only when appropriate.
+        QTimer.singleShot(500, self._refresh_cloud_center_indicator)
 
         show_wizard = self.settings.value("show_welcome_wizard", True, type=bool)
         # The deterministic/offline harness must never open a modal wizard as
@@ -1409,6 +1415,8 @@ class MainWindow(QMainWindow):
             if had_previous and not previous:
                 self._show_toast("Internet connection restored.")
                 if was_transiently_unavailable:
+                    self._close_cloud_connection_probe_binding()
+                    self._refresh_cloud_center_indicator()
                     self._refresh_library()
                     self._start_cloud_poll_timer()
                     self.request_cloud_recheck(None, "network-restored", auto_sync=True)
@@ -1520,6 +1528,7 @@ class MainWindow(QMainWindow):
             self._cancel_metadata_fetchers()
             self._cancel_optional_network_tasks()
             self.cloud_center_service.cancel_pending_reads()
+            self._refresh_cloud_center_indicator()
             profile_page = getattr(self, "profile_page", None)
             if profile_page is not None:
                 try:
@@ -1776,51 +1785,101 @@ class MainWindow(QMainWindow):
             )
 
     def _refresh_cloud_center_indicator(self) -> None:
-        """Refresh the compact cloud indicator without opening Cloud Center."""
+        """Probe cloud health for the title bar without loading its overview."""
         service = getattr(self, "cloud_center_service", None)
         manager = getattr(service, "request_manager", None)
-        request_overview = getattr(service, "request_overview", None)
-        if service is None or manager is None or not callable(request_overview):
+        request_probe = getattr(service, "request_connection_probe", None)
+        timer = getattr(self, "_cloud_connection_timer", None)
+        if service is None or manager is None or not callable(request_probe):
             return
-        binding = getattr(self, "_cloud_center_overview_binding", None)
-        if binding is not None:
-            binding.close()
-            binding.deleteLater()
-            self._cloud_center_overview_binding = None
+        if timer is not None:
+            timer.stop()
         try:
-            handle = request_overview(
-                force=True,
+            context = service.current_context()
+        except Exception:
+            context = None
+
+        if not self._automatic_network_allowed():
+            self._close_cloud_connection_probe_binding()
+            self._set_cloud_connection_indicator("offline")
+            return
+        sessions = getattr(getattr(self, "game_sessions", None), "active", None)
+        if callable(sessions) and sessions():
+            self._close_cloud_connection_probe_binding()
+            return
+        if context is not None and not context.backend_active:
+            self._close_cloud_connection_probe_binding()
+            self._set_cloud_connection_indicator("local")
+            return
+        if context is not None and not context.authentication_configured:
+            self._close_cloud_connection_probe_binding()
+            self._set_cloud_connection_indicator("setup_required")
+            return
+
+        if timer is not None:
+            timer.start()
+        # Do not overlap a slow probe with a timer tick.
+        if getattr(self, "_cloud_connection_probe_binding", None) is not None:
+            return
+        try:
+            handle = request_probe(
                 priority=RequestPriority.BACKGROUND,
             )
         except Exception as error:
-            logger.debug("Cloud header overview refresh could not start: %s", error)
-            self._set_cloud_indicator_for_overview_failure(None)
+            logger.debug("Cloud connection probe could not start: %s", error)
+            self._set_cloud_connection_indicator("unavailable")
             return
-        self._cloud_center_overview_binding = bind_resource(
+        self._cloud_connection_probe_binding = bind_request(
             manager,
-            handle.key,
-            self._on_cloud_header_overview_state,
+            handle,
+            self._on_cloud_header_probe_state,
             self,
             cancel_on_close=True,
         )
 
-    def _on_cloud_header_overview_state(self, result) -> None:
-        """Apply the latest managed overview to the closed-shell indicator."""
+    def _on_cloud_header_probe_state(self, result) -> None:
+        """Apply the latest managed health probe to the header indicator."""
         if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
             return
+        self._close_cloud_connection_probe_binding()
+        sessions = getattr(getattr(self, "game_sessions", None), "active", None)
+        if not self._automatic_network_allowed() or (callable(sessions) and sessions()):
+            return
         if result.status in {ResourceStatus.READY, ResourceStatus.STALE}:
-            self._on_cloud_center_overview_changed(
-                CloudOverview.from_payload(result.value)
-            )
+            payload = result.value if isinstance(result.value, dict) else {}
+            if payload.get("healthy"):
+                connection = "ready"
+            else:
+                status = str(payload.get("status") or "unavailable").lower()
+                connection = {
+                    "offline": "offline",
+                    "setup_required": "setup_required",
+                    "unauthorized": "setup_required",
+                    "authentication_required": "setup_required",
+                }.get(status, "unavailable")
+            self._set_cloud_connection_indicator(connection)
             return
         if result.status == ResourceStatus.CANCELLED:
             return
-        self._set_cloud_indicator_for_overview_failure(result)
+        self._set_cloud_indicator_for_probe_failure(result)
 
-    def _set_cloud_indicator_for_overview_failure(self, result) -> None:
-        """Keep the compact indicator honest when the overview fails."""
-        if not hasattr(self, "title_bar"):
+    def _close_cloud_connection_probe_binding(self) -> None:
+        binding = getattr(self, "_cloud_connection_probe_binding", None)
+        if binding is None:
             return
+        try:
+            binding.close()
+            binding.deleteLater()
+        except RuntimeError:
+            pass
+        self._cloud_connection_probe_binding = None
+
+    def _set_cloud_connection_indicator(self, connection: str) -> None:
+        if hasattr(self, "title_bar"):
+            self.title_bar.set_cloud_status_indicator(connection)
+
+    def _set_cloud_indicator_for_probe_failure(self, result) -> None:
+        """Keep the compact indicator honest when the health probe fails."""
         service = getattr(self, "cloud_center_service", None)
         try:
             context = service.current_context() if service is not None else None
@@ -1834,7 +1893,7 @@ class MainWindow(QMainWindow):
             connection = "setup_required"
         else:
             connection = "unavailable"
-        self.title_bar.set_cloud_status_indicator(connection)
+        self._set_cloud_connection_indicator(connection)
 
     def _on_cloud_connection_restored(self) -> None:
         """Refresh every library save projection after a healthy probe."""
@@ -2027,6 +2086,8 @@ class MainWindow(QMainWindow):
                 self.detail_cloud_metadata.setVisible(False)
         self._save_persistent_cache()
         self.request_cloud_recheck(None, "config-change", auto_sync=True)
+        self._close_cloud_connection_probe_binding()
+        self._refresh_cloud_center_indicator()
 
     def refresh_cloud_status_for_game(self, game_id: int):
         """Re-check one game's cloud status and update its badge when done."""
@@ -4199,6 +4260,15 @@ class MainWindow(QMainWindow):
 
     def _on_game_session_state_changed(self, session) -> None:
         """Keep every presentation bound to the same session state."""
+        if session.state in {"starting", "running", "stopping"}:
+            timer = getattr(self, "_cloud_connection_timer", None)
+            if timer is not None:
+                timer.stop()
+            self._close_cloud_connection_probe_binding()
+        elif not self.game_sessions.active() and self._automatic_network_allowed():
+            # Re-check immediately when the last game session ends, then
+            # resume the normal minute cadence.
+            self._refresh_cloud_center_indicator()
         self._update_detail_launch_button(session.game_id)
         running = session.state in {"running", "stopping"}
         renderer = getattr(self, "library_card_renderer", None)
@@ -6091,6 +6161,9 @@ class MainWindow(QMainWindow):
 
     def _finish_shutdown(self):
         self._close_shutdown_progress()
+        if getattr(self, "_cloud_connection_timer", None) is not None:
+            self._cloud_connection_timer.stop()
+        self._close_cloud_connection_probe_binding()
         if hasattr(self, "game_session_controller"):
             self.game_session_controller.shutdown(wait_ms=0)
 
@@ -6110,13 +6183,6 @@ class MainWindow(QMainWindow):
             self.app_update_controller.shutdown()
 
         self.profile_controller.dispose()
-        if getattr(self, "_cloud_center_overview_binding", None) is not None:
-            try:
-                self._cloud_center_overview_binding.close()
-                self._cloud_center_overview_binding.deleteLater()
-            except RuntimeError:
-                pass
-            self._cloud_center_overview_binding = None
         self._close_managed_cloud_status_bindings()
         self._close_managed_achievement_bindings()
         self.artwork_controller.shutdown()

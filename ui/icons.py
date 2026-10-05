@@ -79,7 +79,6 @@ def draw_folder_pixmap(size: int = 15, color: str = "#FFFFFF") -> QPixmap:
 
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    painter.scale(dpr, dpr)
     painter.setPen(QPen(
         QColor(color), 1.25, Qt.PenStyle.SolidLine,
         Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin,

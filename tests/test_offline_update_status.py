@@ -177,6 +177,96 @@ class OfflineUpdateStatusTests(unittest.TestCase):
             for call in single_shot.call_args_list
         ))
 
+    def test_cloud_header_uses_light_probe_and_starts_idle_polling(self):
+        handle = SimpleNamespace(key=RequestKey("cloud-connection-probe", "ctx", "v1"))
+        service = SimpleNamespace(
+            request_manager=object(),
+            current_context=lambda: SimpleNamespace(
+                backend_active=True, authentication_configured=True
+            ),
+            request_connection_probe=Mock(return_value=handle),
+            request_overview=Mock(),
+        )
+        timer = Mock()
+        binding = Mock()
+        fake = SimpleNamespace(
+            cloud_center_service=service,
+            _cloud_connection_timer=timer,
+            _cloud_connection_probe_binding=None,
+            _automatic_network_allowed=Mock(return_value=True),
+            game_sessions=SimpleNamespace(active=lambda: []),
+            _on_cloud_header_probe_state=Mock(),
+        )
+
+        with patch("ui.main_window.bind_request", return_value=binding) as bind:
+            MainWindow._refresh_cloud_center_indicator(fake)
+
+        service.request_connection_probe.assert_called_once()
+        service.request_overview.assert_not_called()
+        timer.start.assert_called_once_with()
+        bind.assert_called_once_with(
+            service.request_manager,
+            handle,
+            fake._on_cloud_header_probe_state,
+            fake,
+            cancel_on_close=True,
+        )
+        self.assertIs(fake._cloud_connection_probe_binding, binding)
+
+    def test_cloud_header_probe_is_paused_while_a_game_session_is_active(self):
+        timer = Mock()
+        binding = Mock()
+        service = SimpleNamespace(
+            request_manager=object(),
+            current_context=lambda: SimpleNamespace(
+                backend_active=True, authentication_configured=True
+            ),
+            request_connection_probe=Mock(),
+        )
+        fake = SimpleNamespace(
+            cloud_center_service=service,
+            _cloud_connection_timer=timer,
+            _cloud_connection_probe_binding=binding,
+            _automatic_network_allowed=Mock(return_value=True),
+            game_sessions=SimpleNamespace(active=lambda: [object()]),
+        )
+        fake._close_cloud_connection_probe_binding = (
+            MainWindow._close_cloud_connection_probe_binding.__get__(fake)
+        )
+
+        MainWindow._refresh_cloud_center_indicator(fake)
+
+        timer.stop.assert_called_once_with()
+        binding.close.assert_called_once_with()
+        service.request_connection_probe.assert_not_called()
+        self.assertIsNone(fake._cloud_connection_probe_binding)
+
+    def test_cloud_probe_result_updates_header_without_opening_overview(self):
+        binding = Mock()
+        title_bar = Mock()
+        fake = SimpleNamespace(
+            _cloud_connection_probe_binding=binding,
+            _automatic_network_allowed=Mock(return_value=True),
+            game_sessions=SimpleNamespace(active=lambda: []),
+            title_bar=title_bar,
+        )
+        fake._close_cloud_connection_probe_binding = (
+            MainWindow._close_cloud_connection_probe_binding.__get__(fake)
+        )
+        fake._set_cloud_connection_indicator = (
+            MainWindow._set_cloud_connection_indicator.__get__(fake)
+        )
+        result = ResourceResult(
+            key=RequestKey("cloud-connection-probe", "ctx", "v1"),
+            status=ResourceStatus.READY,
+            value={"healthy": True, "status": "healthy"},
+        )
+
+        MainWindow._on_cloud_header_probe_state(fake, result)
+
+        binding.close.assert_called_once_with()
+        title_bar.set_cloud_status_indicator.assert_called_once_with("ready")
+
     def test_detail_cloud_panel_has_explicit_checking_state(self):
         from PyQt6.QtWidgets import QLabel, QPushButton
 
