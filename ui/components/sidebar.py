@@ -827,8 +827,11 @@ class HeaderBar(QFrame):
         )
         noun = "controller" if count == 1 else "controllers"
         if self._controller_navigation_available:
-            detail = "D-pad/stick navigate · A select · B back"
-            accessible_detail = "D-pad or stick to navigate, A to select, B to go back"
+            detail = "D-pad/stick navigate · A select · B back · LB/RB move focus · Start help"
+            accessible_detail = (
+                "D-pad or stick to navigate, A to select, B to go back, "
+                "left and right bumpers to move focus, Start for help"
+            )
         else:
             detail = "SafeLauncher cannot read input events; check /dev/input permissions"
             accessible_detail = "navigation unavailable because input-device access is denied"

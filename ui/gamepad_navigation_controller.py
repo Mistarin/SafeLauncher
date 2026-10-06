@@ -24,6 +24,9 @@ _EV_KEY = 0x01
 _EV_ABS = 0x03
 _BTN_SOUTH = 0x130
 _BTN_EAST = 0x131
+_BTN_TL = 0x136
+_BTN_TR = 0x137
+_BTN_START = 0x13B
 _BTN_DPAD_UP = 0x220
 _BTN_DPAD_DOWN = 0x221
 _BTN_DPAD_LEFT = 0x222
@@ -51,6 +54,7 @@ class GamepadNavigationController(QObject):
     """
 
     navigation_available_changed = pyqtSignal(bool)
+    help_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -193,6 +197,12 @@ class GamepadNavigationController(QObject):
                 self._activate_focused_widget()
             elif code == _BTN_EAST:
                 self._send_key(Qt.Key.Key_Escape)
+            elif code == _BTN_TL:
+                self._focus_next_control(forward=False)
+            elif code == _BTN_TR:
+                self._focus_next_control(forward=True)
+            elif code == _BTN_START:
+                self.help_requested.emit()
             return
         if event_type != _EV_ABS:
             return
@@ -277,10 +287,47 @@ class GamepadNavigationController(QObject):
         if window is None:
             return
         focus = self._focused_widget(window)
-        if focus is not None and self._send_key_to(focus, key):
-            self._show_focus_ring(window, focus)
-            return
+        if focus is not None:
+            before = self._navigation_state(focus)
+            accepted = self._send_key_to(focus, key)
+            if accepted and before != self._navigation_state(focus):
+                self._show_focus_ring(window, focus)
+                return
         self._focus_spatial_neighbor(window, focus, key)
+        self._show_focus_ring(window, self._focused_widget(window))
+
+    @staticmethod
+    def _navigation_state(widget: QWidget) -> tuple:
+        """Snapshot common native-navigation state to detect list boundaries."""
+        state = []
+        for attribute in ("currentIndex", "value", "cursorPosition"):
+            getter = getattr(widget, attribute, None)
+            if callable(getter):
+                try:
+                    state.append((attribute, getter()))
+                except RuntimeError:
+                    pass
+        for attribute in ("horizontalScrollBar", "verticalScrollBar"):
+            getter = getattr(widget, attribute, None)
+            if callable(getter):
+                try:
+                    bar = getter()
+                    state.append((attribute, bar.value()))
+                except (AttributeError, RuntimeError):
+                    pass
+        text_cursor = getattr(widget, "textCursor", None)
+        if callable(text_cursor):
+            try:
+                state.append(("textCursor", text_cursor().position()))
+            except RuntimeError:
+                pass
+        return tuple(state)
+
+    def _focus_next_control(self, *, forward: bool) -> None:
+        window = self._active_window()
+        if window is None:
+            return
+        window.focusNextPrevChild(bool(forward))
         self._show_focus_ring(window, self._focused_widget(window))
 
     def _focus_spatial_neighbor(

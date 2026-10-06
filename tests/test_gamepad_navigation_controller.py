@@ -46,6 +46,14 @@ class GamepadNavigationControllerTests(unittest.TestCase):
 
         self.assertIs(self.app.focusWidget(), self.right)
 
+    def test_gamepad_navigation_uses_native_keys_then_leaves_controls_at_edges(self):
+        self.left.setFocus()
+        self.app.processEvents()
+
+        self.controller._navigate(Qt.Key.Key_Right)
+
+        self.assertIs(self.app.focusWidget(), self.right)
+
     def test_south_button_activates_focused_control(self):
         activated = []
         self.right.clicked.connect(lambda: activated.append(True))

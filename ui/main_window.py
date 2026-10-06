@@ -622,6 +622,9 @@ class MainWindow(QMainWindow):
         self.gamepad_navigation_controller.navigation_available_changed.connect(
             self.title_bar.set_controller_navigation_available
         )
+        self.gamepad_navigation_controller.help_requested.connect(
+            self._show_controller_navigation_help
+        )
         self.game_controller_monitor.start()
         self.title_bar.search_changed.connect(self._on_search_query_changed)
         self.title_bar.filter_requested.connect(self._set_filter)
@@ -1807,7 +1810,8 @@ class MainWindow(QMainWindow):
             return
         self._show_toast(
             "Controller: D-pad or left stick to navigate, A to select/activate, "
-            "and B to go back. Controls pause while a game is running."
+            "B to go back, LB/RB to move focus, and Start for help. "
+            "Controls pause while a game is running."
         )
 
     def _on_cloud_center_overview_changed(self, overview) -> None:
