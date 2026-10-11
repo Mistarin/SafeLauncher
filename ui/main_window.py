@@ -135,7 +135,13 @@ from core.game_session import GameSessionManager
 from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
 from core.operation_registry import OperationRegistry
 from core.secret_store import get_secret
-from core.network_policy import automatic_network_allowed, is_offline_mode, set_offline_mode
+from core.network_policy import (
+    automatic_network_allowed,
+    is_offline_mode,
+    network_policy_enabled,
+    offline_mode_forced_by_environment,
+    set_offline_mode,
+)
 from core.game_controller_monitor import GameControllerMonitor
 from ui.dialogs.network_dialog import NetworkUnavailableDialog
 from ui.components.activity_drawer import ActivityDrawer
@@ -509,9 +515,10 @@ class MainWindow(QMainWindow):
         self._offline_mode = is_offline_mode(self.settings)
         self._network_loss_pending = False
         self._network_loss_dialog = None
+        self._network_retry_pending = False
         self.network_monitor = NetworkMonitorController(
             self.request_manager,
-            network_allowed=self._automatic_network_allowed,
+            network_allowed=self._network_policy_enabled,
             offline_test_mode=lambda: self._offline_test_mode,
             parent=self,
         )
@@ -1221,18 +1228,20 @@ class MainWindow(QMainWindow):
         """)
         footer_layout.addWidget(self.btn_activity)
 
-        self.lbl_network_status = QLabel("Offline")
+        self.lbl_network_status = QPushButton("Checking…")
         self.lbl_network_status.setObjectName("networkStatusLabel")
         self.lbl_network_status.setStyleSheet(
-            "QLabel#networkStatusLabel { color: #71717A; background: transparent; "
-            "font-size: 10px; font-weight: 500; padding: 0 2px; }"
+            "QPushButton#networkStatusLabel { color: #71717A; background: transparent; "
+            "border: none; font-size: 10px; font-weight: 500; padding: 0 2px; }"
         )
-        self.lbl_network_status.setToolTip(
-            "Remote metadata checks are paused or unavailable. Cached and local data remain available."
-        )
-        self.lbl_network_status.setAccessibleName("Network status: offline")
-        self.lbl_network_status.setVisible(bool(getattr(self, "_offline_mode", False)))
+        self.lbl_network_status.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.lbl_network_status.setFixedHeight(26)
+        self.lbl_network_status.clicked.connect(self._on_network_status_clicked)
         footer_layout.addWidget(self.lbl_network_status)
+        if self._network_policy_enabled():
+            self._set_network_checking()
+        else:
+            self._set_network_status(True)
 
         footer_layout.addStretch()
 
@@ -1403,17 +1412,58 @@ class MainWindow(QMainWindow):
         self._offline_mode = is_offline_mode(getattr(self, "settings", None))
         return allowed and not getattr(self, "_closing", False)
 
+    def _network_policy_enabled(self) -> bool:
+        """Return whether settings and environment permit networking.
+
+        This deliberately excludes reachability so the monitor can probe
+        while the shared connectivity gate is closed.
+        """
+        return network_policy_enabled(getattr(self, "settings", None)) and not getattr(
+            self, "_closing", False
+        )
+
     def _start_network_monitor(self) -> None:
         """Probe connectivity periodically while automatic networking is allowed."""
+        if self._network_policy_enabled() and not self.network_monitor.reachability_known:
+            self._set_network_checking()
         self.network_monitor.start()
 
     def _probe_network_now(self) -> None:
         """Compatibility delegate for user-triggered connectivity retries."""
         self.network_monitor.probe_now()
 
+    def _on_network_status_clicked(self) -> None:
+        """Return to online policy and immediately check reachability."""
+        if not self._network_policy_enabled() and (
+            not is_offline_mode(self.settings) or offline_mode_forced_by_environment()
+        ):
+            # A test-mode or environment policy is a hard limit for this
+            # process; the UI must not imply that it can override it.
+            self._set_network_status(True)
+            return
+        was_offline = is_offline_mode(self.settings)
+        if was_offline:
+            set_offline_mode(False, self.settings)
+            self._apply_network_policy_change(was_offline)
+        if self._network_policy_enabled():
+            if (
+                not was_offline
+                and self.network_monitor.reachability_known
+                and self.network_monitor.reachable
+            ):
+                return
+            self._network_retry_pending = True
+            self._network_loss_pending = True
+            self._set_network_checking("Checking internet connection…")
+            dialog = self._ensure_network_loss_dialog()
+            dialog.set_checking()
+            dialog.set_retrying(True)
+            self.network_monitor.start()
+            self.network_monitor.probe_now()
+
     def _on_network_probe_done(self, result: dict) -> None:
         """Update the footer and surface only an online→offline transition."""
-        if not self._automatic_network_allowed():
+        if not self._network_policy_enabled():
             self.network_monitor.stop()
             return
         reachable = bool(result.get("reachable", False))
@@ -1425,6 +1475,8 @@ class MainWindow(QMainWindow):
                 result.get("was_transient_unavailable", False)
             )
             self._network_loss_pending = False
+            manual_retry = self._network_retry_pending
+            self._network_retry_pending = False
             self._set_network_status(False)
             dialog = self._network_loss_dialog
             if dialog is not None:
@@ -1433,36 +1485,56 @@ class MainWindow(QMainWindow):
                 except RuntimeError:
                     pass
                 self._network_loss_dialog = None
-            if had_previous and not previous:
-                self._show_toast("Internet connection restored.")
-                if was_transiently_unavailable:
-                    self._close_cloud_connection_probe_binding()
-                    self._refresh_cloud_center_indicator()
-                    self._refresh_library()
-                    self._start_cloud_poll_timer()
-                    self.request_cloud_recheck(None, "network-restored", auto_sync=True)
-                    QTimer.singleShot(300, self._check_all_steam_updates)
+            if was_transiently_unavailable:
+                if manual_retry or (had_previous and not previous):
+                    self._show_toast("Internet connection restored.")
+                self._close_cloud_connection_probe_binding()
+                self._refresh_cloud_center_indicator()
+                self._refresh_library()
+                self._start_cloud_poll_timer()
+                self.request_cloud_recheck(None, "network-restored", auto_sync=True)
+                QTimer.singleShot(300, self._check_all_steam_updates)
+                if not had_previous:
+                    self._resume_initial_online_work()
             return
 
         self._set_network_status(True, reason)
         dialog = self._network_loss_dialog
         if dialog is not None:
             dialog.set_retrying(False)
-        if had_previous and previous:
+            dialog.set_failure(reason)
+        if self._network_retry_pending or (had_previous and previous):
             self._network_loss_pending = True
             self._show_network_loss_dialog()
+            dialog = self._network_loss_dialog
+            if dialog is not None:
+                dialog.set_retrying(False)
+                dialog.set_failure(reason)
 
-    def _show_network_loss_dialog(self) -> None:
-        """Show one actionable prompt once the window is focused."""
-        if not self._network_loss_pending or not self.isActiveWindow():
+    def _resume_initial_online_work(self) -> None:
+        """Start startup work deferred until the first successful probe."""
+        if not self._automatic_network_allowed():
             return
+        QTimer.singleShot(100, self._start_background_achievement_sync)
+        QTimer.singleShot(200, self._sync_profile_metadata_async)
+        QTimer.singleShot(800, self._start_background_cloud_sync)
+        if os.environ.get("SAFELAUNCHER_DISABLE_UPDATE_CHECK") != "1":
+            if getattr(self, "_update_check_timer", None) is None:
+                self._update_check_timer = QTimer(self)
+                self._update_check_timer.setSingleShot(True)
+                self._update_check_timer.timeout.connect(self._check_app_updates)
+                self._update_check_timer.start(3_000)
+            QTimer.singleShot(3_200, self._check_backend_update_on_startup)
+        if self.settings.value("show_welcome_wizard", True, type=bool):
+            QTimer.singleShot(150, self._show_welcome_wizard)
+
+    def _ensure_network_loss_dialog(self):
+        """Create and wire the retry/offline choice dialog if needed."""
         dialog = self._network_loss_dialog
         if dialog is not None:
             try:
-                if dialog.isVisible():
-                    dialog.raise_()
-                    dialog.activateWindow()
-                    return
+                dialog.isVisible()
+                return dialog
             except RuntimeError:
                 self._network_loss_dialog = None
         dialog = NetworkUnavailableDialog(self)
@@ -1470,6 +1542,17 @@ class MainWindow(QMainWindow):
         dialog.retry_requested.connect(self._retry_network_connection)
         dialog.offline_requested.connect(self._switch_to_offline_from_network_loss)
         dialog.finished.connect(lambda _result: self._clear_network_loss_dialog(dialog))
+        return dialog
+
+    def _show_network_loss_dialog(self) -> None:
+        """Show one actionable prompt once the window is focused."""
+        if not self._network_loss_pending or not self.isActiveWindow():
+            return
+        dialog = self._ensure_network_loss_dialog()
+        if dialog.isVisible():
+            dialog.raise_()
+            dialog.activateWindow()
+            return
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
@@ -1482,13 +1565,16 @@ class MainWindow(QMainWindow):
         dialog = self._network_loss_dialog
         if dialog is not None:
             dialog.set_retrying(True)
+        self._network_retry_pending = True
         self._network_loss_pending = True
+        self._set_network_checking("Checking internet connection…")
         QTimer.singleShot(0, self.network_monitor.probe_now)
 
     def _switch_to_offline_from_network_loss(self) -> None:
         was_offline = is_offline_mode(self.settings)
         set_offline_mode(True, self.settings)
         self._network_loss_pending = False
+        self._network_retry_pending = False
         dialog = self._network_loss_dialog
         if dialog is not None:
             dialog.close()
@@ -1499,39 +1585,69 @@ class MainWindow(QMainWindow):
             self._show_network_loss_dialog()
 
     def _set_network_status(self, offline: bool, reason: str = "") -> None:
-        """Keep explicit Offline Mode separate from transient connectivity loss.
+        """Show combined network availability with the reason kept explicit.
 
-        The footer is a policy indicator, not a live internet monitor.  A
-        failed probe is handled by the actionable connection-loss dialog; it
-        must not make the persistent ``Offline`` footer appear while the user
-        is still in Online Mode.
+        Offline Mode is a user policy; a failed reachability probe is a
+        transient connection state. Both pause remote work, but the tooltip
+        distinguishes them and Offline Mode remains user-controlled.
         """
         self._offline_mode = is_offline_mode(getattr(self, "settings", None))
-        explicit_offline = self._offline_mode or bool(
-            getattr(self, "_offline_test_mode", False)
-        )
+        policy_blocked = not network_policy_enabled(getattr(self, "settings", None))
+        explicit_offline = self._offline_mode or policy_blocked
         self._network_offline_detected = bool(offline) or explicit_offline
         label = getattr(self, "lbl_network_status", None)
         if label is None:
             return
-        label.setVisible(explicit_offline)
-        if explicit_offline:
-            label.setText("Offline")
-            label.setToolTip(
-                "Offline mode is enabled; remote metadata checks are paused. "
-                "Cached and local data remain available."
+        offline = explicit_offline or bool(offline)
+        if offline:
+            label.setText("● Offline")
+            label.setStyleSheet(
+                "QPushButton#networkStatusLabel { color: #71717A; background: transparent; "
+                "border: none; font-size: 10px; font-weight: 500; padding: 0 2px; }"
             )
-            label.setAccessibleName("Network status: offline mode")
+            if explicit_offline:
+                if self._offline_mode and not offline_mode_forced_by_environment():
+                    label.setToolTip(
+                        "Offline Mode is enabled; click to return to Online Mode and check connectivity."
+                    )
+                else:
+                    label.setToolTip(
+                        "Networking is disabled by an environment policy and cannot be changed here."
+                    )
+                label.setAccessibleName("Network status: offline mode")
+            else:
+                label.setToolTip(
+                    (reason or "No internet connection detected.")
+                    + " Click to retry. Cached and local data remain available."
+                )
+                label.setAccessibleName("Network status: offline; click to retry")
         else:
-            label.setText("")
+            label.setText("● Online")
+            label.setStyleSheet(
+                "QPushButton#networkStatusLabel { color: #22C55E; background: transparent; "
+                "border: none; font-size: 10px; font-weight: 500; padding: 0 2px; }"
+            )
             label.setToolTip("Online: remote metadata checks are allowed.")
             label.setAccessibleName("Network status: online")
+
+    def _set_network_checking(self, reason: str = "Checking internet connection…") -> None:
+        """Show the pending probe state without claiming the network is down."""
+        label = getattr(self, "lbl_network_status", None)
+        if label is None:
+            return
+        label.setText("Checking…")
+        label.setStyleSheet(
+            "QPushButton#networkStatusLabel { color: #A1A1AA; background: transparent; "
+            "border: none; font-size: 10px; font-weight: 500; padding: 0 2px; }"
+        )
+        label.setToolTip(reason + " You can click to retry.")
+        label.setAccessibleName("Network status: checking")
 
     def _apply_network_policy_change(self, was_offline: bool) -> None:
         """Stop optional network work immediately after Settings changes."""
         now_offline = is_offline_mode(self.settings)
         self._offline_mode = now_offline
-        if now_offline or not self._automatic_network_allowed():
+        if now_offline or not self._network_policy_enabled():
             self.network_monitor.stop()
             self._set_network_status(
                 True,
@@ -1565,8 +1681,8 @@ class MainWindow(QMainWindow):
             start_monitor = getattr(self, "_start_network_monitor", None)
             if callable(start_monitor):
                 start_monitor()
-            self._set_network_status(False)
-            self._show_toast("Online mode enabled — refreshing optional metadata.")
+            self._set_network_checking()
+            self._show_toast("Online Mode enabled — checking internet connection.")
             self._refresh_library()
             self._start_cloud_poll_timer()
             # Do not let an unavailable account snapshot survive a policy

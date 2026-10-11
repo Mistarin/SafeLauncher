@@ -7,6 +7,7 @@ from typing import Callable
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from core.network_probe import probe_internet
+from core.network_policy import set_network_reachability
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 
 
@@ -28,7 +29,7 @@ class NetworkMonitorController(QObject):
         network_allowed: Callable[[], bool],
         offline_test_mode: Callable[[], bool] | bool = False,
         interval_ms: int = 5_000,
-        initial_delay_ms: int = 1_500,
+        initial_delay_ms: int = 0,
         parent=None,
     ):
         super().__init__(parent)
@@ -38,9 +39,14 @@ class NetworkMonitorController(QObject):
         self.initial_delay_ms = max(0, int(initial_delay_ms))
         self.reachability_known = False
         self.reachable = False
-        self.transient_unavailable = False
+        # Hold optional requests until the first reachability check confirms
+        # that network traffic can succeed. This prevents startup fetch storms
+        # while the machine is disconnected.
+        self.transient_unavailable = True
+        set_network_reachability(False)
         self._generation = 0
         self._probe_in_flight = False
+        self._probe_handle = None
 
         self.timer = QTimer(self)
         self.timer.setInterval(max(250, int(interval_ms)))
@@ -56,6 +62,8 @@ class NetworkMonitorController(QObject):
         if self._test_mode() or not self.network_allowed():
             self.stop()
             return
+        self.transient_unavailable = True
+        set_network_reachability(False)
         self.timer.start()
         generation = self._generation
         QTimer.singleShot(
@@ -68,7 +76,15 @@ class NetworkMonitorController(QObject):
         self.timer.stop()
         self._generation += 1
         self._probe_in_flight = False
+        handle = self._probe_handle
+        self._probe_handle = None
+        if handle is not None:
+            try:
+                handle.cancel()
+            except Exception:
+                pass
         self.transient_unavailable = False
+        set_network_reachability(None)
 
     def probe_now(self) -> None:
         if self._test_mode() or not self.network_allowed() or self._probe_in_flight:
@@ -86,6 +102,7 @@ class NetworkMonitorController(QObject):
             metadata={"allow_offline": True, "connectivity_probe": True},
             timeout_seconds=5,
         )
+        self._probe_handle = handle
         handle.future.add_done_callback(
             lambda future: self._probe_finished.emit(generation, future)
         )
@@ -94,6 +111,7 @@ class NetworkMonitorController(QObject):
         if generation != self._generation:
             return
         self._probe_in_flight = False
+        self._probe_handle = None
         if not self.network_allowed():
             self.stop()
             return
@@ -116,6 +134,7 @@ class NetworkMonitorController(QObject):
         self.reachability_known = True
         self.reachable = reachable
         self.transient_unavailable = not reachable
+        set_network_reachability(reachable)
         if not reachable:
             self.request_manager.cancel_matching(
                 lambda spec: not bool(spec.metadata.get("allow_offline", False)),

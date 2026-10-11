@@ -98,7 +98,7 @@ class OfflineUpdateStatusTests(unittest.TestCase):
         self.assertIn("Last checked online", row.update_badge.toolTip())
         row.deleteLater()
 
-    def test_footer_stays_visible_when_a_late_callback_reports_online(self):
+    def test_footer_stays_offline_when_a_late_callback_reports_online(self):
         class Settings:
             def value(self, key, default=None, type=None):
                 if key == "offline_mode":
@@ -112,10 +112,10 @@ class OfflineUpdateStatusTests(unittest.TestCase):
         # policy remains authoritative for the footer.
         MainWindow._set_network_status(fake, False)
 
-        label.setVisible.assert_called_once_with(True)
+        label.setText.assert_called_once_with("● Offline")
         self.assertTrue(fake._network_offline_detected)
 
-    def test_footer_stays_hidden_for_transient_loss_in_online_mode(self):
+    def test_footer_reports_transient_loss_in_online_mode(self):
         class Settings:
             def value(self, key, default=None, type=None):
                 if key == "offline_mode":
@@ -131,8 +131,7 @@ class OfflineUpdateStatusTests(unittest.TestCase):
 
         MainWindow._set_network_status(fake, True, "DNS lookup failed")
 
-        label.setVisible.assert_called_once_with(False)
-        label.setText.assert_called_once_with("")
+        label.setText.assert_called_once_with("● Offline")
         self.assertTrue(fake._network_offline_detected)
 
     def test_returning_online_forces_cloud_and_game_version_refreshes(self):
@@ -144,8 +143,10 @@ class OfflineUpdateStatusTests(unittest.TestCase):
 
         fake = SimpleNamespace(
             settings=Settings(),
+            _network_policy_enabled=Mock(return_value=True),
             _automatic_network_allowed=Mock(return_value=True),
             _set_network_status=Mock(),
+            _set_network_checking=Mock(),
             _show_toast=Mock(),
             _refresh_library=Mock(),
             _start_cloud_poll_timer=Mock(),
@@ -176,6 +177,34 @@ class OfflineUpdateStatusTests(unittest.TestCase):
             and call.args[1] is fake._check_all_steam_updates
             for call in single_shot.call_args_list
         ))
+
+    def test_first_successful_probe_resumes_deferred_startup_work(self):
+        fake = SimpleNamespace(
+            _network_policy_enabled=Mock(return_value=True),
+            _network_loss_pending=False,
+            _network_retry_pending=False,
+            _network_loss_dialog=None,
+            _set_network_status=Mock(),
+            _close_cloud_connection_probe_binding=Mock(),
+            _refresh_cloud_center_indicator=Mock(),
+            _refresh_library=Mock(),
+            _start_cloud_poll_timer=Mock(),
+            request_cloud_recheck=Mock(),
+            _check_all_steam_updates=Mock(),
+            _resume_initial_online_work=Mock(),
+        )
+
+        with patch("ui.main_window.QTimer.singleShot"):
+            MainWindow._on_network_probe_done(fake, {
+                "reachable": True,
+                "had_previous": False,
+                "previous_reachable": False,
+                "was_transient_unavailable": True,
+            })
+
+        fake._resume_initial_online_work.assert_called_once_with()
+        fake._refresh_library.assert_called_once_with()
+        fake._start_cloud_poll_timer.assert_called_once_with()
 
     def test_cloud_header_uses_light_probe_and_starts_idle_polling(self):
         handle = SimpleNamespace(key=RequestKey("cloud-connection-probe", "ctx", "v1"))

@@ -27,6 +27,7 @@ class NetworkUnavailableDialog(PopupDialog):
         title = QLabel("Internet connection unavailable")
         title.setObjectName("popupTitle")
         body.addWidget(title)
+        self.title_label = title
 
         message = QLabel(
             "SafeLauncher is still in online mode, but the internet connection "
@@ -35,6 +36,7 @@ class NetworkUnavailableDialog(PopupDialog):
         message.setObjectName("popupSubtitle")
         message.setWordWrap(True)
         body.addWidget(message)
+        self.message_label = message
 
         hint = QLabel("Local games and cached data remain available either way.")
         hint.setObjectName("popupHint")
@@ -61,8 +63,22 @@ class NetworkUnavailableDialog(PopupDialog):
 
     def set_retrying(self, retrying: bool) -> None:
         self.btn_retry.setEnabled(not retrying)
-        self.btn_offline.setEnabled(not retrying)
         self.btn_retry.setText("Checking…" if retrying else "Retry")
+
+    def set_checking(self) -> None:
+        self.title_label.setText("Checking internet connection")
+        self.message_label.setText(
+            "SafeLauncher is checking the internet connection. You can switch to "
+            "Offline Mode while it checks."
+        )
+
+    def set_failure(self, reason: str) -> None:
+        self.title_label.setText("Internet connection unavailable")
+        detail = f" ({reason})" if reason else ""
+        self.message_label.setText(
+            f"The internet connection is still unavailable{detail}. "
+            "Retry, or switch to Offline Mode to use local and cached data."
+        )
 
 
 __all__ = ["NetworkUnavailableDialog"]

@@ -23,6 +23,19 @@ OFFLINE_MODE_ENV = "SAFELAUNCHER_OFFLINE_MODE"
 OFFLINE_TEST_MODE_ENV = "SAFELAUNCHER_OFFLINE_TEST_MODE"
 OFFLINE_MODE_SETTING = "offline_mode"
 
+# Reachability is process-wide because several legacy callers perform their
+# policy check outside MainWindow. ``None`` means no monitor has established a
+# verdict yet; it preserves normal behavior before an application monitor is
+# attached. The monitor marks the network unavailable while its first probe
+# is pending, then publishes each verdict here.
+_NETWORK_REACHABLE: bool | None = None
+
+
+def set_network_reachability(reachable: bool | None) -> None:
+    """Publish the monitor's reachability verdict for all network guards."""
+    global _NETWORK_REACHABLE
+    _NETWORK_REACHABLE = None if reachable is None else bool(reachable)
+
 
 def _env_flag(name: str) -> bool | None:
     """Return an explicitly configured boolean environment value."""
@@ -42,8 +55,13 @@ def is_offline_mode(settings: Any | None = None) -> bool:
     return bool(settings.value(OFFLINE_MODE_SETTING, False, type=bool))
 
 
-def automatic_network_allowed(settings: Any | None = None) -> bool:
-    """Return whether background network work may be scheduled.
+def offline_mode_forced_by_environment() -> bool:
+    """Return whether the environment hard-locks the application offline."""
+    return _env_flag(OFFLINE_MODE_ENV) is True
+
+
+def network_policy_enabled(settings: Any | None = None) -> bool:
+    """Return whether user and environment policy permits network activity.
 
     The smoke-test switch is intentionally included here, so production code
     cannot accidentally reintroduce DNS-dependent work into deterministic UI
@@ -53,6 +71,11 @@ def automatic_network_allowed(settings: Any | None = None) -> bool:
         return False
     test_value = _env_flag(OFFLINE_TEST_MODE_ENV)
     return test_value is not True
+
+
+def automatic_network_allowed(settings: Any | None = None) -> bool:
+    """Return whether network work is permitted by policy and reachability."""
+    return network_policy_enabled(settings) and _NETWORK_REACHABLE is not False
 
 
 def set_offline_mode(enabled: bool, settings: Any | None = None) -> None:
@@ -74,4 +97,4 @@ def offline_status_text(settings: Any | None = None) -> str:
         return "Offline mode enabled — automatic internet access is disabled."
     if _env_flag(OFFLINE_TEST_MODE_ENV) is True:
         return "Offline test mode — automatic internet access is disabled."
-    return "Online mode — automatic internet access is enabled."
+    return "Online mode — automatic internet access is allowed when connected."
