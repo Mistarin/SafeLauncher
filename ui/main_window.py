@@ -4784,7 +4784,14 @@ class MainWindow(QMainWindow):
             return
         latest, latest_date = self._latest_build_for_game(game_id)
         if not latest:
-            self._show_toast("No public Steam build record is available for this AppID yet.", is_error=True)
+            app_id = normalize_steam_app_id(
+                self.selected_game[6] if len(self.selected_game) > 6 else ""
+            )
+            if app_id:
+                self._retry_steam_check()
+                self._show_toast("Checking Steam for the current public build…")
+            else:
+                self._show_toast("Link a valid Steam AppID before checking its current build.", is_error=True)
             return
         if not self._commit_current_steam_build(game_id, latest, latest_date):
             self._show_toast("Could not save the Steam build reference.", is_error=True)
@@ -4804,7 +4811,14 @@ class MainWindow(QMainWindow):
             return
         latest, latest_date = self._latest_build_for_game(game_id)
         if not latest:
-            self._show_toast("No public Steam build record is available for this AppID yet.", is_error=True)
+            app_id = normalize_steam_app_id(
+                game[6] if len(game) > 6 else ""
+            )
+            if app_id:
+                self._retry_steam_check()
+                self._show_toast("Checking Steam for the current public build…")
+            else:
+                self._show_toast("Link a valid Steam AppID before checking its current build.", is_error=True)
             return
         if not self._commit_current_steam_build(game_id, latest, latest_date):
             self._show_toast("Could not save the Steam build reference.", is_error=True)
@@ -6690,6 +6704,8 @@ class MainWindow(QMainWindow):
         manual_build_id = dialog.get_build_id()
         manual_build_date = dialog.get_build_date()
         manual_steam_id = dialog.get_steam_id()
+        old_steam_id = normalize_steam_app_id(game[6] if len(game) > 6 else "")
+        new_steam_id = normalize_steam_app_id(manual_steam_id)
         build_reference_edited = bool(
             getattr(dialog, "build_reference_was_edited", True)
         )
@@ -6714,6 +6730,27 @@ class MainWindow(QMainWindow):
             patch_notes_url=patch_notes_url,
         )
         logger.info(f"Saved game settings for {game_id}: executable='{exe}', mode='{mode}'")
+        if old_steam_id != new_steam_id:
+            # Build results are keyed by game ID in the local projection. Do
+            # not let a result fetched for the previous AppID survive a relink.
+            self.metadata_attempted_builds.discard(game_id)
+            self.steam_check_results.pop(game_id, None)
+            self.library_metadata_state.steam_build_checked_at.pop(game_id, None)
+            if self.selected_game and int(self.selected_game[0]) == int(game_id):
+                self.latest_checked_build_id = ""
+                self.latest_checked_build_date = 0
+            self.update_status_by_game_id.pop(game_id, None)
+            current_status = self.game_status_by_id.get(game_id, GameStatusState())
+            self.game_status_by_id[game_id] = replace(
+                current_status,
+                update_available=False,
+                update_error="",
+                update_build_id="",
+                update_build_date=0,
+                update_checked_at=0.0,
+                update_source="unknown",
+            )
+            self._save_persistent_cache()
         if manual_build_id is not None and build_reference_edited:
             build_source = "user" if manual_build_id or manual_build_date else "auto"
             if self.library_service.set_build_reference(

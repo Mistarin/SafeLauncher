@@ -240,8 +240,13 @@ class LibraryViewHost(QStackedWidget):
         return set()
 
     def update_cloud_status(self, game_id: int, status, local_stats=None, cloud_stats=None) -> None:
+        for card in tuple(self.grid_container.widgets):
+            if getattr(card, "game_id", None) == game_id:
+                card.set_cloud_status(status)
         self.virtual_grid.update_cloud_status(game_id, status)
-        self.compact_container.update_cloud_status(game_id, status)
+        self.compact_container.update_cloud_status(
+            game_id, status, local_stats, cloud_stats
+        )
         if self.detail_page.current_game_id == game_id:
             self.detail_page.set_cloud_status(status, local_stats, cloud_stats)
 

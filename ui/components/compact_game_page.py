@@ -2020,6 +2020,11 @@ class CompactSidebarListItemWidget(QWidget):
         self.cloud_lbl.setPixmap(get_icon_pixmap(meta.icon, 12, color=meta.color))
         self.cloud_lbl.setToolTip(meta.tooltip)
 
+    def set_cloud_status(self, status: Any) -> None:
+        """Update the compact left-list cloud badge in place."""
+        self.cloud_status = status
+        self._set_cloud_icon()
+
     def set_favorite(self, is_favorite: bool) -> None:
         """Update the compact sidebar favorite marker in place."""
         self.is_favorite = bool(is_favorite)
@@ -2493,6 +2498,31 @@ class CompactSidebarListWidget(QFrame):
                     widget._load_icon()
                 break
 
+    def update_cloud_status(
+        self, game_id: int, status: Any, local_stats=None, cloud_stats=None
+    ) -> None:
+        """Update the row and cached status used when the sidebar is rebuilt."""
+        game_id = int(game_id)
+        cached = self.cloud_status_cache.get(game_id)
+        if isinstance(cached, (tuple, list)):
+            old_local = cached[1] if len(cached) > 1 else None
+            old_cloud = cached[2] if len(cached) > 2 else None
+        else:
+            old_local = old_cloud = None
+        self.cloud_status_cache[game_id] = (
+            status,
+            local_stats if local_stats is not None else old_local,
+            cloud_stats if cloud_stats is not None else old_cloud,
+        )
+
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item and int(item.data(Qt.ItemDataRole.UserRole)) == game_id:
+                widget = self.list_widget.itemWidget(item)
+                if isinstance(widget, CompactSidebarListItemWidget):
+                    widget.set_cloud_status(status)
+                break
+
     def update_favorite(self, game_id: int, is_favorite: bool):
         """Update one compact sidebar marker without rebuilding the list."""
         for i in range(self.list_widget.count()):
@@ -2709,8 +2739,11 @@ class CompactLayoutContainer(QWidget):
         if getattr(self.game_page, "current_game_id", None) == game_id:
             self.game_page.action_bar.set_favorite_active(is_favorite)
 
-    def update_cloud_status(self, game_id: int, status: Any):
-        """Update the compact action bar when it is showing this game."""
+    def update_cloud_status(
+        self, game_id: int, status: Any, local_stats=None, cloud_stats=None
+    ):
+        """Update the compact sidebar and action bar for one game's cloud state."""
+        self.sidebar_list.update_cloud_status(game_id, status, local_stats, cloud_stats)
         if getattr(self.game_page, "current_game_id", None) == game_id:
             self.game_page.action_bar.update_cloud_status(status)
 

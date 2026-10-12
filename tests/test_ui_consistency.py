@@ -21,7 +21,7 @@ from ui.components.sidebar import CustomTitleBar
 from ui.main_window import MainWindow
 from ui.cloud_workflow_controller import CloudWorkflowController
 from ui.components.banner_card import GameBannerWidget
-from ui.components.virtual_grid import VirtualizedGameGridView
+from ui.components.virtual_grid import VirtualizedGameGridView, CLOUD_STATUS_ROLE
 from ui.components.library_view_host import LibraryViewHost
 from ui.components.game_detail_page import GameDetailPageWidget
 from core.cloud_models import SyncStatus
@@ -329,6 +329,47 @@ class PopupPropertyConsistencyTests(unittest.TestCase):
             self.assertEqual(actions, ["add"])
             host.set_empty_grid_message("No matching games", show_add=False)
             self.assertTrue(host._empty_add_button.isHidden())
+        finally:
+            host.deleteLater()
+            self.app.processEvents()
+
+    def test_cloud_status_updates_every_library_renderer_and_compact_cache(self):
+        host = LibraryViewHost()
+        game = (
+            1, "Example", "/tmp", "game", "umu", "", "", 0, 0, "", "",
+            "", "", "", "", "", "", 0, "",
+        )
+        card = GameBannerWidget(1, "Example")
+        old_local, old_cloud = object(), object()
+        try:
+            host.set_grid_widgets([card])
+            host.virtual_grid.set_games([game])
+            compact_sidebar = host.compact_container.sidebar_list
+            compact_sidebar.set_games(
+                [game], set(), cloud_status_cache={1: (SyncStatus.NO_SAVES, old_local, old_cloud)}
+            )
+            host.detail_page.current_game_id = 1
+
+            host.update_cloud_status(1, SyncStatus.LOCAL_NEWER, old_local, old_cloud)
+
+            self.assertEqual(card.cloud_status, SyncStatus.LOCAL_NEWER)
+            self.assertEqual(
+                host.virtual_grid._items_by_game_id[1].data(CLOUD_STATUS_ROLE),
+                SyncStatus.LOCAL_NEWER,
+            )
+            row = compact_sidebar.list_widget.itemWidget(compact_sidebar.list_widget.item(0))
+            self.assertEqual(row.cloud_status, SyncStatus.LOCAL_NEWER)
+            self.assertEqual(
+                compact_sidebar.cloud_status_cache[1],
+                (SyncStatus.LOCAL_NEWER, old_local, old_cloud),
+            )
+            self.assertEqual(host.detail_page._cloud_status, SyncStatus.LOCAL_NEWER)
+
+            compact_sidebar.set_games(
+                [game], set(), cloud_status_cache=compact_sidebar.cloud_status_cache
+            )
+            rebuilt = compact_sidebar.list_widget.itemWidget(compact_sidebar.list_widget.item(0))
+            self.assertEqual(rebuilt.cloud_status, SyncStatus.LOCAL_NEWER)
         finally:
             host.deleteLater()
             self.app.processEvents()
