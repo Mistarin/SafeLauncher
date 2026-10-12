@@ -84,6 +84,13 @@ export default defineSchema({
     .index("by_blocker_profile", ["blockerProfileId"])
     .index("by_blocked_profile", ["blockedProfileId"])
     .index("by_pair_profile", ["blockerProfileId", "blockedProfileId"]),
+  /** Single transient last-seen record per published profile. */
+  profilePresence: defineTable({
+    profileId: v.id("publicProfiles"),
+    lastSeenAt: v.number(),
+  })
+    .index("by_profile", ["profileId"])
+    .index("by_last_seen", ["lastSeenAt"]),
   profileRateLimits: defineTable({
     bucketKey: v.string(),
     windowStart: v.number(),

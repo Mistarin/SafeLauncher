@@ -100,6 +100,10 @@ class ProfileResourceService:
         with self._client(service_url) as client:
             return bool(client.configured)
 
+    def check_health(self, service_url: str | None = None, *, timeout: float = 5.0) -> dict[str, Any]:
+        with self._client(service_url) as client:
+            return client.check_health(timeout=timeout)
+
     def fetch_public(self, handle: str, service_url: str | None = None) -> dict[str, Any]:
         with self._client(service_url) as client:
             return client.fetch(handle)
@@ -115,6 +119,14 @@ class ProfileResourceService:
     def get_social(self, handle: str | None = None, service_url: str | None = None) -> dict[str, Any]:
         with self._client(service_url) as client:
             return client.get_social(handle)
+
+    def heartbeat_presence(self, service_url: str | None = None) -> dict[str, Any]:
+        with self._client(service_url) as client:
+            return client.heartbeat_presence()
+
+    def get_friend_presence(self, service_url: str | None = None) -> dict[str, Any]:
+        with self._client(service_url) as client:
+            return client.get_friend_presence()
 
     def get_owner_social(self, service_url: str | None = None) -> dict[str, Any]:
         """Return authoritative owner profile state together with its friends.

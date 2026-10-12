@@ -25,6 +25,7 @@ const PUBLIC_AVATAR_IMAGE_RE = /^\/api\/profile\/v2\/avatars\/[a-z0-9](?:[a-z0-9
 const TELEMETRY_RE = /^\/api\/telemetry\/ping$/;
 const V2_PROFILE_RE = /^\/api\/profile\/v2\/me$/;
 const V2_CLAIM_RE = /^\/api\/profile\/v2\/me\/claim$/;
+const V2_PRESENCE_HEARTBEAT_RE = /^\/api\/profile\/v2\/me\/presence$/;
 const V2_SOCIAL_RE = new RegExp(
   `^/api/profile/v2/me/(?:friends(?:/${HANDLE_PATTERN})?|blocks(?:/${HANDLE_PATTERN})?|friend-requests(?:/${REQUEST_ID_PATTERN}/(?:accept|decline|cancel))?)$`,
 );
@@ -110,7 +111,11 @@ export function classify(pathname: string, method: string): { kind: "health" | "
   if (method === "GET" && HANDLE_AVAILABILITY_RE.test(pathname)) return { kind: "public" };
   if (method === "GET" && (PUBLIC_AVATAR_CATALOG_RE.test(pathname) || PUBLIC_AVATAR_IMAGE_RE.test(pathname))) return { kind: "public" };
   if (method === "POST" && TELEMETRY_RE.test(pathname)) return { kind: "public" };
-  const v2Path = V2_PROFILE_RE.test(pathname) || V2_CLAIM_RE.test(pathname) || V2_SOCIAL_RE.test(pathname);
+  const presenceHeartbeat = V2_PRESENCE_HEARTBEAT_RE.test(pathname) && method === "POST";
+  const friendPresencePath = pathname === "/api/profile/v2/me/friends/presence";
+  const friendPresence = friendPresencePath && method === "GET";
+  const v2Path = V2_PROFILE_RE.test(pathname) || V2_CLAIM_RE.test(pathname) ||
+    (V2_SOCIAL_RE.test(pathname) && !friendPresencePath) || presenceHeartbeat || friendPresence;
   if (v2Path && ["GET", "POST", "PUT", "DELETE"].includes(method))
     return { kind: "auth" };
   return { kind: "invalid" };

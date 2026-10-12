@@ -23,18 +23,9 @@ OFFLINE_MODE_ENV = "SAFELAUNCHER_OFFLINE_MODE"
 OFFLINE_TEST_MODE_ENV = "SAFELAUNCHER_OFFLINE_TEST_MODE"
 OFFLINE_MODE_SETTING = "offline_mode"
 
-# Reachability is process-wide because several legacy callers perform their
-# policy check outside MainWindow. ``None`` means no monitor has established a
-# verdict yet; it preserves normal behavior before an application monitor is
-# attached. The monitor marks the network unavailable while its first probe
-# is pending, then publishes each verdict here.
-_NETWORK_REACHABLE: bool | None = None
-
-
 def set_network_reachability(reachable: bool | None) -> None:
-    """Publish the monitor's reachability verdict for all network guards."""
-    global _NETWORK_REACHABLE
-    _NETWORK_REACHABLE = None if reachable is None else bool(reachable)
+    """Compatibility hook; internet reachability no longer gates requests."""
+    del reachable
 
 
 def _env_flag(name: str) -> bool | None:
@@ -74,8 +65,8 @@ def network_policy_enabled(settings: Any | None = None) -> bool:
 
 
 def automatic_network_allowed(settings: Any | None = None) -> bool:
-    """Return whether network work is permitted by policy and reachability."""
-    return network_policy_enabled(settings) and _NETWORK_REACHABLE is not False
+    """Return whether policy permits requests; each backend reports reachability."""
+    return network_policy_enabled(settings)
 
 
 def set_offline_mode(enabled: bool, settings: Any | None = None) -> None:

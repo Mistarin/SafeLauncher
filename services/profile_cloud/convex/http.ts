@@ -282,7 +282,9 @@ async function dispatch(
     const v2SocialMatch = url.pathname.match(
       /^\/api\/profile\/v2\/me\/(friends|friend-requests|blocks)(?:\/([^/]+)(?:\/(accept|decline|cancel))?)?$/,
     );
-    if (url.pathname === "/api/profile/v2/me" || v2SocialMatch) {
+    const v2PresenceHeartbeat = url.pathname === "/api/profile/v2/me/presence";
+    const v2FriendPresence = url.pathname === "/api/profile/v2/me/friends/presence";
+    if (url.pathname === "/api/profile/v2/me" || v2SocialMatch || v2PresenceHeartbeat || v2FriendPresence) {
       const { ownerIdentityHash } = await requireCentralIdentity(ctx, req);
       const owner = await ctx.runQuery(internal.profiles.getByIdentity, {
         ownerIdentityHash,
@@ -359,6 +361,21 @@ async function dispatch(
 
       if (!owner)
         throw new ApiError(404, "profile_required", "Create a public profile first.");
+      if (v2PresenceHeartbeat && method === "POST") {
+        await enforceWriteLimit(ctx, ownerIdentityHash, "presence-heartbeat", 10, 60);
+        const result = await ctx.runMutation(internal.profiles.recordPresence, {
+          profileId: owner._id,
+        });
+        return jsonResponse(result);
+      }
+      if (v2FriendPresence && method === "GET") {
+        const result = await ctx.runQuery(internal.profiles.friendPresence, {
+          profileId: owner._id,
+        });
+        return jsonResponse(result);
+      }
+      if (v2PresenceHeartbeat || v2FriendPresence)
+        throw new ApiError(405, "method_not_allowed", "Method not allowed.");
       const resource = v2SocialMatch[1];
       const identifier = v2SocialMatch[2];
       const action = v2SocialMatch[3];

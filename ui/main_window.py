@@ -152,6 +152,7 @@ from ui.components.profile_page import ProfilePageWidget
 from ui.components.cloud_ui import cloud_progress, confirm_restore
 from core.central_auth import CentralAuthSession
 from core.profile_models import load_profile_settings
+from core.profile_service import get_profile_service_url
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.request_manager import RequestManager
 from core.resource_cache import ResourceCache
@@ -525,8 +526,11 @@ class MainWindow(QMainWindow):
             offline_test_mode=lambda: self._offline_test_mode,
             parent=self,
         )
-        self.runtime.set_network_gate(lambda: self.network_monitor.transient_unavailable)
+        self.runtime.set_network_gate(lambda: not self._network_policy_enabled())
         self.network_monitor.result_ready.connect(self._on_network_probe_done)
+        self._request_failure_unsubscribe = self.request_manager.subscribe_failures(
+            self._on_remote_request_failed
+        )
         # Compact is the product default.  Older releases persisted Grid/List
         # even though Compact became the primary unified library experience,
         # so migrate that stale preference once rather than surprising every
@@ -1124,6 +1128,12 @@ class MainWindow(QMainWindow):
             request_manager=self.request_manager,
             resource_cache=self.resource_cache,
         )
+        self._presence_heartbeat_timer = QTimer(self)
+        self._presence_heartbeat_timer.setInterval(30_000)
+        self._presence_heartbeat_timer.timeout.connect(self._send_presence_heartbeats)
+        self._presence_heartbeat_timer.start()
+        QTimer.singleShot(0, self._send_presence_heartbeats)
+        self._backend_health: dict[str, dict[str, Any]] = {}
         self.profile_controller = ProfileController(
             page=self.profile_page, resources=self.profile_page.profile_resources,
             settings=self.settings, auth=self.central_auth, manager=self.request_manager,
@@ -1417,6 +1427,99 @@ class MainWindow(QMainWindow):
         self._offline_mode = is_offline_mode(getattr(self, "settings", None))
         return allowed and not getattr(self, "_closing", False)
 
+    def _send_presence_heartbeats(self) -> None:
+        """Refresh public and private device presence while signed in."""
+        if not self._automatic_network_allowed():
+            return
+
+        profile = load_profile_settings(
+            self.settings,
+            fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
+        )
+        if (
+            bool(getattr(self.central_auth, "signed_in", False))
+            and bool(profile.get("published"))
+            and str(profile.get("public_handle", "") or "").strip()
+        ):
+            resources = self.profile_page.profile_resources
+            service_url = get_profile_service_url()
+            spec = resources.request_spec(
+                resources.request_key(
+                    "profile-presence-heartbeat",
+                    "current-account",
+                    service_url=service_url,
+                ),
+                lambda token: (token.raise_if_cancelled(), resources.heartbeat_presence(service_url))[1],
+                priority=RequestPriority.BACKGROUND,
+                timeout_seconds=10,
+                tag="desktop-presence-heartbeat",
+            )
+            self.request_manager.request(
+                spec.key,
+                spec.loader,
+                priority=spec.priority,
+                generation=spec.generation,
+                metadata=spec.metadata,
+                timeout_seconds=spec.timeout_seconds,
+            )
+
+        # Private cloud devices use their own credentials and backend.
+        self.cloud_account_service.request_heartbeat(tag="desktop-presence-heartbeat")
+
+    def _on_remote_request_failed(self, _result) -> None:
+        self.network_monitor.notify_request_failed()
+
+    def _schedule_backend_health_checks(self) -> None:
+        """Probe each configured backend independently without changing local connectivity."""
+        if not self._automatic_network_allowed():
+            return
+        resources = self.profile_page.profile_resources
+        profile_url = get_profile_service_url()
+        cloud_context = self.cloud_account_service.current_context()
+        checks = (
+            (
+                "profile_gateway",
+                resources.request_key("backend-health", "profile-gateway", "v1", service_url=profile_url),
+                lambda token: (token.raise_if_cancelled(), resources.check_health(profile_url, timeout=5))[1],
+                "profile",
+            ),
+            (
+                "private_cloud",
+                cloud_context.request_key("backend-health", "private-cloud", "v1"),
+                lambda token: (token.raise_if_cancelled(), self.cloud_account_service.health(
+                    site_url=cloud_context.endpoint,
+                    timeout=5,
+                ))[1],
+                "cloud",
+            ),
+        )
+        for service, key, loader, request_service in checks:
+            handle = self.request_manager.request(
+                key,
+                loader,
+                priority=RequestPriority.BACKGROUND,
+                generation=(
+                    resources.context_generation
+                    if service == "profile_gateway"
+                    else cloud_context.generation
+                ),
+                metadata={"service": request_service, "backend_health": service},
+                timeout_seconds=8,
+            )
+
+            def save_result(future, service_name=service):
+                try:
+                    result = future.result()
+                    value = result.value if result.status == ResourceStatus.READY else None
+                    self._backend_health[service_name] = (
+                        dict(value) if isinstance(value, dict)
+                        else {"healthy": False, "status": "unavailable"}
+                    )
+                except Exception:
+                    self._backend_health[service_name] = {"healthy": False, "status": "unavailable"}
+
+            handle.future.add_done_callback(save_result)
+
     def _network_policy_enabled(self) -> bool:
         """Return whether settings and environment permit networking.
 
@@ -1475,6 +1578,8 @@ class MainWindow(QMainWindow):
         reason = str(result.get("reason") or "The internet connection could not be reached.")
         previous = bool(result.get("previous_reachable", False))
         had_previous = bool(result.get("had_previous", False))
+        # Keep health checks independent of the public connectivity probe.
+        self._schedule_backend_health_checks()
         if reachable:
             was_transiently_unavailable = bool(
                 result.get("was_transient_unavailable", False)
@@ -1504,6 +1609,10 @@ class MainWindow(QMainWindow):
             return
 
         self._set_network_status(True, reason)
+        if not had_previous:
+            # The internet probe is only a local hint. Let service-specific
+            # requests establish which backends are actually reachable.
+            self._resume_initial_online_work()
         dialog = self._network_loss_dialog
         if dialog is not None:
             dialog.set_retrying(False)
@@ -6601,6 +6710,7 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
         self.network_monitor.start()
+        self._presence_heartbeat_timer.start()
         if self._automatic_network_allowed():
             self.cloud_status_polling.start()
         if not self.drive_check_timer.isActive():
@@ -6621,6 +6731,7 @@ class MainWindow(QMainWindow):
         self.prelaunch_controller.cancel_pending_for_shutdown()
         self.manual_restore_controller.cancel()
         self.network_monitor.stop()
+        self._presence_heartbeat_timer.stop()
         self.achievement_sync_controller.suspend()
         dialog = self._network_loss_dialog
         if dialog is not None:
@@ -6674,6 +6785,7 @@ class MainWindow(QMainWindow):
 
     def _finish_shutdown(self):
         self._close_shutdown_progress()
+        self._presence_heartbeat_timer.stop()
         if hasattr(self, "game_controller_monitor"):
             self.game_controller_monitor.stop()
         if hasattr(self, "gamepad_navigation_controller"):

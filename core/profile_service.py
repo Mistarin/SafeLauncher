@@ -118,6 +118,35 @@ class ProfileServiceClient:
             return False
         return parsed.scheme == "https" or is_local_service_url(self.site_url)
 
+    def check_health(self, timeout: float = 5.0) -> dict[str, Any]:
+        """Check the public gateway without authenticating or contacting Convex directly."""
+        if not self.configured:
+            return {"healthy": False, "status": "unconfigured", "version": "unknown"}
+        response = None
+        try:
+            response = self.session.get(
+                f"{self.site_url}/api/health",
+                headers={"Accept": "application/json"},
+                timeout=max(0.5, float(timeout)),
+            )
+            if response.status_code != 200:
+                return {"healthy": False, "status": "unavailable", "version": "unknown"}
+            payload = response.json()
+            healthy = isinstance(payload, dict) and payload.get("ok") is True
+            return {
+                "healthy": bool(healthy),
+                "status": "connected" if healthy else "invalid_response",
+                "version": str(payload.get("version") or "unknown") if isinstance(payload, dict) else "unknown",
+            }
+        except (requests.RequestException, ValueError, TypeError, OverflowError):
+            return {"healthy": False, "status": "unavailable", "version": "unknown"}
+        finally:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+
     def _request(
         self,
         method: str,
@@ -420,6 +449,43 @@ class ProfileServiceClient:
         if snapshot is None:
             raise ProfileServiceError("The social profile response is invalid or corrupt.", "invalid_social")
         return snapshot
+
+    def heartbeat_presence(self) -> dict[str, Any]:
+        """Record this authenticated SafeLauncher client as recently active."""
+        return self._request(
+            "POST",
+            "/api/profile/v2/me/presence",
+            json_body={},
+            owner=True,
+        )
+
+    def get_friend_presence(self) -> dict[str, Any]:
+        """Return online state for accepted friends only, as enforced remotely."""
+        payload = self._request(
+            "GET",
+            "/api/profile/v2/me/friends/presence",
+            owner=True,
+        )
+        friends = payload.get("friends") if isinstance(payload, dict) else None
+        if not isinstance(friends, list):
+            raise ProfileServiceError("The friend presence response is invalid.", "invalid_presence")
+        normalized = []
+        for item in friends:
+            if not isinstance(item, dict):
+                continue
+            handle = str(item.get("handle") or "").strip().lower()
+            if not handle:
+                continue
+            try:
+                last_seen = max(0, int(item.get("lastSeenAt", 0) or 0))
+            except (TypeError, ValueError, OverflowError):
+                last_seen = 0
+            normalized.append({
+                "handle": handle,
+                "online": bool(item.get("online")),
+                "last_seen_at": last_seen,
+            })
+        return {"friends": normalized}
 
     def send_friend_request(self, handle: str | None, target_handle: str) -> dict:
         if self.auth_session is not None:

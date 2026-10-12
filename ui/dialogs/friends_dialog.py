@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QMessageBox, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
@@ -46,11 +46,16 @@ class FriendsDialog(PopupDialog):
         self._focus_find = bool(focus_find)
         self._social_loading = False
         self._social_mutating = False
+        self._presence_loading = False
+        self._presence_by_handle: dict[str, bool] = {}
         self._snapshot: dict[str, Any] = normalize_social_snapshot({})
         self._handle = ""
         self._social_action_buttons: list[QPushButton] = []
         self._pending_success_message = ""
         self._technical_error = ""
+        self._presence_timer = QTimer(self)
+        self._presence_timer.setInterval(45_000)
+        self._presence_timer.timeout.connect(self._refresh_presence)
 
         self.setMinimumSize(650, 500)
         self.resize(760, 620)
@@ -242,6 +247,13 @@ class FriendsDialog(PopupDialog):
         label.setTextFormat(Qt.TextFormat.PlainText)
         label.setStyleSheet(f"color:{TEXT_PRIMARY};")
         row_layout.addWidget(label, 1)
+        if handle and handle.lower() in self._presence_by_handle:
+            online = self._presence_by_handle[handle.lower()]
+            presence = QLabel("Online" if online else "Offline")
+            presence.setAccessibleName(f"{handle} is {'online' if online else 'offline'}")
+            presence.setToolTip("Online means SafeLauncher connected recently; it does not indicate whether someone is at their computer.")
+            presence.setStyleSheet("color:#55D68B;" if online else "color:#9298A5;")
+            row_layout.addWidget(presence)
         for caption, callback in actions:
             button = QPushButton(caption)
             button.setObjectName("friendsRowAction")
@@ -426,9 +438,53 @@ class FriendsDialog(PopupDialog):
             self._update_gate()
             return
         self._render()
+        self._refresh_presence()
         if pending:
             self.status_label.setStyleSheet(f"color:{SEMANTIC_SUCCESS};")
             self.status_label.setText(pending)
+
+    def _refresh_presence(self) -> None:
+        """Fetch one authorized batch while the friends dialog is visible."""
+        if (
+            not self.isVisible()
+            or self._presence_loading
+            or not automatic_network_allowed(self.settings)
+            or not bool(getattr(self.auth_session, "signed_in", False))
+            or not self._handle
+            or not self._update_gate()
+        ):
+            return
+        self._presence_loading = True
+        worker = self._tasks.start(
+            "SafeLauncher-FriendPresence",
+            lambda: self.profile_resources.get_friend_presence(get_profile_service_url()),
+            self._presence_done,
+        )
+        worker.error_occurred.connect(self._presence_failed)
+
+    def _presence_done(self, result: Any) -> None:
+        self._presence_loading = False
+        payload = result if isinstance(result, dict) else {}
+        friends = payload.get("friends")
+        if not isinstance(friends, list):
+            updated: dict[str, bool] = {}
+        else:
+            updated = {
+                str(item.get("handle") or "").strip().lower(): bool(item.get("online"))
+                for item in friends
+                if isinstance(item, dict) and str(item.get("handle") or "").strip()
+            }
+        changed = updated != self._presence_by_handle
+        self._presence_by_handle = updated
+        if changed and self.isVisible():
+            self._render()
+
+    def _presence_failed(self, _error: str) -> None:
+        self._presence_loading = False
+        changed = bool(self._presence_by_handle)
+        self._presence_by_handle.clear()
+        if changed and self.isVisible():
+            self._render()
 
     def _start_managed_remote(
         self,
@@ -628,11 +684,13 @@ class FriendsDialog(PopupDialog):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._presence_timer.start()
         if self._focus_find:
             self.find_input.setFocus()
         self.refresh()
 
     def closeEvent(self, event) -> None:
+        self._presence_timer.stop()
         for binding in tuple(self._resource_bindings.values()):
             binding.close()
         self._resource_bindings.clear()

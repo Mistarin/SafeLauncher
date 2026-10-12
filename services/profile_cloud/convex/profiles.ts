@@ -1,4 +1,5 @@
 import { internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import {
   constantTimeEqual,
@@ -330,6 +331,71 @@ export const getByIdentity = internalQuery({
     .withIndex("by_owner_identity", (q: any) => q.eq("ownerIdentityHash", args.ownerIdentityHash)).unique(),
 });
 
+export const recordPresence = internalMutation({
+  args: { profileId: v.id("publicProfiles") },
+  handler: async (ctx, args) => {
+    const profile = await ctx.db.get(args.profileId);
+    if (!profile) return { recorded: false };
+    const existing = await ctx.db.query("profilePresence")
+      .withIndex("by_profile", (q: any) => q.eq("profileId", args.profileId)).unique();
+    const lastSeenAt = Date.now();
+    if (existing) await ctx.db.patch(existing._id, { lastSeenAt });
+    else await ctx.db.insert("profilePresence", { profileId: args.profileId, lastSeenAt });
+    return { recorded: true };
+  },
+});
+
+export const friendPresence = internalQuery({
+  args: { profileId: v.id("publicProfiles") },
+  handler: async (ctx, args) => {
+    const owner = await ctx.db.get(args.profileId);
+    if (!owner) return { friends: [] };
+    const friendships = await friendshipRowsFor(ctx, owner);
+    const now = Date.now();
+    const friends = await Promise.all(friendships.map(async (friendship: any) => {
+      let friend = null;
+      if (friendship.memberAProfileId === owner._id) {
+        friend = await getProfileById(ctx, friendship.memberBProfileId);
+      } else if (friendship.memberBProfileId === owner._id) {
+        friend = await getProfileById(ctx, friendship.memberAProfileId);
+      }
+      if (!friend) {
+        const friendHandle = friendship.memberA === owner.handle
+          ? friendship.memberB
+          : friendship.memberA;
+        friend = await getProfile(ctx, friendHandle);
+      }
+      if (!friend) return null;
+      // Enforce blocks here as well as relying on relationship mutations to
+      // remove friendships, so old/duplicate relationship rows cannot leak
+      // presence after either side blocks the other.
+      if (await isBlocked(ctx, owner, friend)) return null;
+      const presence = await ctx.db.query("profilePresence")
+        .withIndex("by_profile", (q: any) => q.eq("profileId", friend._id)).unique();
+      return {
+        handle: friend.handle,
+        online: Boolean(presence && presence.lastSeenAt >= now - 90_000),
+      };
+    }));
+    return { friends: friends.filter(Boolean) };
+  },
+});
+
+export const cleanupExpiredPresence = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const expired = await ctx.db.query("profilePresence")
+      .withIndex("by_last_seen", (q: any) => q.lt("lastSeenAt", cutoff))
+      .take(100);
+    for (const record of expired) await ctx.db.delete(record._id);
+    if (expired.length === 100) {
+      await ctx.scheduler.runAfter(0, internal.profiles.cleanupExpiredPresence, {});
+    }
+    return { deleted: expired.length };
+  },
+});
+
 export const getSocial = internalQuery({
   args: { handle: v.string(), ownerTokenHash: v.string(), ownerIdentityHash: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -629,6 +695,8 @@ export const remove = internalMutation({
       ctx.db.query("profileBlocks").withIndex("by_blocked_profile", (q: any) => q.eq("blockedProfileId", existing._id)).collect(),
       ctx.db.query("profileHandles").withIndex("by_profile", (q: any) => q.eq("profileId", existing._id)).collect(),
     ]);
+    const presence = await ctx.db.query("profilePresence")
+      .withIndex("by_profile", (q: any) => q.eq("profileId", existing._id)).unique();
     const rows = new Map<string, any>();
     for (const row of [...outgoing, ...incoming, ...relationships, ...blocked, ...blockedBy]) rows.set(String(row._id), row);
     // Include old rows that predate the ID backfill.
@@ -642,6 +710,7 @@ export const remove = internalMutation({
       for (const row of oldRows) rows.set(String(row._id), row);
     }
     for (const row of rows.values()) await ctx.db.delete(row._id);
+    if (presence) await ctx.db.delete(presence._id);
     for (const alias of aliases) await ctx.db.delete(alias._id);
     await ctx.db.delete(existing._id);
     return { deleted: true };

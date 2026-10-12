@@ -428,6 +428,11 @@ class CloudCenterService:
         """Force a fresh overview while retaining stale data semantics."""
         return self.request_overview(force=True, priority=priority)
 
+    def request_device_presence(self):
+        """Refresh device last-seen data without reloading saves and quota."""
+        request = getattr(self.account_service, "request_heartbeat", None)
+        return request(tag="cloud-center-device-presence") if callable(request) else None
+
     def request_devices(self, *, force: bool = False, priority: RequestPriority = RequestPriority.NORMAL):
         """Request the device projection through its own managed resource key."""
         context = self.current_context()

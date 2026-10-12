@@ -400,6 +400,39 @@ class CloudAccountService:
         self._attach_read_invalidation(handle)
         return handle
 
+    def request_heartbeat(self, *, tag: str = "presence"):
+        """Refresh this device's private-cloud last-seen timestamp asynchronously."""
+        if self.request_manager is None:
+            return None
+        context = self.current_context()
+        if not context.remote_requests_allowed:
+            return None
+
+        def load(token: CancellationToken) -> dict[str, Any]:
+            token.raise_if_cancelled()
+            client = self._client()
+            try:
+                result = client.heartbeat()
+            finally:
+                client.close()
+            token.raise_if_cancelled()
+            return result
+
+        return self.request_manager.request(
+            context.request_key("cloud-device-heartbeat", "current-device", "v1"),
+            load,
+            priority=RequestPriority.BACKGROUND,
+            retry_policy=RetryPolicy(retry_if=is_transient_error),
+            generation=context.generation,
+            metadata={
+                "cloud_context": context.cache_identity,
+                "cloud_generation": context.generation,
+                "operation": "cloud-device-heartbeat",
+                "tag": str(tag),
+            },
+            timeout_seconds=10,
+        )
+
     def request_delete_generation(
         self,
         name_key: str,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -17,7 +18,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from core.cloud_center_service import CloudCenterService, CloudOverview
+from core.cloud_center_service import CloudCenterService, CloudDeviceSummary, CloudOverview
 from core.request_contracts import ResourceStatus
 from ui.components.popup_shell import PopupDialog
 from ui.components.cloud_ui import (
@@ -62,6 +63,7 @@ class CloudCenterDialog(PopupDialog):
     connection_restored = pyqtSignal()
     sync_finished = pyqtSignal(object)
     overview_changed = pyqtSignal(object)
+    _device_presence_ready = pyqtSignal(object)
 
     def __init__(
         self,
@@ -79,6 +81,11 @@ class CloudCenterDialog(PopupDialog):
         self._sync_binding: ResourceBinding | None = None
         self._probe_binding: ResourceBinding | None = None
         self._syncing = False
+        self._current_overview: CloudOverview | None = None
+        self._device_presence_timer = QTimer(self)
+        self._device_presence_timer.setInterval(45_000)
+        self._device_presence_timer.timeout.connect(self._request_device_presence)
+        self._device_presence_ready.connect(self._apply_device_presence)
 
         self.setMinimumSize(700, 560)
         self.resize(760, 650)
@@ -339,7 +346,58 @@ class CloudCenterDialog(PopupDialog):
             self._show_resource_error(result)
             return
         overview = CloudOverview.from_payload(result.value)
+        self._current_overview = overview
         self._render_overview(overview, stale=result.status == ResourceStatus.STALE)
+        self._request_device_presence()
+
+    def _request_device_presence(self) -> None:
+        if not self.isVisible():
+            return
+        handle = self.cloud_center_service.request_device_presence()
+        if handle is None:
+            return
+
+        def deliver(future) -> None:
+            try:
+                result = future.result()
+                self._device_presence_ready.emit(result)
+            except Exception:
+                return
+
+        handle.future.add_done_callback(deliver)
+
+    def _apply_device_presence(self, result) -> None:
+        if (
+            not self.isVisible()
+            or self._current_overview is None
+            or result.status != ResourceStatus.READY
+            or not isinstance(result.value, dict)
+        ):
+            return
+        devices = tuple(
+            CloudDeviceSummary(
+                str(item.get("deviceName") or "Device"),
+                str(item.get("platform") or ""),
+                bool(item.get("isOnline")),
+                float(item.get("lastSeenAt", 0) or 0) / 1000.0,
+            )
+            for item in result.value.get("devices", ())
+            if isinstance(item, dict)
+        )
+        previous = self._current_overview.devices
+        signature = lambda values: tuple(
+            (item.name, item.platform, item.online) for item in values
+        )
+        if signature(devices) == signature(previous):
+            return
+        updated = replace(
+            self._current_overview,
+            devices=devices,
+            device_count=len(devices),
+            online_device_count=sum(1 for device in devices if device.online),
+        )
+        self._current_overview = updated
+        self._render_overview(updated)
 
     def _show_resource_error(self, result) -> None:
         self.btn_review_conflicts.setEnabled(False)
@@ -509,6 +567,7 @@ class CloudCenterDialog(PopupDialog):
         self._request_overview(force=True)
 
     def closeEvent(self, event) -> None:
+        self._device_presence_timer.stop()
         self._close_binding(self._overview_binding)
         self._close_binding(self._sync_binding)
         self._close_binding(self._probe_binding)
@@ -516,6 +575,11 @@ class CloudCenterDialog(PopupDialog):
         self._sync_binding = None
         self._probe_binding = None
         super().closeEvent(event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._device_presence_timer.start()
+        self._request_device_presence()
 
 
 __all__ = ["CloudCenterDialog"]

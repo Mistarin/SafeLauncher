@@ -125,6 +125,7 @@ class RequestManager:
         self._states: dict[RequestKey, ResourceResult] = {}
         self._cache_by_key: dict[RequestKey, ResourceCache] = {}
         self._listeners: dict[RequestKey, dict[str, Callable[[ResourceResult], None]]] = {}
+        self._failure_listeners: dict[str, Callable[[ResourceResult], None]] = {}
         self._projections: dict[RequestKey, _ProjectionRecord] = {}
         self._last_generation: dict[RequestKey, int] = {}
         self._metrics = {
@@ -941,6 +942,21 @@ class RequestManager:
 
         return unsubscribe
 
+    def subscribe_failures(
+        self,
+        callback: Callable[[ResourceResult], None],
+    ) -> Callable[[], None]:
+        """Observe transient remote failures across resources and unsubscribe later."""
+        token = uuid.uuid4().hex
+        with self._condition:
+            self._failure_listeners[token] = callback
+
+        def unsubscribe() -> None:
+            with self._condition:
+                self._failure_listeners.pop(token, None)
+
+        return unsubscribe
+
     def cancel(self, key: RequestKey, generation: int | None = None, *, reason: str = "caller") -> bool:
         projection = None
         with self._condition:
@@ -1299,6 +1315,7 @@ class RequestManager:
                 else:
                     self._states[record.spec.key] = result
             listeners = list(self._listeners.get(record.spec.key, {}).values()) if is_current_generation else []
+            failure_listeners = list(self._failure_listeners.values())
             if not record.future.done():
                 # Keep the completed record in _active while Future callbacks
                 # run. This closes the small race where a fast request is no
@@ -1314,6 +1331,12 @@ class RequestManager:
                 callback(listener_result)
             except Exception:
                 logger.exception("Request listener failed for %s", result.key)
+        if result.error_category in {"timeout", "transient", "unavailable"}:
+            for callback in failure_listeners:
+                try:
+                    callback(result)
+                except Exception:
+                    logger.exception("Request failure listener failed for %s", result.key)
 
     def _increment_metric(self, name: str) -> None:
         with self._condition:
