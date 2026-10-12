@@ -71,7 +71,8 @@ class FirejailSandboxRunner(ISandboxRunner):
     def set_proton_path(self, proton_path: str) -> None:
         """Set an optional local Proton/GE-Proton tool directory for UMU."""
         self.proton_path = os.path.realpath(os.path.expanduser(proton_path.strip())) if proton_path.strip() else ""
-        logger.info(f"Proton path updated: {self.proton_path}")
+        if self.proton_path:
+            logger.info(f"Proton path updated: {self.proton_path}")
 
     @staticmethod
     def check_dependencies() -> dict:

@@ -54,7 +54,10 @@ class NetworkMonitorController(QObject):
         self._network_information = None
         try:
             if QNetworkInformation.instance() is None:
-                QNetworkInformation.loadDefaultBackend()
+                # Prefer the GLib backend: Qt's NetworkManager backend fails to
+                # wire its D-Bus signals in PyQt6 builds and spams QtDBus warnings.
+                if not QNetworkInformation.loadBackendByName("glib"):
+                    QNetworkInformation.loadDefaultBackend()
             self._network_information = QNetworkInformation.instance()
             if self._network_information is not None:
                 self._network_information.reachabilityChanged.connect(self._on_reachability_hint)
