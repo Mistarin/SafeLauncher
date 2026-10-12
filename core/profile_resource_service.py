@@ -112,6 +112,10 @@ class ProfileResourceService:
         with self._client(service_url) as client:
             return client.current_profile()
 
+    def reserve_username(self, handle: str, service_url: str | None = None) -> dict[str, Any]:
+        with self._client(service_url) as client:
+            return client.reserve_username(handle)
+
     def check_handle_availability(self, handle: str, service_url: str | None = None) -> bool:
         with self._client(service_url) as client:
             return client.check_handle_availability(handle)

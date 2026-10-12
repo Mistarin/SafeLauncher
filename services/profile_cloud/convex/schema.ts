@@ -25,6 +25,14 @@ export default defineSchema({
   })
     .index("by_handle", ["handle"])
     .index("by_profile", ["profileId"]),
+  /** A username is held for its Auth0 owner before a public profile is created. */
+  usernameReservations: defineTable({
+    handle: v.string(),
+    ownerIdentityHash: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_handle", ["handle"])
+    .index("by_owner_identity", ["ownerIdentityHash"]),
   profileAvatars: defineTable({
     avatarId: v.string(),
     /** Immutable developer-owned public asset number. Optional during rollout. */

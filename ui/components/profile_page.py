@@ -413,6 +413,7 @@ class ProfilePageWidget(QWidget):
         self._social_action_buttons: list[QPushButton] = []
         self._pending_social_success_message = ""
         self._auth_in_flight = False
+        self._username_reservation_in_flight = False
         self._game_cards: dict[str, list[ProfileGameCard]] = {}
         self._artwork_cache = PresentationCache(MAX_PROFILE_ARTWORK_CACHE_ITEMS)
         self._artwork_cache_stored_at: dict[str, float] = {}
@@ -3082,7 +3083,7 @@ class ProfilePageWidget(QWidget):
         self.handle_hint.setText(
             "Your username is permanent and cannot be changed."
             if handle else
-            "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens. Availability is checked before publishing."
+            "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens. Your username is reserved when you sign in."
         )
         background = self._editor_background()
         background_kind = background.get("kind")
@@ -3245,7 +3246,9 @@ class ProfilePageWidget(QWidget):
             self.settings,
             fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
         )
-        if str(local.get("public_handle", "") or "") and not replace_unpublished:
+        current_handle = str(local.get("public_handle", "") or "")
+        if current_handle and not replace_unpublished:
+            self._reserve_username(current_handle, local, identity)
             return True
         suggestion = profile_username_suggestion(identity)
         while True:
@@ -3260,14 +3263,82 @@ class ProfilePageWidget(QWidget):
             identity_name = str(identity.get("name") or identity.get("nickname") or "").strip()
             if display_name == "Player" and identity_name:
                 display_name = " ".join(identity_name.split())[:64] or display_name
-            self._profile_settings = save_profile_settings(self.settings, {
+            self._reserve_username(handle, {
                 **local,
                 "display_name": display_name,
-                "public_handle": handle,
                 "published": False,
+            }, identity)
+            return True
+
+    def _reserve_username(
+        self,
+        handle: str,
+        local: dict[str, Any],
+        identity: dict[str, Any],
+    ) -> None:
+        """Reserve a first username through the authenticated public gateway."""
+        normalized = normalize_username_handle(handle)
+        if not normalized or self._username_reservation_in_flight:
+            return
+        self._username_reservation_in_flight = True
+        self._auth_in_flight = True
+        self._emit_profile_action_state()
+        self._set_profile_action_status("Securing your username online…")
+
+        def work():
+            try:
+                return self.profile_resources.reserve_username(normalized)
+            except ProfileServiceError as exc:
+                # Return the typed conflict through RequestManager so the UI
+                # can distinguish an occupied handle from a network failure.
+                return exc
+
+        def done(result: Any) -> None:
+            self._username_reservation_in_flight = False
+            self._auth_in_flight = False
+            self._emit_profile_action_state()
+            if isinstance(result, Exception):
+                if isinstance(result, ProfileServiceError) and result.code in {"exists", "handle_taken"}:
+                    self._set_profile_action_status(
+                        "That username is already taken. Choose another one.", True
+                    )
+                    self._setup_username(identity, replace_unpublished=True)
+                else:
+                    self.central_auth.clear()
+                    self._set_profile_action_status(
+                        f"Sign-in could not finish because your username could not be secured: {result}", True
+                    )
+                return
+            payload = result if isinstance(result, dict) else {}
+            reserved_handle = normalize_username_handle(payload.get("handle"))
+            if not reserved_handle:
+                self._set_profile_action_status(
+                    "The profile service returned an invalid username reservation.", True
+                )
+                return
+            self._profile_settings = save_profile_settings(self.settings, {
+                **local,
+                "public_handle": reserved_handle,
+                "published": bool(local.get("published", False)),
             })
             self.profile_changed.emit()
-            return True
+            self._set_profile_action_status(
+                f"Signed in as @{reserved_handle}. Your username is reserved permanently."
+            )
+
+        if self._start_managed_remote(
+            self._profile_resource_key("profile-username-reservation", normalized),
+            work,
+            done,
+            lambda error: done(ProfileServiceError(str(error), "reservation_failed")),
+            priority=RequestPriority.CRITICAL,
+            timeout_seconds=20,
+        ) is not None:
+            return
+        worker = self._tasks.start("SafeLauncher-UsernameReservation", work, done)
+        worker.error_occurred.connect(
+            lambda error: done(ProfileServiceError(str(error), "reservation_failed"))
+        )
 
     def _sign_in(self) -> None:
         if self._auth_in_flight:
@@ -3280,21 +3351,32 @@ class ProfilePageWidget(QWidget):
         self._set_profile_action_status("Opening central sign-in…")
 
         def work():
+            health = self.profile_resources.check_health(timeout=5.0)
+            if (
+                not isinstance(health, dict)
+                or not health.get("healthy")
+                or "username_reservations" not in health.get("features", [])
+            ):
+                raise ProfileServiceError(
+                    "The online profile service is unavailable or needs an update. Connect to the internet and try signing in again.",
+                    "profile_service_offline",
+                    503,
+                )
             self.central_auth.device_login(
                 progress=lambda message: self.auth_progress.emit(message),
             )
-            # Device login and profile provisioning are separate operations.
-            # Auth0 can successfully issue the API token while the optional
-            # first-login identity lookup is unavailable or rejects a token
-            # whose audience is the profile API.  Do not turn that secondary
-            # lookup failure into a false authentication failure: the session
-            # is already signed in and the user can finish setup locally.
-            profile_sync_failed = False
             try:
                 remote = self._reconcile_authenticated_profile()
-            except (CentralAuthError, ProfileServiceError):
-                remote = None
-                profile_sync_failed = True
+            except (CentralAuthError, ProfileServiceError) as exc:
+                # A token without a reachable profile gateway is not a
+                # completed SafeLauncher login. Clear it so the UI cannot
+                # present a half-signed-in state while offline.
+                self.central_auth.clear()
+                raise ProfileServiceError(
+                    "SafeLauncher could not verify your account with the online profile service. Try again when connected.",
+                    "profile_service_offline",
+                    503,
+                ) from exc
 
             identity = {}
             identity_lookup_failed = False
@@ -3309,7 +3391,6 @@ class ProfilePageWidget(QWidget):
                 # claims are used only transiently for a first-login hint and
                 # are never retained in the result after setup.
                 "identity": identity,
-                "profile_sync_failed": profile_sync_failed,
                 "identity_lookup_failed": identity_lookup_failed,
             }
 
@@ -3337,7 +3418,6 @@ class ProfilePageWidget(QWidget):
         payload = result if isinstance(result, dict) else {}
         remote = payload.get("remote") if isinstance(payload.get("remote"), dict) else None
         identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
-        profile_sync_failed = bool(payload.get("profile_sync_failed"))
         identity_lookup_failed = bool(payload.get("identity_lookup_failed"))
         if remote is not None:
             remote_settings = {
@@ -3358,11 +3438,12 @@ class ProfilePageWidget(QWidget):
             status_message = "Signed in and connected to your public profile."
         else:
             if self._setup_username(identity):
-                status_message = f"Signed in as @{self._profile_settings.get('public_handle')}. Publish this profile to make it public."
+                status_message = "Signed in. Securing your username online…"
             else:
-                status_message = "Signed in. Choose a profile username before publishing."
-            if profile_sync_failed or identity_lookup_failed:
-                status_message += " Profile details could not be refreshed yet; retry profile sync when online."
+                self.central_auth.clear()
+                status_message = "Sign-in canceled. Choose a username to finish signing in."
+            if identity_lookup_failed:
+                status_message += " A suggested username could not be loaded; you can enter one manually."
         if self._mode == "owner":
             self.show_owner()
         else:
@@ -3372,7 +3453,8 @@ class ProfilePageWidget(QWidget):
             )
             self._emit_profile_action_state()
         self.private_profile_changed.emit()
-        self._set_profile_action_status(status_message)
+        if not self._username_reservation_in_flight:
+            self._set_profile_action_status(status_message)
 
     def _sign_out(self) -> None:
         if self._auth_in_flight:
@@ -3637,7 +3719,7 @@ class ProfilePageWidget(QWidget):
         if not handle:
             if not self._setup_username({}):
                 return
-            handle = self._profile_settings.get("public_handle")
+            return
         self._profile_settings = save_profile_settings(self.settings, {**self._profile_settings, "public_handle": handle}, mark_changed=False)
         self._publish_current_document()
 

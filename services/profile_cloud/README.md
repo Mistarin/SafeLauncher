@@ -1,6 +1,6 @@
 # SafeLauncher public profile service
 
-Current central service release: **0.4.0** (public profile schema 4).
+Current central service release: **0.5.0** (public profile schema 4).
 
 This is a separate Convex project from the private per-user save backend.
 Personal save deployments do not communicate with one another. SafeLauncher
@@ -57,6 +57,12 @@ indefinitely in `profileHandles` and continue to resolve to the same profile.
 Friend requests, friendships, and
 blocks also store immutable profile references; their handle fields remain
 only as denormalized compatibility/display data.
+
+New accounts reserve their username through the authenticated gateway before
+the desktop stores it locally. Reservations are keyed by the hashed Auth0
+identity, count as unavailable during collision checks, and are consumed when
+the public profile is created. Unpublishing retains the reservation so the
+account can publish again with the same permanent username.
 
 After deploying the compatible schema, configure a separate developer-only
 `SAFELAUNCHER_IDENTIFIER_MIGRATION_KEY` and run a dry report followed by the

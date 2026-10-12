@@ -21,7 +21,7 @@ import {
 } from "./lib/api";
 
 const http = httpRouter();
-const SERVICE_VERSION = "0.4.0";
+const SERVICE_VERSION = "0.5.0";
 
 async function profilePayload(ctx: any, profile: any): Promise<Record<string, unknown>> {
   let value: Record<string, unknown>;
@@ -115,6 +115,7 @@ function throwProfileError(result: any): void {
     exists: 409,
     conflict: 409,
     username_immutable: 409,
+    invalid_handle: 400,
   };
   const messages: Record<string, string> = {
     not_found: "Profile not found.",
@@ -125,6 +126,7 @@ function throwProfileError(result: any): void {
     exists: "Username is already in use.",
     conflict: "The profile changed on another device.",
     username_immutable: "A profile username cannot be changed.",
+    invalid_handle: "The profile username is invalid.",
   };
   throw new ApiError(
     statuses[error] || 400,
@@ -205,6 +207,7 @@ async function dispatch(
         ok: true,
         service: "safelauncher-public-profiles",
         version: SERVICE_VERSION,
+        features: ["username_reservations"],
       });
     }
 
@@ -286,11 +289,28 @@ async function dispatch(
     );
     const v2PresenceHeartbeat = url.pathname === "/api/profile/v2/me/presence";
     const v2FriendPresence = url.pathname === "/api/profile/v2/me/friends/presence";
-    if (url.pathname === "/api/profile/v2/me" || v2SocialMatch || v2PresenceHeartbeat || v2FriendPresence) {
+    const v2UsernameReservation = url.pathname === "/api/profile/v2/me/username";
+    if (url.pathname === "/api/profile/v2/me" || v2SocialMatch || v2PresenceHeartbeat || v2FriendPresence || v2UsernameReservation) {
       const { ownerIdentityHash } = await requireCentralIdentity(ctx, req);
       const owner = await ctx.runQuery(internal.profiles.getByIdentity, {
         ownerIdentityHash,
       });
+
+      if (v2UsernameReservation) {
+        if (method !== "POST")
+          throw new ApiError(405, "method_not_allowed", "Method not allowed.");
+        await enforceWriteLimit(ctx, ownerIdentityHash, "username-reservation", 10, 3600);
+        const body = await readJsonBody(req);
+        if (!validUsernameHandle(body.handle))
+          throw new ApiError(400, "invalid_handle", "A valid profile username is required.");
+        if (owner) return jsonResponse({ reserved: true, handle: owner.handle, existing_profile: true });
+        const result = await ctx.runMutation(internal.profiles.reserveUsername, {
+          handle: body.handle,
+          ownerIdentityHash,
+        });
+        throwProfileError(result);
+        return jsonResponse(result);
+      }
 
       if (!v2SocialMatch) {
         if (method === "GET") {

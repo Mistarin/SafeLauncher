@@ -39,6 +39,13 @@ async function findHandle(ctx: any, handle: string): Promise<any | null> {
     .unique();
 }
 
+async function findUsernameReservation(ctx: any, handle: string): Promise<any | null> {
+  return await ctx.db
+    .query("usernameReservations")
+    .withIndex("by_handle", (q: any) => q.eq("handle", handle))
+    .unique();
+}
+
 /** Resolve both current usernames and permanent historical aliases. */
 async function getProfile(ctx: any, handle: string): Promise<any | null> {
   const normalized = String(handle || "").trim().toLowerCase();
@@ -159,14 +166,14 @@ async function readableHandleFor(
     const candidate = suffix === 0
       ? base
       : normalizeUsernameHandle(`${base}-${suffix + 1}`);
-    if (candidate && !(await getProfile(ctx, candidate))) return candidate;
+    if (candidate && !(await getProfile(ctx, candidate)) && !(await findUsernameReservation(ctx, candidate))) return candidate;
   }
   const fallbackBase = normalizeUsernameHandle(`player-${stableHash(seed)}`) || "player";
   for (let suffix = 0; suffix < 10_000; suffix++) {
     const candidate = suffix === 0
       ? fallbackBase
       : normalizeUsernameHandle(`${fallbackBase}-${suffix + 1}`);
-    if (candidate && !(await getProfile(ctx, candidate))) return candidate;
+    if (candidate && !(await getProfile(ctx, candidate)) && !(await findUsernameReservation(ctx, candidate))) return candidate;
   }
   throw new Error("profile_handle_space_exhausted");
 }
@@ -321,8 +328,31 @@ export const handleAvailable = internalQuery({
   args: { handle: v.string() },
   handler: async (ctx, args) => ({
     handle: args.handle,
-    available: !(await findHandle(ctx, args.handle)) && !(await getProfile(ctx, args.handle)),
+    available: !(await findHandle(ctx, args.handle)) && !(await getProfile(ctx, args.handle)) && !(await findUsernameReservation(ctx, args.handle)),
   }),
+});
+
+export const reserveUsername = internalMutation({
+  args: { handle: v.string(), ownerIdentityHash: v.string() },
+  handler: async (ctx, args) => {
+    const handle = args.handle.trim().toLowerCase();
+    if (!validUsernameHandle(handle)) return { error: "invalid_handle" };
+    const ownerProfile = await ctx.db.query("publicProfiles")
+      .withIndex("by_owner_identity", (q: any) => q.eq("ownerIdentityHash", args.ownerIdentityHash)).unique();
+    if (ownerProfile) return { error: "profile_exists_for_identity", handle: ownerProfile.handle };
+    const owned = await ctx.db.query("usernameReservations")
+      .withIndex("by_owner_identity", (q: any) => q.eq("ownerIdentityHash", args.ownerIdentityHash)).unique();
+    if (owned) return { reserved: true, handle: owned.handle };
+    if (await getProfile(ctx, handle)) return { error: "exists" };
+    const reserved = await findUsernameReservation(ctx, handle);
+    if (reserved) return { error: "exists" };
+    await ctx.db.insert("usernameReservations", {
+      handle,
+      ownerIdentityHash: args.ownerIdentityHash,
+      createdAt: Date.now(),
+    });
+    return { reserved: true, handle };
+  },
 });
 
 export const getByIdentity = internalQuery({
@@ -449,6 +479,7 @@ export const create = internalMutation({
   args: { handle: v.string(), ownerTokenHash: v.string(), profile: v.string() },
   handler: async (ctx, args) => {
     if (await getProfile(ctx, args.handle)) return { error: "exists" };
+    if (await findUsernameReservation(ctx, args.handle)) return { error: "exists" };
     const now = Date.now();
     const id = await ctx.db.insert("publicProfiles", {
       handle: args.handle,
@@ -473,6 +504,11 @@ export const createForIdentity = internalMutation({
     let value: Record<string, unknown>;
     try { value = JSON.parse(args.profile) as Record<string, unknown>; } catch { return { error: "invalid_profile" }; }
     const requested = String(args.handle || "").trim().toLowerCase();
+    const ownedReservation = await ctx.db.query("usernameReservations")
+      .withIndex("by_owner_identity", (q: any) => q.eq("ownerIdentityHash", args.ownerIdentityHash)).unique();
+    if (ownedReservation && ownedReservation.handle !== requested) return { error: "username_immutable" };
+    const reservation = ownedReservation || (validUsernameHandle(requested) ? await findUsernameReservation(ctx, requested) : null);
+    if (reservation && reservation.ownerIdentityHash !== args.ownerIdentityHash) return { error: "exists" };
     if (validUsernameHandle(requested) && await getProfile(ctx, requested)) return { error: "exists" };
     const handle = validUsernameHandle(requested)
       ? requested
@@ -489,6 +525,7 @@ export const createForIdentity = internalMutation({
       updatedAt: now,
     });
     await ensureAlias(ctx, handle, id, true);
+    if (reservation) await ctx.db.delete(reservation._id);
     return { revision: 1, updatedAt: now, handle };
   },
 });
@@ -701,6 +738,18 @@ export const remove = internalMutation({
     ]);
     const presence = await ctx.db.query("profilePresence")
       .withIndex("by_profile", (q: any) => q.eq("profileId", existing._id)).unique();
+    const ownerIdentityHash = typeof existing.ownerIdentityHash === "string" ? existing.ownerIdentityHash : "";
+    if (ownerIdentityHash) {
+      const ownedReservation = await ctx.db.query("usernameReservations")
+        .withIndex("by_owner_identity", (q: any) => q.eq("ownerIdentityHash", ownerIdentityHash)).unique();
+      if (!ownedReservation) {
+        await ctx.db.insert("usernameReservations", {
+          handle: existing.handle,
+          ownerIdentityHash,
+          createdAt: Date.now(),
+        });
+      }
+    }
     const rows = new Map<string, any>();
     for (const row of [...outgoing, ...incoming, ...relationships, ...blocked, ...blockedBy]) rows.set(String(row._id), row);
     // Include old rows that predate the ID backfill.

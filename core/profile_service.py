@@ -137,6 +137,11 @@ class ProfileServiceClient:
                 "healthy": bool(healthy),
                 "status": "connected" if healthy else "invalid_response",
                 "version": str(payload.get("version") or "unknown") if isinstance(payload, dict) else "unknown",
+                "features": [
+                    str(feature)
+                    for feature in payload.get("features", [])
+                    if isinstance(feature, str)
+                ] if isinstance(payload, dict) and isinstance(payload.get("features"), list) else [],
             }
         except (requests.RequestException, ValueError, TypeError, OverflowError):
             return {"healthy": False, "status": "unavailable", "version": "unknown"}
@@ -361,6 +366,21 @@ class ProfileServiceClient:
             raise ProfileServiceError("The authenticated profile is invalid or corrupt.", "invalid_profile")
         document["revision"] = max(0, int(payload.get("revision", 0) or 0))
         return document
+
+    def reserve_username(self, handle: str) -> dict[str, Any]:
+        """Atomically reserve the first public username for this account."""
+        normalized = normalize_username_handle(handle)
+        if not normalized:
+            raise ProfileServiceError("The profile handle is invalid.", "invalid_handle", 400)
+        payload = self._request(
+            "POST",
+            "/api/profile/v2/me/username",
+            json_body={"handle": normalized},
+            owner=True,
+        )
+        if payload.get("reserved") is not True or not isinstance(payload.get("handle"), str):
+            raise ProfileServiceError("The profile service returned an invalid username reservation.", "invalid_response")
+        return payload
 
     def create_profile(self, profile: dict[str, Any]) -> dict:
         return self._request("POST", "/api/profile/v2/me", json_body={"profile": profile}, owner=True)
