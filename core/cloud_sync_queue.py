@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX platforms
+    fcntl = None
 
 from database import _APP_DATA_DIR
+from core.logger import get_logger
+
+logger = get_logger("CloudSyncQueue")
 
 
 class PendingCloudSyncQueue:
@@ -41,7 +50,7 @@ class PendingCloudSyncQueue:
         operation = str(operation or "").strip()
         if not context or not operation:
             return False
-        with self._lock:
+        with self._lock, self._process_lock():
             document = self._read()
             items = self._items(document)
             now = float(time.time() if queued_at is None else queued_at)
@@ -63,7 +72,7 @@ class PendingCloudSyncQueue:
             return self._write({"version": self.VERSION, "items": items})
 
     def pending(self, context: str | None = None, operation: str | None = None) -> list[dict[str, Any]]:
-        with self._lock:
+        with self._lock, self._process_lock():
             items = self._items(self._read())
         if context is not None:
             items = [item for item in items if item["context"] == str(context)]
@@ -79,7 +88,7 @@ class PendingCloudSyncQueue:
         local_digest: str | None = None,
     ) -> bool:
         """Remove a completed entry, preserving a newer queued digest."""
-        with self._lock:
+        with self._lock, self._process_lock():
             document = self._read()
             items = self._items(document)
             kept = []
@@ -96,15 +105,39 @@ class PendingCloudSyncQueue:
             return removed
 
     def clear(self) -> bool:
-        with self._lock:
+        with self._lock, self._process_lock():
             return self._write({"version": self.VERSION, "items": []})
+
+    @contextlib.contextmanager
+    def _process_lock(self) -> Iterator[None]:
+        """Serialize read-modify-write across SafeLauncher processes."""
+        if fcntl is None:
+            yield
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with open(self.path.with_suffix(".lock"), "a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def _read(self) -> dict[str, Any]:
         try:
             with self.path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
             return value if isinstance(value, dict) else {}
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError, TypeError) as exc:
+            # Keep the unreadable file for inspection; the next write would
+            # otherwise replace it and silently drop every pending entry.
+            quarantine = self.path.with_name(f"{self.path.name}.corrupt-{time.time_ns()}")
+            try:
+                os.replace(self.path, quarantine)
+            except OSError:
+                pass
+            logger.warning("Pending cloud sync queue was unreadable (%s); moved to %s", exc, quarantine.name)
             return {}
 
     @classmethod

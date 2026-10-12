@@ -22,6 +22,7 @@ from PyQt6.QtCore import QSettings
 
 from core.secret_store import delete_secret, get_secret, set_secret
 from core.request_contracts import classify_remote_error
+from core.logger import get_logger
 
 
 OFFICIAL_AUTH0_ISSUER = "https://dev-712dm7e8q0c2tie3.us.auth0.com"
@@ -96,6 +97,7 @@ def get_central_auth_config() -> CentralAuthConfig:
     return CentralAuthConfig(issuer=issuer.rstrip("/"), client_id=client_id, audience=audience)
 
 
+logger = get_logger("CentralAuth")
 _REFRESH_TOKEN_SECRET = "central_profile_refresh_token"
 _ACCESS_TOKEN_SKEW = 60
 
@@ -108,6 +110,10 @@ class CentralAuthSession:
         self.http = session or requests.Session()
         self._lock = threading.RLock()
         self._access_token = ""
+        # Newest rotated refresh token that could not be written to the secret
+        # store yet. Kept in memory so the session stays usable and the save
+        # is retried on the next refresh, instead of losing the login.
+        self._pending_refresh_token = ""
         self._access_expires_at = 0.0
         self._refresh_available: bool | None = None
         self._last_token_refresh_at = 0.0
@@ -129,18 +135,20 @@ class CentralAuthSession:
     @property
     def signed_in(self) -> bool:
         with self._lock:
-            if self._access_token:
+            if self._access_token or self._pending_refresh_token:
                 return True
             if self._refresh_available is None:
                 self._refresh_available = bool(get_secret(_REFRESH_TOKEN_SECRET))
             return self._refresh_available
 
-    def clear(self) -> None:
+    def clear(self) -> bool:
+        """Forget the login. Returns False if the stored refresh token survived."""
         with self._lock:
             self._access_token = ""
             self._access_expires_at = 0.0
             self._refresh_available = False
-            delete_secret(_REFRESH_TOKEN_SECRET)
+            self._pending_refresh_token = ""
+            return delete_secret(_REFRESH_TOKEN_SECRET) or not get_secret(_REFRESH_TOKEN_SECRET)
 
     def _set_tokens(self, payload: dict[str, Any], *, mark_refresh: bool = False) -> str:
         access_token = str(payload.get("access_token") or "").strip()
@@ -151,11 +159,13 @@ class CentralAuthSession:
         except (TypeError, ValueError, OverflowError):
             expires_in = 3600
         refresh_token = str(payload.get("refresh_token") or "").strip()
-        if refresh_token and not set_secret(_REFRESH_TOKEN_SECRET, refresh_token):
-            raise CentralAuthError("SafeLauncher could not securely store the central login.", "secure_store_failed")
+        # Install the access token before persisting the rotated refresh token:
+        # the old one is already consumed, so a storage failure must not drop
+        # the live session.
         with self._lock:
             if refresh_token:
                 self._refresh_available = True
+                self._pending_refresh_token = refresh_token
             self._access_token = access_token
             self._access_expires_at = time.time() + expires_in
             # Device login and refresh both install an access token, but only
@@ -165,6 +175,13 @@ class CentralAuthSession:
             # retrying the same newly-issued token.
             if mark_refresh:
                 self._last_token_refresh_at = time.monotonic()
+        if refresh_token:
+            if set_secret(_REFRESH_TOKEN_SECRET, refresh_token):
+                with self._lock:
+                    if self._pending_refresh_token == refresh_token:
+                        self._pending_refresh_token = ""
+            else:
+                logger.warning("Could not persist rotated central login; keeping it in memory for this session.")
         return access_token
 
     def _post_form(self, url: str, data: dict[str, str]) -> dict[str, Any]:
@@ -263,7 +280,9 @@ class CentralAuthSession:
         raise CentralAuthError("The central sign-in request expired before it was approved.", "authorization_expired")
 
     def _refresh(self) -> str:
-        refresh_token = get_secret(_REFRESH_TOKEN_SECRET)
+        with self._lock:
+            refresh_token = self._pending_refresh_token
+        refresh_token = refresh_token or get_secret(_REFRESH_TOKEN_SECRET)
         if not refresh_token:
             with self._lock:
                 self._access_token = ""

@@ -27,9 +27,11 @@ export function jsonResponse(
 }
 
 export function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  // Scan the full length of both values, so a length mismatch does not
+  // return early and reveal where the secrets diverge.
+  const length = Math.max(a.length, b.length);
+  let result = a.length ^ b.length;
+  for (let i = 0; i < length; i++) result |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
   return result === 0;
 }
 
@@ -72,13 +74,22 @@ export async function requireCentralIdentity(ctx: any, req: Request): Promise<{
   };
 }
 
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
+
 export async function readJsonBody(
   req: Request,
 ): Promise<Record<string, unknown>> {
+  const declared = Number(req.headers.get("content-length") || 0);
+  if (declared > MAX_JSON_BODY_BYTES)
+    throw new ApiError(413, "payload_too_large", "Request body is too large.");
   let value: unknown;
   try {
-    value = await req.json();
-  } catch {
+    const bytes = await req.arrayBuffer();
+    if (bytes.byteLength > MAX_JSON_BODY_BYTES)
+      throw new ApiError(413, "payload_too_large", "Request body is too large.");
+    value = JSON.parse(new TextDecoder().decode(bytes));
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError(400, "bad_json", "Request body must be valid JSON.");
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {

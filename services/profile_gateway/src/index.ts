@@ -16,6 +16,7 @@ export interface GatewayRequestOptions {
 }
 
 const MAX_BODY_BYTES = 512 * 1024;
+const UPSTREAM_TIMEOUT_MS = 15_000;
 const HANDLE_PATTERN = "(?:[a-f0-9]{20,40}|[a-z0-9](?:[a-z0-9._-]{2,30}[a-z0-9])?)";
 const REQUEST_ID_PATTERN = "[A-Za-z0-9_-]{8,128}";
 const PUBLIC_PROFILE_RE = new RegExp(`^/api/profile/v1/(${HANDLE_PATTERN})$`);
@@ -75,7 +76,7 @@ function validConfiguration(env: Env): boolean {
     isSecureUrl(env.CONVEX_ORIGIN) &&
       isSecureUrl(env.AUTH0_ISSUER) &&
       env.AUTH0_AUDIENCE?.trim() &&
-      env.CONVEX_GATEWAY_KEY?.trim()
+      (env.CONVEX_GATEWAY_KEY?.trim().length ?? 0) >= 32
   );
 }
 
@@ -99,6 +100,7 @@ async function authenticate(request: Request, env: Env): Promise<AuthenticatedRe
     issuer,
     audience: env.AUTH0_AUDIENCE,
     algorithms: ["RS256"],
+    requiredClaims: ["exp", "sub"],
   });
   if (typeof payload.sub !== "string" || payload.sub.length < 1 || payload.sub.length > 256)
     throw new Error("invalid_subject");
@@ -132,11 +134,13 @@ async function checkRateLimit(limiter: GatewayRateLimiter | undefined, key?: str
   }
 }
 
-function forwardedHeaders(request: Request, gatewayKey: string): Headers {
+function forwardedHeaders(request: Request, gatewayKey: string, forwardAuthorization: boolean): Headers {
   const headers = new Headers();
   for (const [name, value] of request.headers) {
     const lower = name.toLowerCase();
     if (hopByHopHeaders.has(lower) || lower === "x-safelauncher-gateway-key") continue;
+    // The client's central login is only meaningful on authenticated routes.
+    if (lower === "authorization" && !forwardAuthorization) continue;
     if (["accept", "authorization", "content-type", "if-none-match", "if-modified-since"].includes(lower))
       headers.set(name, value);
   }
@@ -144,19 +148,44 @@ function forwardedHeaders(request: Request, gatewayKey: string): Headers {
   return headers;
 }
 
-async function proxy(request: Request, env: Env): Promise<Response> {
+/** Read the request body while enforcing the byte limit as chunks arrive. */
+async function readLimitedBody(request: Request): Promise<ArrayBuffer | null> {
+  if (!request.body) return new ArrayBuffer(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes.buffer;
+}
+
+async function proxy(request: Request, env: Env, kind: "health" | "public" | "auth"): Promise<Response> {
   const incoming = new URL(request.url);
   const origin = env.CONVEX_ORIGIN.replace(/\/+$/, "");
   const target = `${origin}${incoming.pathname}${incoming.search}`;
-  const headers = forwardedHeaders(request, env.CONVEX_GATEWAY_KEY);
+  const headers = forwardedHeaders(request, env.CONVEX_GATEWAY_KEY, kind === "auth");
   let body: ArrayBuffer | undefined;
   if (request.method !== "GET" && request.method !== "HEAD") {
     const declaredLength = Number(request.headers.get("content-length") || "");
     if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES)
       return jsonError(413, "body_too_large", "The request body is too large.");
-    body = await request.arrayBuffer();
-    if (body.byteLength > MAX_BODY_BYTES)
-      return jsonError(413, "body_too_large", "The request body is too large.");
+    const read = await readLimitedBody(request);
+    if (!read) return jsonError(413, "body_too_large", "The request body is too large.");
+    body = read;
   }
   let upstream: Response;
   try {
@@ -165,6 +194,7 @@ async function proxy(request: Request, env: Env): Promise<Response> {
       headers,
       body,
       redirect: "manual",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch {
     return jsonError(502, "upstream_unavailable", "The profile service is temporarily unavailable.");
@@ -173,6 +203,11 @@ async function proxy(request: Request, env: Env): Promise<Response> {
   for (const name of ["content-type", "cache-control", "etag", "retry-after"]) {
     const value = upstream.headers.get(name);
     if (value) responseHeaders.set(name, value);
+  }
+  if (kind === "auth") {
+    // Per-user responses must never be stored by a shared cache.
+    responseHeaders.set("Cache-Control", "private, no-store");
+    responseHeaders.set("Vary", "Authorization");
   }
   if (!responseHeaders.has("content-type")) responseHeaders.set("Content-Type", "application/json; charset=utf-8");
   responseHeaders.set("X-SafeLauncher-Gateway", "1");
@@ -189,17 +224,18 @@ export async function handleGatewayRequest(
   const url = new URL(request.url);
   const route = classify(url.pathname, request.method);
   if (route.kind === "invalid") return jsonError(404, "not_found", "Not found.");
-  if (route.kind === "health") return proxy(request, env);
-  if (route.kind === "public") {
+  if (route.kind === "health" || route.kind === "public") {
     const limited = await checkRateLimit(options.rateLimiter);
-    return limited || proxy(request, env);
+    return limited || proxy(request, env, route.kind);
   }
   let identity: AuthenticatedRequest;
   try {
     identity = await authenticate(request, env);
   } catch {
-    return jsonError(401, "unauthorized", "A valid central login is required.");
+    // Failed authentication still costs a signature check, so it is limited per client.
+    const limited = await checkRateLimit(options.rateLimiter);
+    return limited || jsonError(401, "unauthorized", "A valid central login is required.");
   }
   const limited = await checkRateLimit(options.rateLimiter, `subject:${identity.subject}`);
-  return limited || proxy(request, env);
+  return limited || proxy(request, env, "auth");
 }

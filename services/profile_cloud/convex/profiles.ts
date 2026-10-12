@@ -15,6 +15,9 @@ const CANCELED = "canceled";
 const BLOCKED = "blocked";
 const MAX_FRIENDS = 100;
 const MAX_PENDING_REQUESTS = 50;
+// Caps how many pending requests one recipient can accumulate, so a crowd of
+// sybil requesters cannot make every social read fan out over thousands of rows.
+const MAX_INCOMING_REQUESTS = 200;
 const MAX_BLOCKS = 100;
 const MIGRATION_BATCH_SIZE = 50;
 
@@ -243,11 +246,11 @@ async function incomingRequestsFor(ctx: any, profile: any): Promise<any[]> {
     ctx.db.query("friendRequests")
       .withIndex("by_recipient_profile_status", (q: any) =>
         q.eq("recipientProfileId", profile._id).eq("status", PENDING),
-      ).collect(),
+      ).take(MAX_INCOMING_REQUESTS),
     ctx.db.query("friendRequests")
       .withIndex("by_recipient_status", (q: any) =>
         q.eq("recipientHandle", profile.handle).eq("status", PENDING),
-      ).collect(),
+      ).take(MAX_INCOMING_REQUESTS),
   ]);
   return mergeRows(byId, byHandle);
 }
@@ -503,9 +506,10 @@ export const createForIdentity = internalMutation({
     if (existingOwner) return { error: "profile_exists_for_identity", profile: existingOwner };
     let value: Record<string, unknown>;
     try { value = JSON.parse(args.profile) as Record<string, unknown>; } catch { return { error: "invalid_profile" }; }
-    const requested = String(args.handle || "").trim().toLowerCase();
     const ownedReservation = await ctx.db.query("usernameReservations")
       .withIndex("by_owner_identity", (q: any) => q.eq("ownerIdentityHash", args.ownerIdentityHash)).unique();
+    // A reserved username is the only valid handle; an omitted handle means "use it".
+    const requested = String(args.handle || ownedReservation?.handle || "").trim().toLowerCase();
     if (ownedReservation && ownedReservation.handle !== requested) return { error: "username_immutable" };
     const reservation = ownedReservation || (validUsernameHandle(requested) ? await findUsernameReservation(ctx, requested) : null);
     if (reservation && reservation.ownerIdentityHash !== args.ownerIdentityHash) return { error: "exists" };
@@ -572,6 +576,7 @@ export const createFriendRequest = internalMutation({
       return { status: ACCEPTED };
     }
     if ((await pendingRequestsFor(ctx, requester)).length >= MAX_PENDING_REQUESTS) return { error: "request_limit" };
+    if ((await incomingRequestsFor(ctx, recipient)).length >= MAX_INCOMING_REQUESTS) return { error: "recipient_request_limit" };
     const requestId = await ctx.db.insert("friendRequests", {
       requesterHandle: requester.handle,
       recipientHandle: recipient.handle,

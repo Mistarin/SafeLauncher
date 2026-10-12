@@ -67,14 +67,16 @@ export const list = internalQuery({
 export const get = internalQuery({
   args: { avatarId: v.string() },
   handler: async (ctx, args) => {
-    let row;
+    let row = null;
     const requestedAssetNumber = parseAssetNumber(args.avatarId);
     if (requestedAssetNumber !== null) {
       row = await ctx.db
         .query("profileAvatars")
         .withIndex("by_asset_number", (query) => query.eq("assetNumber", requestedAssetNumber))
         .unique();
-    } else {
+    }
+    // An all-digit legacy slug is only reachable when no asset number matches.
+    if (!row) {
       if (!validAvatarId(args.avatarId)) return null;
       row = await ctx.db
         .query("profileAvatars")
@@ -295,7 +297,9 @@ export const migrateAppearance = internalMutation({
         profile.background_preset_id = backgroundPresetIdFor(profile.background);
       }
       profile.schema_version = 3;
-      await ctx.db.patch(row._id, { profile: JSON.stringify(profile), updatedAt: Date.now() });
+      // Bump the revision so a client still holding the pre-migration document
+      // gets a conflict instead of overwriting the migrated fields.
+      await ctx.db.patch(row._id, { profile: JSON.stringify(profile), revision: row.revision + 1, updatedAt: Date.now() });
       migrated += 1;
     }
     return { migrated, assignedAssets, unmappedAvatars };

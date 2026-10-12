@@ -24,7 +24,7 @@ _SENSITIVE_ASSIGNMENT_RE = re.compile(
     r"RAWG_API_KEY|SAFELAUNCHER_GATEWAY_KEY|SAFELAUNCHER_SECRET_KEY|"
     r"STEAMGRIDDB_API_KEY|STEAM_WEB_API_KEY|[A-Z0-9_]*(?:API_KEY|ACCESS_TOKEN|"
     r"CLIENT_SECRET|DEPLOY_KEY|GATEWAY_KEY|PASSWORD|PRIVATE_KEY|REFRESH_TOKEN|"
-    r"SECRET|TOKEN))\s*[=:]\s*)"
+    r"SECRET|TOKEN))\"?\s*[=:]\s*)"
     r"(?:\"[^\r\n\"]*\"|'[^\r\n']*'|[^\r\n\s&#]+)",
 )
 _AUTHORIZATION_RE = re.compile(r"(?i)(\bAuthorization\s*:\s*Bearer\s+)[^\s\r\n]+")

@@ -15,6 +15,8 @@ import os
 import time
 import json
 import hashlib
+import hmac
+import secrets
 import zipfile
 import tempfile
 from typing import List, Tuple, Optional
@@ -158,12 +160,28 @@ _backend_context = ""
 _LISTING_LOCK = threading.Lock()
 
 
+_CONTEXT_SALT_CACHE: list[bytes] = []
+
+
+def _cloud_context_salt() -> bytes:
+    """Per-install random salt so the fingerprint cannot be checked offline."""
+    if _CONTEXT_SALT_CACHE:
+        return _CONTEXT_SALT_CACHE[0]
+    from core.secret_store import get_secret, set_secret
+    salt = get_secret("cloud_context_salt")
+    if not salt:
+        salt = secrets.token_hex(32)
+        set_secret("cloud_context_salt", salt)
+    _CONTEXT_SALT_CACHE.append(salt.encode("utf-8"))
+    return _CONTEXT_SALT_CACHE[0]
+
+
 def cloud_context_fingerprint() -> str:
     """Stable opaque identity for the configuration backing cloud results.
 
     Results and caches must never cross an endpoint, mode, or credential
     change. The secret itself is never persisted in a cache or exposed to UI;
-    only its SHA-256 digest participates in this context identity.
+    only a salted HMAC of it participates in this context identity.
     """
     mode = cloud_mode()
     from core.cloud_backend import get_site_url
@@ -171,7 +189,7 @@ def cloud_context_fingerprint() -> str:
     from core.secret_store import get_secret
     secret = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
     material = "\0".join((mode, endpoint, secret)).encode("utf-8")
-    return hashlib.sha256(material).hexdigest()
+    return hmac.new(_cloud_context_salt(), material, hashlib.sha256).hexdigest()
 
 
 def _backend():
@@ -1129,7 +1147,15 @@ class CloudSaveSyncEngine:
             return cancelled_result()
         local_stats, locations = cls.get_local_save_stats(game_name, game_path, steam_id)
         restore_locations = locations if preserve_local_fork and local_stats.exists else []
-        fork_zip = os.path.join(os.path.dirname(cloud_zip), "save_local_fork.zip")
+        # Unique, listed fork name: a fixed name would let a second restore
+        # replace the only copy of the pre-restore local state.
+        fork_dir = os.path.join(os.path.dirname(cls.get_cloud_root()), "save_forks")
+        clean_name = "".join(c for c in game_name if c.isalnum() or c in "-_ ").strip() or "game"
+        from core.cloud_backend import normalize_name_key
+        key = resolve_cloud_game_ref(game_name).name_key if backend_active() else normalize_name_key(game_name)
+        prefix_key = key or clean_name
+        os.makedirs(fork_dir, mode=0o700, exist_ok=True)
+        fork_zip = os.path.join(fork_dir, f"{prefix_key}_fork_{time.time_ns()}.zip")
         metadata = ZipBackupManager.read_launcher_metadata(cloud_zip)
         from core.save_restore_service import restore_archive_with_safety_backup
         restore_result = restore_archive_with_safety_backup(
@@ -1148,6 +1174,8 @@ class CloudSaveSyncEngine:
             },
         )
         if restore_result.success:
+            if restore_locations:
+                cls._prune_safety_forks(fork_dir, prefix_key, clean_name, keep=10)
             if progress_callback is not None:
                 progress_callback(0.95)
             cls._merge_restored_metadata(game_name, metadata)

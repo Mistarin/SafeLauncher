@@ -5,7 +5,7 @@ const env: Env = {
   CONVEX_ORIGIN: "https://central-profile.convex.site",
   AUTH0_ISSUER: "https://tenant.example.auth0.com/",
   AUTH0_AUDIENCE: "https://profiles.safelauncher.app",
-  CONVEX_GATEWAY_KEY: "test-gateway-key",
+  CONVEX_GATEWAY_KEY: "test-gateway-key-with-minimum-length-0001",
 };
 
 const rateLimiter = {
@@ -75,7 +75,7 @@ describe("profile gateway", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (_input, init) => {
       const headers = new Headers(init?.headers);
-      expect(headers.get("x-safelauncher-gateway-key")).toBe("test-gateway-key");
+      expect(headers.get("x-safelauncher-gateway-key")).toBe("test-gateway-key-with-minimum-length-0001");
       expect(headers.get("x-forwarded-for")).toBeNull();
       expect(headers.get("authorization")).toBeNull();
       return upstream;

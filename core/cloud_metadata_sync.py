@@ -30,6 +30,20 @@ from core.profile_models import (
 from core.game_names import display_name_key, local_profile_identity, preferred_game_name
 
 logger = get_logger("CloudMetadata")
+
+
+def _read_remote_json(path: str) -> dict:
+    """Return the remote metadata document, or {} only when it does not exist.
+
+    Any other read or parse failure raises, so the caller aborts the write
+    instead of replacing another device's data with a local-only merge.
+    """
+    if not os.path.isfile(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
 _PROFILE_SYNC_LOCK = threading.Lock()
 _PROFILE_SYNC_TTL_SECONDS = 60.0
 _PROFILE_SYNC_STATE = {
@@ -717,13 +731,7 @@ class CloudMetadataSync:
             root = os.path.join(CloudSaveSyncEngine.get_cloud_root(), "metadata")
             os.makedirs(root, mode=0o700, exist_ok=True)
             path = os.path.join(root, "launcher_profile.json")
-            remote = {}
-            if os.path.isfile(path):
-                try:
-                    with open(path, "r", encoding="utf-8") as fh:
-                        remote = json.load(fh)
-                except (OSError, ValueError):
-                    remote = {}
+            remote = _read_remote_json(path)
             # Read the old filename once so existing installations migrate
             # without requiring a cloud backend.
             legacy_profile_path = os.path.join(root, "achievement_profile.json")
@@ -801,13 +809,7 @@ class CloudMetadataSync:
             root = os.path.join(CloudSaveSyncEngine.get_cloud_root(), "metadata")
             os.makedirs(root, mode=0o700, exist_ok=True)
             path = os.path.join(root, f"{key}.json")
-            remote = {}
-            if os.path.isfile(path):
-                try:
-                    with open(path, "r", encoding="utf-8") as fh:
-                        remote = json.load(fh)
-                except (OSError, ValueError):
-                    remote = {}
+            remote = _read_remote_json(path)
             merged = cls._merge(local, remote, include_legacy_achievements=not drop_legacy_achievements)
             fd, temp_path = tempfile.mkstemp(prefix=".metadata-", suffix=".tmp", dir=root)
             try:

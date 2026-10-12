@@ -168,6 +168,7 @@ function throwSocialError(result: any): void {
     self_block: 400,
     invalid_action: 400,
     request_limit: 429,
+    recipient_request_limit: 429,
     friend_limit: 409,
     block_limit: 409,
   };
@@ -181,6 +182,7 @@ function throwSocialError(result: any): void {
     self_block: "You cannot block yourself.",
     invalid_action: "The friend request action is invalid.",
     request_limit: "You have reached the pending friend request limit.",
+    recipient_request_limit: "That profile has too many pending friend requests.",
     friend_limit: "You have reached the friend limit.",
     block_limit: "You have reached the blocked-profile limit.",
   };
@@ -276,6 +278,9 @@ async function dispatch(
       }
       const clientHash = await sha256(`safelauncher-telemetry:${clientId}`);
       await enforceWriteLimit(ctx, clientHash, "telemetry", 24, 86400);
+      // clientId is client-supplied, so rotating it defeats the per-client limit.
+      // A global ceiling bounds how many new installation rows one hour can create.
+      await enforceWriteLimit(ctx, "global", "telemetry", 5000, 3600);
       await ctx.runMutation(internal.telemetry.record, {
         clientHash,
         appVersion: appVersion.trim(),
@@ -312,7 +317,8 @@ async function dispatch(
         return jsonResponse(result);
       }
 
-      if (!v2SocialMatch) {
+      // Presence paths must not fall into the profile CRUD branch below.
+      if (!v2SocialMatch && !v2PresenceHeartbeat && !v2FriendPresence) {
         if (method === "GET") {
           return jsonResponse(owner ? await profilePayload(ctx, owner) : { profile: null });
         }
@@ -398,6 +404,7 @@ async function dispatch(
       }
       if (v2PresenceHeartbeat || v2FriendPresence)
         throw new ApiError(405, "method_not_allowed", "Method not allowed.");
+      if (!v2SocialMatch) throw new ApiError(404, "not_found", "Not found.");
       const resource = v2SocialMatch[1];
       const identifier = v2SocialMatch[2];
       const action = v2SocialMatch[3];
@@ -525,6 +532,7 @@ async function dispatch(
           "handle_mismatch",
           "Profile handle does not match the route identity.",
         );
+      await enforceWriteLimit(ctx, await sha256(token), "v1-create", 5, 3600);
       const result = await ctx.runMutation(internal.profiles.create, {
         handle,
         ownerTokenHash: await sha256(token),
@@ -551,6 +559,8 @@ async function dispatch(
         throw new ApiError(404, "not_found", "Profile not found.");
 
       const tokenHash = await sha256(ownerToken(req));
+      if (method !== "GET")
+        await enforceWriteLimit(ctx, tokenHash, "v1-social-write", 60, 600);
       if (
         method === "GET" &&
         resource === "friends" &&
@@ -687,6 +697,7 @@ async function dispatch(
     const token = ownerToken(req);
     const tokenHash = await sha256(token);
     if (rotating && method === "POST") {
+      await enforceWriteLimit(ctx, tokenHash, "v1-rotate", 5, 3600);
       const body = await readJsonBody(req);
       const newToken = body.ownerToken;
       if (
@@ -707,6 +718,7 @@ async function dispatch(
       return jsonResponse({ rotated: true });
     }
     if (method === "PUT") {
+      await enforceWriteLimit(ctx, tokenHash, "v1-write", 30, 600);
       const body = await readJsonBody(req);
       const revision = body.revision;
       if (typeof revision !== "number" || !Number.isSafeInteger(revision))
@@ -740,6 +752,7 @@ async function dispatch(
       return jsonResponse(result);
     }
     if (method === "DELETE") {
+      await enforceWriteLimit(ctx, tokenHash, "v1-write", 10, 600);
       const result = await ctx.runMutation(internal.profiles.remove, {
         handle,
         ownerTokenHash: tokenHash,

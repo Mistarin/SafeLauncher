@@ -10,4 +10,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "prune stale telemetry and rate-limit buckets",
+  { hours: 24 },
+  internal.telemetry.pruneStale,
+  {},
+);
+
 export default crons;

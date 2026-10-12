@@ -130,6 +130,20 @@ def describe_cloud_error(error: Exception) -> str:
     return str(error)
 
 
+def _is_secure_endpoint(url: str) -> bool:
+    """Only https endpoints may carry the bearer token and gateway key.
+
+    Plain http is allowed solely for loopback development servers.
+    """
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return False
+    if parsed.scheme == "https":
+        return bool(parsed.hostname)
+    return parsed.scheme == "http" and (parsed.hostname or "") in {"localhost", "127.0.0.1", "::1"}
+
+
 def normalize_site_url(value: str | None) -> str:
     """Normalize Convex client URLs to the HTTP-function ``.convex.site`` host.
 
@@ -279,6 +293,8 @@ class ConvexSaveBackend:
         site = self.site_url
         if not site:
             raise CloudBackendError("Convex endpoint not configured.", "no_endpoint")
+        if not _is_secure_endpoint(site):
+            raise CloudBackendError("The save-cloud endpoint must use https.", "insecure_endpoint")
 
         secret_key = self.secret_key
         headers = kwargs.pop("headers", {})
@@ -299,6 +315,8 @@ class ConvexSaveBackend:
                 headers=headers,
                 timeout=timeout,
                 json=json_body,
+                # Never follow redirects: the key headers must not reach another host.
+                allow_redirects=False,
                 **kwargs,
             )
         return resp
@@ -785,11 +803,22 @@ def check_backend_health(
         headers["Authorization"] = f"Bearer {key}"
         headers["X-SafeLauncher-Key"] = key
 
+    if not _is_secure_endpoint(endpoint):
+        return {
+            "healthy": False,
+            "status": "insecure",
+            "latency_ms": -1,
+            "version": "unknown",
+            "is_outdated": False,
+            "min_version": MIN_CONVEX_BACKEND_VERSION,
+            "error": "The save-cloud endpoint must use https.",
+        }
+
     t0 = time.monotonic()
     resp = None
     version_response = None
     try:
-        resp = requests.get(f"{endpoint}/api/health", headers=headers, timeout=timeout)
+        resp = requests.get(f"{endpoint}/api/health", headers=headers, timeout=timeout, allow_redirects=False)
         latency_ms = max(1, int((time.monotonic() - t0) * 1000))
 
         if resp.status_code == 200:

@@ -8,8 +8,8 @@ import os
 import time
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
-from PyQt6.QtGui import QColor, QPainter, QPixmap, QLinearGradient
+from PyQt6.QtCore import QBuffer, QByteArray, QEvent, QIODevice, QSize, Qt, pyqtSignal, QSettings, QSignalBlocker, QStandardPaths, QTimer
+from PyQt6.QtGui import QColor, QImageReader, QPainter, QPixmap, QLinearGradient
 from PyQt6.QtWidgets import (
     QColorDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
@@ -817,6 +817,7 @@ class ProfilePageWidget(QWidget):
         self.btn_remove_avatar.clicked.connect(self._remove_avatar)
         avatar_row.addWidget(self.btn_remove_avatar)
         self.avatar_selection_label = QLabel("Cloud catalog")
+        self.avatar_selection_label.setTextFormat(Qt.TextFormat.PlainText)
         self.avatar_selection_label.setObjectName("profileMuted")
         avatar_row.addWidget(self.avatar_selection_label)
         avatar_row.addStretch()
@@ -1106,6 +1107,7 @@ class ProfilePageWidget(QWidget):
         self.blocked_layout.setSpacing(2)
         friends_layout.addLayout(self.blocked_layout)
         self.friends_status = QLabel()
+        self.friends_status.setTextFormat(Qt.TextFormat.PlainText)
         self.friends_status.setObjectName("profileMuted")
         self.friends_status.setWordWrap(True)
         friends_layout.addWidget(self.friends_status)
@@ -1123,6 +1125,7 @@ class ProfilePageWidget(QWidget):
         self.column_layout.addWidget(self.achievement_section)
         self.column_layout.addSpacing(14)
         self.footer_status = QLabel()
+        self.footer_status.setTextFormat(Qt.TextFormat.PlainText)
         self.footer_status.setObjectName("profileMuted")
         self.footer_status.setWordWrap(True)
         self.column_layout.addWidget(self.footer_status)
@@ -1461,6 +1464,9 @@ class ProfilePageWidget(QWidget):
 
     @staticmethod
     def _decode_profile_background(data: bytes) -> QPixmap | None:
+        size = ProfilePageWidget._declared_image_size(data)
+        if size.width() <= 0 or size.height() <= 0 or size.width() * size.height() > MAX_PROFILE_BACKGROUND_PIXELS:
+            return None
         pixmap = QPixmap()
         if not pixmap.loadFromData(data):
             return None
@@ -2683,11 +2689,25 @@ class ProfilePageWidget(QWidget):
                 widget.addItem(QListWidgetItem(formatter(item)))
 
     @staticmethod
+    def _declared_image_size(data: bytes, image_format: bytes | None = None) -> QSize:
+        """Read the image header size without decoding pixels."""
+        buffer = QBuffer()
+        buffer.setData(QByteArray(data))
+        buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+        reader = QImageReader(buffer, image_format or QByteArray())
+        return reader.size()
+
+    @staticmethod
     def _decode_avatar(data: bytes) -> QPixmap | None:
         if not isinstance(data, bytes) or not data or len(data) > MAX_PROFILE_AVATAR_BYTES:
             return None
+        data = ProfilePageWidget._png_without_iccp(data)
+        # Reject oversized dimensions from the header before any pixel allocation.
+        size = ProfilePageWidget._declared_image_size(data, QByteArray(b"PNG"))
+        if size.width() <= 0 or size.height() <= 0 or size.width() * size.height() > 4_000_000:
+            return None
         pixmap = QPixmap()
-        if not pixmap.loadFromData(ProfilePageWidget._png_without_iccp(data), "PNG"):
+        if not pixmap.loadFromData(data, "PNG"):
             return None
         if pixmap.width() <= 0 or pixmap.height() <= 0 or pixmap.width() * pixmap.height() > 4_000_000:
             return None
@@ -3460,14 +3480,19 @@ class ProfilePageWidget(QWidget):
         if self._auth_in_flight:
             return
         self._publish_timer.stop()
-        self.central_auth.clear()
+        cleared = self.central_auth.clear()
         self._profile_context_identity = ""
         self._publish_dirty = False
         if self._mode == "owner":
             self.show_owner()
         else:
             self._emit_profile_action_state()
-        self._set_profile_action_status("Signed out. Your existing public profile remains visible.")
+        if cleared:
+            self._set_profile_action_status("Signed out. Your existing public profile remains visible.")
+        else:
+            self._set_profile_action_status(
+                "Signed out for this session, but the saved login could not be removed. Sign out again to clear it."
+            )
 
     def _start_edit(self) -> None:
         if self._mode != "owner":

@@ -238,14 +238,22 @@ def delete_secret(name: str) -> bool:
     """Forget a secret from both the preferred and fallback stores."""
     name = str(name or "").strip()
     changed = False
+    keyring_failed = False
     with _STORE_LOCK:
         keyring = _available_keyring()
         if keyring is not None:
             try:
                 keyring.delete_password(SERVICE_NAME, name)
                 changed = True
-            except Exception:
-                pass
+            except Exception as exc:
+                # A missing entry also raises; only a secret that is still
+                # present means the delete really failed.
+                try:
+                    keyring_failed = keyring.get_password(SERVICE_NAME, name) is not None
+                except Exception:
+                    keyring_failed = False
+                if keyring_failed:
+                    logger.warning(f"Could not delete secret '{name}' from the keyring: {exc}")
         values = _load_file()
         if name in values:
             values.pop(name, None)
@@ -256,7 +264,7 @@ def delete_secret(name: str) -> bool:
         except Exception:
             pass
         _SECRET_CACHE.pop(name, None)
-        return changed
+        return changed and not keyring_failed
 
 
 def secret_suffix(name: str, length: int = 4) -> str:

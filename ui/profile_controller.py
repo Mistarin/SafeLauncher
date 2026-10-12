@@ -1,6 +1,6 @@
 """Explicitly composed public-social and private profile workflows."""
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QMessageBox
 
 from core.cache_policy import cache_policy
@@ -115,7 +115,10 @@ class ProfileController(QObject):
 
     def _show_error(self, generation, error):
         if not self._closed and generation == self._public_generation and self.accepts_work():
-            QMessageBox.warning(self.dialog_parent, "Public Profile", str(error))
+            message_box = QMessageBox(QMessageBox.Icon.Warning, "Public Profile", "", parent=self.dialog_parent)
+            message_box.setTextFormat(Qt.TextFormat.PlainText)
+            message_box.setText(str(error))
+            message_box.exec()
 
     def handle_public_result(self, generation, result):
         if self._closed or generation != self._public_generation or not self.accepts_work():

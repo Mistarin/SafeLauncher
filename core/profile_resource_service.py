@@ -14,6 +14,7 @@ from typing import Any
 
 import requests
 
+from core.logger import get_logger
 from core.profile_models import steam_hero_urls
 from core.profile_service import (
     ProfileServiceClient,
@@ -25,6 +26,9 @@ from core.request_contracts import (
     RequestPriority,
     RequestSpec,
 )
+
+logger = get_logger("ProfileResources")
+
 
 
 class ProfileResourceService:
@@ -270,6 +274,7 @@ class ProfileResourceService:
             except ProfileServiceError as exc:
                 if exc.code not in {"not_found", "unauthorized", "claimed", "identity_has_profile"}:
                     raise
+                logger.warning("Legacy profile claim skipped (%s).", exc.code)
                 return None, False
             return client.current_profile(), True
 
@@ -313,6 +318,7 @@ class ProfileResourceService:
                 except ProfileServiceError as exc:
                     if exc.code not in {"not_found", "unauthorized", "claimed", "identity_has_profile"}:
                         raise
+                    logger.warning("Legacy profile claim skipped (%s).", exc.code)
                 else:
                     claimed = True
                 remote = client.current_profile()
@@ -377,6 +383,7 @@ class ProfileResourceService:
                 except ProfileServiceError as exc:
                     if exc.code not in {"not_found", "unauthorized", "claimed", "identity_has_profile"}:
                         raise
+                    logger.warning("Legacy profile claim skipped (%s).", exc.code)
                 else:
                     claimed = True
             return {"response": client.delete_profile(), "legacy_claimed": claimed}

@@ -10,7 +10,7 @@ const configuredEnvironment = {
   CONVEX_ORIGIN: "https://central-profile.eu-west-1.convex.site",
   AUTH0_ISSUER: "https://tenant.example.auth0.com/",
   AUTH0_AUDIENCE: "https://profiles.safelauncher.app",
-  CONVEX_GATEWAY_KEY: "vercel-test-gateway-key",
+  CONVEX_GATEWAY_KEY: "vercel-test-gateway-key-with-minimum-length-0001",
   PROFILE_RATE_LIMIT_ID: "safelauncher-profile-api",
 };
 
@@ -85,7 +85,7 @@ describe("Vercel gateway adapter", () => {
     globalThis.fetch = vi.fn(async (input, init) => {
       expect(input).toBe("https://central-profile.eu-west-1.convex.site/api/profile/v1/01234567890123456789?source=test");
       const headers = new Headers(init?.headers);
-      expect(headers.get("x-safelauncher-gateway-key")).toBe("vercel-test-gateway-key");
+      expect(headers.get("x-safelauncher-gateway-key")).toBe("vercel-test-gateway-key-with-minimum-length-0001");
       expect(headers.get("authorization")).toBeNull();
       return upstream;
     });
