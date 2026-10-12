@@ -12,6 +12,70 @@ from core.steam_ids import normalize_steam_app_id
 logger = get_logger("SteamBuildTracker")
 
 
+def resolve_build_reference(
+    current_build_id: str,
+    current_build_date: int,
+    source: str,
+    manifest_build_id: str,
+    manifest_build_date: int,
+    latest_build_id: str = "",
+) -> tuple[str, int, str]:
+    """Resolve the installed reference while respecting explicit user input.
+
+    A user-confirmed reference wins over a stale appmanifest.  Once the
+    manifest agrees with Steam's latest known build, the manifest is trusted
+    again and the reference returns to automatic detection.
+    """
+    current_id = str(current_build_id or "").strip()
+    manifest_id = str(manifest_build_id or "").strip()
+    try:
+        current_date = int(current_build_date or 0)
+    except (TypeError, ValueError, OverflowError):
+        current_date = 0
+    try:
+        manifest_date = int(manifest_build_date or 0)
+    except (TypeError, ValueError, OverflowError):
+        manifest_date = 0
+
+    normalized_source = "user" if str(source or "").strip().lower() == "user" else "auto"
+    if normalized_source == "user":
+        if manifest_id and manifest_id == str(latest_build_id or "").strip():
+            return manifest_id, manifest_date or (current_date if manifest_id == current_id else 0), "auto"
+        return current_id, current_date, "user"
+
+    resolved_id = manifest_id or current_id
+    if manifest_id:
+        # A LastUpdated value only describes the build ID in that manifest.
+        # Reuse a stored date only when it was already attached to this ID.
+        resolved_date = manifest_date or (current_date if manifest_id == current_id else 0)
+    else:
+        resolved_date = current_date
+    return resolved_id, resolved_date, "auto"
+
+
+def compare_build_reference(
+    current_build_id: str,
+    current_build_date: int,
+    latest_build_id: str,
+    latest_build_date: int,
+) -> bool | None:
+    """Compare Steam's latest build with the current reference, if resolved."""
+    latest_id = str(latest_build_id or "").strip()
+    if not latest_id:
+        return None
+    current_id = str(current_build_id or "").strip()
+    if current_id:
+        return latest_id != current_id
+    try:
+        current_date = int(current_build_date or 0)
+        latest_date = int(latest_build_date or 0)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if current_date > 0:
+        return latest_date > current_date
+    return None
+
+
 def has_resolved_build_reference(build_id: str, build_date: int) -> bool:
     """Return whether a current build ID has a known matching date.
 
@@ -59,17 +123,43 @@ def backfill_matching_build_date(
     return candidate_date if candidate_date > 0 else existing_date
 
 
-def _read_steam_manifest(manifest_path: str) -> tuple[str, int]:
-    """Read an installed Steam manifest's build ID and LastUpdated value."""
+def _read_steam_manifest(manifest_path: str) -> tuple[str, int, str]:
+    """Read an installed Steam manifest's build, timestamp, and install dir."""
     try:
         with open(manifest_path, "r", encoding="utf-8", errors="replace") as manifest:
             content = manifest.read()
         build = re.search(r'"buildid"\s+"([^"]+)"', content, re.IGNORECASE)
         updated = re.search(r'"LastUpdated"\s+"(\d+)"', content, re.IGNORECASE)
-        return (build.group(1) if build else "", int(updated.group(1)) if updated else 0)
+        install_dir = re.search(r'"installdir"\s+"([^"]+)"', content, re.IGNORECASE)
+        return (
+            build.group(1) if build else "",
+            int(updated.group(1)) if updated else 0,
+            install_dir.group(1) if install_dir else "",
+        )
     except (OSError, ValueError) as error:
         logger.debug("Could not read Steam manifest %s: %s", manifest_path, error)
-        return "", 0
+        return "", 0, ""
+
+
+def _manifest_matches_game_path(manifest_path: str, game_path: str, install_dir: str) -> bool:
+    """Verify an appmanifest describes the directory being watched."""
+    actual = os.path.realpath(os.path.abspath(os.path.expanduser(game_path)))
+    if not install_dir:
+        # Older/partial manifests may omit installdir. Only infer it when the
+        # game path is directly below a Steam ``common`` directory.
+        if os.path.basename(os.path.dirname(actual)).casefold() != "common":
+            return False
+        install_dir = os.path.basename(actual)
+    if os.path.basename(install_dir) != install_dir:
+        return False
+    steamapps_dir = os.path.dirname(os.path.abspath(manifest_path))
+    if os.path.basename(steamapps_dir).casefold() != "steamapps":
+        return False
+    expected = os.path.realpath(os.path.join(steamapps_dir, "common", install_dir))
+    try:
+        return os.path.commonpath((expected, actual)) == expected
+    except ValueError:
+        return False
 
 
 def read_local_steam_build(game_path: str, steam_id: str) -> tuple[str, int]:
@@ -100,22 +190,16 @@ def read_local_steam_build(game_path: str, steam_id: str) -> tuple[str, int]:
             break
         current = parent
 
-    # Cover the standard Linux Steam roots without scanning the filesystem.
-    for root in (
-        os.path.expanduser("~/.local/share/Steam"),
-        os.path.expanduser("~/.local/share/steam"),
-        os.path.expanduser("~/.steam/steam"),
-        os.path.expanduser("~/.steam/root"),
-    ):
-        candidates.append(os.path.join(root, "steamapps", manifest_name))
-
     seen = set()
     for manifest_path in candidates:
         if manifest_path in seen:
             continue
         seen.add(manifest_path)
         if os.path.isfile(manifest_path):
-            build_id, build_date = _read_steam_manifest(manifest_path)
+            build_id, build_date, install_dir = _read_steam_manifest(manifest_path)
+            if os.path.basename(manifest_path).casefold().startswith("appmanifest_"):
+                if not _manifest_matches_game_path(manifest_path, game_path, install_dir):
+                    continue
             if build_id or build_date:
                 return build_id, build_date
     return "", 0
@@ -174,11 +258,13 @@ class SteamBuildFetcher(SafeQThread):
         if not latest_build_id:
             self._fail("Steam returned no public branch build for this AppID")
             return
-        if self.local_build_id:
-            is_update = latest_build_id != self.local_build_id
-        elif self.local_build_date > 0:
-            is_update = latest_build_date > self.local_build_date
-        else:
+        is_update = compare_build_reference(
+            self.local_build_id,
+            self.local_build_date,
+            latest_build_id,
+            latest_build_date,
+        )
+        if is_update is None:
             self._fail("No installed Steam build reference; enter a current Build ID or date")
             return
         logger.info(
@@ -201,11 +287,13 @@ class SteamBuildFetcher(SafeQThread):
                 return
 
             if latest_build_id:
-                if self.local_build_id:
-                    is_update = (latest_build_id != self.local_build_id)
-                elif self.local_build_date > 0:
-                    is_update = (latest_build_date > self.local_build_date)
-                else:
+                is_update = compare_build_reference(
+                    self.local_build_id,
+                    self.local_build_date,
+                    latest_build_id,
+                    latest_build_date,
+                )
+                if is_update is None:
                     # A newly added game must not be marked up to date just
                     # because the online lookup succeeded.  Without an
                     # installed build reference there is nothing to compare.

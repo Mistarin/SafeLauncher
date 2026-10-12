@@ -53,6 +53,28 @@ class GameRepository:
         except Exception as e:
             logger.error(f"Error updating build_date for game {game_id}: {e}")
 
+    def update_build_reference(
+        self, game_id: int, build_id: str, build_date: int, source: str = "auto"
+    ) -> bool:
+        """Atomically persist an installed Steam build reference."""
+        try:
+            with self.conn:
+                cursor = self.conn.execute(
+                    """UPDATE games
+                       SET build_id = ?, build_date = ?, build_reference_source = ?
+                       WHERE id = ?""",
+                    (
+                        str(build_id or "").strip(),
+                        int(build_date or 0),
+                        "user" if str(source or "").strip().lower() == "user" else "auto",
+                        int(game_id),
+                    ),
+                )
+                return cursor.rowcount == 1
+        except Exception as e:
+            logger.error(f"Error updating build reference for game {game_id}: {e}")
+            return False
+
     def update_game_version_metadata(self, game_id: int, version_override: str, patch_notes_url: str) -> None:
         try:
             with self.conn:
@@ -396,6 +418,7 @@ class GameRepository:
                     icon_url=r[18] if len(r) > 18 and r[18] else "",
                     env_vars=r[19] if len(r) > 19 and r[19] else "{}",
                     build_date=r[20] if len(r) > 20 and r[20] else 0,
+                    build_reference_source=r[21] if len(r) > 21 and r[21] else "auto",
                 )
                 for r in rows
             ]

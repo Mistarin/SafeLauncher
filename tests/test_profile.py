@@ -598,6 +598,88 @@ class ProfileModelTests(unittest.TestCase):
                 build_results=host.steam_check_results,
             )
             self.assertFalse(reconciled[game_id].update_available)
+            self.assertEqual(db.get_all_games()[0].build_reference_source, "user")
+        finally:
+            db.close()
+
+    def test_local_manifest_cannot_overwrite_explicit_current_build(self):
+        from types import SimpleNamespace
+        from ui.main_window import MainWindow
+
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game(
+                "Build Source Game", "/missing", "game.exe", "umu", steam_id="78904"
+            )
+            service = LibraryService(db, LibraryStateStore())
+            self.assertTrue(
+                service.set_build_reference(game_id, "latest-build", 200, source="user")
+            )
+            game = db.get_all_games()[0]
+            host = SimpleNamespace(
+                library_service=service,
+                local_version_by_game_id={game_id: ("latest-build", 200)},
+                games=[game],
+                games_by_id={game_id: game},
+                selected_game=game,
+            )
+
+            with patch(
+                "ui.main_window.read_local_steam_build",
+                return_value=("old-manifest-build", 100),
+            ):
+                resolved = MainWindow._resolve_local_build_reference(
+                    host, game_id, latest_build_id="latest-build"
+                )
+
+            self.assertEqual(resolved, ("latest-build", 200))
+            saved = db.get_all_games()[0]
+            self.assertEqual(saved.build_id, "latest-build")
+            self.assertEqual(saved.build_reference_source, "user")
+        finally:
+            db.close()
+
+    def test_late_steam_result_recalculates_against_marked_build(self):
+        from types import SimpleNamespace
+        from ui.main_window import MainWindow
+
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game(
+                "Late Build Result", "/missing", "game.exe", "umu", steam_id="78905"
+            )
+            service = LibraryService(db, LibraryStateStore())
+            service.set_build_reference(game_id, "latest-build", 200, source="user")
+            game = db.get_all_games()[0]
+            state = LibraryMetadataState()
+            host = SimpleNamespace(
+                library_service=service,
+                library_metadata_state=state,
+                local_version_by_game_id={game_id: ("latest-build", 200)},
+                games=[game],
+                games_by_id={game_id: game},
+                selected_game=None,
+                steam_check_results={},
+                update_status_by_game_id={},
+                game_status_by_id={},
+                _updates_offline=False,
+                _save_persistent_cache=lambda: None,
+            )
+
+            def set_status(target_id, available, **_kwargs):
+                host.update_status_by_game_id[target_id] = available
+
+            host._set_game_update_status = set_status
+            with patch(
+                "ui.main_window.read_local_steam_build",
+                return_value=("old-manifest-build", 100),
+            ):
+                MainWindow._on_steam_build_checked(
+                    host, game_id, "latest-build", 200, True
+                )
+
+            self.assertFalse(host.update_status_by_game_id[game_id])
+            self.assertFalse(host.steam_check_results[game_id][2])
         finally:
             db.close()
 

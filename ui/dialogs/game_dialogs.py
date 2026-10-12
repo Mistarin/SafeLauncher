@@ -994,12 +994,20 @@ class EditGameDialog(AddGameDialog):
             except (OSError, ValueError, OverflowError):
                 pass
 
+        self.build_reference_was_edited = False
+        self.build_id_input.textEdited.connect(self._on_build_reference_edited)
+        self.build_date_input.dateChanged.connect(self._on_build_reference_edited)
+
+    def _on_build_reference_edited(self, *_args):
+        self.build_reference_was_edited = True
+
     def _on_mark_current_clicked(self):
         parent_win = self.parent()
         latest = getattr(parent_win, 'latest_checked_build_id', "") if parent_win else ""
         latest_date = getattr(parent_win, 'latest_checked_build_date', 0) if parent_win else 0
         if latest and hasattr(self, 'build_id_input'):
             self.build_id_input.setText(str(latest))
+            self.build_reference_was_edited = True
         if latest_date and hasattr(self, 'build_date_input'):
             try:
                 stored_date = datetime.fromtimestamp(int(latest_date))

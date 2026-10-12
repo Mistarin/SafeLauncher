@@ -220,7 +220,28 @@ class IdentityReconciler:
                     executable_source = next((game for game in ordered if game.executable), canonical)
                     banner = _first_text(canonical.banner_url, *(game.banner_url for game in duplicates))[:1024]
                     tags = _first_text(canonical.tags, *(game.tags for game in duplicates))[:2048]
-                    build_id = _first_text(canonical.build_id, *(game.build_id for game in duplicates))
+                    user_build_source = next(
+                        (
+                            game for game in ordered
+                            if str(getattr(game, "build_reference_source", "auto") or "auto") == "user"
+                            and (
+                                str(game.build_id or "").strip()
+                                or int(game.build_date or 0) > 0
+                            )
+                        ),
+                        None,
+                    )
+                    build_id = (
+                        str(user_build_source.build_id or "").strip()
+                        if user_build_source is not None
+                        else _first_text(canonical.build_id, *(game.build_id for game in duplicates))
+                    )
+                    build_date = (
+                        int(user_build_source.build_date or 0)
+                        if user_build_source is not None
+                        else max(int(game.build_date or 0) for game in rows)
+                    )
+                    build_reference_source = "user" if user_build_source is not None else "auto"
                     proton_path = _first_text(canonical.proton_path, *(game.proton_path for game in duplicates))
                     collection = _first_text(canonical.collection, *(game.collection for game in duplicates))
                     version_override = _first_text(canonical.version_override, *(game.version_override for game in duplicates))
@@ -240,7 +261,8 @@ class IdentityReconciler:
                                last_played = ?, tags = ?, build_id = ?,
                                proton_path = ?, collection = ?, install_date = ?,
                                version_override = ?, patch_notes_url = ?,
-                               is_archived = ?, icon_url = ?, env_vars = ?, build_date = ?
+                               is_archived = ?, icon_url = ?, env_vars = ?, build_date = ?,
+                               build_reference_source = ?
                                WHERE id = ?""",
                             (
                                 title,
@@ -262,7 +284,8 @@ class IdentityReconciler:
                                 int(all(bool(game.is_archived) for game in rows)),
                                 icon_url,
                                 env_vars,
-                                max(int(game.build_date or 0) for game in rows),
+                                build_date,
+                                build_reference_source,
                                 canonical.id,
                             ),
                         )

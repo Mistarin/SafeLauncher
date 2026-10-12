@@ -7,7 +7,7 @@ GAME_COLUMNS = (
     "playtime_seconds, is_favorite, last_played, tags, build_id"
     ", proton_path, collection, install_date"
     ", version_override, patch_notes_url"
-    ", is_archived, icon_url, env_vars, build_date"
+    ", is_archived, icon_url, env_vars, build_date, build_reference_source"
 )
 
 
@@ -34,6 +34,7 @@ class GameRecord:
     icon_url: str = ""
     env_vars: str = "{}"
     build_date: int = 0
+    build_reference_source: str = "auto"
 
     def __getitem__(self, idx):
         fields = (

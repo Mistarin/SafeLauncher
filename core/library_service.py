@@ -310,11 +310,24 @@ class LibraryService:
             steam_id or None,
         )
 
-    def set_build_reference(self, game_id: int, build_id: str, build_date: int = 0) -> None:
+    def set_build_reference(
+        self,
+        game_id: int,
+        build_id: str,
+        build_date: int = 0,
+        *,
+        source: str = "auto",
+    ) -> bool:
         """Persist the installed build reference used by Steam comparisons."""
         game_id = int(game_id)
-        self.database.update_build_id(game_id, str(build_id or ""))
-        self.database.update_build_date(game_id, int(build_date or 0))
+        return bool(
+            self.database.update_build_reference(
+                game_id,
+                str(build_id or ""),
+                int(build_date or 0),
+                source,
+            )
+        )
 
     def set_artwork_identity(
         self,

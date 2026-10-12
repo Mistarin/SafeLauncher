@@ -6,7 +6,11 @@ import os
 import tempfile
 import unittest
 
-from core.steam_build_tracker import read_local_steam_build
+from core.steam_build_tracker import (
+    compare_build_reference,
+    read_local_steam_build,
+    resolve_build_reference,
+)
 from core.steam_ids import normalize_steam_app_id
 
 
@@ -30,6 +34,32 @@ class SteamIdTests(unittest.TestCase):
                 read_local_steam_build(game_path, "480"),
                 ("123456", 1700000000),
             )
+
+    def test_user_confirmed_reference_survives_stale_manifest(self):
+        self.assertEqual(
+            resolve_build_reference(
+                "latest-build", 200, "user", "old-manifest-build", 100,
+                "latest-build",
+            ),
+            ("latest-build", 200, "user"),
+        )
+
+    def test_matching_latest_manifest_returns_reference_to_automatic(self):
+        self.assertEqual(
+            resolve_build_reference(
+                "previous-build", 100, "user", "latest-build", 200,
+                "latest-build",
+            ),
+            ("latest-build", 200, "auto"),
+        )
+
+    def test_update_comparison_uses_the_current_reference(self):
+        self.assertFalse(
+            compare_build_reference("latest-build", 200, "latest-build", 200)
+        )
+        self.assertTrue(
+            compare_build_reference("latest-build", 200, "newer-build", 300)
+        )
 
 
 if __name__ == "__main__":

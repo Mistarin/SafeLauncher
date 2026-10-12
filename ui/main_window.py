@@ -29,8 +29,10 @@ from core.steam_tags import SteamTagsFetcher
 from core.steam_build_tracker import (
     SteamBuildFetcher,
     backfill_matching_build_date,
+    compare_build_reference,
     has_resolved_build_reference,
     read_local_steam_build,
+    resolve_build_reference,
 )
 from core.steam_ids import normalize_steam_app_id
 from core.date_formatting import format_datetime_timestamp, format_timestamp, get_date_format_key
@@ -3998,14 +4000,10 @@ class MainWindow(QMainWindow):
                 if not app_id:
                     continue
                 self.metadata_attempted_builds.discard(game_id)
-                local_build_id = game[11] if len(game) > 11 and game[11] else ""
-                local_build_date = game[20] if len(game) > 20 and game[20] else 0
-                manifest_build, manifest_date = read_local_steam_build(path, app_id)
-                local_build_id = manifest_build or local_build_id
-                local_build_date = manifest_date or local_build_date
-                if manifest_build or manifest_date:
-                    self.library_service.set_build_reference(game_id, local_build_id, local_build_date)
-                self.local_version_by_game_id[game_id] = (local_build_id, local_build_date)
+                known_latest = self.steam_check_results.get(game_id, ("", 0, False, ""))[0]
+                local_build_id, local_build_date = self._resolve_local_build_reference(
+                    game_id, game=game, steam_id=app_id, latest_build_id=known_latest
+                )
                 self.metadata_attempted_builds.add(game_id)
                 self._request_managed_steam_build(
                     game_id,
@@ -4046,19 +4044,26 @@ class MainWindow(QMainWindow):
                 continue
 
             self.metadata_attempted_builds.discard(game_id)
-            local_build_id = game[11] if len(game) > 11 and game[11] else ""
-            local_build_date = game[20] if len(game) > 20 and game[20] else 0
-            manifest_build, manifest_date = read_local_steam_build(path, str(steam_id))
-            local_build_id = manifest_build or local_build_id
-            local_build_date = manifest_date or local_build_date
-            if manifest_build or manifest_date:
-                self.library_service.set_build_reference(game_id, local_build_id, local_build_date)
-            self.local_version_by_game_id[game_id] = (local_build_id, local_build_date)
+            known_latest = self.steam_check_results.get(game_id, ("", 0, False, ""))[0]
+            local_build_id, local_build_date = self._resolve_local_build_reference(
+                game_id, game=game, steam_id=steam_id, latest_build_id=known_latest
+            )
 
             fetcher = SteamBuildFetcher(game_id, steam_id, local_build_id, local_build_date, parent=self, request_manager=self.request_manager, steam_client=self.steam_client)
-            fetcher.update_checked.connect(self._on_steam_build_checked)
-            fetcher.check_failed.connect(self._on_steam_check_failed)
-            fetcher.offline_detected.connect(self._on_update_check_offline)
+            fetcher.update_checked.connect(
+                lambda gid, bid, bdate, available, app_id=steam_id:
+                    self._on_steam_build_checked(
+                        gid, bid, bdate, available, request_app_id=app_id
+                    )
+            )
+            fetcher.check_failed.connect(
+                lambda gid, reason, app_id=steam_id:
+                    self._on_steam_check_failed(gid, reason, request_app_id=app_id)
+            )
+            fetcher.offline_detected.connect(
+                lambda gid, app_id=steam_id:
+                    self._on_update_check_offline(gid, request_app_id=app_id)
+            )
             fetcher.finished.connect(finished_one)
             self.metadata_fetchers.append(fetcher)
             self._register_worker(fetcher)
@@ -4103,9 +4108,20 @@ class MainWindow(QMainWindow):
         fetcher = SteamBuildFetcher(
             game_id, steam_id, local_build_id, local_build_date, parent=self
         )
-        fetcher.update_checked.connect(self._on_steam_build_checked)
-        fetcher.check_failed.connect(self._on_steam_check_failed)
-        fetcher.offline_detected.connect(self._on_update_check_offline)
+        fetcher.update_checked.connect(
+            lambda gid, bid, bdate, available, app_id=steam_id:
+                self._on_steam_build_checked(
+                    gid, bid, bdate, available, request_app_id=app_id
+                )
+        )
+        fetcher.check_failed.connect(
+            lambda gid, reason, app_id=steam_id:
+                self._on_steam_check_failed(gid, reason, request_app_id=app_id)
+        )
+        fetcher.offline_detected.connect(
+            lambda gid, app_id=steam_id:
+                self._on_update_check_offline(gid, request_app_id=app_id)
+        )
         self._track_metadata_fetcher(fetcher)
 
     def _record_initial_steam_build(
@@ -4122,13 +4138,16 @@ class MainWindow(QMainWindow):
         steam_id = normalize_steam_app_id(steam_id)
         build_id = str(build_id or "").strip()
         build_date = int(build_date or 0)
+        reference_source = "user" if build_id or build_date else "auto"
 
         if steam_id:
             manifest_build, manifest_date = read_local_steam_build(game_path, steam_id)
             build_id = build_id or manifest_build
             build_date = build_date or manifest_date
 
-        self.library_service.set_build_reference(game_id, build_id, build_date)
+        self.library_service.set_build_reference(
+            game_id, build_id, build_date, source=reference_source
+        )
         self.local_version_by_game_id[game_id] = (build_id, build_date)
         self.steam_check_results.pop(game_id, None)
         self.update_status_by_game_id.pop(game_id, None)
@@ -4222,9 +4241,14 @@ class MainWindow(QMainWindow):
         *,
         source: str = "live",
         checked_at: float | None = None,
+        request_app_id: str = "",
     ):
         """Callback when background SteamBuildFetcher returns build info."""
         source = str(source or "live").strip().lower()
+        # Managed requests are grouped by AppID. Ignore a completion if the
+        # game was deleted or relinked while that shared request was running.
+        if not self._steam_callback_is_current(game_id, request_app_id):
+            return
         if source not in {"live", "cached", "offline", "unknown"}:
             source = "unknown"
         if checked_at is None:
@@ -4232,6 +4256,17 @@ class MainWindow(QMainWindow):
                 self.library_metadata_state.steam_build_checked_at.get(game_id, 0.0)
             )
         checked_at = float(checked_at or 0.0)
+        current_build_id, current_build_date = self._resolve_local_build_reference(
+            game_id, latest_build_id=latest_build_id
+        )
+        recalculated = compare_build_reference(
+            current_build_id,
+            current_build_date,
+            latest_build_id,
+            latest_build_date,
+        )
+        if recalculated is not None:
+            is_update_available = recalculated
         self._backfill_current_build_date(game_id, latest_build_id, latest_build_date)
         self.steam_check_results[game_id] = (latest_build_id, latest_build_date, is_update_available, "")
         self._set_game_update_status(
@@ -4357,8 +4392,16 @@ class MainWindow(QMainWindow):
         if filled_date == local_build_date:
             return False
 
-        self.library_service.set_build_reference(game_id, local_build_id, filled_date)
-        self.local_version_by_game_id[game_id] = (str(local_build_id or ""), filled_date)
+        source = str(
+            getattr(game, "build_reference_source", "")
+            or (game[21] if game is not None and len(game) > 21 else "auto")
+        )
+        if not self.library_service.set_build_reference(
+            game_id, local_build_id, filled_date, source=source
+        ):
+            return False
+
+        self._set_build_reference_memory(game_id, local_build_id, filled_date, source)
 
         # GameRecord instances are mutable.  Keep all in-memory references in
         # sync so a later selection does not replace the newly recorded date
@@ -4376,7 +4419,141 @@ class MainWindow(QMainWindow):
         )
         return True
 
-    def _on_steam_check_failed(self, game_id: int, reason: str):
+    def _set_build_reference_memory(
+        self, game_id: int, build_id: str, build_date: int, source: str
+    ) -> None:
+        """Keep local projections aligned after a build-reference write."""
+        game_id = int(game_id)
+        build_id = str(build_id or "").strip()
+        build_date = int(build_date or 0)
+        source = "user" if str(source or "").strip().lower() == "user" else "auto"
+        self.local_version_by_game_id[game_id] = (build_id, build_date)
+        coordinator = getattr(self, "steam_metadata_coordinator", None)
+        if coordinator is not None:
+            coordinator.update_build_reference(game_id, build_id, build_date)
+        for index, record in enumerate(getattr(self, "games", ())):
+            if int(record[0]) != game_id:
+                continue
+            if hasattr(record, "build_id"):
+                record.build_id = build_id
+                record.build_date = build_date
+                record.build_reference_source = source
+            else:
+                values = list(record)
+                while len(values) <= 20:
+                    values.append(0)
+                values[11] = build_id
+                values[20] = build_date
+                self.games[index] = tuple(values)
+            break
+        record = getattr(self, "games_by_id", {}).get(game_id)
+        if record is not None and hasattr(record, "build_reference_source"):
+            record.build_id = build_id
+            record.build_date = build_date
+            record.build_reference_source = source
+        selected = getattr(self, "selected_game", None)
+        if selected is not None and int(selected[0]) == game_id:
+            if hasattr(selected, "build_reference_source"):
+                selected.build_id = build_id
+                selected.build_date = build_date
+                selected.build_reference_source = source
+            else:
+                values = list(selected)
+                while len(values) <= 20:
+                    values.append(0)
+                values[11] = build_id
+                values[20] = build_date
+                self.selected_game = tuple(values)
+
+    def _resolve_local_build_reference(
+        self,
+        game_id: int,
+        *,
+        game=None,
+        steam_id: str = "",
+        latest_build_id: str = "",
+    ) -> tuple[str, int]:
+        """Resolve manifest data without overriding an explicit user mark."""
+        game_id = int(game_id)
+        if game is None:
+            game = getattr(self, "games_by_id", {}).get(game_id)
+        if game is None and getattr(self, "selected_game", None) is not None:
+            if int(self.selected_game[0]) == game_id:
+                game = self.selected_game
+
+        local_build_id, local_build_date = getattr(
+            self, "local_version_by_game_id", {}
+        ).get(game_id, ("", 0))
+        if game is not None:
+            local_build_id = game[11] if len(game) > 11 and game[11] else local_build_id
+            local_build_date = game[20] if len(game) > 20 and game[20] else local_build_date
+            source = getattr(game, "build_reference_source", None)
+            if source is None:
+                indexed_source = game[21] if len(game) > 21 else None
+                mapped_game = getattr(self, "games_by_id", {}).get(game_id)
+                source = (
+                    indexed_source
+                    or getattr(mapped_game, "build_reference_source", None)
+                    or "auto"
+                )
+            steam_id = steam_id or (str(game[6] or "") if len(game) > 6 else "")
+            path = str(game[2] or "") if len(game) > 2 else ""
+        else:
+            source = "auto"
+            path = ""
+        if not local_build_id:
+            local_build_id = ""
+        try:
+            local_build_date = int(local_build_date or 0)
+        except (TypeError, ValueError, OverflowError):
+            local_build_date = 0
+
+        manifest_build, manifest_date = read_local_steam_build(path, str(steam_id or ""))
+        resolved_id, resolved_date, resolved_source = resolve_build_reference(
+            local_build_id,
+            local_build_date,
+            source,
+            manifest_build,
+            manifest_date,
+            latest_build_id,
+        )
+        if (resolved_id, resolved_date, resolved_source) != (
+            local_build_id, local_build_date, "user" if str(source).lower() == "user" else "auto"
+        ):
+            stored = self.library_service.set_build_reference(
+                game_id, resolved_id, resolved_date, source=resolved_source
+            )
+            if stored:
+                self._set_build_reference_memory(
+                    game_id, resolved_id, resolved_date, resolved_source
+                )
+            elif str(source).lower() == "user":
+                return local_build_id, local_build_date
+            else:
+                # The manifest is still the best live reference for this
+                # session, even if saving its automatic refresh failed.
+                self._set_build_reference_memory(
+                    game_id, resolved_id, resolved_date, "auto"
+                )
+        else:
+            self.local_version_by_game_id[game_id] = (resolved_id, resolved_date)
+        return resolved_id, resolved_date
+
+    def _steam_callback_is_current(self, game_id: int, request_app_id: str = "") -> bool:
+        games_by_id = getattr(self, "games_by_id", None)
+        if games_by_id is None:
+            return True
+        game = games_by_id.get(game_id)
+        if game is None:
+            return False
+        if request_app_id:
+            current_app_id = normalize_steam_app_id(game[6] if len(game) > 6 else "")
+            return current_app_id == normalize_steam_app_id(request_app_id)
+        return True
+
+    def _on_steam_check_failed(self, game_id: int, reason: str, *, request_app_id: str = ""):
+        if not self._steam_callback_is_current(game_id, request_app_id):
+            return
         self.steam_check_results[game_id] = ("", 0, False, reason)
         reason_text = str(reason or "Update check failed")
         source = "offline" if "offline" in reason_text.casefold() else "unknown"
@@ -4439,9 +4616,11 @@ class MainWindow(QMainWindow):
                 else:
                     self.compact_container.set_play_state("play")
 
-    def _on_update_check_offline(self, game_id: int):
+    def _on_update_check_offline(self, game_id: int, *, request_app_id: str = ""):
         """Network unreachable: show an explicit offline state, never a
         false 'up to date' or a generic failure."""
+        if not self._steam_callback_is_current(game_id, request_app_id):
+            return
         if not getattr(self, "_updates_offline", False):
             self._updates_offline = True
             self._show_toast("No internet connection — update checks are unavailable.")
@@ -4508,13 +4687,21 @@ class MainWindow(QMainWindow):
         self.metadata_attempted_builds.discard(game_id)
         self._update_detail_panel()
 
-    def _commit_current_steam_build(self, game_id: int, build_id: str, build_date: int) -> None:
+    def _commit_current_steam_build(self, game_id: int, build_id: str, build_date: int) -> bool:
         """Persist a current Steam build and clear any stale update result."""
         game_id = int(game_id)
         build_id = str(build_id or "").strip()
         build_date = int(build_date or 0)
-        self.library_service.set_build_reference(game_id, build_id, build_date)
-        self.local_version_by_game_id[game_id] = (build_id, build_date)
+        try:
+            saved = self.library_service.set_build_reference(
+                game_id, build_id, build_date, source="user"
+            )
+        except Exception:
+            logger.exception("Could not save current Steam build for game %s", game_id)
+            return False
+        if not saved:
+            return False
+        self._set_build_reference_memory(game_id, build_id, build_date, "user")
 
         # A previous check may have cached the same Steam release as an
         # update. Replace that result as well as the derived view state, so a
@@ -4545,6 +4732,7 @@ class MainWindow(QMainWindow):
                     if hasattr(current, "update_error"):
                         current.update_error = ""
         self._save_persistent_cache()
+        return True
 
     def _mark_build_current_from_config(self, game_id: int):
         """Record a manually installed Steam build from the game settings dialog."""
@@ -4555,7 +4743,9 @@ class MainWindow(QMainWindow):
             self._show_toast("Steam has not provided a build to record yet.", is_error=True)
             return
         latest_date = getattr(self, "latest_checked_build_date", 0)
-        self._commit_current_steam_build(game_id, latest, latest_date)
+        if not self._commit_current_steam_build(game_id, latest, latest_date):
+            self._show_toast("Could not save the Steam build reference.", is_error=True)
+            return
         self._show_toast("Steam build marked as current. Game files were not changed.")
         self._refresh_library()
         self._select_game_by_id(game_id)
@@ -4574,7 +4764,9 @@ class MainWindow(QMainWindow):
             self._show_toast("Steam has not provided a build to record yet.", is_error=True)
             return
         latest_date = getattr(self, "latest_checked_build_date", 0)
-        self._commit_current_steam_build(game_id, latest, latest_date)
+        if not self._commit_current_steam_build(game_id, latest, latest_date):
+            self._show_toast("Could not save the Steam build reference.", is_error=True)
+            return
         self._show_toast("Steam build marked as current. Game files were not changed.")
         self._refresh_library()
         self._select_game_by_id(game_id)
@@ -5118,14 +5310,13 @@ class MainWindow(QMainWindow):
                 force=True,
             )
 
-        local_build_id = game[11] if len(game) > 11 and game[11] else ""
-        local_build_date = game[20] if len(game) > 20 and game[20] else 0
-        manifest_build, manifest_date = read_local_steam_build(path, str(steam_id or ""))
-        local_build_id = manifest_build or local_build_id
-        local_build_date = manifest_date or local_build_date
-        if manifest_build or manifest_date:
-            self.library_service.set_build_reference(game_id, local_build_id, local_build_date)
-        self.local_version_by_game_id[game_id] = (local_build_id, local_build_date)
+        known_latest = self.steam_check_results.get(game_id, ("", 0, False, ""))[0]
+        local_build_id, local_build_date = self._resolve_local_build_reference(
+            game_id,
+            game=game,
+            steam_id=str(steam_id or ""),
+            latest_build_id=known_latest,
+        )
         self.lbl_detail_update.setText("Checking Steam…" if network_allowed else "Offline mode")
         if hasattr(self, "detail_update_spinner"):
             if network_allowed:
@@ -5172,8 +5363,16 @@ class MainWindow(QMainWindow):
                     local_build_date,
                     parent=self,
                 )
-                fetcher.update_checked.connect(self._on_steam_build_checked)
-                fetcher.check_failed.connect(self._on_steam_check_failed)
+                fetcher.update_checked.connect(
+                    lambda gid, bid, bdate, available, app_id=steam_id:
+                        self._on_steam_build_checked(
+                            gid, bid, bdate, available, request_app_id=app_id
+                        )
+                )
+                fetcher.check_failed.connect(
+                    lambda gid, reason, app_id=steam_id:
+                        self._on_steam_check_failed(gid, reason, request_app_id=app_id)
+                )
                 self._track_metadata_fetcher(fetcher)
         else:
             cached_result = self.steam_check_results.get(game_id)
@@ -6449,6 +6648,9 @@ class MainWindow(QMainWindow):
         manual_build_id = dialog.get_build_id()
         manual_build_date = dialog.get_build_date()
         manual_steam_id = dialog.get_steam_id()
+        build_reference_edited = bool(
+            getattr(dialog, "build_reference_was_edited", True)
+        )
         dialog.deleteLater()
         if not name or not path or not exe:
             QMessageBox.warning(self, "Error", "All fields are required.")
@@ -6470,15 +6672,28 @@ class MainWindow(QMainWindow):
             patch_notes_url=patch_notes_url,
         )
         logger.info(f"Saved game settings for {game_id}: executable='{exe}', mode='{mode}'")
-        if manual_build_id is not None:
-            self.library_service.set_build_reference(game_id, manual_build_id, manual_build_date)
-            self.local_version_by_game_id[game_id] = (manual_build_id, manual_build_date)
+        if manual_build_id is not None and build_reference_edited:
+            build_source = "user" if manual_build_id or manual_build_date else "auto"
+            if self.library_service.set_build_reference(
+                game_id, manual_build_id, manual_build_date, source=build_source
+            ):
+                self._set_build_reference_memory(
+                    game_id, manual_build_id, manual_build_date, build_source
+                )
+            else:
+                self._show_toast("Could not save the Steam build reference.", is_error=True)
+
             # Clear cached update status so it re-checks against new manual build
             self.metadata_attempted_builds.discard(game_id)
             self.steam_check_results.pop(game_id, None)
-            self._capture_initial_steam_build(
-                game_id, manual_steam_id, manual_build_id, manual_build_date
-            )
+        reference_id, reference_date = self.local_version_by_game_id.get(
+            game_id,
+            (str(game[11] or "") if len(game) > 11 else "",
+             int(game[20] or 0) if len(game) > 20 else 0),
+        )
+        self._capture_initial_steam_build(
+            game_id, manual_steam_id, reference_id, reference_date
+        )
         self._refresh_library()
         self._sync_launcher_metadata_async(game_id)
         if hasattr(self, "profile_page"):

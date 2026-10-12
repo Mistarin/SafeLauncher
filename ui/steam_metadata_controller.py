@@ -5,6 +5,7 @@ from core.logger import get_logger
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 from core.steam_ids import normalize_steam_app_id
 from core.game_names import is_placeholder_game_name
+from core.steam_build_tracker import compare_build_reference
 from ui.resource_binding import bind_resource, bind_request
 
 logger = get_logger("UI.SteamMetadata")
@@ -100,19 +101,23 @@ class SteamMetadataController(QObject):
                         self.on_failure(
                             game_id,
                             "Steam returned no public branch build for this AppID",
+                            request_app_id=key.identity,
                         )
                     return
                 for game_id, (local_build_id, local_build_date) in tuple(
                     self.coordinator.build_games(key).items()
                 ):
-                    if local_build_id:
-                        is_update = latest_build_id != local_build_id
-                    elif local_build_date > 0:
-                        is_update = latest_build_date > local_build_date
-                    else:
+                    is_update = compare_build_reference(
+                        local_build_id,
+                        local_build_date,
+                        latest_build_id,
+                        latest_build_date,
+                    )
+                    if is_update is None:
                         self.on_failure(
                             game_id,
                             "No installed Steam build reference; enter a current Build ID or date",
+                            request_app_id=key.identity,
                         )
                         continue
                     self.on_build(
@@ -122,6 +127,7 @@ class SteamMetadataController(QObject):
                         is_update,
                         source=source,
                         checked_at=checked_at,
+                        request_app_id=key.identity,
                     )
             return
         if result.status == ResourceStatus.OFFLINE:
@@ -130,11 +136,11 @@ class SteamMetadataController(QObject):
                 "No internet connection. Showing the last known game-version result when available.",
             )
             for game_id in tuple(self.coordinator.build_games(key)):
-                self.on_offline(game_id)
+                self.on_offline(game_id, request_app_id=key.identity)
         elif result.status not in {ResourceStatus.READY, ResourceStatus.STALE, ResourceStatus.CANCELLED}:
             reason = str(result.error or "Steam build check failed")
             for game_id in tuple(self.coordinator.build_games(key)):
-                self.on_failure(game_id, reason)
+                self.on_failure(game_id, reason, request_app_id=key.identity)
 
 
     def request_tags(

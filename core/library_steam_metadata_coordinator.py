@@ -80,6 +80,14 @@ class LibrarySteamMetadataCoordinator:
     def build_games(self, key: RequestKey):
         return self._build_games.get(key, {})
 
+    def update_build_reference(self, game_id: int, build_id: str, build_date: int) -> None:
+        """Refresh the comparison baseline for every pending AppID binding."""
+        game_id = int(game_id)
+        reference = (str(build_id or "").strip(), int(build_date or 0))
+        for consumers in self._build_games.values():
+            if game_id in consumers:
+                consumers[game_id] = reference
+
     def tag_game_ids(self, key: RequestKey):
         return tuple(self._tag_games.get(key, ()))
 

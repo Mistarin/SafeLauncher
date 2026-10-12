@@ -121,10 +121,54 @@ class LibraryServiceTests(unittest.TestCase):
             self.assertEqual(row[4], "umu")
             self.assertEqual(row[6], "480")
             self.assertEqual(row[11], "build-1")
+            self.assertEqual(row.build_reference_source, "auto")
             self.assertEqual(row[18], "/tmp/icon.png")
             self.assertEqual(row[10], "strategy, sandbox")
             self.assertEqual(total, 0)
             self.assertTrue(service.remove_game(game_id))
+        finally:
+            db.close()
+
+    def test_build_reference_source_is_persisted_atomically(self):
+        db = GameDatabase(":memory:")
+        try:
+            game_id = db.add_game("Build Source Game", "/missing", "game.exe", "umu")
+            service = LibraryService(db, LibraryStateStore())
+
+            self.assertTrue(
+                service.set_build_reference(
+                    game_id, "confirmed-build", 123, source="user"
+                )
+            )
+            saved = db.get_all_games()[0]
+            self.assertEqual(saved.build_id, "confirmed-build")
+            self.assertEqual(saved.build_date, 123)
+            self.assertEqual(saved.build_reference_source, "user")
+
+            self.assertFalse(
+                service.set_build_reference(
+                    game_id + 1, "missing-game-build", 456, source="user"
+                )
+            )
+            self.assertEqual(db.get_all_games()[0].build_id, "confirmed-build")
+
+            self.assertTrue(
+                service.set_build_reference(game_id, "auto-build", 321, source="auto")
+            )
+            db._session.conn.execute(
+                """CREATE TRIGGER reject_user_build BEFORE UPDATE ON games
+                   WHEN NEW.build_reference_source = 'user'
+                   BEGIN SELECT RAISE(ABORT, 'write rejected'); END"""
+            )
+            self.assertFalse(
+                service.set_build_reference(
+                    game_id, "rejected-build", 456, source="user"
+                )
+            )
+            saved = db.get_all_games()[0]
+            self.assertEqual(saved.build_id, "auto-build")
+            self.assertEqual(saved.build_date, 321)
+            self.assertEqual(saved.build_reference_source, "auto")
         finally:
             db.close()
 

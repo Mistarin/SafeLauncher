@@ -80,6 +80,12 @@ class GameDatabase:
         with self._session.lock:
             return self._games.update_build_date(game_id, build_date)
 
+    def update_build_reference(
+        self, game_id: int, build_id: str, build_date: int, source: str = "auto"
+    ) -> bool:
+        with self._session.lock:
+            return self._games.update_build_reference(game_id, build_id, build_date, source)
+
     def update_game_version_metadata(self, game_id: int, version_override: str, patch_notes_url: str) -> None:
         with self._session.lock:
             return self._games.update_game_version_metadata(game_id, version_override, patch_notes_url)

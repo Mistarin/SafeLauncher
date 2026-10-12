@@ -97,6 +97,10 @@ class SchemaMigrator:
                     cursor.execute("ALTER TABLE games ADD COLUMN env_vars TEXT DEFAULT '{}'")
                 if "build_date" not in columns:
                     cursor.execute("ALTER TABLE games ADD COLUMN build_date INTEGER DEFAULT 0")
+                if "build_reference_source" not in columns:
+                    cursor.execute(
+                        "ALTER TABLE games ADD COLUMN build_reference_source TEXT NOT NULL DEFAULT 'auto'"
+                    )
 
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS collections (
