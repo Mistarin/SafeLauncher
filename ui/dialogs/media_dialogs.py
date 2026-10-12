@@ -7,7 +7,7 @@ from PyQt6.QtGui import QFont, QPixmap
 from core.host_process import host_process_env
 from database import _APP_DATA_DIR
 from core.date_formatting import format_datetime_timestamp
-from core.screenshot_capture import capture_desktop_screenshot
+from core.screenshot_capture import ScreenshotCaptureWorker
 from core.plugins.gpu_screen_recorder import DEFAULT_RECORDINGS_DIR
 from ui.icons import get_icon, get_icon_pixmap
 from ui.components.popup_shell import PopupDialog
@@ -204,6 +204,7 @@ class ScreenshotGalleryDialog(PopupDialog):
         action_layout = QHBoxLayout()
 
         btn_capture = QPushButton("Capture Screen")
+        self.btn_capture = btn_capture
         btn_capture.setIcon(get_icon("ph.camera-bold"))
         btn_capture.setStyleSheet("QPushButton { background: #18181B; color: #F4F4F5; border: none; border-radius: 6px; padding: 7px 14px; font-weight: 600; } QPushButton:hover { background: #202024; }")
         btn_capture.clicked.connect(self._capture_screen)
@@ -329,11 +330,44 @@ class ScreenshotGalleryDialog(PopupDialog):
             pass
 
     def _capture_screen(self):
-        try:
-            capture_desktop_screenshot(self.game_id)
+        if getattr(self, "_capture_worker", None) is not None:
+            return
+        worker = ScreenshotCaptureWorker(self.game_id, "current", self.game_name, parent=self)
+        self._capture_worker = worker
+        self.btn_capture.setEnabled(False)
+        self.btn_capture.setText("Capturing…")
+        worker.completed.connect(self._on_capture_completed)
+        worker.finished.connect(self._on_capture_finished)
+        owner = self.parentWidget()
+        while owner is not None and not hasattr(owner, "_track_metadata_fetcher"):
+            owner = owner.parentWidget()
+        track_worker = getattr(owner, "_track_metadata_fetcher", None)
+        if callable(track_worker):
+            track_worker(worker)
+        else:
+            worker.start()
+
+    def _on_capture_completed(self, path):
+        if path:
             self.load_screenshots()
-        except Exception:
-            pass
+            self.btn_capture.setText("Capture Screen")
+        else:
+            self.btn_capture.setText("Capture Failed")
+
+    def _on_capture_finished(self):
+        self.btn_capture.setEnabled(True)
+        worker = self._capture_worker
+        self._capture_worker = None
+        if worker is not None:
+            worker.deleteLater()
+
+    def closeEvent(self, event):
+        worker = getattr(self, "_capture_worker", None)
+        if worker is not None and worker.isRunning():
+            # Keep the owning QObject alive until its bounded capture process exits.
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def _open_folder(self):
         try:

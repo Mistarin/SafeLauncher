@@ -4,8 +4,8 @@ import os
 import shutil
 import subprocess
 from typing import Optional
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QApplication, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRectF, QPoint, QEvent
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QApplication
+from PyQt6.QtCore import Qt, QTimer, QRectF, QEvent
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QCursor
 
 from core.logger import get_logger
@@ -29,9 +29,11 @@ def play_notification_sound():
         mpv = shutil.which("mpv")
         if mpv:
             subprocess.Popen(
-                [mpv, "--no-video", "--no-terminal", "--really-quiet", _SOUND_FILE],
+                [mpv, "--no-config", "--no-video", "--no-terminal", "--really-quiet", _SOUND_FILE],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                close_fds=True,
+                start_new_session=True,
             )
     except Exception:
         pass
@@ -49,6 +51,14 @@ def _resolve_target_screen(target_screen_name: str = "current"):
 
     target_clean = (target_screen_name or "current").strip()
 
+    if target_clean.startswith("screen:"):
+        try:
+            index = int(target_clean.split(":", 1)[1])
+            if 0 <= index < len(screens):
+                return screens[index]
+        except ValueError:
+            pass
+
     # 1. Match specific named monitor (e.g. 'HDMI-A-1', 'DP-1')
     for s in screens:
         if s.name().lower() == target_clean.lower():
@@ -65,13 +75,31 @@ def _resolve_target_screen(target_screen_name: str = "current"):
     return app.primaryScreen() or screens[0]
 
 
-def _get_overlay_position(widget_w: int, widget_h: int, target_screen_name: str = "current", margin: int = 14):
+def _screen_target_value(screen) -> str:
+    """Return a target key that stays unambiguous for duplicate monitor names."""
+    app = QApplication.instance()
+    if app is None:
+        return screen.name() or "current"
+    screens = app.screens()
+    matches = [item for item in screens if item.name() == screen.name()]
+    if not screen.name() or len(matches) > 1:
+        try:
+            return f"screen:{screens.index(screen)}"
+        except ValueError:
+            return "primary"
+    return screen.name()
+
+
+def _get_overlay_position(widget_w: int, widget_h: int, target_screen_name: str = "current", margin: int = 14,
+                          screen=None):
     """Return a clamped top-right position in Qt's logical screen coordinates."""
-    screen = _resolve_target_screen(target_screen_name)
+    screen = screen or _resolve_target_screen(target_screen_name)
     if screen:
         g = screen.availableGeometry()
-        x = max(g.left() + margin, min(g.right() - widget_w - margin + 1, g.right()))
-        y = max(g.top() + margin, min(g.bottom() - widget_h - margin + 1, g.bottom()))
+        widget_w = min(max(1, widget_w), max(1, g.width() - 2 * margin))
+        widget_h = min(max(1, widget_h), max(1, g.height() - 2 * margin))
+        x = max(g.left(), min(g.right() - widget_w + 1, g.right() - widget_w - margin + 1))
+        y = max(g.top(), min(g.bottom() - widget_h + 1, g.top() + margin))
         return x, y
     return 100, margin
 
@@ -82,45 +110,20 @@ def _relayout_active_overlays():
     _ACTIVE_OVERLAYS = [overlay for overlay in _ACTIVE_OVERLAYS if overlay.isVisible()]
     by_screen = {}
     for overlay in _ACTIVE_OVERLAYS:
-        screen = _resolve_target_screen(overlay.target_screen_name)
+        screen = overlay._target_screen or _resolve_target_screen(overlay.target_screen_name)
         if screen is None:
             continue
         overlay._fit_to_screen(screen)
-        by_screen.setdefault(screen.name(), (screen, []))[1].append(overlay)
+        by_screen.setdefault(id(screen), (screen, []))[1].append(overlay)
     for screen, overlays in by_screen.values():
         area = screen.availableGeometry()
         y = area.top() + GameOverlayNotificationWidget.MARGIN
         for overlay in overlays:
-            x, _ = _get_overlay_position(
-                overlay.width(), overlay.height(), overlay.target_screen_name,
-                GameOverlayNotificationWidget.MARGIN,
-            )
-            y = max(area.top() + GameOverlayNotificationWidget.MARGIN,
-                    min(y, area.bottom() - overlay.height() - GameOverlayNotificationWidget.MARGIN + 1))
+            x, _ = _get_overlay_position(overlay.width(), overlay.height(), overlay.target_screen_name,
+                                         GameOverlayNotificationWidget.MARGIN, screen=screen)
+            y = min(y, max(area.top(), area.bottom() - overlay.height() + 1))
             overlay.move(x, y)
             y += overlay.height() + 10
-
-
-_ANCHOR_WINDOW = None
-
-def _get_transient_parent():
-    """Find or create a valid top-level window to act as transient parent so Wayland/X11 popup doesn't center or lose parent."""
-    global _ANCHOR_WINDOW
-    app = QApplication.instance()
-    if not app:
-        return None
-    for widget in app.topLevelWidgets():
-        if widget.isWindow() and widget.isVisible() and widget != _ANCHOR_WINDOW:
-            return widget
-
-    if _ANCHOR_WINDOW is None:
-        _ANCHOR_WINDOW = QWidget()
-        _ANCHOR_WINDOW.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowDoesNotAcceptFocus)
-        _ANCHOR_WINDOW.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        _ANCHOR_WINDOW.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        _ANCHOR_WINDOW.setGeometry(0, 0, 1, 1)
-        _ANCHOR_WINDOW.show()
-    return _ANCHOR_WINDOW
 
 
 class OverlayIconWidget(QWidget):
@@ -212,7 +215,9 @@ class GameOverlayNotificationWidget(QWidget):
         # transient relationship to the launcher can make some window
         # managers activate the launcher when a fullscreen game is focused.
         super().__init__(None)
-        self.target_screen_name = target_screen
+        self.target_screen_name = str(target_screen or "current")
+        self.duration_ms = max(250, int(duration_ms))
+        self._target_screen = None
 
         # A regular tool window avoids the platform's cursor-anchored tooltip
         # placement, which otherwise overrides our screen-corner geometry.
@@ -232,6 +237,7 @@ class GameOverlayNotificationWidget(QWidget):
         self._app_screen_connections = []
 
         layout = QHBoxLayout(self)
+        self._layout = layout
         layout.setContentsMargins(12, 8, 14, 8)
         layout.setSpacing(10)
 
@@ -264,28 +270,17 @@ class GameOverlayNotificationWidget(QWidget):
         self.title_label = lbl_title
         self.subtitle_label = lbl_sub if subtitle else None
 
-        # Smooth Opacity Fade-in
-        self.opacity_effect = QGraphicsOpacityEffect(self)
-        self.setGraphicsEffect(self.opacity_effect)
-        self.opacity_effect.setOpacity(0.0)
-
-        self.anim_in = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.anim_in.setDuration(180)
-        self.anim_in.setStartValue(0.0)
-        self.anim_in.setEndValue(1.0)
-        self.anim_in.setEasingCurve(QEasingCurve.Type.OutCubic)
-
         self.dismiss_timer = QTimer(self)
         self.dismiss_timer.setSingleShot(True)
-        self.dismiss_timer.timeout.connect(self._fade_out)
-        self.duration_ms = duration_ms
+        self.dismiss_timer.timeout.connect(self.close)
 
     def show_animated(self):
         screen = _resolve_target_screen(self.target_screen_name)
         if screen is not None:
             # Resolve aliases such as "current" once, so cursor movement does
             # not make a notification jump between monitors while it is shown.
-            self.target_screen_name = screen.name()
+            self.target_screen_name = _screen_target_value(screen)
+            self._target_screen = screen
             self._watch_screen(screen)
         app = QApplication.instance()
         if app is not None:
@@ -296,15 +291,12 @@ class GameOverlayNotificationWidget(QWidget):
                 except (TypeError, RuntimeError):
                     pass
         self._fit_to_screen(screen)
-        x, y = _get_overlay_position(self.width(), self.height(), self.target_screen_name, self.MARGIN)
+        x, y = _get_overlay_position(self.width(), self.height(), self.target_screen_name, self.MARGIN,
+                                     screen=screen)
         self.move(x, y)
         self.show()
-        _relayout_active_overlays()
-        # Some window managers reposition ToolTip windows during initial map.
+        # One post-map correction handles window managers that adjust tool geometry.
         QTimer.singleShot(0, _relayout_active_overlays)
-        QTimer.singleShot(25, _relayout_active_overlays)
-
-        self.anim_in.start()
         self.dismiss_timer.start(self.duration_ms)
 
     def _watch_screen(self, screen):
@@ -332,14 +324,21 @@ class GameOverlayNotificationWidget(QWidget):
             self.adjustSize()
             return
         area = screen.availableGeometry()
-        max_width = max(150, min(self.W, area.width() - 2 * self.MARGIN))
+        max_width = max(1, min(self.W, area.width() - 2 * self.MARGIN))
         self.setMaximumWidth(max_width)
-        text_width = max(70, max_width - 12 - 14 - 28 - 10)
+        compact = max_width < 116 or area.height() < 64
+        self.icon_widget.setVisible(not compact)
+        if self.subtitle_label is not None:
+            self.subtitle_label.setVisible(not compact)
+        self._layout.setContentsMargins(4 if compact else 12, 2 if compact else 8,
+                                       4 if compact else 14, 2 if compact else 8)
+        self._layout.setSpacing(4 if compact else 10)
+        text_width = max(1, max_width - 12 - 14 - 28 - 10)
         self.title_label.setMaximumWidth(text_width)
         if self.subtitle_label is not None:
             self.subtitle_label.setMaximumWidth(text_width)
         self.adjustSize()
-        self.setMaximumHeight(max(48, area.height() - 2 * self.MARGIN))
+        self.setMaximumHeight(max(1, area.height() - 2 * self.MARGIN))
         self.adjustSize()
 
     def _on_screen_geometry_changed(self, *_args):
@@ -350,7 +349,8 @@ class GameOverlayNotificationWidget(QWidget):
     def _on_screen_topology_changed(self, *_args):
         screen = _resolve_target_screen(self.target_screen_name)
         if screen is not None:
-            self.target_screen_name = screen.name()
+            self.target_screen_name = _screen_target_value(screen)
+            self._target_screen = screen
             self._watch_screen(screen)
         self._fit_to_screen(screen)
         _relayout_active_overlays()
@@ -377,15 +377,6 @@ class GameOverlayNotificationWidget(QWidget):
         super().closeEvent(event)
         QTimer.singleShot(0, _relayout_active_overlays)
 
-    def _fade_out(self):
-        self.anim_out = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.anim_out.setDuration(220)
-        self.anim_out.setStartValue(1.0)
-        self.anim_out.setEndValue(0.0)
-        self.anim_out.setEasingCurve(QEasingCurve.Type.InCubic)
-        self.anim_out.finished.connect(self.close)
-        self.anim_out.start()
-
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -401,9 +392,6 @@ def show_ingame_notification(title: str, subtitle: str = "", icon_type: str = "s
     """Display the in-game floating HUD overlay on top-right of designated screen."""
     global _ACTIVE_OVERLAYS
 
-    if play_sound:
-        play_notification_sound()
-
     if not enabled:
         return
 
@@ -411,13 +399,15 @@ def show_ingame_notification(title: str, subtitle: str = "", icon_type: str = "s
         app = QApplication.instance()
         if not app:
             return
+        if play_sound:
+            play_notification_sound()
 
         overlay = GameOverlayNotificationWidget(title, subtitle, icon_type, target_screen=target_screen)
         _ACTIVE_OVERLAYS = [item for item in _ACTIVE_OVERLAYS if item.isVisible()]
         screen = _resolve_target_screen(target_screen)
         same_screen = [
             item for item in _ACTIVE_OVERLAYS
-            if screen is not None and item.target_screen_name == screen.name()
+            if screen is not None and item._target_screen is screen
         ]
         while len(same_screen) >= 3:
             same_screen.pop(0).close()

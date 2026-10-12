@@ -1,7 +1,6 @@
 """Global hotkey listener for in-game screenshot, recording, and replay triggers."""
 
 import threading
-import time
 from typing import Dict, Optional, Tuple
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -167,11 +166,16 @@ class GlobalHotkeyListener(QObject):
                 self._display = disp
             disp.set_error_handler(lambda err, req: None)
             root = disp.screen().root
+            # X11 key repeat emits a stream of KeyPress events while a key
+            # remains physically held. A short timestamp gate filters the
+            # repeats without relying on KeyRelease delivery (which varies
+            # with focus and passive-grab ownership).
             root.change_attributes(event_mask=X.KeyPressMask)
 
             # (keycode, required_mod_mask) -> action
             keycode_to_action: Dict[Tuple[int, int], str] = {}
             active_grab_keycodes: set = set()
+            last_hotkey_press: Dict[Tuple[int, int], int] = {}
 
             # Bitmask of actual modifiers to evaluate (Shift, Ctrl, Alt, Meta/Super)
             relevant_modifiers = X.ShiftMask | X.ControlMask | X.Mod1Mask | X.Mod4Mask
@@ -197,6 +201,7 @@ class GlobalHotkeyListener(QObject):
                         pass
                 active_grab_keycodes.clear()
                 keycode_to_action.clear()
+                last_hotkey_press.clear()
 
                 with self._bindings_lock:
                     current_items = list(self._bindings.items())
@@ -242,6 +247,13 @@ class GlobalHotkeyListener(QObject):
                         clean_mods = event.state & relevant_modifiers
                         action = keycode_to_action.get((event.detail, clean_mods))
                         if action:
+                            hotkey = (event.detail, clean_mods)
+                            previous = last_hotkey_press.get(hotkey)
+                            last_hotkey_press[hotkey] = event.time
+                            # X server timestamps are unsigned 32-bit values.
+                            # The modular delta also behaves across wraparound.
+                            if previous is not None and ((event.time - previous) & 0xFFFFFFFF) < 125:
+                                continue
                             logger.info(f"Global hotkey triggered: keycode {event.detail}, mods {clean_mods:#x} -> '{action}'")
                             self.hotkey_triggered.emit(action)
                 else:

@@ -21,7 +21,7 @@ from PyQt6.QtCore import (
     Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer,
     QUrl, QSettings, QAbstractAnimation, QEvent,
 )
-from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices, QKeySequence, QShortcut, QGuiApplication
+from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices, QKeySequence, QShortcut, QGuiApplication, QCursor
 from core.interfaces import ISandboxRunner, IBackupManager
 from core.artwork_client import ArtworkClient
 from core.playtime_tracker import PlaytimeTrackerThread
@@ -3745,14 +3745,76 @@ class MainWindow(QMainWindow):
         elif action == "save_replay":
             self._trigger_replay_save()
 
+    @staticmethod
+    def _foreground_window_info():
+        """Return the foreground X11 window PID and center point when available."""
+        display = None
+        try:
+            from Xlib import X, display as xdisplay
+
+            display = xdisplay.Display()
+            root = display.screen().root
+            active_atom = display.intern_atom("_NET_ACTIVE_WINDOW")
+            active = root.get_full_property(active_atom, X.AnyPropertyType)
+            if active is None or not len(active.value):
+                return None, None
+            window = display.create_resource_object("window", int(active.value[0]))
+            pid_prop = window.get_full_property(display.intern_atom("_NET_WM_PID"), X.AnyPropertyType)
+            if pid_prop is None or not len(pid_prop.value):
+                return None, None
+            geometry = window.get_geometry()
+            origin = window.translate_coords(root, 0, 0)
+            center = (int(origin.dst_x + geometry.width // 2),
+                      int(origin.dst_y + geometry.height // 2))
+            return int(pid_prop.value[0]), center
+        except Exception:
+            return None, None
+        finally:
+            if display is not None:
+                try:
+                    display.close()
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _process_contains_pid(process, candidate_pid: Optional[int]) -> bool:
+        """Match a foreground game child process to its SafeLauncher process."""
+        try:
+            root_pid = int(process.pid)
+            pid = int(candidate_pid)
+            if root_pid <= 0 or pid <= 0:
+                return False
+            for _ in range(64):
+                if pid == root_pid:
+                    return True
+                with open(f"/proc/{pid}/stat", "r", encoding="utf-8") as stat_file:
+                    stat = stat_file.read()
+                fields = stat[stat.rfind(")") + 1:].split()
+                if len(fields) < 2:
+                    return False
+                parent_pid = int(fields[1])
+                if parent_pid <= 1 or parent_pid == pid:
+                    return False
+                pid = parent_pid
+        except (AttributeError, OSError, ValueError, TypeError):
+            return False
+        return False
+
     def _take_screenshot(self):
         """Capture asynchronously so screenshot tools never stall or activate the launcher."""
+        if getattr(self, "_screenshot_capture_in_flight", False):
+            return
         game_id = 0
         game_name = "unknown"
-        active_sessions = self.game_sessions.active()
+        active_sessions = [session for session in self.game_sessions.active() if session.is_live]
         game_active = bool(active_sessions)
+        foreground_pid, foreground_position = self._foreground_window_info()
         if game_active:
-            active_session = max(active_sessions, key=lambda session: session.started_at)
+            active_session = next(
+                (session for session in active_sessions
+                 if self._process_contains_pid(session.process, foreground_pid)),
+                max(active_sessions, key=lambda session: session.started_at),
+            )
             game_id = active_session.game_id
             game_name = str(active_session.game_name or "unknown")
         elif self.selected_game:
@@ -3763,32 +3825,72 @@ class MainWindow(QMainWindow):
             game_name = self.games[0][1] if isinstance(self.games[0], tuple) else getattr(self.games[0], 'name', 'unknown')
 
         target_geometry = None
+        target_output = ""
         target_screen = str(self.screenshot_screen or "current")
-        if target_screen not in {"current", "all"}:
-            screen = QApplication.primaryScreen() if target_screen == "primary" else next(
-                (item for item in QApplication.screens() if item.name() == target_screen), None
-            )
+        if target_screen == "all":
+            screens = QApplication.screens()
+            if screens:
+                geometries = [screen.geometry() for screen in screens]
+                left = min(rect.left() for rect in geometries)
+                top = min(rect.top() for rect in geometries)
+                right = max(rect.right() for rect in geometries)
+                bottom = max(rect.bottom() for rect in geometries)
+                target_geometry = (left, top, right - left + 1, bottom - top + 1)
+        elif target_screen == "current" and game_active:
+            # Capture the display under the in-game pointer directly. The
+            # launcher UI and desktop screenshot tools are not involved.
+            screen = None
+            if foreground_position is not None:
+                screen = QGuiApplication.screenAt(QPoint(*foreground_position))
+            screen = screen or QGuiApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
             if screen is not None:
+                screens = QApplication.screens()
+                same_name = [item for item in screens if item.name() == screen.name()]
+                target_screen = (f"screen:{screens.index(screen)}"
+                                 if not screen.name() or len(same_name) > 1 else screen.name())
+                target_output = screen.name()
+                geometry = screen.geometry()
+                target_geometry = (geometry.x(), geometry.y(), geometry.width(), geometry.height())
+        elif target_screen not in {"current", "all"}:
+            if target_screen == "primary":
+                screen = QApplication.primaryScreen()
+            elif target_screen.startswith("screen:"):
+                try:
+                    screen = QApplication.screens()[int(target_screen.split(":", 1)[1])]
+                except (ValueError, IndexError):
+                    screen = None
+            else:
+                screen = next((item for item in QApplication.screens() if item.name() == target_screen), None)
+            if screen is not None:
+                target_output = screen.name()
                 geometry = screen.geometry()
                 target_geometry = (geometry.x(), geometry.y(), geometry.width(), geometry.height())
 
         worker = ScreenshotCaptureWorker(
-            game_id, target_screen, game_name, target_geometry, parent=self
+            game_id, target_screen, game_name, target_geometry,
+            avoid_focus_stealing=game_active, target_output=target_output, parent=self
         )
         worker.completed.connect(
             lambda path, gid=game_id, name=game_name, in_game=game_active:
-                self._on_screenshot_capture_completed(gid, name, path, in_game)
+                self._on_screenshot_capture_completed(gid, name, path, in_game, target_screen)
         )
-        self._track_metadata_fetcher(worker)
+        worker.finished.connect(lambda: setattr(self, "_screenshot_capture_in_flight", False))
+        self._screenshot_capture_in_flight = True
+        try:
+            self._track_metadata_fetcher(worker)
+        except Exception:
+            self._screenshot_capture_in_flight = False
+            logger.exception("Could not start screenshot capture worker")
 
-    def _on_screenshot_capture_completed(self, game_id: int, game_name: str, target_path, in_game: bool):
+    def _on_screenshot_capture_completed(self, game_id: int, game_name: str, target_path, in_game: bool,
+                                         target_screen: str = "current"):
         overlay_enabled = bool(getattr(self.gpu_recorder_config, "in_game_overlay", True))
         if target_path:
             if in_game:
                 show_ingame_notification(
                     "Screenshot Captured", os.path.basename(target_path),
                     icon_type="screenshot", enabled=overlay_enabled,
-                    play_sound=True, target_screen=self.screenshot_screen,
+                    play_sound=True, target_screen=target_screen,
                 )
             else:
                 self._show_toast("Screenshot saved to gallery.")
@@ -3797,7 +3899,7 @@ class MainWindow(QMainWindow):
         elif in_game:
             show_ingame_notification(
                 "Screenshot Failed", "Could not capture screen", icon_type="warning",
-                enabled=overlay_enabled, target_screen=self.screenshot_screen,
+                enabled=overlay_enabled, target_screen=target_screen,
             )
         else:
             self._show_toast("Failed to capture screenshot.", is_error=True)
