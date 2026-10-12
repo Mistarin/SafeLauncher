@@ -7,12 +7,40 @@ from datetime import datetime
 from typing import Optional, List, Tuple
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import pyqtSignal
 
 from core.logger import get_logger
 from core.host_process import host_process_env
+from core.safe_thread import SafeQThread
 from database import _APP_DATA_DIR
 
 logger = get_logger("ScreenshotCapture")
+
+
+class ScreenshotCaptureWorker(SafeQThread):
+    """Run potentially slow desktop capture commands away from the GUI thread."""
+
+    completed = pyqtSignal(object)
+
+    def __init__(self, game_id: int, target_screen: str, game_name: str, target_geometry=None, parent=None):
+        super().__init__(parent)
+        self.game_id = int(game_id)
+        self.target_screen = str(target_screen or "current")
+        self.game_name = str(game_name or "screenshot")
+        self.target_geometry = target_geometry
+
+    def safe_run(self):
+        try:
+            result = capture_desktop_screenshot(
+                self.game_id,
+                target_screen=self.target_screen,
+                game_name=self.game_name,
+                target_geometry=self.target_geometry,
+            )
+        except Exception:
+            logger.exception("Screenshot capture worker failed")
+            result = None
+        self.completed.emit(result)
 
 
 def _normalise_name(name: str) -> str:
@@ -56,7 +84,13 @@ def get_available_screens() -> List[Tuple[str, str]]:
     return targets
 
 
-def capture_desktop_screenshot(game_id: int, target_screen: str = "current", game_name: str = "screenshot") -> Optional[str]:
+def capture_desktop_screenshot(
+    game_id: int,
+    target_screen: str = "current",
+    game_name: str = "screenshot",
+    *,
+    target_geometry: tuple[int, int, int, int] | None = None,
+) -> Optional[str]:
     """Capture 1 single screen or designated monitor screenshot and save to game gallery."""
     target_dir = get_game_screenshots_dir(game_id)
     filename = _make_filename(game_name)
@@ -67,31 +101,31 @@ def capture_desktop_screenshot(game_id: int, target_screen: str = "current", gam
 
     # 1. Capture specific monitor geometry if requested
     if target_screen not in ("current", "all"):
-        app = QApplication.instance()
-        if app and ffmpeg:
-            target_geo = None
-            if target_screen == "primary" and app.primaryScreen():
-                target_geo = app.primaryScreen().geometry()
-            else:
-                for screen in app.screens():
-                    if screen.name() == target_screen:
-                        target_geo = screen.geometry()
-                        break
+        app = QApplication.instance() if target_geometry is None else None
+        target_geo = target_geometry
+        if app:
+            screen = app.primaryScreen() if target_screen == "primary" else next(
+                (item for item in app.screens() if item.name() == target_screen), None
+            )
+            if screen is not None:
+                geometry = screen.geometry()
+                target_geo = (geometry.x(), geometry.y(), geometry.width(), geometry.height())
 
-            if target_geo:
-                try:
-                    cmd = [
-                        ffmpeg, "-y", "-f", "x11grab", "-draw_mouse", "0",
-                        "-video_size", f"{target_geo.width()}x{target_geo.height()}",
-                        "-i", f":0.0+{target_geo.x()},{target_geo.y()}",
-                        "-vframes", "1", target_path
-                    ]
-                    res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4, env=host_process_env())
-                    if res.returncode == 0 and os.path.exists(target_path) and os.path.getsize(target_path) > 1024:
-                        logger.info(f"Captured single monitor ({target_screen}) screenshot via ffmpeg: {target_path}")
-                        return target_path
-                except Exception as e:
-                    logger.debug(f"ffmpeg monitor capture failed: {e}")
+        if ffmpeg and target_geo:
+            x, y, width, height = target_geo
+            try:
+                cmd = [
+                    ffmpeg, "-y", "-f", "x11grab", "-draw_mouse", "0",
+                    "-video_size", f"{width}x{height}",
+                    "-i", f":0.0+{x},{y}",
+                    "-vframes", "1", target_path
+                ]
+                res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4, env=host_process_env())
+                if res.returncode == 0 and os.path.exists(target_path) and os.path.getsize(target_path) > 1024:
+                    logger.info(f"Captured single monitor ({target_screen}) screenshot via ffmpeg: {target_path}")
+                    return target_path
+            except Exception as e:
+                logger.debug(f"ffmpeg monitor capture failed: {e}")
 
     # 2. Spectacle current active monitor or fullscreen
     if spectacle:

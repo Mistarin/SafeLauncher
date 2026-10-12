@@ -102,6 +102,7 @@ from core.plugins.gpu_screen_recorder import (
     DEFAULT_RECORDINGS_DIR
 )
 from core.global_hotkeys import GlobalHotkeyListener
+from core.screenshot_capture import ScreenshotCaptureWorker
 from ui.components.overlay_hud import show_ingame_notification
 from ui.components.banner_card import GameBannerWidget
 from ui.library_card_renderer import LibraryCardRenderer, LibraryCardActions
@@ -574,7 +575,9 @@ class MainWindow(QMainWindow):
         # Qt teardown. Normal application runs retain the owned listener.
         self.global_hotkeys = GlobalHotkeyListener(self)
         self._update_global_hotkeys()
-        self.global_hotkeys.hotkey_triggered.connect(self._on_global_hotkey)
+        self.global_hotkeys.hotkey_triggered.connect(
+            self._on_global_hotkey, Qt.ConnectionType.QueuedConnection
+        )
         # OS-wide input hooks are not meaningful for Qt's headless/minimal
         # platforms.  More importantly, starting Xlib from an offscreen test
         # can race with Qt teardown and leave a native listener alive while
@@ -3743,35 +3746,61 @@ class MainWindow(QMainWindow):
             self._trigger_replay_save()
 
     def _take_screenshot(self):
-        """Capture screenshot of designated screen, display in-game HUD overlay and save to gallery."""
+        """Capture asynchronously so screenshot tools never stall or activate the launcher."""
         game_id = 0
         game_name = "unknown"
-        if self.selected_game:
+        active_sessions = self.game_sessions.active()
+        game_active = bool(active_sessions)
+        if game_active:
+            active_session = max(active_sessions, key=lambda session: session.started_at)
+            game_id = active_session.game_id
+            game_name = str(active_session.game_name or "unknown")
+        elif self.selected_game:
             game_id = self.selected_game[0] if isinstance(self.selected_game, tuple) else getattr(self.selected_game, 'id', 0)
             game_name = self.selected_game[1] if isinstance(self.selected_game, tuple) else getattr(self.selected_game, 'name', 'unknown')
         elif self.games:
             game_id = self.games[0][0] if isinstance(self.games[0], tuple) else getattr(self.games[0], 'id', 0)
             game_name = self.games[0][1] if isinstance(self.games[0], tuple) else getattr(self.games[0], 'name', 'unknown')
 
-        try:
-            from core.screenshot_capture import capture_desktop_screenshot
-            target_path = capture_desktop_screenshot(game_id, target_screen=self.screenshot_screen, game_name=game_name)
-            if target_path:
-                self._show_toast("Screenshot saved to gallery.")
+        target_geometry = None
+        target_screen = str(self.screenshot_screen or "current")
+        if target_screen not in {"current", "all"}:
+            screen = QApplication.primaryScreen() if target_screen == "primary" else next(
+                (item for item in QApplication.screens() if item.name() == target_screen), None
+            )
+            if screen is not None:
+                geometry = screen.geometry()
+                target_geometry = (geometry.x(), geometry.y(), geometry.width(), geometry.height())
+
+        worker = ScreenshotCaptureWorker(
+            game_id, target_screen, game_name, target_geometry, parent=self
+        )
+        worker.completed.connect(
+            lambda path, gid=game_id, name=game_name, in_game=game_active:
+                self._on_screenshot_capture_completed(gid, name, path, in_game)
+        )
+        self._track_metadata_fetcher(worker)
+
+    def _on_screenshot_capture_completed(self, game_id: int, game_name: str, target_path, in_game: bool):
+        overlay_enabled = bool(getattr(self.gpu_recorder_config, "in_game_overlay", True))
+        if target_path:
+            if in_game:
                 show_ingame_notification(
-                    "Screenshot Captured",
-                    os.path.basename(target_path),
-                    icon_type="screenshot",
-                    enabled=self.gpu_recorder_config.in_game_overlay,
-                    play_sound=True,
-                    target_screen=self.screenshot_screen
+                    "Screenshot Captured", os.path.basename(target_path),
+                    icon_type="screenshot", enabled=overlay_enabled,
+                    play_sound=True, target_screen=self.screenshot_screen,
                 )
-                self._update_detail_panel()
             else:
-                self._show_toast("Failed to capture screenshot.", is_error=True)
-                show_ingame_notification("Screenshot Failed", "Could not capture screen", icon_type="warning", enabled=self.gpu_recorder_config.in_game_overlay, target_screen=self.screenshot_screen)
-        except Exception as e:
-            self._show_toast(f"Failed to capture screenshot: {e}", is_error=True)
+                self._show_toast("Screenshot saved to gallery.")
+                if self.selected_game and self.selected_game[0] == game_id:
+                    self._update_detail_panel()
+        elif in_game:
+            show_ingame_notification(
+                "Screenshot Failed", "Could not capture screen", icon_type="warning",
+                enabled=overlay_enabled, target_screen=self.screenshot_screen,
+            )
+        else:
+            self._show_toast("Failed to capture screenshot.", is_error=True)
 
     def _open_screenshot_gallery(self, game_id: Optional[int] = None):
         """Open ScreenshotGalleryDialog for current game."""
@@ -4734,15 +4763,29 @@ class MainWindow(QMainWindow):
         self._save_persistent_cache()
         return True
 
+    def _latest_build_for_game(self, game_id: int) -> tuple[str, int]:
+        """Prefer this game's cached Steam result over selection-scoped UI fields."""
+        result = self.steam_check_results.get(int(game_id))
+        if result and result[0]:
+            try:
+                return str(result[0]), int(result[1] or 0)
+            except (TypeError, ValueError, IndexError):
+                return str(result[0]), 0
+        if self.selected_game and int(self.selected_game[0]) == int(game_id):
+            return (
+                str(getattr(self, "latest_checked_build_id", "") or ""),
+                int(getattr(self, "latest_checked_build_date", 0) or 0),
+            )
+        return "", 0
+
     def _mark_build_current_from_config(self, game_id: int):
         """Record a manually installed Steam build from the game settings dialog."""
         if not self.selected_game or self.selected_game[0] != game_id:
             return
-        latest = getattr(self, 'latest_checked_build_id', "")
+        latest, latest_date = self._latest_build_for_game(game_id)
         if not latest:
-            self._show_toast("Steam has not provided a build to record yet.", is_error=True)
+            self._show_toast("No public Steam build record is available for this AppID yet.", is_error=True)
             return
-        latest_date = getattr(self, "latest_checked_build_date", 0)
         if not self._commit_current_steam_build(game_id, latest, latest_date):
             self._show_toast("Could not save the Steam build reference.", is_error=True)
             return
@@ -4759,11 +4802,10 @@ class MainWindow(QMainWindow):
         if not self.update_status_by_game_id.get(game_id, False):
             self._show_toast("No Steam update detected for this game.", is_error=True)
             return
-        latest = getattr(self, 'latest_checked_build_id', "")
+        latest, latest_date = self._latest_build_for_game(game_id)
         if not latest:
-            self._show_toast("Steam has not provided a build to record yet.", is_error=True)
+            self._show_toast("No public Steam build record is available for this AppID yet.", is_error=True)
             return
-        latest_date = getattr(self, "latest_checked_build_date", 0)
         if not self._commit_current_steam_build(game_id, latest, latest_date):
             self._show_toast("Could not save the Steam build reference.", is_error=True)
             return

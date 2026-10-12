@@ -2213,11 +2213,14 @@ class ToastNotification(QFrame):
             if toast is not None and not toast._detached
         ]
         parent_widget._safelauncher_toasts = toasts
-        margin, gap, max_width = 18, 10, min(420, max(180, parent_widget.width() - 2 * 18))
+        margin, gap = 18, 10
+        # Toasts in a stack share one width so their left edges line up even
+        # when their messages have very different lengths.
+        max_width = max(1, min(420, parent_widget.width() - 2 * margin))
         bottom = max(margin, parent_widget.height() - margin)
         for toast in reversed(toasts):
-            toast.setMaximumWidth(max_width)
-            text_width = max(80, max_width - 14 - 14 - 16 - 8)
+            toast.setFixedWidth(max_width)
+            text_width = max(0, max_width - 14 - 14 - 16 - 8)
             toast.text_label.setMaximumWidth(text_width)
             toast.adjustSize()
             y = max(margin, bottom - toast.height())

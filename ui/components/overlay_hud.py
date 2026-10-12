@@ -208,8 +208,10 @@ class GameOverlayNotificationWidget(QWidget):
 
     def __init__(self, title: str, subtitle: str = "", icon_type: str = "screenshot",
                  duration_ms: int = 2800, target_screen: str = "current", parent=None):
-        parent_widget = parent or _get_transient_parent()
-        super().__init__(parent_widget)
+        # Keep this as an independent, non-activating top-level surface. A
+        # transient relationship to the launcher can make some window
+        # managers activate the launcher when a fullscreen game is focused.
+        super().__init__(None)
         self.target_screen_name = target_screen
 
         # A regular tool window avoids the platform's cursor-anchored tooltip
