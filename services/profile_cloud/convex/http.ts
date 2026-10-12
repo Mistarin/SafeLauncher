@@ -114,6 +114,7 @@ function throwProfileError(result: any): void {
     profile_exists_for_identity: 409,
     exists: 409,
     conflict: 409,
+    username_immutable: 409,
   };
   const messages: Record<string, string> = {
     not_found: "Profile not found.",
@@ -123,6 +124,7 @@ function throwProfileError(result: any): void {
     profile_exists_for_identity: "This central account already owns a profile.",
     exists: "Username is already in use.",
     conflict: "The profile changed on another device.",
+    username_immutable: "A profile username cannot be changed.",
   };
   throw new ApiError(
     statuses[error] || 400,
@@ -713,6 +715,8 @@ async function dispatch(
           "Profile revision is stale.",
           { revision: result.revision },
         );
+      if (result.error === "username_immutable")
+        throw new ApiError(409, "username_immutable", "A profile username cannot be changed.");
       return jsonResponse(result);
     }
     if (method === "DELETE") {

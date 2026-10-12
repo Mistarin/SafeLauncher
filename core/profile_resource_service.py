@@ -294,6 +294,13 @@ class ProfileResourceService:
                     return response
 
             remote = client.current_profile()
+            requested_handle = str(handle or "").strip().lower()
+            if remote is not None and str(remote.get("handle", "") or "").strip().lower() != requested_handle:
+                raise ProfileServiceError(
+                    "A profile username cannot be changed.",
+                    "username_immutable",
+                    409,
+                )
             claimed = False
             token = str(legacy_token or "").strip()
             if remote is None and token:

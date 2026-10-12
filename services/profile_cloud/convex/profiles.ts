@@ -661,6 +661,10 @@ export const update = internalMutation({
     let value: Record<string, unknown>;
     try { value = JSON.parse(args.profile) as Record<string, unknown>; } catch { return { error: "invalid_profile" }; }
     const requested = typeof value.handle === "string" ? value.handle.trim().toLowerCase() : existing.handle;
+    // The username is selected during account setup and is an immutable
+    // account identifier. Historical aliases remain reserved for profile
+    // links, so allowing a rename would create confusing, unreusable names.
+    if (requested !== existing.handle) return { error: "username_immutable" };
     const requestedAlias = validHandle(requested) ? await findHandle(ctx, requested) : null;
     let canonicalHandle = existing.handle;
     // A stale client may still submit a historical alias. It should resolve

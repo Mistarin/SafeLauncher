@@ -361,15 +361,26 @@ def private_profile_settings(value: dict[str, Any]) -> dict[str, Any]:
 def merge_profile_settings(local: Any, remote: Any) -> dict[str, Any]:
     left = normalize_profile_settings(local)
     right = normalize_profile_settings(remote)
+    # A public username is an account identifier, not an ordinary profile
+    # preference. Older private-cloud snapshots may predate username setup or
+    # contain a stale value from another device, so never let them erase or
+    # replace a username already established in this installation.
+    stable_handle = left["public_handle"] or right["public_handle"]
     left_key = (left["changed_at"], left["change_id"])
     right_key = (right["changed_at"], right["change_id"])
     if right_key > left_key:
-        return right
+        merged = right
+        merged["public_handle"] = stable_handle
+        return merged
     if left_key > right_key:
+        left["public_handle"] = stable_handle
         return left
     # Markerless legacy profiles should not erase a populated local profile.
     if left_key == (0, "") and right_key == (0, ""):
-        return left if left["display_name"] != "Player" or left["avatar_id"] else right
+        merged = left if left["display_name"] != "Player" or left["avatar_id"] else right
+        merged["public_handle"] = stable_handle
+        return merged
+    left["public_handle"] = stable_handle
     return left
 
 

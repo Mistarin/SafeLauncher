@@ -51,9 +51,10 @@ after the claim succeeds. New profiles have no bearer owner token at all.
 
 Each profile has an internal Convex document ID, but it is never exposed to
 desktop clients, public profile JSON, or URLs. Users see a readable canonical
-username such as `martin-42`. Every previous username, including the old
-random hexadecimal handle, is retained indefinitely in `profileHandles` and
-continues to resolve to the same profile. Friend requests, friendships, and
+username such as `martin-42`. The username is immutable after selection.
+Previous usernames, including the old random hexadecimal handle, are retained
+indefinitely in `profileHandles` and continue to resolve to the same profile.
+Friend requests, friendships, and
 blocks also store immutable profile references; their handle fields remain
 only as denormalized compatibility/display data.
 
@@ -115,9 +116,8 @@ optional 160-character `bio`, and a readable `handle`) plus a bounded `games`
 library. Each entry contains only the Steam AppID, display name, a derived
 Steam CDN 16:9 hero artwork URL, playtime, favorite state, and an achievement summary
 (`unlocked_count`, `total_count`, percentage, and a short list of unlocked
-achievements). Usernames are readable and may be changed after publication;
-previous usernames remain aliases. Users can also change their visible display
-name and bio. A profile background may optionally reference a
+achievements). Usernames are permanent after account setup. Users can change
+their visible display name and bio. A profile background may optionally reference a
 validated Steam AppID; the client derives the fixed hero URL locally and the
 server stores only that AppID plus its derived URL. Installation paths,
 executables, save locations, cloud keys, email addresses, and OIDC subjects

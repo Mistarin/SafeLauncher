@@ -205,13 +205,15 @@ class ProfileResourceServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.extra["original_code"], "exists")
         self.assertIn("choose a different handle", str(raised.exception).lower())
 
-    def test_publish_keeps_an_intentional_username_change(self):
+    def test_publish_rejects_a_username_change_for_an_existing_profile(self):
         service = ProfileResourceService(client_factory=_RenameClient)
         document = {"handle": "new-name", "display_name": "Player"}
 
-        result = service.publish(document, "old-name", service_url="https://profile.example")
+        with self.assertRaises(ProfileServiceError) as raised:
+            service.publish(document, "new-name", service_url="https://profile.example")
 
-        self.assertEqual(result["document"]["handle"], "new-name")
+        self.assertEqual(raised.exception.code, "username_immutable")
+        self.assertEqual(raised.exception.status, 409)
 
     def test_publish_retries_schema_four_once_for_an_older_gateway(self):
         service = ProfileResourceService(client_factory=_SchemaCompatibilityClient)

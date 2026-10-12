@@ -779,6 +779,7 @@ class ProfilePageWidget(QWidget):
         self.handle_edit.setFixedHeight(32)
         self.handle_edit.setMaxLength(40)
         self.handle_edit.setPlaceholderText("username")
+        self.handle_edit.setToolTip("Your username is permanent once chosen.")
         self.handle_edit.textChanged.connect(self._schedule_handle_availability)
         handle_row.addWidget(self.handle_edit, 1)
         editor_layout.addLayout(handle_row)
@@ -3052,9 +3053,10 @@ class ProfilePageWidget(QWidget):
             self.bio_edit.setPlainText(str(self._profile_settings.get("bio", "") or ""))
         handle = self.handle_edit.text()
         published = bool(self._profile_settings.get("published"))
-        # Published usernames may be changed. The cloud keeps every previous
-        # username as an alias, so existing shared links remain valid.
-        self.handle_edit.setReadOnly(False)
+        # Usernames are account identifiers. Once chosen, keep them stable;
+        # the service retains historical aliases and therefore cannot safely
+        # release a previous name for reuse.
+        self.handle_edit.setReadOnly(bool(handle))
         self._handle_check_timer.stop()
         self._handle_check_serial += 1
         self._handle_check_inflight = False
@@ -3078,8 +3080,8 @@ class ProfilePageWidget(QWidget):
             str(avatar_item.get("label", selected_avatar)) if avatar_item else (selected_avatar or "Using initials")
         )
         self.handle_hint.setText(
-            "You can change this username. Previous usernames remain valid profile links."
-            if published else
+            "Your username is permanent and cannot be changed."
+            if handle else
             "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens. Availability is checked before publishing."
         )
         background = self._editor_background()
@@ -3231,14 +3233,19 @@ class ProfilePageWidget(QWidget):
             self.auth_progress.emit("Signed in; the old migration token could not be removed locally.")
         return remote
 
-    def _setup_username(self, identity: dict[str, Any] | None = None) -> bool:
+    def _setup_username(
+        self,
+        identity: dict[str, Any] | None = None,
+        *,
+        replace_unpublished: bool = False,
+    ) -> bool:
         """Collect the first public handle without persisting OIDC claims."""
         identity = identity if isinstance(identity, dict) else {}
         local = load_profile_settings(
             self.settings,
             fallback_name=str(self.settings.value("user_name", "Player", type=str) or "Player"),
         )
-        if str(local.get("public_handle", "") or ""):
+        if str(local.get("public_handle", "") or "") and not replace_unpublished:
             return True
         suggestion = profile_username_suggestion(identity)
         while True:
@@ -3409,6 +3416,10 @@ class ProfilePageWidget(QWidget):
             return
         handle = self.handle_edit.text().strip().lower()
         current_handle = str(self._profile_settings.get("public_handle", "") or "").lower()
+        if current_handle and handle != current_handle:
+            QMessageBox.warning(self, "Username", "Your username is permanent and cannot be changed.")
+            self._populate_editor()
+            return
         if handle != current_handle and not HANDLE_RE.fullmatch(handle):
             handle = normalize_username_handle(handle)
         if not handle or not HANDLE_RE.fullmatch(handle):
@@ -3711,8 +3722,19 @@ class ProfilePageWidget(QWidget):
                 "profile_exists",
             }:
                 self._handle_availability = False
+                if not bool(self._profile_settings.get("published")):
+                    # A local first-run choice is not reserved until the
+                    # profile is created. If another account claimed it in
+                    # the meantime, let the user choose a replacement instead
+                    # of leaving the username field permanently locked.
+                    if self._setup_username(replace_unpublished=True):
+                        self._set_profile_action_status(
+                            "That username was claimed by another account. Choose a different username, then publish again.",
+                            True,
+                        )
+                        return
                 self._set_profile_action_status(
-                    "That username is already in use. Open Edit profile, choose another username, and publish again.",
+                    "That username is already in use. Choose another username and publish again.",
                     True,
                 )
             elif isinstance(result, ProfileServiceError) and result.code == "profile_exists_for_identity":
