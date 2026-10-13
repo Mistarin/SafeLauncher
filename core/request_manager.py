@@ -33,6 +33,7 @@ from core.request_contracts import (
     resource_status_for_error,
 )
 from core.resource_cache import CacheEntry, ResourceCache
+from typing import Any
 
 
 logger = get_logger("RequestManager")
@@ -180,7 +181,7 @@ class RequestManager:
 
     def submit(self, spec: RequestSpec) -> RequestHandle:
         """Submit work, deduplicating an equal or older active generation."""
-        loading_result = None
+        loading_result: Any = None
         with self._condition:
             if self._closed:
                 raise RuntimeError("RequestManager is shut down")
@@ -424,7 +425,7 @@ class RequestManager:
             int(source.generation if generation is None else generation),
         )
         projection_id = "projection-" + uuid.uuid4().hex
-        future = Future()
+        future: Future[Any] = Future()
         record = _ProjectionRecord(
             key=key,
             source=source,
@@ -435,7 +436,7 @@ class RequestManager:
         )
 
         previous = None
-        previous_cancelled = None
+        previous_cancelled: Any = None
         with self._condition:
             target_generation = max(
                 target_generation,
@@ -522,7 +523,7 @@ class RequestManager:
             try:
                 source_future.result()
             except Exception as exc:
-                source_result = ResourceResult(
+                source_result: ResourceResult[Any] = ResourceResult(
                     key=source.key,
                     status=ResourceStatus.ERROR,
                     error=exc,
@@ -571,7 +572,7 @@ class RequestManager:
                 return False
             record.active = False
             self._projections.pop(record.key, None)
-            result = ResourceResult(
+            result: ResourceResult[Any] = ResourceResult(
                 key=record.key,
                 status=ResourceStatus.CANCELLED,
                 error=RequestCancelled("Projection was cancelled"),
@@ -668,7 +669,7 @@ class RequestManager:
                 self._active.pop(key, None)
             generation = self._last_generation.get(key, -1) + 1
             self._last_generation[key] = generation
-            idle = ResourceResult(
+            idle: ResourceResult[Any] = ResourceResult(
                 key=key,
                 status=ResourceStatus.IDLE,
                 request_id="invalidate-" + uuid.uuid4().hex,
@@ -678,7 +679,7 @@ class RequestManager:
         for projection in projections:
             if projection.unsubscribe is not None:
                 projection.unsubscribe()
-            projection_result = ResourceResult(
+            projection_result: ResourceResult[Any] = ResourceResult(
                 key=projection.key,
                 status=ResourceStatus.CANCELLED,
                 error=RequestCancelled("Projection was invalidated"),
@@ -806,7 +807,7 @@ class RequestManager:
                 cache_source=cached.source,
                 updated_at=cached.stored_at,
             )
-            future = Future()
+            future: Future[Any] = Future()
             future.set_result(result)
             self._notify(spec.key, result)
             return RequestHandle(spec.key, result.request_id, spec.generation, future, lambda: False)
@@ -849,7 +850,7 @@ class RequestManager:
             offline = False
         if offline:
             self._increment_metric("offline")
-            offline_result = ResourceResult(
+            offline_result: ResourceResult[Any] = ResourceResult(
                 key=spec.key,
                 status=ResourceStatus.OFFLINE,
                 request_id="offline-" + uuid.uuid4().hex,

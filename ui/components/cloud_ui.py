@@ -162,7 +162,7 @@ def set_cloud_focus_order(dialog: QWidget, *widgets: QWidget) -> tuple[QWidget, 
     """Set and record an explicit, predictable tab sequence for a cloud dialog."""
     ordered = tuple(widget for widget in widgets if widget is not None)
     dialog._cloud_focus_order = ordered
-    for previous, current in zip(ordered, ordered[1:]):
+    for previous, current in zip(ordered, ordered[1:], strict=False):
         dialog.setTabOrder(previous, current)
     return ordered
 

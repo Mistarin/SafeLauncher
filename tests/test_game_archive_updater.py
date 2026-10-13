@@ -180,7 +180,7 @@ class GameArchiveUpdaterTests(unittest.TestCase):
 
     def _tree_snapshot(self):
         snapshot = {}
-        for root, dirs, files in os.walk(self.game_path, followlinks=False):
+        for root, _dirs, files in os.walk(self.game_path, followlinks=False):
             for name in files:
                 path = os.path.join(root, name)
                 relative = os.path.relpath(path, self.game_path)

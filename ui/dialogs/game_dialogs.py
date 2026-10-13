@@ -5,7 +5,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QMessageBox, QComboBox, QProgressBar, QWidget, QFrame, QMenu,
-    QCheckBox, QStackedWidget, QPlainTextEdit, QGraphicsOpacityEffect, QApplication,
+    QStackedWidget, QPlainTextEdit, QGraphicsOpacityEffect, QApplication,
     QGridLayout, QScrollArea, QDateEdit, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QSize, QPoint, QDate, QEvent, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer, QUrl, QRegularExpression

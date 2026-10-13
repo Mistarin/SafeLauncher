@@ -16,7 +16,7 @@ from io import StringIO
 from PyQt6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QWidget, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QProgressBar, QSizeGrip, QSizePolicy, QCheckBox, QComboBox, QMessageBox, QSpinBox
+    QProgressBar, QSizeGrip, QSizePolicy, QComboBox, QMessageBox, QSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QSize, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QKeySequence
@@ -313,7 +313,7 @@ class UserSettingsDialog(PopupDialog):
         ]
 
         tab_icons = ["ph.sliders-horizontal-bold", "ph.shield-check-bold", "ph.hard-drives-bold", "ph.cloud-bold", "ph.puzzle-piece-bold"]
-        for (title, idx), icon_name in zip(tabs, tab_icons):
+        for (title, idx), icon_name in zip(tabs, tab_icons, strict=True):
             btn = QPushButton(title)
             btn.setIcon(get_icon(icon_name, color="#A1A1AA"))
             btn.setIconSize(QSize(15, 15))

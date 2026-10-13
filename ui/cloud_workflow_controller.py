@@ -116,7 +116,7 @@ class CloudWorkflowController(QObject):
         generation = self.cloud_sync_coordinator.generation
         marker = (generation, "upload")
         attempts[int(game_id)] = (signature, attempt_count + 1)
-        setattr(self, "_cloud_auto_upload_attempts", attempts)
+        self._cloud_auto_upload_attempts = attempts
         self._cloud_auto_upload_in_flight[int(game_id)] = marker
         self.set_syncing(game_id, local_stats, cloud_stats)
         target = CloudOperationTarget(int(game_id), game_name, game_path, steam_id)
@@ -266,7 +266,7 @@ class CloudWorkflowController(QObject):
         generation = self.cloud_sync_coordinator.generation
         marker = (generation, target_version)
         attempts[int(game_id)] = (signature, attempt_count + 1)
-        setattr(self, "_cloud_auto_restore_attempts", attempts)
+        self._cloud_auto_restore_attempts = attempts
         self._cloud_auto_restore_in_flight[int(game_id)] = marker
         self.set_syncing(game_id, local_stats, cloud_stats)
 

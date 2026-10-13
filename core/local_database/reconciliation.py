@@ -8,6 +8,7 @@ from .records import profile_identity
 from .validation import (
     _ACHIEVEMENT_DB_LOCK,
 )
+from typing import Any
 logger = get_logger("Database")
 
 _DUPLICATE_REPAIR_DONE: set = set()
@@ -169,7 +170,7 @@ class IdentityReconciler:
                             (app_id, local_game.id),
                         )
 
-                games_by_identity = {}
+                games_by_identity: dict[str, Any] = {}
                 for game in self.games.get_all_games():
                     identity = self.profile_identity(game.name, game.steam_id)
                     games_by_identity.setdefault(identity, []).append(game)

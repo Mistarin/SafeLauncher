@@ -214,7 +214,11 @@ class ArtworkResourceService:
             token.raise_if_cancelled()
             return value
 
-        return RequestSpec(key, load, priority=priority, generation=int(generation), timeout_seconds=30)
+        # Local .exe extraction runs without the network, so icons stay available offline.
+        return RequestSpec(
+            key, load, priority=priority, generation=int(generation), timeout_seconds=30,
+            metadata={"allow_offline": True},
+        )
 
     def request_auto(self, target: ArtworkTarget, **kwargs):
         return self._request_cached(

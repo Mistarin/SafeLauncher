@@ -62,7 +62,7 @@ class DiscordRPC:
                 header = self.sock.recv(8)
                 if len(header) == 8:
                     op, length = struct.unpack("<II", header)
-                    resp = self.sock.recv(length)
+                    self.sock.recv(length)
                     self.connected = True
                     return True
                 self._disconnect()
@@ -102,10 +102,13 @@ class DiscordRPC:
         }
 
         with self.lock:
+            sock = self.sock
+            if sock is None:
+                return False
             try:
                 payload = json.dumps(activity)
                 data = struct.pack("<II", 1, len(payload)) + payload.encode("utf-8")
-                self.sock.sendall(data)
+                sock.sendall(data)
                 return True
             except Exception:
                 self._disconnect()

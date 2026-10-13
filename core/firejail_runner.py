@@ -125,7 +125,7 @@ class FirejailSandboxRunner(ISandboxRunner):
             # Case-insensitive & subfolder fallback search for matching .exe on disk
             target_name = os.path.basename(executable).lower()
             found_path = None
-            for root, dirs, files in os.walk(game_path):
+            for root, _dirs, files in os.walk(game_path):
                 if "prefix" in root.split(os.sep):
                     continue
                 for f in files:

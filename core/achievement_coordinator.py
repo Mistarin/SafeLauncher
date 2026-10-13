@@ -13,10 +13,11 @@ import time
 from collections import defaultdict
 
 from core.achievement_providers import AchievementResolution, resolve_achievements
+from typing import Any
 
 _CACHE_TTL_SECONDS = 1.5
 _CACHE_LOCK = threading.RLock()
-_TARGET_LOCKS = defaultdict(threading.Lock)
+_TARGET_LOCKS: defaultdict[str, Any] = defaultdict(threading.Lock)
 _CACHE: dict[tuple[str, str, str], tuple[float, AchievementResolution]] = {}
 
 

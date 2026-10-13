@@ -233,37 +233,50 @@ export const importAsset = action({
   },
 });
 
-export const migrateAppearance = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const avatarRows = await ctx.db.query("profileAvatars").collect();
-    avatarRows.sort((left, right) => left.order - right.order || left.avatarId.localeCompare(right.avatarId));
-    const used = new Set<number>();
-    let nextAssetNumber = 1;
-    let assignedAssets = 0;
-    const avatarByLegacyId = new Map<string, number>();
-    const avatarByNumber = new Map<number, number>();
-    for (const row of avatarRows) {
-      let assetNumber = row.assetNumber;
-      if (!validAssetNumber(assetNumber ?? 0) || (assetNumber !== undefined && used.has(assetNumber))) {
-        while (used.has(nextAssetNumber)) nextAssetNumber += 1;
-        if (!validAssetNumber(nextAssetNumber)) continue;
-        assetNumber = nextAssetNumber;
-        assignedAssets += 1;
-      }
-      const assigned = assetNumber;
-      if (assigned === undefined) continue;
-      used.add(assigned);
-      nextAssetNumber = Math.max(nextAssetNumber, assigned + 1);
-      avatarByLegacyId.set(row.avatarId, assigned);
-      avatarByNumber.set(assigned, assigned);
-      if (row.assetNumber !== assigned) await ctx.db.patch(row._id, { assetNumber: assigned });
+/**
+ * Assign asset numbers to the catalog. The catalog is small and bounded, so it
+ * is recomputed on every batch; rows are patched only when they change, which
+ * keeps repeated runs idempotent.
+ */
+async function assignAvatarAssetNumbers(ctx: any) {
+  const avatarRows = await ctx.db.query("profileAvatars").collect();
+  avatarRows.sort((left: any, right: any) => left.order - right.order || left.avatarId.localeCompare(right.avatarId));
+  const used = new Set<number>();
+  let nextAssetNumber = 1;
+  let assignedAssets = 0;
+  const avatarByLegacyId = new Map<string, number>();
+  const avatarByNumber = new Map<number, number>();
+  for (const row of avatarRows) {
+    let assetNumber = row.assetNumber;
+    if (!validAssetNumber(assetNumber ?? 0) || (assetNumber !== undefined && used.has(assetNumber))) {
+      while (used.has(nextAssetNumber)) nextAssetNumber += 1;
+      if (!validAssetNumber(nextAssetNumber)) continue;
+      assetNumber = nextAssetNumber;
+      assignedAssets += 1;
     }
+    const assigned = assetNumber;
+    if (assigned === undefined) continue;
+    used.add(assigned);
+    nextAssetNumber = Math.max(nextAssetNumber, assigned + 1);
+    avatarByLegacyId.set(row.avatarId, assigned);
+    avatarByNumber.set(assigned, assigned);
+    if (row.assetNumber !== assigned) await ctx.db.patch(row._id, { assetNumber: assigned });
+  }
+  return { avatarByLegacyId, avatarByNumber, assignedAssets };
+}
 
-    const profiles = await ctx.db.query("publicProfiles").collect();
+/** Migrate one page of public profiles to the appearance schema. Safe to re-run. */
+export const migrateAppearanceBatch = internalMutation({
+  args: { cursor: v.optional(v.string()), limit: v.number() },
+  handler: async (ctx, args) => {
+    const { avatarByLegacyId, avatarByNumber, assignedAssets } = await assignAvatarAssetNumbers(ctx);
+    const page = await ctx.db.query("publicProfiles").paginate({
+      cursor: args.cursor ?? null,
+      numItems: Math.max(1, Math.min(100, args.limit)),
+    });
     let migrated = 0;
     let unmappedAvatars = 0;
-    for (const row of profiles) {
+    for (const row of page.page) {
       let profile: Record<string, unknown>;
       try {
         profile = JSON.parse(row.profile) as Record<string, unknown>;
@@ -304,19 +317,30 @@ export const migrateAppearance = internalMutation({
       await ctx.db.patch(row._id, { profile: JSON.stringify(profile), revision: row.revision + 1, updatedAt: Date.now() });
       migrated += 1;
     }
-    return { migrated, assignedAssets, unmappedAvatars };
+    return {
+      processed: page.page.length,
+      migrated,
+      assignedAssets,
+      unmappedAvatars,
+      nextCursor: page.isDone ? undefined : page.continueCursor,
+    };
   },
 });
 
 export const runAppearanceMigration = action({
-  args: { importKey: v.string() },
+  args: { importKey: v.string(), batchSize: v.optional(v.number()) },
   handler: async (ctx, args): Promise<{ migrated: number; assignedAssets: number; unmappedAvatars: number }> => {
     if (!(await importKeyAllowed(args.importKey))) throw new Error("avatar_import_unauthorized");
-    const result = await ctx.runMutation(internal.avatar_catalog.migrateAppearance, {});
-    return {
-      migrated: Number(result.migrated || 0),
-      assignedAssets: Number(result.assignedAssets || 0),
-      unmappedAvatars: Number(result.unmappedAvatars || 0),
-    };
+    const limit = Math.max(1, Math.min(100, args.batchSize || 50));
+    const totals = { migrated: 0, assignedAssets: 0, unmappedAvatars: 0 };
+    let cursor: string | undefined;
+    do {
+      const result: any = await ctx.runMutation(internal.avatar_catalog.migrateAppearanceBatch, cursor ? { cursor, limit } : { limit });
+      totals.migrated += Number(result.migrated || 0);
+      totals.assignedAssets += Number(result.assignedAssets || 0);
+      totals.unmappedAvatars += Number(result.unmappedAvatars || 0);
+      cursor = result.nextCursor;
+    } while (cursor);
+    return totals;
   },
 });

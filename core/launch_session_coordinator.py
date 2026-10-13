@@ -94,7 +94,7 @@ class LaunchSessionCoordinator:
         return tuple(self._trackers.values())
 
     def finish_tracker(self, tracker):
-        game_id = int(getattr(tracker, "game_id"))
+        game_id = int(tracker.game_id)
         session = self.session_manager.get(game_id)
         if session is not None:
             process = getattr(tracker, "process", None)

@@ -25,6 +25,7 @@ from typing import Dict, List, Optional
 from core.logger import get_logger
 from core.achievement_models import AchievementProvenance
 from core.network_policy import automatic_network_allowed
+from typing import Any
 
 logger = get_logger("AchievementProviders")
 _APP_ID_RE = re.compile(r"^[0-9]{1,16}$")
@@ -177,7 +178,7 @@ class AchievementProviderRegistry:
                     # may be left behind in more than one prefix/root. Union
                     # schema-matching observations so a stale empty/current
                     # file cannot make previously seen unlocks disappear.
-                    combined = {}
+                    combined: dict[str, Any] = {}
                     for item in matching_states:
                         for name, stamp in item[4].state.items():
                             if name in allowed_names:

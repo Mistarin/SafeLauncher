@@ -3,7 +3,7 @@
 import os
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QFormLayout, QFileDialog, QCheckBox
+    QFormLayout, QFileDialog
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QIcon, QPixmap

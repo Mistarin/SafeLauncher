@@ -28,6 +28,7 @@ from core.profile_models import (
     save_profile_settings,
 )
 from core.game_names import display_name_key, local_profile_identity, preferred_game_name
+from typing import Any
 
 logger = get_logger("CloudMetadata")
 
@@ -119,7 +120,7 @@ def _normalise_profile(profile: dict) -> dict:
                 clean[name] = _normalise_unlock(raw_value)
         if clean:
             achievements[app_id] = clean
-    games = {}
+    games: dict[str, Any] = {}
     raw_games = profile.get("games") if isinstance(profile.get("games"), dict) else {}
     for raw_identity, raw_value in list(raw_games.items())[:_MAX_PROFILE_APPS]:
         identity = str(raw_identity).strip()
@@ -207,7 +208,7 @@ def _merge_text_values(left: object, right: object, limit: int = 2048) -> str:
 
 
 def _merge_devices(local: object, remote: object) -> dict:
-    merged = {}
+    merged: dict[str, Any] = {}
     for source in (local, remote):
         for device_id, state in _normalise_devices(source).items():
             old = merged.get(device_id, {})
@@ -231,7 +232,7 @@ def _merge_unlocks(local: dict, remote: dict) -> dict:
 
 
 def _merge_sessions(local: list, remote: list) -> list:
-    by_id = {}
+    by_id: dict[str, Any] = {}
     local_items = local[:2_000] if isinstance(local, list) else []
     remote_items = remote[:2_000] if isinstance(remote, list) else []
     for item in local_items + remote_items:

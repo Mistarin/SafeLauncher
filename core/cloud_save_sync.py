@@ -76,7 +76,7 @@ def _stats_for_locations(locations: List[SaveLocation]) -> SaveStats:
 
     non_reg_locs = [loc for loc in locations if not loc.path.lower().endswith((".reg", ".reg.old"))]
     target_locs = non_reg_locs if non_reg_locs else locations
-    target_mtimes = []
+    target_mtimes: list[Any] = []
     for loc in target_locs:
         if os.path.exists(loc.path):
             try:
@@ -114,6 +114,7 @@ def _stats_for_locations(locations: List[SaveLocation]) -> SaveStats:
 # --------------------------------------------------------------------------- #
 
 import threading
+from typing import Any
 
 def cloud_mode() -> str:
     settings = QSettings("SafeLauncher", "SafeLauncher")
@@ -1259,7 +1260,7 @@ class CloudSaveSyncEngine:
                     ),
                     reverse=True,
                 )
-                for idx, v in enumerate(cloud_versions):
+                for _idx, v in enumerate(cloud_versions):
                     v_num = v.get("version", 0)
                     v_mtime = cloud_version_timestamp(v)
                     is_active = False

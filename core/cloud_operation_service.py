@@ -34,6 +34,7 @@ from core.request_contracts import (
     is_transient_error,
 )
 from core.logger import get_logger
+from typing import Any
 
 
 logger = get_logger("CloudOperationService")
@@ -106,7 +107,7 @@ class CloudOperationService:
         )
         self._context: CloudContext | None = None
         self._records: dict[str, CloudOperationRecord] = {}
-        self._handles = {}
+        self._handles: dict[str, Any] = {}
         self._read_invalidation_notified: set[str] = set()
         self._read_invalidation_keys: set[RequestKey] = set()
         self._phase_timings: dict[str, dict[str, float]] = {}

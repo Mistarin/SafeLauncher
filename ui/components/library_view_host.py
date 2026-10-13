@@ -228,7 +228,7 @@ class LibraryViewHost(QStackedWidget):
             row_height = max(1, container.card_width * 3 // 2 + container.spacing)
             expanded = visible_rect.adjusted(0, -row_height * lookahead_rows, 0, row_height * lookahead_rows)
             visible = set()
-            for index, card in enumerate(container.widgets):
+            for card in container.widgets:
                 try:
                     top_left = card.mapTo(map_widget, QPoint(0, 0))
                     if QRect(top_left, card.size()).intersects(expanded):

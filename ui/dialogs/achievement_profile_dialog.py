@@ -53,7 +53,6 @@ class AchievementProfileDialog(PopupDialog):
 
     def _load(self):
         service = self.library_service
-        profile = service.profile_unlocks() if service is not None else self.db.get_profile_unlocks()
         profile_records = (
             service.profile_unlock_records(include_pending=True)
             if service is not None else self.db.get_profile_unlock_records(include_pending=True)

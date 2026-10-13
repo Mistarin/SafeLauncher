@@ -86,7 +86,7 @@ def get_available_screens() -> List[Tuple[str, str]]:
             screens = app.screens()
             names = [screen.name() or f"Screen {i + 1}" for i, screen in enumerate(screens)]
             duplicates = {name for name in names if names.count(name) > 1}
-            for i, (screen, name) in enumerate(zip(screens, names)):
+            for i, (screen, name) in enumerate(zip(screens, names, strict=True)):
                 geo = screen.geometry()
                 value = f"screen:{i}" if name in duplicates or not screen.name() else name
                 label_name = f"{name} (Display {i + 1})" if name in duplicates else name

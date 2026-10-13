@@ -4,7 +4,7 @@ Allows users to compare local vs. cloud save timestamps and choose which save to
 """
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QCheckBox
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 )
 from PyQt6.QtGui import QFont
 

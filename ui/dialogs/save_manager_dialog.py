@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
-    QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QTabWidget, QApplication
+    QFileDialog, QFrame, QScrollArea, QMessageBox, QTabWidget, QApplication
 )
 from PyQt6.QtWidgets import QToolButton
 from PyQt6.QtCore import Qt, QSize, pyqtSignal

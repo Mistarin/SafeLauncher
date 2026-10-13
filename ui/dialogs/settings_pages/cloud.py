@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout, QWidget, QScrollArea, QGridLayout, QFrame, QProgressBar, QCheckBox, QSpinBox
+from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout, QWidget, QScrollArea, QGridLayout, QFrame, QProgressBar, QSpinBox
 from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QFont
 from ui.icons import get_icon

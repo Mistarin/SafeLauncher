@@ -458,7 +458,7 @@ def build_public_projection(db, settings: dict[str, Any], *, now: int | None = N
     recent = []
     known_by_app: dict[str, set[str]] = {}
     display_names = {}
-    app_game_names = {}
+    app_game_names: dict[str, Any] = {}
     achievement_rows_by_game = db.get_profile_achievement_rows()
     for game in all_games:
         app_id = steam_app_id(game.steam_id)

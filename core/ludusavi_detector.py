@@ -17,6 +17,7 @@ import json
 from dataclasses import dataclass, asdict
 from typing import List, Optional, Dict
 from core.logger import get_logger
+from typing import Any
 
 logger = get_logger("SaveDetector")
 
@@ -373,7 +374,7 @@ class LudusaviDetector:
     def _build_cli_locations(cls, file_paths: List[str], prefix_path: str, prefix_known: bool) -> List[SaveLocation]:
         """Group ludusavi file hits into coherent SaveLocation entries."""
         reg_prefix_abs = os.path.abspath(prefix_path) if prefix_known else None
-        roots_by_cluster = {}
+        roots_by_cluster: dict[str, Any] = {}
 
         for p in file_paths:
             base = os.path.basename(p).lower()
@@ -652,7 +653,6 @@ class LudusaviDetector:
                             s for s in os.listdir(child_path)
                             if s != "." and game_dir_matches(s)
                         ]
-                        nested_parent = root_child
                     except OSError:
                         candidates_here = []
 

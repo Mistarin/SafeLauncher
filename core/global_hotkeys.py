@@ -155,7 +155,7 @@ class GlobalHotkeyListener(QObject):
         disp = None
         try:
             from Xlib import X, display
-            import Xlib.threaded
+            import Xlib.threaded  # noqa: F401  # enables Xlib thread safety
         except ImportError as e:
             logger.warning(f"python-xlib not available for global hotkeys: {e}")
             return

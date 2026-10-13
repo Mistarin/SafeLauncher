@@ -9,6 +9,7 @@ from typing import Optional
 from core.interfaces import IBackupManager
 from core.logger import get_logger
 from core.save_models import GameSaveSnapshot, SaveOperationCancelled
+from typing import Any
 
 logger = get_logger("ZipBackup")
 
@@ -583,7 +584,7 @@ class ZipBackupManager(IBackupManager):
             manifest_data = json.loads(zipf.read(_MANIFEST_NAME).decode("utf-8"))
             items = manifest_data.get("items", [])
             transfers = []
-            destination_map = {}
+            destination_map: dict[str, Any] = {}
             for item in items:
                 arc_prefix = item.get("archive_prefix", "")
                 if not arc_prefix:

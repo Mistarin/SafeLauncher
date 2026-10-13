@@ -884,14 +884,19 @@ export const migrateBlockBatch = internalMutation({
 export const identifierMigrationPreview = internalQuery({
   args: {},
   handler: async (ctx) => {
+    // A preview only needs representative counts. Each table is capped so a
+    // large production database cannot exceed Convex read limits; `truncated`
+    // says when a count is a lower bound.
+    const cap = 5000;
     const [profiles, aliases, requests, friendships, blocks] = await Promise.all([
-      ctx.db.query("publicProfiles").collect(),
-      ctx.db.query("profileHandles").collect(),
-      ctx.db.query("friendRequests").collect(),
-      ctx.db.query("friendships").collect(),
-      ctx.db.query("profileBlocks").collect(),
+      ctx.db.query("publicProfiles").take(cap),
+      ctx.db.query("profileHandles").take(cap),
+      ctx.db.query("friendRequests").take(cap),
+      ctx.db.query("friendships").take(cap),
+      ctx.db.query("profileBlocks").take(cap),
     ]);
     return {
+      truncated: [profiles, aliases, requests, friendships, blocks].some((rows) => rows.length >= cap),
       profiles: profiles.length,
       legacyProfiles: profiles.filter((profile: any) => !validUsernameHandle(profile.handle)).length,
       aliases: aliases.length,

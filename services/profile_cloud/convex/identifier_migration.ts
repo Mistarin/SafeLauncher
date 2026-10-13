@@ -13,7 +13,7 @@ async function migrationKeyAllowed(key: string): Promise<boolean> {
 /** Developer-only, idempotent migration runner. It never returns an internal ID. */
 export const migrateIdentifiers = action({
   args: { migrationKey: v.string(), dryRun: v.boolean(), batchSize: v.optional(v.number()) },
-  handler: async (ctx, args): Promise<Record<string, number>> => {
+  handler: async (ctx, args): Promise<Record<string, number | boolean>> => {
     if (!(await migrationKeyAllowed(args.migrationKey))) throw new Error("identifier_migration_unauthorized");
     if (args.dryRun) return await ctx.runQuery(internal.profiles.identifierMigrationPreview, {});
     const limit = Math.max(1, Math.min(100, args.batchSize || DEFAULT_BATCH_SIZE));

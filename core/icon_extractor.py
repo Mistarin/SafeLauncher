@@ -101,10 +101,10 @@ def extract_exe_icon(exe_path: str, output_png: str) -> bool:
             for t_id, t_sub in type_entries:
                 if t_id == 14 and (t_sub & 0x80000000):  # RT_GROUP_ICON
                     g_dir_off = rsrc_base_offset + (t_sub & 0x7FFFFFFF)
-                    for g_id, g_sub in parse_rsrc_dir(g_dir_off):
+                    for _g_id, g_sub in parse_rsrc_dir(g_dir_off):
                         if g_sub & 0x80000000:
                             lang_dir_off = rsrc_base_offset + (g_sub & 0x7FFFFFFF)
-                            for l_id, l_sub in parse_rsrc_dir(lang_dir_off):
+                            for _l_id, l_sub in parse_rsrc_dir(lang_dir_off):
                                 if not (l_sub & 0x80000000):
                                     data_entry_off = rsrc_base_offset + l_sub
                                     rel_de = data_entry_off - rsrc_base_offset
@@ -121,7 +121,7 @@ def extract_exe_icon(exe_path: str, output_png: str) -> bool:
                     for i_id, i_sub in parse_rsrc_dir(i_dir_off):
                         if i_sub & 0x80000000:
                             lang_dir_off = rsrc_base_offset + (i_sub & 0x7FFFFFFF)
-                            for l_id, l_sub in parse_rsrc_dir(lang_dir_off):
+                            for _l_id, l_sub in parse_rsrc_dir(lang_dir_off):
                                 if not (l_sub & 0x80000000):
                                     data_entry_off = rsrc_base_offset + l_sub
                                     rel_de = data_entry_off - rsrc_base_offset
@@ -145,7 +145,7 @@ def extract_exe_icon(exe_path: str, output_png: str) -> bool:
 
             # Check if any icon resource entry is already a raw PNG (Vista+ high-res 256x256 PNG icon)
             best_png = None
-            for i_id, (img_off, img_sz) in icon_entries.items():
+            for _icon_id, (img_off, img_sz) in icon_entries.items():
                 f.seek(img_off)
                 head = f.read(8)
                 if head.startswith(b"\x89PNG\r\n\x1a\n"):

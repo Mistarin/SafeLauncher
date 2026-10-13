@@ -2092,19 +2092,7 @@ class CompactSidebarListItemWidget(QWidget):
                             pix = loaded
                             break
 
-        if pix is None and self.path and self.executable:
-            full_exe = os.path.join(self.path, self.executable)
-            if os.path.isfile(full_exe):
-                try:
-                    from core.icon_extractor import extract_exe_icon
-                    tmp_icon = f"/tmp/icon_{self.game_id}.png"
-                    if extract_exe_icon(full_exe, tmp_icon):
-                        loaded = QPixmap(tmp_icon)
-                        if not loaded.isNull():
-                            pix = loaded
-                except Exception:
-                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
-
+        # No local icon yet: the request manager delivers it via update_game_icon().
         if pix is None:
             pix = get_icon_pixmap("ph.game-controller-bold", 24, color="#3B9FE8")
 

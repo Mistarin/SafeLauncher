@@ -72,7 +72,6 @@ from ui.threads import (
     GameArchiveUpdateThread,
     DiskSizeFetcherThread,
 )
-from core.archive_installer import find_executables
 from core.plugins.gpu_screen_recorder import (
     GpuRecorderService, GpuRecorderConfig,
     DEFAULT_RECORDINGS_DIR
@@ -3210,7 +3209,7 @@ class MainWindow(QMainWindow):
     def _check_games_on_drive(self):
         """Check all games in library against disk and grey out missing ones"""
         for game in self.games:
-            game_id, name, path, executable, mode, banner_url, steam_id, *_ = (*game, 0)
+            game_id, _name, path, executable, _mode, _banner_url, _steam_id, *_ = (*game, 0)
             
             folder_exists = os.path.exists(path) if path else False
             full_exe_path = os.path.join(path, executable) if (path and executable) else path
@@ -3653,7 +3652,7 @@ class MainWindow(QMainWindow):
         game = self._get_selected_game()
         if not game:
             return
-        game_id, name, path, exe, mode, *_ = (*game, 0)
+        game_id, _name, path, exe, mode, *_ = (*game, 0)
         self._launch_mode(game_id, path, exe, mode or "umu")
 
     def _on_splitter_moved(self, pos: int, index: int):
@@ -5400,7 +5399,6 @@ class MainWindow(QMainWindow):
         game_id, name, path, exe, mode, banner_url, steam_id = game[:7]
         steam_id = normalize_steam_app_id(steam_id)
         playtime_seconds = game[7] if len(game) > 7 and game[7] else 0
-        is_fav = bool(game[8]) if len(game) > 8 and game[8] else False
         last_played_ts = game[9] if len(game) > 9 and game[9] else 0
         tags_str = game[10] if len(game) > 10 and game[10] else ""
 
@@ -6236,7 +6234,7 @@ class MainWindow(QMainWindow):
             self._stop_game(game_id)
             return
 
-        game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game, 0)
+        game_id, name, path, exe, _mode, _banner_url, _steam_id, *_ = (*game, 0)
 
         if not path or not os.path.exists(path):
             self._show_toast(f"Cannot launch '{name}'. Directory does not exist on disk.", is_error=True)
@@ -7115,8 +7113,6 @@ class MainWindow(QMainWindow):
 
     def _on_card_cloud_badge_clicked(self, game_id: int) -> None:
         """Make the rendered cloud badge an actionable library control."""
-        cached = self.cloud_save_status_cache.get(int(game_id))
-        status = cached[0] if cached else None
         self._on_game_cloud_action(int(game_id), "history")
 
     def _on_game_cloud_action(self, game_id: int, action: str) -> None:

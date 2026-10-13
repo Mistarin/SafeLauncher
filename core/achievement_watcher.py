@@ -491,7 +491,8 @@ def filter_achievement_state(state: Dict[str, float], allowed_api_names: Optiona
     """Split observations into schema-backed and quarantined API names."""
     if not allowed_api_names:
         return dict(state or {}), {}
-    known, unknown = {}, {}
+    known: dict[Any, Any] = {}
+    unknown: dict[Any, Any] = {}
     for name, stamp in (state or {}).items():
         (known if name in allowed_api_names else unknown)[name] = stamp
     return known, unknown

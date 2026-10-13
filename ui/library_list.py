@@ -344,20 +344,8 @@ class LibraryListItemWidget(QWidget):
                             pix = loaded
                             break
 
-        # 3. Direct on-the-fly extraction from .exe if not yet cached
-        if pix is None and self.path and self.executable:
-            full_exe = os.path.join(self.path, self.executable)
-            if os.path.isfile(full_exe):
-                try:
-                    from core.icon_extractor import extract_exe_icon
-                    tmp_icon = f"/tmp/icon_{self.game_id}.png"
-                    if extract_exe_icon(full_exe, tmp_icon):
-                        loaded = QPixmap(tmp_icon)
-                        if not loaded.isNull():
-                            pix = loaded
-                except Exception:
-                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
-
+        # 3. No local icon yet: the request manager resolves it asynchronously
+        #    and delivers it through update_game_icon().
         # 4. Fallback vector controller icon
         if pix is None:
             icon_color = "#71717A" if self.is_missing else "#3B9FE8"
@@ -553,7 +541,7 @@ class LibraryListView(QListWidget):
         widget = self._row_widgets_by_id.get(game_id)
         if widget is not None:
             widget.icon_url = icon_path
-            widget._load_icon()
+            widget._load_game_icon()
 
     def selected_game_ids(self) -> Set[int]:
 

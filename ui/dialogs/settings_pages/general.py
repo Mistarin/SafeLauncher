@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout, QWidget, QScrollArea, QCheckBox
+from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout, QWidget, QScrollArea
 from PyQt6.QtCore import Qt, QSettings, QSize
 from PyQt6.QtGui import QFont
 from core.desktop_integration import is_startup_enabled

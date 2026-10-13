@@ -126,7 +126,7 @@ class RetryableRequestError(RuntimeError):
     """Transport-neutral marker for a failure that is safe to retry."""
 
 
-def _http_status(error: BaseException) -> int:
+def _http_status(error: BaseException | str) -> int:
     status = getattr(error, "status_code", None) or getattr(error, "status", None)
     response = getattr(error, "response", None)
     if not status and response is not None:

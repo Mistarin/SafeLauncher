@@ -8,6 +8,7 @@ from typing import List, Optional, Dict
 from core.host_process import host_process_env
 
 from core.logger import get_logger
+from typing import Any
 
 logger = get_logger("archive_extractor")
 
@@ -35,7 +36,7 @@ def ensure_sandbox_dir(path: str = DEFAULT_SANDBOX_DIR) -> str:
         ignore_path = os.path.join(path, ignore_file)
         if not os.path.exists(ignore_path):
             try:
-                with open(ignore_path, "w") as f:
+                with open(ignore_path, "w"):
                     pass
             except Exception:
                 logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
@@ -220,7 +221,7 @@ def extract_archive_sandboxed(archive_path: str, dest_dir: str, cancel_callback=
 
 def find_executables(game_dir: str) -> List[str]:
     """Scan directory recursively for executable files (.exe, .bat, .sh)."""
-    exes = []
+    exes: list[Any] = []
     if not os.path.isdir(game_dir):
         return exes
 
@@ -242,7 +243,7 @@ def find_executables(game_dir: str) -> List[str]:
 
 def scan_sandbox_games(sandbox_dir: str = DEFAULT_SANDBOX_DIR) -> List[Dict]:
     """Scan ~/Games/Sandbox for installed game folders and auto-detect executables & config."""
-    found_games = []
+    found_games: list[Any] = []
     if not os.path.exists(sandbox_dir):
         return found_games
 

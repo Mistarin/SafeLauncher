@@ -221,7 +221,7 @@ class AchievementRepository:
                     if not name:
                         continue
                     is_record = isinstance(raw_value, dict)
-                    value = raw_value if is_record else {}
+                    value: Any = raw_value if is_record else {}
                     incoming_provenance = _normalise_achievement_provenance(
                         value.get("provenance", provenance)
                     )
@@ -401,7 +401,7 @@ class AchievementRepository:
                 query += " AND " if args else " WHERE "
                 query += "validation_state = 'validated'"
             result: Dict[str, Dict[str, dict]] = {}
-            for sid, name, stamp, provenance, verified, validation_state, source_format in self.conn.execute(query, args).fetchall():
+            for sid, name, stamp, provenance, _verified, validation_state, source_format in self.conn.execute(query, args).fetchall():
                 result.setdefault(str(sid), {})[str(name)] = {
                     "unlock_time": float(stamp or 0),
                     "provenance": str(provenance or "unknown"),
@@ -418,7 +418,7 @@ class AchievementRepository:
         """Promote all existing per-game unlock projections into the ledger."""
         rows = self.conn.execute("SELECT app_id, api_name, unlock_time, unlock_provenance, unlock_verified, unlock_source_format, unlock_source_path FROM achievements WHERE unlocked = 1 AND app_id != ''").fetchall()
         grouped: Dict[str, Dict[str, dict]] = {}
-        for app_id, api_name, stamp, provenance, verified, source_format, source_path in rows:
+        for app_id, api_name, stamp, provenance, _verified, source_format, source_path in rows:
             grouped.setdefault(str(app_id), {})[str(api_name)] = {
                 "unlock_time": float(stamp or 0), "provenance": provenance or "local_emulator",
                 "verified": _normalise_achievement_provenance(provenance) == "steam_verified", "validation_state": "validated",

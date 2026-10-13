@@ -447,9 +447,9 @@ def find_local_achievement_schema(game_path: Optional[str] = None, proton_path: 
                         continue
                     data = json.loads(cand.read_text(encoding="utf-8"))
                     achs: List[Dict[str, Any]] = []
-                    seen = set()
+                    seen: set[Any] = set()
 
-                    def append_item(name, item):
+                    def append_item(name, item, achs=achs, seen=seen, base_dir=base_dir):
                         if len(achs) >= _MAX_SCHEMA_RECORDS or not isinstance(item, dict):
                             return
                         api_name = str(name or "").strip()

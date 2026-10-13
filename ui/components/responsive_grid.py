@@ -107,7 +107,7 @@ class ResponsiveGridContainer(QWidget):
         try:
             # Clear layout items without double-destroying child widgets
             while self.grid_layout.count() > 0:
-                item = self.grid_layout.takeAt(0)
+                self.grid_layout.takeAt(0)
 
             for index, widget in enumerate(self.widgets):
                 try:

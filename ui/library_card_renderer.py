@@ -101,8 +101,6 @@ class LibraryCardRenderer:
         artwork for the rest of a large library up front only creates queue
         pressure and work that may never be seen in this session.
         """
-        if not self.network_allowed():
-            return
         self._prefetch_games = [game for game in games if not (len(game) > 17 and game[17])]
         self._visible_requested.clear()
         if not self._prefetch_games:
@@ -125,7 +123,9 @@ class LibraryCardRenderer:
 
     def request_visible_artwork(self, visible_ids=None):
         """Load artwork for the current viewport before lower-priority work."""
-        if not self.network_allowed() or not self._prefetch_games:
+        # Icons can be extracted locally, so the pass runs offline too; automatic
+        # (network) requests are gated per game in _request_game_artwork.
+        if not self._prefetch_games:
             return
         if visible_ids is None:
             try:
@@ -146,8 +146,8 @@ class LibraryCardRenderer:
             game_id = self._game_id(game)
             if game_id not in visible or game_id in self._visible_requested:
                 continue
-            self._visible_requested.add(game_id)
-            self._request_game_artwork(game, RequestPriority.NORMAL)
+            if self._request_game_artwork(game, RequestPriority.NORMAL):
+                self._visible_requested.add(game_id)
 
     def _request_game_artwork(self, game, priority):
         game_id, name, path, executable = game[:4]
@@ -155,8 +155,19 @@ class LibraryCardRenderer:
         full_exe = os.path.join(path, executable) if path and executable else ""
         banner = game[5] if len(game) > 5 else ""
         icon = game[18] if len(game) > 18 else ""
-        if not banner or not os.path.exists(banner) or not icon or not os.path.exists(icon):
-            # The automatic artwork request resolves both portrait artwork and
-            # the game icon. A second icon request has a different resource key
-            # and can therefore duplicate the same transport while this runs.
+        banner_ready = bool(banner) and os.path.exists(banner)
+        icon_ready = bool(icon) and os.path.exists(icon)
+        if not banner_ready:
+            # The automatic request resolves portrait artwork and the icon in one
+            # transport, so no separate icon request is needed here. It needs the
+            # network; returning False keeps the game eligible for a later pass.
+            if not self.network_allowed():
+                return False
             self.artwork.request_auto(game_id, name, full_exe, str(steam_id or ""), priority=priority)
+        elif not icon_ready:
+            # Banner is cached: request only the icon. Local .exe extraction runs
+            # first and works offline; the result arrives via update_game_icon().
+            self.artwork.request_icon(
+                game_id, name, str(steam_id or ""), full_exe, priority=priority
+            )
+        return True

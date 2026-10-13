@@ -97,7 +97,7 @@ def find_valid_proton_dir(target_dir: str) -> str:
         return target_dir
     if os.path.exists(os.path.join(target_dir, "toolmanifest.vdf")):
         return target_dir
-    for root, dirs, files in os.walk(target_dir):
+    for root, _dirs, files in os.walk(target_dir):
         if "toolmanifest.vdf" in files:
             return root
     return target_dir

@@ -29,6 +29,7 @@ from core.save_models import SaveOperationCancelled, SaveOperationResult
 from core.save_validation import describe_validation_failures, validate_save_locations
 from core.zip_backup import ZipBackupManager, _is_within
 from core.logger import get_logger
+from typing import Any
 
 logger = get_logger("GameArchiveUpdater")
 
@@ -413,7 +414,7 @@ def recover_incomplete_game_updates(parent_directory: str) -> list[str]:
     rollback tree remain beside the game and can be repaired at startup.
     """
     parent_directory = os.path.abspath(os.path.expanduser(parent_directory))
-    recovered = []
+    recovered: list[Any] = []
     if not os.path.isdir(parent_directory):
         return recovered
     for name in sorted(os.listdir(parent_directory)):

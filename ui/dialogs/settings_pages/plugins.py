@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout, QWidget, QScrollArea, QCheckBox
+from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout, QWidget, QScrollArea
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QKeySequence
 from PyQt6.QtWidgets import QKeySequenceEdit

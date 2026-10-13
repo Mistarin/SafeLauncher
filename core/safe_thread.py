@@ -16,7 +16,7 @@ from core.logger import get_logger
 
 logger = get_logger("SafeQThread")
 
-_LIVE_THREADS = weakref.WeakSet()
+_LIVE_THREADS: weakref.WeakSet[Any] = weakref.WeakSet()
 _SHUTDOWN_HOOK_APP = None
 _ATEXIT_HOOK_REGISTERED = False
 _SHUTDOWN_IN_PROGRESS = False

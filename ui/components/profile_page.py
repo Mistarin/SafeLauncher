@@ -1525,7 +1525,7 @@ class ProfilePageWidget(QWidget):
                 timeout_seconds=15,
                 tag="profile-background",
             )
-            handle = self.request_manager.cached_request(
+            self.request_manager.cached_request(
                 spec,
                 self.resource_cache,
                 max_age_seconds=cache_policy("profile-background").max_age_seconds,
@@ -1983,7 +1983,7 @@ class ProfilePageWidget(QWidget):
                     timeout_seconds=15,
                     tag="profile-artwork",
                 )
-                handle = self.request_manager.cached_request(
+                self.request_manager.cached_request(
                     spec,
                     self.resource_cache,
                     max_age_seconds=cache_policy("profile-artwork").max_age_seconds,
@@ -2014,13 +2014,14 @@ class ProfilePageWidget(QWidget):
                     downloaded[app_id] = (url, data)
             return downloaded
 
+        urls = set(pending.values())
         worker = self._tasks.start(
             "SafeLauncher-ProfileArtwork",
             work,
-            lambda result, urls=set(pending.values()): self._artwork_loaded(result, urls),
+            lambda result, urls=urls: self._artwork_loaded(result, urls),
         )
         worker.error_occurred.connect(
-            lambda _error, urls=set(pending.values()): self._artwork_request_failed(urls)
+            lambda _error, urls=urls: self._artwork_request_failed(urls)
         )
 
     def _on_profile_artwork_state(
@@ -2866,7 +2867,7 @@ class ProfilePageWidget(QWidget):
                     timeout_seconds=30,
                     tag="profile-avatar",
                 )
-                handle = self.request_manager.cached_request(
+                self.request_manager.cached_request(
                     spec,
                     self.resource_cache,
                     max_age_seconds=cache_policy("profile-avatar").max_age_seconds,
