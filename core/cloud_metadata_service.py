@@ -277,18 +277,26 @@ class CloudMetadataService:
                 self._latest_pending.add(key)
                 return active
 
-            handle = self.request_profile_and_game(
-                target,
-                db_path,
-                force_profile=force_profile,
-                priority=priority,
-                generation=context.generation,
-                tag=tag,
-            )
+        handle = self.request_profile_and_game(
+            target,
+            db_path,
+            force_profile=force_profile,
+            priority=priority,
+            generation=context.generation,
+            tag=tag,
+        )
+
+        with self._lock:
+            existing = self._latest_handles.get(key)
+            if existing is not None and not existing.future.done():
+                self._latest_pending.add(key)
+                return existing
             self._latest_handles[key] = handle
 
             def _settled(_future, *, request_key=key, request_handle=handle,
                          request_context=context, request_target=target):
+                rerun = False
+                current = None
                 with self._lock:
                     if self._latest_handles.get(request_key) is not request_handle:
                         return
@@ -303,14 +311,21 @@ class CloudMetadataService:
                         or current.generation != request_context.generation
                     ):
                         return
-                    next_handle = self.request_profile_and_game(
-                        request_target,
-                        db_path,
-                        force_profile=force_profile,
-                        priority=priority,
-                        generation=current.generation,
-                        tag=tag,
-                    )
+
+                next_handle = self.request_profile_and_game(
+                    request_target,
+                    db_path,
+                    force_profile=force_profile,
+                    priority=priority,
+                    generation=current.generation,
+                    tag=tag,
+                )
+                with self._lock:
+                    if (
+                        self._context is not current
+                        or self._latest_handles.get(request_key) is not None
+                    ):
+                        return
                     self._latest_handles[request_key] = next_handle
                     next_handle.future.add_done_callback(
                         lambda future: _settled(future, request_handle=next_handle)

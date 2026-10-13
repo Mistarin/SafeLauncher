@@ -1122,7 +1122,10 @@ try:
                 patch("core.cloud_cli_wizard.get_secret", return_value="api-secret"), \
                 patch("core.cloud_cli_wizard.set_secret") as save_secret, \
                 patch("core.cloud_cli_wizard.subprocess.run", side_effect=fake_deploy_run) as run_command, \
-                patch("core.cloud_cli_wizard.requests.get", return_value=mocked_health):
+                patch("core.cloud_cli_wizard.requests.get", return_value=mocked_health), \
+                patch("core.cloud_cli_wizard.QSettings"):
+            # QSettings is patched: a successful deploy persists convex_site_url,
+            # which must never reach the developer's real configuration.
             deployed_url = deploy_convex_backend(
                 str(deploy_backend), expected_site_url="https://project.convex.site"
             )

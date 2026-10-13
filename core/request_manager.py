@@ -544,8 +544,8 @@ class RequestManager:
                     return
                 record.active = False
                 self._projections.pop(key, None)
-                if not future.done():
-                    future.set_result(projected)
+            if not future.done():
+                future.set_result(projected)
             if record.unsubscribe is not None:
                 record.unsubscribe()
             self._notify(key, projected)
@@ -579,8 +579,8 @@ class RequestManager:
                 request_id=record.request_id,
                 generation=record.generation,
             )
-            if not record.future.done():
-                record.future.set_result(result)
+        if not record.future.done():
+            record.future.set_result(result)
         if record.unsubscribe is not None:
             record.unsubscribe()
         self._notify(record.key, result)
@@ -1318,16 +1318,11 @@ class RequestManager:
                     self._states[record.spec.key] = result
             listeners = list(self._listeners.get(record.spec.key, {}).values()) if is_current_generation else []
             failure_listeners = list(self._failure_listeners.values())
-            if not record.future.done():
-                # Keep the completed record in _active while Future callbacks
-                # run. This closes the small race where a fast request is no
-                # longer active but its cached_request() callback has not yet
-                # persisted the successful value, allowing a second consumer
-                # to start duplicate transport work.
-                record.future.set_result(result)
             current = self._active.get(record.spec.key)
             if current is record:
                 self._active.pop(record.spec.key, None)
+        if not record.future.done():
+            record.future.set_result(result)
         for callback in listeners:
             try:
                 callback(listener_result)
