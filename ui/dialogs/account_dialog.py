@@ -6,19 +6,17 @@ devices, and per-game cloud save versions hosted on the configured backend.
 Network work happens on daemon threads; results marshal back via signals.
 """
 
-import os
 import time
-from typing import Any
 
-from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QPushButton,
     QProgressBar, QListWidget, QListWidgetItem, QMessageBox, QSplitter,
     QComboBox, QToolButton,
 )
 
-from ui.components.sidebar import DialogTitleBar, add_soft_shadow
+from ui.components.sidebar import add_soft_shadow
 from ui.components.popup_shell import PopupDialog
 from ui.components.save_history_timeline import SaveHistoryTimeline
 from ui.components.cloud_ui import (
@@ -33,7 +31,7 @@ from core.logger import get_logger
 from core.safe_thread import TaskSupervisor
 from core.cloud_account_service import CloudAccountService, CloudAccountSnapshot
 from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
-from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+from core.request_contracts import RequestPriority, ResourceStatus
 from core.date_formatting import format_datetime_timestamp
 from ui.resource_binding import ResourceBinding, bind_request
 
@@ -758,7 +756,7 @@ class AccountDialog(PopupDialog):
             try:
                 db.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         display_name = game_item.text().split("\n")[0].strip()
         matched_game = self.cloud_account_service.match_game_to_library(
             name_key, display_name, all_games

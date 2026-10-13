@@ -296,8 +296,8 @@ def get_application_stylesheet() -> str:
 
 def btn_primary_style() -> str:
     """Apple Blue accent button, white text, subtle hover transitions, no harsh borders."""
-    return f"""
-        QPushButton {{
+    return """
+        QPushButton {
             background-color: #3B9FE8;
             color: #FFFFFF;
             border: none;
@@ -306,25 +306,25 @@ def btn_primary_style() -> str:
             font-weight: 600;
             padding: 7px 16px;
             letter-spacing: 0.2px;
-        }}
-        QPushButton:hover {{
+        }
+        QPushButton:hover {
             background-color: #55ACED;
-        }}
-        QPushButton:pressed {{
+        }
+        QPushButton:pressed {
             background-color: #2789D0;
-        }}
-        QPushButton:disabled {{
+        }
+        QPushButton:disabled {
             background-color: #18181B;
             color: #71717A;
             border: none;
-        }}
+        }
     """
 
 
 def btn_secondary_style() -> str:
     """Dark elevated surface, light text, subtle 1px border."""
-    return f"""
-        QPushButton {{
+    return """
+        QPushButton {
             background-color: #18181B;
             color: #F4F4F5;
             border: 1px solid rgba(255, 255, 255, 0.06);
@@ -332,27 +332,27 @@ def btn_secondary_style() -> str:
             font-size: 12px;
             font-weight: 500;
             padding: 7px 14px;
-        }}
-        QPushButton:hover {{
+        }
+        QPushButton:hover {
             background-color: #202024;
             border-color: rgba(255, 255, 255, 0.12);
             color: #FFFFFF;
-        }}
-        QPushButton:pressed {{
+        }
+        QPushButton:pressed {
             background-color: #121214;
             border-color: rgba(255, 255, 255, 0.05);
-        }}
-        QPushButton:disabled {{
+        }
+        QPushButton:disabled {
             color: #71717A;
             border-color: transparent;
-        }}
+        }
     """
 
 
 def btn_tertiary_style() -> str:
     """Mostly transparent, secondary text, soft fill appears on hover."""
-    return f"""
-        QPushButton {{
+    return """
+        QPushButton {
             background-color: transparent;
             color: #A1A1AA;
             border: none;
@@ -360,24 +360,24 @@ def btn_tertiary_style() -> str:
             font-size: 12px;
             font-weight: 500;
             padding: 6px 12px;
-        }}
-        QPushButton:hover {{
+        }
+        QPushButton:hover {
             background-color: #202024;
             color: #FFFFFF;
-        }}
-        QPushButton:pressed {{
+        }
+        QPushButton:pressed {
             background-color: rgba(255, 255, 255, 0.1);
-        }}
-        QPushButton:disabled {{
+        }
+        QPushButton:disabled {
             color: #71717A;
-        }}
+        }
     """
 
 
 def btn_destructive_style() -> str:
     """Subtle restrained error action rather than aggressive bright red."""
-    return f"""
-        QPushButton {{
+    return """
+        QPushButton {
             background-color: transparent;
             color: #FF453A;
             border: none;
@@ -385,37 +385,37 @@ def btn_destructive_style() -> str:
             font-size: 12px;
             font-weight: 500;
             padding: 7px 14px;
-        }}
-        QPushButton:hover {{
+        }
+        QPushButton:hover {
             background-color: rgba(255, 69, 58, 0.12);
             color: #FF6961;
-        }}
-        QPushButton:pressed {{
+        }
+        QPushButton:pressed {
             background-color: rgba(255, 69, 58, 0.2);
-        }}
-        QPushButton:disabled {{
+        }
+        QPushButton:disabled {
             background-color: transparent;
             color: #71717A;
-        }}
+        }
     """
 
 
 def search_input_style() -> str:
     """Sleek, modern search bar for header and library filter."""
-    return f"""
-        QLineEdit {{
+    return """
+        QLineEdit {
             background-color: #18181B;
             color: #FFFFFF;
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 7px;
             padding: 6px 12px 6px 30px;
             font-size: 12px;
-        }}
-        QLineEdit:focus {{
+        }
+        QLineEdit:focus {
             border-color: #3B9FE8;
             background-color: #1D222B;
-        }}
-        QLineEdit::placeholder {{
+        }
+        QLineEdit::placeholder {
             color: #71717A;
-        }}
+        }
     """

@@ -3,16 +3,15 @@
 import os
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QFormLayout, QFileDialog, QCheckBox, QWidget, QSizeGrip
+    QFormLayout, QFileDialog, QCheckBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 
 from ui.icons import LOGO_PATH
-from ui.components.sidebar import DialogTitleBar
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
-from ui.dialogs.game_dialogs import ensure_sandbox_dir, DEFAULT_SANDBOX_DIR
+from ui.dialogs.game_dialogs import ensure_sandbox_dir
 
 
 class WelcomeWizardDialog(PopupDialog):

@@ -26,6 +26,7 @@ from core.request_contracts import (
     RequestKey,
     RequestPriority,
     RequestSpec,
+    RequestTimeout,
     RetryPolicy,
     ResourceResult,
     ResourceStatus,
@@ -474,7 +475,7 @@ class RequestManager:
 
         if previous is not None and previous.unsubscribe is not None:
             previous.unsubscribe()
-        if previous_cancelled is not None:
+        if previous is not None and previous_cancelled is not None:
             if not previous.future.done():
                 previous.future.set_result(previous_cancelled)
             self._notify(key, previous_cancelled)
@@ -900,7 +901,7 @@ class RequestManager:
             except Exception:
                 # Cache persistence remains best effort; the network result is
                 # still a valid successful resource when disk writes fail.
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             return value
 
         spec = RequestSpec(

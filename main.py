@@ -3,7 +3,6 @@
 import os
 import sys
 
-from core.version import APP_VERSION, __version__
 
 
 def main():

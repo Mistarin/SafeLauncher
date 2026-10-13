@@ -5,6 +5,10 @@ import shutil
 import subprocess
 from typing import Optional, Dict, Any
 
+from core.logger import get_logger
+
+logger = get_logger("cloud_detector")
+
 
 def detect_local_cloud_installation() -> Optional[Dict[str, Any]]:
     """Scan the system for a local SafeLauncherDatabase / SafeLauncherCloud directory."""
@@ -51,7 +55,7 @@ def detect_local_cloud_installation() -> Optional[Dict[str, Any]]:
                                     scope, name = deployment.split(":", 1)
                                     deployment = f"{scope.strip()}:{name.strip()}"
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
             return {
                 "path": c,
@@ -98,7 +102,7 @@ def inspect_system_compatibility(
                         elif k == "NAME":
                             distro_name = v
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # Hardware check for Steam Deck (Jupiter / Galileo)
     if dmi_product_path and os.path.isfile(dmi_product_path):
@@ -109,7 +113,7 @@ def inspect_system_compatibility(
                     is_steam_deck = True
                     is_steamos = True
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # Immutable filesystem detection (OSTree, SteamOS A/B system partition, or ro rootfs)
     if os.path.exists("/run/ostree-booted") or (is_steamos and not os.access("/", os.W_OK)):
@@ -156,7 +160,7 @@ def inspect_system_compatibility(
             if res.returncode == 0:
                 node_version = res.stdout.strip()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     can_deploy_locally = bool(has_node and has_npm)
 

@@ -6,7 +6,6 @@ a robust background thread worker (SafeQThread) to download and extract tarballs
 """
 
 import os
-import sys
 import tarfile
 import requests
 import shutil
@@ -14,7 +13,6 @@ import subprocess
 import inspect
 import platform
 import struct
-from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 from core.safe_thread import SafeQThread
 from core.logger import get_logger
@@ -187,7 +185,7 @@ def fetch_online_ge_proton_releases(max_results: int = 12) -> list[dict]:
             try:
                 response.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     logger.info(f"Retrieved {len(releases)} GE-Proton releases from GitHub.")
     return releases
@@ -283,7 +281,7 @@ class GEProtonDownloader(SafeQThread):
                 try:
                     os.remove(tar_filepath)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
             if shutil.which("curl"):
                 try:
@@ -312,12 +310,12 @@ class GEProtonDownloader(SafeQThread):
                 try:
                     resp.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             if session is not None:
                 try:
                     session.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         if not success or not os.path.exists(tar_filepath):
             self.download_failed.emit("Network connection dropped during download. Please retry.")
@@ -395,5 +393,5 @@ class GEProtonDownloader(SafeQThread):
                 try:
                     os.remove(tar_filepath)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             self.download_failed.emit(f"Extraction failed: {extract_err}")

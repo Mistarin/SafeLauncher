@@ -264,8 +264,8 @@ class SaveHistoryTimeline(QWidget):
         button.setMinimumHeight(52)
         button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         button.setIcon(get_icon("ph.cloud-bold" if entry.source == "cloud" else "ph.archive-bold", source_color))
-        button.setStyleSheet(f"""
-            QPushButton {{
+        button.setStyleSheet("""
+            QPushButton {
                 text-align: left;
                 padding: 8px 12px;
                 background: #181A20;
@@ -273,9 +273,9 @@ class SaveHistoryTimeline(QWidget):
                 border: 1px solid #2A2A2E;
                 border-radius: 7px;
                 font-size: 11px;
-            }}
-            QPushButton:hover {{ background: #202024; border-color: #3B9FE8; }}
-            QPushButton:checked {{ background: #202024; border-color: #3B9FE8; color: #FFFFFF; }}
+            }
+            QPushButton:hover { background: #202024; border-color: #3B9FE8; }
+            QPushButton:checked { background: #202024; border-color: #3B9FE8; color: #FFFFFF; }
         """)
         button.setToolTip(
             f"{entry.title}\n{entry.date_label} at {entry.time_label}\n"

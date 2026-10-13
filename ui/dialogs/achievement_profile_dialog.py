@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox
 from ui.components.popup_shell import PopupDialog
 from core.safe_thread import TaskSupervisor
 

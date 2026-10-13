@@ -198,7 +198,7 @@ class GlobalHotkeyListener(QObject):
                     try:
                         root.ungrab_key(kc, X.AnyModifier)
                     except Exception:
-                        pass
+                        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                 active_grab_keycodes.clear()
                 keycode_to_action.clear()
                 last_hotkey_press.clear()
@@ -224,7 +224,7 @@ class GlobalHotkeyListener(QObject):
                 try:
                     disp.sync()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
             # update_bindings() runs before the listener thread starts, so the
             # initial bind must consume that pending change. Otherwise the
@@ -265,7 +265,7 @@ class GlobalHotkeyListener(QObject):
                     root.ungrab_key(kc, X.AnyModifier)
                 disp.sync()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         except Exception as e:
             logger.debug(f"Global hotkey loop ended: {e}")
@@ -274,7 +274,7 @@ class GlobalHotkeyListener(QObject):
                 try:
                     disp.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             with self._display_lock:
                 if self._display is disp:
                     self._display = None
@@ -283,4 +283,4 @@ class GlobalHotkeyListener(QObject):
         try:
             self.stop()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)

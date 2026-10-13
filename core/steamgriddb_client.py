@@ -4,8 +4,12 @@ import tempfile
 import requests
 import hashlib
 from pathlib import Path
-from typing import Any, Optional, List, Dict
+from typing import Any, Optional, Dict
 from core.asset_cache import AssetCacheBudget, prune_asset_cache
+
+from core.logger import get_logger
+
+logger = get_logger("steamgriddb_client")
 
 # [M2 FIX] XDG-compliant cache directory: ~/.cache/safelauncher/banners/
 # Owner-only permissions (700 on dir, 600 on files) to prevent other local users
@@ -31,7 +35,7 @@ def _close_response(response) -> None:
         try:
             response.close()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 class SteamGridDBClient:
@@ -49,7 +53,7 @@ class SteamGridDBClient:
         try:
             resolved.chmod(0o700)
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         self.cache_dir = resolved
 
         # [M2 FIX] Migrate any cached banners from the old in-project .banner_cache/
@@ -67,7 +71,7 @@ class SteamGridDBClient:
         try:
             self.session.close()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     def __del__(self):
         self.close()
@@ -85,7 +89,7 @@ class SteamGridDBClient:
                     try:
                         dest.chmod(0o600)
                     except Exception:
-                        pass
+                        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             # Remove legacy dir if now empty
             remaining = list(legacy.iterdir())
             if not remaining:
@@ -251,7 +255,7 @@ class SteamGridDBClient:
             try:
                 cache_file.chmod(0o600)
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
             return str(cache_file.resolve())
         except Exception as e:
@@ -261,7 +265,7 @@ class SteamGridDBClient:
                 try:
                     response.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         
         return None
     
@@ -406,7 +410,7 @@ class SteamGridDBClient:
                                 try:
                                     shutil.copyfile(str(canonical_file), str(legacy_file))
                                 except Exception:
-                                    pass
+                                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                             prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                             return str(canonical_file.resolve())
                         else:
@@ -462,7 +466,7 @@ class SteamGridDBClient:
                         if results and results[0].get('background_image'):
                             urls_to_try.append(results[0]['background_image'])
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                 finally:
                     _close_response(rawg_res)
 
@@ -492,7 +496,7 @@ class SteamGridDBClient:
                                             try:
                                                 shutil.copyfile(str(canonical_file), str(legacy_file))
                                             except Exception:
-                                                pass
+                                                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                                         prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                                         return str(canonical_file.resolve())
                                     else:
@@ -503,7 +507,7 @@ class SteamGridDBClient:
                                         try:
                                             shutil.copyfile(str(canonical_file), str(legacy_file))
                                         except Exception:
-                                            pass
+                                            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                                     prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                                     return str(canonical_file.resolve())
                 except Exception:
@@ -513,7 +517,7 @@ class SteamGridDBClient:
                         try:
                             response.close()
                         except Exception:
-                            pass
+                            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         except Exception as e:
             print(f"Error fetching hero banner: {e}")
@@ -538,7 +542,7 @@ class SteamGridDBClient:
         try:
             icons_dir.chmod(0o700)
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         art_key = self.get_artwork_key(steam_id=steam_id, game_name=game_name, exe_path=exe_path or "", game_id=game_id)
         cache_file = icons_dir / f"icon_{art_key}.png"
@@ -549,7 +553,7 @@ class SteamGridDBClient:
                 try:
                     shutil.copyfile(str(cache_file), str(legacy_file))
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             return str(cache_file.resolve())
 
         # 1. Direct Windows .exe embedded icon extraction (highest fidelity authentic icon)
@@ -561,10 +565,10 @@ class SteamGridDBClient:
                         try:
                             shutil.copyfile(str(cache_file), str(legacy_file))
                         except Exception:
-                            pass
+                            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                     return str(cache_file.resolve())
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         # 2. Check local game folder for loose icon files
         if exe_path and os.path.exists(exe_path):
@@ -578,11 +582,11 @@ class SteamGridDBClient:
                             try:
                                 shutil.copyfile(str(cache_file), str(legacy_file))
                             except Exception:
-                                pass
+                                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                         prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                         return str(cache_file.resolve())
                     except Exception:
-                        pass
+                        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         resolved_appid = steam_id
         if not resolved_appid or str(resolved_appid) in ("0", "", "None"):
@@ -612,7 +616,7 @@ class SteamGridDBClient:
                         if u:
                             urls_to_try.append(u)
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             finally:
                 _close_response(sgdb_resp)
 
@@ -641,7 +645,7 @@ class SteamGridDBClient:
                             try:
                                 shutil.copyfile(str(cache_file), str(legacy_file))
                             except Exception:
-                                pass
+                                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                         prune_asset_cache(self.cache_dir.parent, _ASSET_CACHE_BUDGET)
                         return str(cache_file.resolve())
             except Exception:
@@ -651,6 +655,6 @@ class SteamGridDBClient:
                     try:
                         resp.close()
                     except Exception:
-                        pass
+                        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         return None

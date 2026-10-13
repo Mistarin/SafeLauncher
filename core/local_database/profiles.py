@@ -1,18 +1,9 @@
-import json
-import math
 import time
-import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List
 from core.logger import get_logger
 from core.game_names import (
-    MAX_GAME_NAME_LENGTH, fallback_game_name, display_name_key,
-    is_identity_placeholder_name, local_profile_identity, meaningful_game_name,
+    MAX_GAME_NAME_LENGTH, meaningful_game_name,
     preferred_game_name,
-)
-from .records import GameRecord, GAME_COLUMNS, profile_identity
-from .validation import (
-    _ACHIEVEMENT_DB_LOCK, _ACHIEVEMENT_APP_RE, _valid_achievement_api_name,
-    _normalise_achievement_provenance, _safe_achievement_timestamp,
 )
 logger = get_logger("Database")
 
@@ -92,7 +83,6 @@ class ProfileRepository:
             )
 
     def project_profile_game(self, game_id: int, value: dict) -> None:
-        identity = str(value.get("identity_key", "")).strip()
         with self.conn:
             self.conn.execute(
                 "UPDATE games SET is_favorite = ?, playtime_seconds = MAX(COALESCE(playtime_seconds, 0), ?), last_played = MAX(COALESCE(last_played, 0), ?) WHERE id = ?",

@@ -18,6 +18,10 @@ from typing import Any
 
 from PyQt6.QtCore import QSettings
 
+from core.logger import get_logger
+
+logger = get_logger("network_policy")
+
 
 OFFLINE_MODE_ENV = "SAFELAUNCHER_OFFLINE_MODE"
 OFFLINE_TEST_MODE_ENV = "SAFELAUNCHER_OFFLINE_TEST_MODE"
@@ -79,7 +83,7 @@ def set_offline_mode(enabled: bool, settings: Any | None = None) -> None:
     except Exception:
         # QSettings backends can be read-only in portable/test environments;
         # the in-process value is still useful for the current session.
-        pass
+        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 def offline_status_text(settings: Any | None = None) -> str:

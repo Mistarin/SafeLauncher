@@ -7,7 +7,7 @@ currently visible cards are decoded and rendered in memory.
 from __future__ import annotations
 
 import os
-from typing import Optional, Set, Dict, Any, Tuple
+from typing import Optional, Set, Dict, Any
 from PyQt6.QtCore import (
     Qt, pyqtSignal, QPoint, QRect, QRectF, QSize, QModelIndex, QItemSelectionModel,
     QEvent,
@@ -119,7 +119,6 @@ class GameCardItemDelegate(QStyledItemDelegate):
         rect = option.rect
         card_x = rect.x() + (rect.width() - self.card_width) // 2
         card_y = rect.y()
-        card_rect = QRect(card_x, card_y, self.card_width, self.total_height)
         cover_rect = QRect(card_x, card_y, self.card_width, self.card_height)
         footer_rect = QRect(card_x + 4, card_y + self.card_height, self.card_width - 8, self.footer_height)
 
@@ -601,7 +600,6 @@ class VirtualizedGameGridView(QListView):
         # Check favorite heart hit (top right area)
         card_w = self.delegate.card_width
         card_h = self.delegate.card_height
-        cloud_status = idx.data(CLOUD_STATUS_ROLE)
         if (card_w - 36) <= rel_x <= card_w and (card_h - 32) <= rel_y <= card_h:
             self.game_right_clicked.emit(int(game_id), event.globalPosition().toPoint())
             return

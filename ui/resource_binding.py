@@ -10,6 +10,10 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from core.request_contracts import RequestKey, ResourceResult
 from core.request_manager import RequestManager
 
+from core.logger import get_logger
+
+logger = get_logger("resource_binding")
+
 
 class ResourceBindingRegistry:
     """Owner-scoped registry for bindings without a parallel request cache.
@@ -151,7 +155,7 @@ class ResourceBinding(QObject):
         try:
             self.close()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 def bind_resource(

@@ -27,6 +27,10 @@ from core.profile_models import (
 )
 from core.profile_avatar_catalog import normalize_avatar_catalog
 
+from core.logger import get_logger
+
+logger = get_logger("profile_service")
+
 
 OFFICIAL_PROFILE_GATEWAY_URL = "https://profilegateway.vercel.app"
 
@@ -97,7 +101,7 @@ class ProfileServiceClient:
         try:
             self.session.close()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     def __enter__(self) -> "ProfileServiceClient":
         return self
@@ -150,7 +154,7 @@ class ProfileServiceClient:
                 try:
                     response.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     def _request(
         self,
@@ -225,7 +229,7 @@ class ProfileServiceClient:
             try:
                 response.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # --- public reads -----------------------------------------------------
     def check_handle_availability(self, handle: str) -> bool:

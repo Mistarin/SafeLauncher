@@ -145,7 +145,7 @@ class ScreenshotLightboxDialog(PopupDialog):
             try:
                 subprocess.Popen(["xdg-open", folder], env=host_process_env())
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     def _delete_current(self):
         if not self.filepaths:
@@ -178,7 +178,6 @@ class ScreenshotGalleryDialog(PopupDialog):
         self.resize(840, 560)
         self.setSizeGripEnabled(True)
 
-        root_layout = self._popup_root
 
         # Body container
         body = QWidget()
@@ -327,7 +326,7 @@ class ScreenshotGalleryDialog(PopupDialog):
                 os.remove(filepath)
                 self.load_screenshots()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     def _capture_screen(self):
         if getattr(self, "_capture_worker", None) is not None:
@@ -373,7 +372,7 @@ class ScreenshotGalleryDialog(PopupDialog):
         try:
             subprocess.Popen(["xdg-open", self.screenshots_dir], env=host_process_env())
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 class VideoGalleryDialog(PopupDialog):
@@ -392,7 +391,6 @@ class VideoGalleryDialog(PopupDialog):
         self.resize(820, 560)
         self.setSizeGripEnabled(True)
 
-        root_layout = self._popup_root
 
         body = QWidget()
         body_layout = QVBoxLayout(body)

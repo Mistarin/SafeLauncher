@@ -241,4 +241,4 @@ class DiskManagerDialog(PopupDialog):
             if path and os.path.exists(path):
                 subprocess.Popen(["xdg-open", path], env=host_process_env())
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)

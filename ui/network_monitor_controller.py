@@ -12,6 +12,10 @@ from PyQt6.QtNetwork import QNetworkInformation
 from core.network_probe import probe_internet
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
 
+from core.logger import get_logger
+
+logger = get_logger("network_monitor_controller")
+
 
 class NetworkMonitorController(QObject):
     """Own periodic connectivity probes, transition state, and request gating.
@@ -137,7 +141,7 @@ class NetworkMonitorController(QObject):
             try:
                 handle.cancel()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         self.transient_unavailable = False
 
     def probe_now(self) -> None:
@@ -183,7 +187,7 @@ class NetworkMonitorController(QObject):
         except Exception:
             # Connectivity failures are intentionally reported as a safe,
             # user-facing state rather than leaking transport details.
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         previous_reachable = self.reachable
         had_previous = self.reachability_known

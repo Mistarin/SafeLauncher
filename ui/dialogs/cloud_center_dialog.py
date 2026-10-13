@@ -30,6 +30,10 @@ from ui.components.cloud_ui import (
 from ui.icons import get_icon
 from ui.resource_binding import ResourceBinding, bind_request
 
+from core.logger import get_logger
+
+logger = get_logger("cloud_center_dialog")
+
 
 def _format_bytes(value: int) -> str:
     size = float(max(0, int(value or 0)))
@@ -410,7 +414,7 @@ class CloudCenterDialog(PopupDialog):
                 if not self.cloud_center_service.current_context().network_allowed:
                     status = ResourceStatus.OFFLINE
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         if status == ResourceStatus.AUTHENTICATION_REQUIRED:
             title = "Cloud setup required"
             message = "Add the Secret Access Key in the advanced connection settings."

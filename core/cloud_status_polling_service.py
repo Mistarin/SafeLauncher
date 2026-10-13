@@ -14,6 +14,10 @@ from typing import Callable, Iterable
 
 from core.cloud_status_service import CloudStatusService, CloudStatusTarget
 
+from core.logger import get_logger
+
+logger = get_logger("cloud_status_polling_service")
+
 
 class CloudStatusPollingService:
     """Own periodic cloud listing polling and its cooperative lifecycle."""
@@ -142,7 +146,7 @@ class CloudStatusPollingService:
             try:
                 handle.cancel()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         if wait and thread is not None and thread is not threading.current_thread():
             thread.join(timeout=2.0)
 
@@ -156,7 +160,7 @@ class CloudStatusPollingService:
         try:
             self._on_error(error)
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 __all__ = ["CloudStatusPollingService"]

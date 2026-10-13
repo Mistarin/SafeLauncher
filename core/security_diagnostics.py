@@ -6,7 +6,6 @@ import subprocess
 from dataclasses import dataclass
 from typing import Dict, Any, List
 
-from core.disk_utils import get_dir_size, format_size
 from core.host_process import host_process_env
 from core.logger import get_logger
 
@@ -51,7 +50,7 @@ def inspect_security_health() -> SecurityHealthReport:
                     break
             if not firejail_version or firejail_version == "Not detected":
                 firejail_version = res.stdout.splitlines()[0] if res.stdout.splitlines() else "Detected"
-        except Exception as e:
+        except Exception:
             firejail_version = "Detected (version check unavailable)"
 
     # 2. Kernel User Namespaces Inspection
@@ -71,7 +70,7 @@ def inspect_security_health() -> SecurityHealthReport:
                 else:
                     userns_detail = "Enabled (kernel.unprivileged_userns_clone=1)"
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
     elif os.path.exists(max_userns_path):
         try:
             with open(max_userns_path, "r") as f:
@@ -82,7 +81,7 @@ def inspect_security_health() -> SecurityHealthReport:
                 else:
                     userns_detail = f"Enabled (max user namespaces: {val})"
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # 3. Bubblewrap / Pressure-Vessel Layer Inspection
     bwrap_path = shutil.which("bwrap") or ""

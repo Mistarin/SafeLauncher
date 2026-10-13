@@ -1053,7 +1053,7 @@ class UserSettingsDialog(PopupDialog):
             try:
                 subprocess.Popen(["xdg-open", path], env=host_process_env())
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     def _clear_diagnostics(self):
         diag_dir = diagnostics_directory()
@@ -1064,7 +1064,7 @@ class UserSettingsDialog(PopupDialog):
                     if os.path.isfile(fp):
                         os.remove(fp)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             self.lbl_diag_info.setText("0 saved launch reports (0 B)")
 
     def _export_runtime_diagnostics(self):

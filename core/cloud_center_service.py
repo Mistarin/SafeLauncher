@@ -24,9 +24,12 @@ from core.request_contracts import (
     RequestKey,
     RequestPriority,
     RetryPolicy,
-    ResourceStatus,
     is_transient_error,
 )
+
+from core.logger import get_logger
+
+logger = get_logger("cloud_center_service")
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,7 +293,7 @@ class CloudCenterService:
         try:
             pending += len(PendingCloudSyncQueue().pending(context.cache_identity))
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         return pending, conflicts
 
     def _local_overview(self, context: CloudContext) -> CloudOverview:

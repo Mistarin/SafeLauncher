@@ -78,7 +78,7 @@ class CloudSettingsPage(QScrollArea):
             tooltip="Open Cloud Center for account status, storage, devices, conflicts, and cloud save versions.",
         ))
 
-        from core.cloud_backend import get_site_url, normalize_site_url
+        from core.cloud_backend import get_site_url
         settings = QSettings("SafeLauncher", "SafeLauncher")
 
         form_mode = QFormLayout()

@@ -265,13 +265,13 @@ class ConvexSaveBackend:
             try:
                 self.session.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     def __del__(self):
         try:
             self.close()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     @property
     def site_url(self) -> str:
@@ -351,7 +351,7 @@ class ConvexSaveBackend:
             try:
                 resp.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # ------------------------------------------------------------------ #
     # Account / metadata                                                 #
@@ -593,7 +593,7 @@ class ConvexSaveBackend:
                 try:
                     post.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                 raise CloudBackendError(
                     f"Save upload rejected ({post.status_code}){': ' + detail if detail else '.'}", "upload_failed",
                     post.status_code,
@@ -606,7 +606,7 @@ class ConvexSaveBackend:
                 try:
                     post.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             if not storage_id:
                 raise CloudBackendError("Upload succeeded but no valid id was returned.",
                                         "upload_failed", 502)
@@ -826,7 +826,7 @@ def check_backend_health(
             try:
                 data = resp.json()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             ver = str(data.get("version") or "").strip()
             if not ver:
                 try:
@@ -835,7 +835,7 @@ def check_backend_health(
                     if vresp.status_code == 200:
                         ver = str(vresp.json().get("version") or "").strip()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             if not ver:
                 ver = "1.0.0"
 
@@ -896,7 +896,7 @@ def check_backend_health(
                 try:
                     response.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 __all__ = [

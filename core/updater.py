@@ -17,7 +17,6 @@ from core.logger import get_logger
 from core.version import (
     APP_VERSION,
     GITHUB_REPO,
-    compare_versions,
     is_version_outdated,
 )
 
@@ -62,7 +61,7 @@ def get_git_commit_or_tag() -> Optional[str]:
             else:
                 return content[:8]
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     if shutil.which("git"):
         try:
@@ -76,7 +75,7 @@ def get_git_commit_or_tag() -> Optional[str]:
             if res.returncode == 0:
                 return res.stdout.strip()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
     return None
 
 
@@ -170,7 +169,7 @@ def check_for_updates(
             try:
                 resp.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     return result
 
@@ -257,7 +256,7 @@ def download_and_apply_appimage_update(
             try:
                 response.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 def restart_application() -> None:

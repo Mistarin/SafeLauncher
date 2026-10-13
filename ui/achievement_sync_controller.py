@@ -172,7 +172,7 @@ class AchievementSyncController(QObject):
             try:
                 toast.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         self._active_toasts.clear()
 
     def handle_unlock(self, game_id: int, app_id: str, data: dict) -> None:

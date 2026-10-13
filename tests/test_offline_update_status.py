@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication
 from core.achievement_state_store import AchievementStateStore
 from core.cloud_models import SyncStatus
 from core.cloud_operations import CloudStatusResult
-from core.game_status import GameStatusState, update_indicator
+from core.game_status import update_indicator
 from core.library_metadata_state import LibraryMetadataState
 from core.request_contracts import RequestKey, ResourceResult, ResourceStatus
 from ui.library_list import LibraryListItemWidget
@@ -65,6 +65,7 @@ class OfflineUpdateStatusTests(unittest.TestCase):
             _show_toast=Mock(),
             _set_network_status=Mock(),
             _on_steam_build_checked=Mock(),
+            _steam_callback_is_current=Mock(return_value=True),
         )
 
         MainWindow._on_update_check_offline(fake, 4)
@@ -192,6 +193,7 @@ class OfflineUpdateStatusTests(unittest.TestCase):
             request_cloud_recheck=Mock(),
             _check_all_steam_updates=Mock(),
             _resume_initial_online_work=Mock(),
+            _schedule_backend_health_checks=Mock(),
         )
 
         with patch("ui.main_window.QTimer.singleShot"):

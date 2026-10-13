@@ -93,10 +93,10 @@ function getJwks(env: Env): ReturnType<typeof createRemoteJWKSet> {
 
 async function authenticate(request: Request, env: Env): Promise<AuthenticatedRequest> {
   const header = request.headers.get("authorization") || "";
-  const match = header.match(/^Bearer\s+([^\s]+)$/i);
-  if (!match) throw new Error("missing_token");
+  const token = header.match(/^Bearer\s+([^\s]+)$/i)?.[1];
+  if (!token) throw new Error("missing_token");
   const issuer = env.AUTH0_ISSUER.endsWith("/") ? env.AUTH0_ISSUER : `${env.AUTH0_ISSUER}/`;
-  const { payload } = await jwtVerify(match[1], getJwks(env), {
+  const { payload } = await jwtVerify(token, getJwks(env), {
     issuer,
     audience: env.AUTH0_AUDIENCE,
     algorithms: ["RS256"],

@@ -7,6 +7,10 @@ import time
 from collections import OrderedDict
 from typing import Callable, Optional, Tuple
 
+from core.logger import get_logger
+
+logger = get_logger("disk_utils")
+
 
 class DirectorySizeLRUCache:
     """Thread-safe in-memory LRU cache for directory sizes with TTL expiry."""
@@ -188,7 +192,7 @@ def get_dir_size(
                 continue
         traversal_ok = True
     except Exception:
-        pass
+        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # Only cache when the traversal actually completed — a mid-traversal
     # exception leaves total_size at 0 or partial, which must not be cached

@@ -1,15 +1,6 @@
-import json
-import math
 import time
-import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from core.logger import get_logger
-from core.game_names import (
-    MAX_GAME_NAME_LENGTH, fallback_game_name, display_name_key,
-    is_identity_placeholder_name, local_profile_identity, meaningful_game_name,
-    preferred_game_name,
-)
-from .records import GameRecord, GAME_COLUMNS, profile_identity
 from .validation import (
     _ACHIEVEMENT_DB_LOCK, _ACHIEVEMENT_APP_RE, _valid_achievement_api_name,
     _normalise_achievement_provenance, _safe_achievement_timestamp,
@@ -221,7 +212,6 @@ class AchievementRepository:
         if not _ACHIEVEMENT_APP_RE.fullmatch(app_id) or app_id == "0" or not unlocks:
             return 0
         provenance = _normalise_achievement_provenance(provenance)
-        verified = provenance == "steam_verified"
         now = time.time()
         changed = 0
         try:
@@ -302,7 +292,6 @@ class AchievementRepository:
         if not _ACHIEVEMENT_APP_RE.fullmatch(app_id) or app_id == "0":
             return 0
         provenance = _normalise_achievement_provenance(provenance)
-        verified = provenance == "steam_verified"
         state = state or {}
         pending = pending or {}
         provenance_by_name = provenance_by_name or {}

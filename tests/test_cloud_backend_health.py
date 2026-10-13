@@ -2,7 +2,7 @@ import json
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import requests
 
@@ -109,6 +109,7 @@ class CloudBackendHealthTests(unittest.TestCase):
                 "X-SafeLauncher-Key": "test-secret",
             },
             timeout=5.0,
+            allow_redirects=False,
         )
         self.assertTrue(response.closed)
 
@@ -197,6 +198,7 @@ class CloudBackendHealthTests(unittest.TestCase):
                 "X-SafeLauncher-Key": "test-secret",
             },
             timeout=0.25,
+            allow_redirects=False,
         )
 
     def test_health_and_version_response_objects_are_always_closed(self):

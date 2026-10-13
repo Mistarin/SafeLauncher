@@ -6,6 +6,10 @@ from PyQt6.QtCore import QObject, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
+from core.logger import get_logger
+
+logger = get_logger("app_update_controller")
+
 
 class AppUpdateController(QObject):
     """Coordinate release workers and the update-banner interaction state."""
@@ -184,7 +188,7 @@ class AppUpdateController(QObject):
             try:
                 worker.stop()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         worker = self._download_worker
         if worker is not None:
             try:

@@ -29,7 +29,6 @@ from core.request_contracts import (
     RequestKey,
     RequestPriority,
     RequestSpec,
-    ResourceResult,
     RetryPolicy,
     classify_remote_error,
     is_transient_error,
@@ -226,7 +225,7 @@ class CloudOperationService:
                     from core.cloud_repository import CloudSaveRepository
                     CloudSaveRepository.shared().invalidate()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             if succeeded and self._read_invalidator is not None and not invalidation_notified:
                 invalidation_notified = True
                 if request_key is not None:
@@ -237,7 +236,7 @@ class CloudOperationService:
                     # callers observing completion also observe fresh reads.
                     self._read_invalidator(target, operation, value)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             return value
 
         spec = self._spec(target, operation, load_with_invalidation, **kwargs)
@@ -329,7 +328,7 @@ class CloudOperationService:
                 except Exception:
                     # A cache invalidation hook must never change the outcome
                     # of a completed cloud mutation.
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         handle.future.add_done_callback(_finish)
         return handle

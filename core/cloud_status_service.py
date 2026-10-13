@@ -130,7 +130,7 @@ class CloudStatusService:
                 try:
                     handle.cancel()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         self._active_batches.clear()
 
     @property
@@ -363,7 +363,7 @@ class CloudStatusService:
                     try:
                         self._changed_diff_handle.cancel()
                     except Exception:
-                        pass
+                        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                     self._changed_diff_handle = None
                 self._cancel_active_batches_locked()
                 candidate = self._context_provider(generation)
@@ -383,7 +383,7 @@ class CloudStatusService:
                 try:
                     self._changed_diff_handle.cancel()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             self._changed_diff_handle = None
             self._cancel_active_batches_locked()
             self.status_store.clear()
@@ -666,7 +666,7 @@ class CloudStatusService:
                 try:
                     handle.cancel()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         batch = _ActiveStatusBatch(
             handles=[],
@@ -753,7 +753,7 @@ class CloudStatusService:
                         source.unlink()
                     except OSError:
                         pass
-        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
             # Cache corruption must never prevent cloud status loading.
             return
 

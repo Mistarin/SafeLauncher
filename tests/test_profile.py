@@ -559,6 +559,11 @@ class ProfileModelTests(unittest.TestCase):
         from ui.main_window import MainWindow
 
         class BuildHost:
+            _set_build_reference_memory = MainWindow._set_build_reference_memory
+
+            def _steam_callback_is_current(self, *_args, **_kwargs):
+                return True
+
             def __init__(self, service, game_id):
                 self.library_service = service
                 self.library_metadata_state = LibraryMetadataState()
@@ -640,7 +645,7 @@ class ProfileModelTests(unittest.TestCase):
             db.close()
 
     def test_late_steam_result_recalculates_against_marked_build(self):
-        from types import SimpleNamespace
+        from types import MethodType, SimpleNamespace
         from ui.main_window import MainWindow
 
         db = GameDatabase(":memory:")
@@ -670,6 +675,22 @@ class ProfileModelTests(unittest.TestCase):
                 host.update_status_by_game_id[target_id] = available
 
             host._set_game_update_status = set_status
+            # Bind the real helpers so the stub exercises the production logic.
+            for name in (
+                "_steam_callback_is_current",
+                "_set_build_reference_memory",
+                "_resolve_local_build_reference",
+                "_backfill_current_build_date",
+                "_format_version_date",
+                "_render_update_date_detail",
+                "_set_game_update_status",
+            ):
+                setattr(host, name, MethodType(getattr(MainWindow, name), host))
+            host._save_persistent_cache = Mock()
+            host._update_compact_game_page = Mock()
+            host._set_network_status = Mock()
+            host._show_toast = Mock()
+            host._update_library_item = Mock()
             with patch(
                 "ui.main_window.read_local_steam_build",
                 return_value=("old-manifest-build", 100),
@@ -1589,14 +1610,16 @@ class ProfilePageTests(unittest.TestCase):
             db = GameDatabase(":memory:")
             page = ProfilePageWidget(db, settings)
             try:
-                page._publish_done(ProfileServiceError(
-                    "That profile handle is already in use.",
-                    "handle_taken",
-                    409,
-                ))
+                # The username dialog is modal; the user cancels it here.
+                with patch("ui.components.profile_page.ProfileUsernameDialog.exec", return_value=0):
+                    page._publish_done(ProfileServiceError(
+                        "That profile handle is already in use.",
+                        "handle_taken",
+                        409,
+                    ))
                 self.assertFalse(page._publishing)
                 self.assertFalse(page._handle_availability)
-                self.assertIn("Open Edit profile", page.footer_status.text())
+                self.assertIn("already in use", page.footer_status.text())
                 self.assertTrue(page.footer_status.text().endswith("publish again."))
             finally:
                 page.close()

@@ -19,6 +19,10 @@ from core.safe_thread import TaskSupervisor
 from core.secret_store import get_secret, set_secret, delete_secret
 from ui.components.popup_shell import PopupDialog
 
+from core.logger import get_logger
+
+logger = get_logger("cloud_wizard_dialog")
+
 
 class CloudWizardDialog(PopupDialog):
     """Interactive wizard to guide users through choosing setup mode, deploying, and connecting Convex cloud saves."""
@@ -549,7 +553,7 @@ class CloudWizardDialog(PopupDialog):
                     launched = True
                     break
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         if not launched:
             QMessageBox.information(
                 self, "Terminal Setup",
@@ -572,7 +576,6 @@ class CloudWizardDialog(PopupDialog):
         # The terminal deployment may have generated and stored a key while
         # this dialog was open. Pull it into the connection form so users do
         # not have to copy secrets between windows.
-        settings = QSettings("SafeLauncher", "SafeLauncher")
         generated_key = get_secret("cloud_secret_key", legacy_name="cloud_secret_key")
         if generated_key and not self.edit_key.text().strip():
             self.edit_key.setText(generated_key)

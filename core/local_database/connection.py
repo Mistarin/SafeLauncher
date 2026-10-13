@@ -1,23 +1,9 @@
 import sqlite3
 import os
-import json
 import shutil
-import time
-import uuid
-import re
 import threading
-import math
 import tempfile
 from core.logger import get_logger
-from core.game_names import (
-    MAX_GAME_NAME_LENGTH,
-    fallback_game_name,
-    display_name_key,
-    is_identity_placeholder_name,
-    local_profile_identity,
-    meaningful_game_name,
-    preferred_game_name,
-)
 
 logger = get_logger("Database")
 
@@ -117,7 +103,7 @@ class DatabaseSession:
                     self.conn.execute("PRAGMA journal_mode = WAL")
                     self.conn.execute("PRAGMA synchronous = NORMAL")
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             if not _is_consistent(self.conn):
                 raise sqlite3.DatabaseError(f"Integrity check failed for {self.db_path}")
         except sqlite3.DatabaseError as e:

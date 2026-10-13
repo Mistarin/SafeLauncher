@@ -1,10 +1,13 @@
 import os
-import sys
 import time
 import json
 import socket
 import struct
 import threading
+
+from core.logger import get_logger
+
+logger = get_logger("discord_rpc")
 
 CLIENT_ID = "1200000000000000000"  # Default Discord Application ID for SafeLauncher
 
@@ -128,7 +131,7 @@ class DiscordRPC:
                 data = struct.pack("<II", 1, len(payload)) + payload.encode("utf-8")
                 self.sock.sendall(data)
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             finally:
                 self._disconnect()
 
@@ -138,5 +141,5 @@ class DiscordRPC:
             try:
                 self.sock.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             self.sock = None

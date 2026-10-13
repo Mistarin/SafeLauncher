@@ -17,14 +17,16 @@ from core.archive_extractor import executable_sort_key
 from core.launch_diagnostics import persist_diagnostics
 from core.date_formatting import qt_date_format
 from ui.icons import get_app_icon, get_icon, get_app_icon_pixmap, get_icon_pixmap, icon_pixmap, LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap
-from ui.threads import BannerFetcher, BannerDownloader, ArchiveExtractorThread, SafeLaunchLogReader
-from ui.components.sidebar import DialogTitleBar, add_soft_shadow
+from ui.threads import BannerFetcher, BannerDownloader, SafeLaunchLogReader
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
-from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
+from core.request_contracts import RequestPriority, ResourceStatus
 from core.steam_ids import normalize_steam_app_id
-from core.cache_policy import cache_policy
 from ui.resource_binding import ResourceBinding, bind_resource
+
+from core.logger import get_logger
+
+logger = get_logger("game_dialogs")
 
 DEFAULT_SANDBOX_DIR = os.path.expanduser("~/Games/Sandbox")
 UNSET_BUILD_DATE = QDate(1970, 1, 1)
@@ -99,7 +101,7 @@ def load_sandbox_config(dir_path: str) -> str | None:
                     if line.startswith("EXE="):
                         return line[4:].strip()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
     return None
 
 
@@ -1043,7 +1045,7 @@ class LaunchOptionsDialog(PopupDialog):
     """Custom styled dark modal dialog for selecting game launch runner modes."""
     def __init__(self, game_data: tuple, parent=None):
         super().__init__(f"Launch Options - {game_data[1]}", parent)
-        game_id, name, path, exe, mode, banner_url, steam_id, *_ = (*game_data, 0)
+        mode = (*game_data, 0)[4]
         self.game_data = game_data
         self.selected_mode = None
 
@@ -1679,7 +1681,7 @@ class SafeLaunchDialog(PopupDialog):
             if rec_svc.config.enabled and rec_svc.config.mode in ("auto_game", "replay_buffer"):
                 rec_svc.start_recording(self.game_name, is_replay=(rec_svc.config.mode == "replay_buffer"))
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         self.header_title.setText("Game running — launch log")
         self.header_sub.setText(f"'{self.game_name}' is running in the sandbox container")
@@ -1709,7 +1711,7 @@ class SafeLaunchDialog(PopupDialog):
             if rec_svc.config.enabled and rec_svc.is_running():
                 rec_svc.stop_recording()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         if getattr(self, "process_log_path", None):
             self._poll_process_log()
@@ -1983,7 +1985,7 @@ def detect_linux_distro() -> tuple[str, str]:
                 return (name_str, 'sudo apt update && sudo apt install firejail')
             return (name_str, cmd)
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
     return (os_name, cmd)
 
 

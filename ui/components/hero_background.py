@@ -4,6 +4,10 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QVariantAnimation, QEasingCurve
 from PyQt6.QtGui import QPixmap, QColor, QPainter, QLinearGradient
 
+from core.logger import get_logger
+
+logger = get_logger("hero_background")
+
 
 class HeroBackgroundWidget(QWidget):
     """Custom background container widget that renders a blurred 16:9 hero image with smooth cross-fade animation."""
@@ -135,6 +139,6 @@ class HeroBackgroundWidget(QWidget):
                     painter.setOpacity(self.opacity)
                     painter.drawPixmap(0, 0, scaled_target, crop_x, crop_y, w, h)
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         painter.end()

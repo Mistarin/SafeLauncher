@@ -135,8 +135,7 @@ def get_app_icon(key: str, color: Optional[str] = None) -> QIcon:
 
 
 import os
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap, QPainter, QRadialGradient, QLinearGradient, QColor, QPen
+from PyQt6.QtGui import QPixmap, QRadialGradient, QLinearGradient
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGO_PATH = os.path.join(BASE_DIR, "assets", "logo.png")

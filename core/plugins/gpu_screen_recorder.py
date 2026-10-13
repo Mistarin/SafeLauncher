@@ -154,7 +154,7 @@ class GpuRecorderService:
                         m_name, m_res = line.split("|", 1)
                         monitors.append((m_name.strip(), f"{m_name.strip()} ({m_res.strip()})"))
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         return monitors
 
     @staticmethod
@@ -382,12 +382,12 @@ class GpuRecorderService:
                     self.process.kill()
                     self.process.wait(timeout=5)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                 try:
                     if self.process.stdin:
                         self.process.stdin.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             self.process = None
             return False
 
@@ -407,39 +407,41 @@ class GpuRecorderService:
 
     def stop_recording(self) -> Optional[str]:
         """Gracefully stop recording and finalize video file."""
-        if not self.is_running():
+        # Bind once: another thread may clear self.process while we stop it.
+        process = self.process
+        if process is None or not self.is_running():
             return None
 
         logger.info("Stopping recording process...")
         try:
             if self.active_backend == "ffmpeg":
                 try:
-                    if self.process.stdin:
-                        self.process.stdin.write(b"q\n")
-                        self.process.stdin.flush()
+                    if process.stdin:
+                        process.stdin.write(b"q\n")
+                        process.stdin.flush()
                 except Exception:
-                    pass
-                self.process.send_signal(signal.SIGINT)
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
+                process.send_signal(signal.SIGINT)
             else:
-                self.process.send_signal(signal.SIGINT)
+                process.send_signal(signal.SIGINT)
 
-            self.process.wait(timeout=5)
+            process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait()
+            process.kill()
+            process.wait()
         except Exception as e:
             logger.warning(f"Error while stopping recorder: {e}")
             try:
-                self.process.kill()
-                self.process.wait(timeout=5)
+                process.kill()
+                process.wait(timeout=5)
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         try:
-            if self.process.stdin:
-                self.process.stdin.close()
+            if process.stdin:
+                process.stdin.close()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         self.process = None
         out = self.active_output_path
         self.active_output_path = None

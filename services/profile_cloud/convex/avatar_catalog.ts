@@ -193,13 +193,15 @@ export const importAsset = action({
     }
     if (!binary || binary.length > MAX_ASSET_BYTES) throw new Error("avatar_import_invalid");
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    // Length is checked above, so the PNG header bytes always exist.
+    const byteAt = (index: number): number => bytes[index] ?? 0;
     if (bytes.length < 24 ||
-        bytes[0] !== 0x89 || bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47 ||
-        bytes[4] !== 0x0d || bytes[5] !== 0x0a || bytes[6] !== 0x1a || bytes[7] !== 0x0a ||
-        String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15]) !== "IHDR")
+        byteAt(0) !== 0x89 || byteAt(1) !== 0x50 || byteAt(2) !== 0x4e || byteAt(3) !== 0x47 ||
+        byteAt(4) !== 0x0d || byteAt(5) !== 0x0a || byteAt(6) !== 0x1a || byteAt(7) !== 0x0a ||
+        String.fromCharCode(byteAt(12), byteAt(13), byteAt(14), byteAt(15)) !== "IHDR")
       throw new Error("avatar_import_invalid");
-    const encodedWidth = (bytes[16] * 0x1000000) + (bytes[17] * 0x10000) + (bytes[18] * 0x100) + bytes[19];
-    const encodedHeight = (bytes[20] * 0x1000000) + (bytes[21] * 0x10000) + (bytes[22] * 0x100) + bytes[23];
+    const encodedWidth = (byteAt(16) * 0x1000000) + (byteAt(17) * 0x10000) + (byteAt(18) * 0x100) + byteAt(19);
+    const encodedHeight = (byteAt(20) * 0x1000000) + (byteAt(21) * 0x10000) + (byteAt(22) * 0x100) + byteAt(23);
     if (encodedWidth !== args.width || encodedHeight !== args.height)
       throw new Error("avatar_import_dimensions_mismatch");
     const digest = hexDigest(await crypto.subtle.digest("SHA-256", bytes));

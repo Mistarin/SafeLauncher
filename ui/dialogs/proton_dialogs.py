@@ -1,6 +1,6 @@
 import os
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
+    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout,
     QFileDialog, QMessageBox, QDialogButtonBox, QListWidget, QListWidgetItem, QFrame,
     QProgressBar, QPlainTextEdit, QWidget
 )
@@ -8,7 +8,7 @@ from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from core.proton_manager import (
-    fetch_online_ge_proton_releases, list_installed_ge_proton, get_default_install_dir, GEProtonDownloader
+    list_installed_ge_proton, get_default_install_dir, GEProtonDownloader
 )
 from ui.threads import GitHubReleasesFetcherThread, UmuBootstrapWorker
 from ui.components.popup_shell import PopupDialog

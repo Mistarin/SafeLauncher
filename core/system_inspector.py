@@ -9,7 +9,11 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
+
+from core.logger import get_logger
+
+logger = get_logger("system_inspector")
 
 
 @dataclass
@@ -112,7 +116,7 @@ def detect_distribution() -> DistroInfo:
                         data[k.strip()] = v.strip().strip('"').strip("'")
                 break
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     distro_id = data.get("ID", "linux").lower()
     id_like = [x.strip().lower() for x in data.get("ID_LIKE", "").split() if x.strip()]
@@ -188,7 +192,7 @@ def detect_gpus() -> List[GPUInfo]:
                                 if f.read().strip() == "Y":
                                     notes.append("DRM modeset enabled (Wayland GBM ready)")
                         except Exception:
-                            pass
+                            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
                     gpus.append(GPUInfo(
                         vendor="NVIDIA",
@@ -198,7 +202,7 @@ def detect_gpus() -> List[GPUInfo]:
                         notes=notes,
                     ))
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # 2. Probe via lspci for AMD / Intel / secondary GPUs
     if shutil.which("lspci"):
@@ -222,7 +226,7 @@ def detect_gpus() -> List[GPUInfo]:
                             if m:
                                 mesa_ver = f"Mesa {m.group(1)}"
                         except Exception:
-                            pass
+                            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
                     gpus.append(GPUInfo(
                         vendor=vendor,
@@ -232,7 +236,7 @@ def detect_gpus() -> List[GPUInfo]:
                         notes=[f"Renderer: {vendor}"],
                     ))
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # Mark hybrid GPU state if multiple GPUs detected (e.g. Intel + NVIDIA or AMD + NVIDIA)
     if len(gpus) > 1:
@@ -399,7 +403,7 @@ def print_system_report() -> None:
                 except (OSError, ValueError) as error:
                     print(f"  {RED}✖ Could not start the package installer: {error}{RESET}")
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # Special handling for app-managed Ludusavi binary
     if not audit.tools_installed.get("ludusavi", False):

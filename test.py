@@ -433,7 +433,7 @@ except Exception as e:
 
 # 10. Test Desktop Integration
 try:
-    from core.desktop_integration import get_desktop_file_path, is_desktop_entry_installed
+    from core.desktop_integration import get_desktop_file_path
     path = get_desktop_file_path()
     assert path.endswith("safelauncher.desktop")
     print("✓ Desktop integration module loaded cleanly")
@@ -443,10 +443,10 @@ except Exception as e:
 
 # 11. Test Security Diagnostics and Multi-Tab Settings Dialog
 try:
-    from core.security_diagnostics import inspect_security_health, run_live_sandbox_verification
+    from core.security_diagnostics import inspect_security_health
     from ui.dialogs.settings_dialog import UserSettingsDialog
     from ui.dialogs.welcome_wizard import WelcomeWizardDialog
-    from core.screenshot_capture import capture_desktop_screenshot, get_game_screenshots_dir
+    from core.screenshot_capture import get_game_screenshots_dir
 
     report = inspect_security_health()
     assert report.firejail_version != ""
@@ -554,7 +554,6 @@ try:
     assert not banner.version_badge.isHidden()
     print("✓ GameBannerWidget 16:9 ratio and version badge verified")
 
-    from ui.dialogs.game_dialogs import CustomRemoveDialog, ManageCollectionGamesDialog
     # Test Ludusavi Save Detector & Multi-Location Backup
     from core.ludusavi_detector import LudusaviDetector, SaveLocation
     from core.save_validation import snapshot_from_validation, validate_save_location, validate_save_locations
@@ -718,7 +717,6 @@ try:
 
             # 7. Test robust slug matching & name key resolution across release tags
             from core.cloud_save_sync import resolve_name_key, match_cloud_game_to_library, _clean_game_slug
-            import core.cloud_save_sync as css_mod
             assert _clean_game_slug("Dave-the-Diver-AnkerGames") == "davethediver"
             assert _clean_game_slug("Medieval-Dynasty-SteamRIP") == "medievaldynasty"
             assert _clean_game_slug("Bellwright-FitGirl") == "bellwright"
@@ -801,7 +799,6 @@ except Exception as e:
 # Cloud backend primitives (offline): crypto envelope, PKCE, name keys    #
 # ---------------------------------------------------------------------- #
 try:
-    import base64
     import hashlib
     from core.save_crypto import encrypt_save, decrypt_save, generate_data_key_b64, SaveCryptoError
     from core.cloud_backend import normalize_name_key, ConvexSaveBackend
@@ -909,7 +906,7 @@ try:
     )
     from core.cloud_detector import inspect_system_compatibility
     from core.cloud_backend import check_backend_health, ConvexSaveBackend
-    from core.cloud_metadata_sync import CloudMetadataSync, _merge_profiles
+    from core.cloud_metadata_sync import _merge_profiles
     from core.profile_models import PRIVATE_PROFILE_VERSION
     from core.secret_store import get_secret, set_secret, delete_secret
     from core.cloud_cli_wizard import (
@@ -1418,14 +1415,13 @@ except Exception as e:
 try:
     from pathlib import Path
     import json
-    from core.achievement_schema import fetch_steam_achievements_schema, SteamAchievementFetcherWorker
     from core.achievement_watcher import (
         locate_achievements_file, ensure_achievement_watch_target,
         parse_achievements_state, parse_achievements_state_detailed,
         AchievementWatcher, resolve_achievement_prefix
     )
-    from ui.components.achievement_toast import AchievementToast, send_desktop_notification
-    from ui.dialogs.achievements_dialog import AchievementsDialog, AchievementCard
+    from ui.components.achievement_toast import AchievementToast
+    from ui.dialogs.achievements_dialog import AchievementsDialog
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         # A. Test Database Achievement Operations
@@ -1678,8 +1674,7 @@ ACH_PACIFIST=0
         # 31. Test Directory Size In-Memory LRU Caching
         # -------------------------------------------------------------
         from core.disk_utils import (
-            DirectorySizeLRUCache, peek_dir_size, store_dir_size,
-            has_fresh_dir_size, clear_dir_size_cache, get_dir_size
+            DirectorySizeLRUCache, peek_dir_size, has_fresh_dir_size, clear_dir_size_cache, get_dir_size
         )
         clear_dir_size_cache()
         test_lru = DirectorySizeLRUCache(maxsize=3, ttl_seconds=1.0)
@@ -2160,8 +2155,7 @@ except Exception as e:
 try:
     from PyQt6.QtGui import QPixmap
     from ui.components.compact_game_page import (
-        CompactGamePageWidget, CompactLayoutContainer, CompactSidebarListWidget,
-        SteamGamePageWidget, SteamLayoutContainer, SteamSidebarListWidget
+        CompactGamePageWidget, CompactLayoutContainer, CompactSidebarListWidget
     )
     from ui.components.sort_combo import SortComboBox
 
@@ -2347,7 +2341,6 @@ try:
     assert any("Press F12 for screenshot" in t for t in active_labels)
     # Media actions intentionally use lightweight QFrame containers so their
     # label/count pair stays background-free and independently clickable.
-    from PyQt6.QtWidgets import QFrame
     media_action_labels = [lbl.text() for lbl in game_page.media_widget.findChildren(QLabel)]
     assert any("Screenshots" in text for text in media_action_labels)
     assert any("Videos" in text for text in media_action_labels)

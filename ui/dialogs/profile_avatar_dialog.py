@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
-    QVBoxLayout,
 )
 from ui.components.popup_shell import PopupDialog
 from ui.theme import BORDER, POPUP_SURFACE, POPUP_SURFACE_ACTIVE

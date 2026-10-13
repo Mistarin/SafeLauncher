@@ -1,7 +1,6 @@
 """Environment handling for host tools started by the packaged launcher."""
 
 import os
-import re
 from typing import Mapping, Optional
 
 

@@ -168,7 +168,7 @@ class SafeQThread(QThread):
             try:
                 self.error_occurred.emit(str(e))
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             self._set_lifecycle_state("failed")
 
     def start(self, *args, **kwargs):
@@ -216,7 +216,7 @@ class SafeQThread(QThread):
                 if QThread.currentThread() != self:
                     self.wait()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 class FunctionWorker(SafeQThread):
@@ -340,7 +340,7 @@ class TaskSupervisor(QObject):
         try:
             self.shutdown(30000)
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 class WorkerSupervisor(QObject):
@@ -430,4 +430,4 @@ class WorkerSupervisor(QObject):
         try:
             self.shutdown()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)

@@ -13,7 +13,6 @@ same user.
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import secrets
@@ -190,7 +189,7 @@ def get_secret(name: str, default: str = "", *, legacy_name: Optional[str] = Non
                 try:
                     QSettings("SafeLauncher", "SafeLauncher").remove(legacy_name or name)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             _SECRET_CACHE[name] = legacy
             return legacy
         fallback = str(default or "").strip()
@@ -216,7 +215,7 @@ def set_secret(name: str, value: str) -> bool:
                 try:
                     QSettings("SafeLauncher", "SafeLauncher").remove(name)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                 return True
             except Exception as exc:
                 global _KEYRING
@@ -230,7 +229,7 @@ def set_secret(name: str, value: str) -> bool:
             try:
                 QSettings("SafeLauncher", "SafeLauncher").remove(name)
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         return saved
 
 
@@ -262,7 +261,7 @@ def delete_secret(name: str) -> bool:
             QSettings("SafeLauncher", "SafeLauncher").remove(name)
             changed = True
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         _SECRET_CACHE.pop(name, None)
         return changed and not keyring_failed
 

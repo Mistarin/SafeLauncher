@@ -758,7 +758,7 @@ class AchievementStatusFetcherThread(SafeQThread):
                 try:
                     db.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 class AchievementBatchQueueWorker(SafeQThread):
@@ -888,7 +888,7 @@ class AchievementBatchQueueWorker(SafeQThread):
                     try:
                         db.close()
                     except Exception:
-                        pass
+                        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             except Exception as e:
                 logger.debug(f"AchievementBatchQueueWorker error for '{name}' (ID {game_id}): {e}")
                 return None

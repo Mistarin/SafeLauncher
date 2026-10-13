@@ -123,7 +123,7 @@ class CentralAuthSession:
         try:
             self.http.close()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     def __del__(self):
         self.close()
@@ -220,7 +220,7 @@ class CentralAuthSession:
             try:
                 response.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     def device_login(self, progress: Callable[[str], None] | None = None, *, open_browser: bool = True) -> str:
         """Run Auth0 Device Authorization Flow until the user approves it."""
@@ -253,7 +253,7 @@ class CentralAuthSession:
             try:
                 webbrowser.open(verification, new=2)
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         deadline = time.monotonic() + expires_in
         while time.monotonic() < deadline:
@@ -366,5 +366,5 @@ class CentralAuthSession:
                 try:
                     response.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         raise CentralAuthError("The identity provider rejected the identity request.", "userinfo_failed")

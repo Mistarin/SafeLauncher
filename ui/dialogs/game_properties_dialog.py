@@ -1,19 +1,17 @@
 import os
-import json
 import subprocess
 from html import escape as html_escape
-from typing import Optional, Dict
+from typing import Dict
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QGridLayout, QToolButton,
     QTabWidget, QCheckBox, QSlider, QComboBox, QSpinBox, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView, QApplication
+    QTableWidgetItem, QHeaderView
 )
-from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
 
 from ui.icons import get_icon, get_app_icon
-from ui.components.sidebar import DialogTitleBar
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from ui.maintenance_dialogs import PrefixMaintenanceDialog
@@ -40,7 +38,6 @@ from ui.components.cloud_ui import (
     CloudStatusPanel,
     confirm_restore,
     cloud_progress,
-    set_accessible_status,
     set_cloud_focus_order,
     set_cloud_initial_focus,
 )
@@ -1469,7 +1466,7 @@ class GamePropertiesDialog(PopupDialog):
                 self._active_manual_sync_progress.close()
                 self._active_manual_sync_progress.deleteLater()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             self._active_manual_sync_progress = None
 
         self.btn_sync_down.setEnabled(True)

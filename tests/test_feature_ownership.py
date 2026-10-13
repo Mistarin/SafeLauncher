@@ -4,7 +4,7 @@ from concurrent.futures import Future
 from threading import Event
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from PyQt6.QtWidgets import QApplication
 
@@ -53,7 +53,7 @@ class FeatureOwnershipTests(unittest.TestCase):
         controller.handle_build_state(plan.key, SimpleNamespace(
             status=ResourceStatus.STALE, value=("200", 20), from_cache=True, updated_at=123.0,
         ))
-        self.assertEqual(build.call_args.kwargs, {"source": "cached", "checked_at": 123.0})
+        self.assertEqual(build.call_args.kwargs, {"source": "cached", "checked_at": 123.0, "request_app_id": "480"})
 
     def test_unknown_installed_build_is_not_silently_marked_current(self):
         controller, coordinator, build, failed, _description = self.steam_controller()

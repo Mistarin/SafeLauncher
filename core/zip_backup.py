@@ -5,7 +5,7 @@ import shutil
 import zipfile
 import hashlib
 import tempfile
-from typing import List, Optional
+from typing import Optional
 from core.interfaces import IBackupManager
 from core.logger import get_logger
 from core.save_models import GameSaveSnapshot, SaveOperationCancelled

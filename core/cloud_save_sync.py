@@ -37,7 +37,7 @@ from core.save_validation import (
 from core.cloud_models import SaveStats, SyncStatus
 from core.zip_backup import ZipBackupManager, _MANIFEST_NAME
 from core.save_history import cloud_version_timestamp, history_device_metadata, newest_cloud_version
-from core.cloud_storage import DEFAULT_CLOUD_SAVES_DIR, get_cloud_root
+from core.cloud_storage import get_cloud_root
 from core.logger import get_logger
 
 logger = get_logger("CloudSaveSync")
@@ -505,7 +505,7 @@ class CloudSaveSyncEngine:
         return None
     @classmethod
     def _remote_stats(cls, name_key: str, local_mtime: float = 0.0,
-                      game_name: str = "") -> Tuple[SaveStats, Optional[dict]]:
+                      game_name: str = "") -> Tuple[Optional[SaveStats], Optional[dict]]:
         """Best-effort cloud stats; preserve authentication failures for callers.
 
         ``game_name`` should be the raw library title (e.g. "The Witcher 3").
@@ -1223,11 +1223,14 @@ class CloudSaveSyncEngine:
 
     @classmethod
     def restore_cloud_generation(cls, game_name: str, game_path: str,
-                                 steam_id: str = "", version: Optional[int] = None) -> bool:
+                                 steam_id: str = "", version: Optional[int] = None) -> SaveOperationResult:
         """Roll the game back to a retained cloud generation without minting duplicate versions."""
         if not backend_active():
             logger.warning("Generation restore requires the Convex cloud backend.")
-            return False
+            return SaveOperationResult(
+                False, "Cloud restore", game_name,
+                error="Generation restore requires the cloud backend.", category="backend_inactive"
+            )
         return cls.sync_cloud_to_local(
             game_name, game_path, steam_id=steam_id, preserve_local_fork=True, target_version=version
         )
@@ -1309,9 +1312,9 @@ class CloudSaveSyncEngine:
                                 "path": fpath,
                             })
                         except Exception:
-                            pass
+                            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         # Sort by mtime descending
         results.sort(key=lambda x: x.get("mtime", 0.0), reverse=True)

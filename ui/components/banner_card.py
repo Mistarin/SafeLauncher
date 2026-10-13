@@ -1,5 +1,5 @@
 import os
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QToolButton, QWidget
 from PyQt6.QtCore import (
     Qt, QSize, QPoint, QPointF, QTimer, pyqtSignal, QVariantAnimation, QEasingCurve,
@@ -10,7 +10,7 @@ from PyQt6.QtGui import QFont, QPixmap, QColor, QPainter, QPixmapCache, QCursor,
 # Allocate 64MB LRU cache budget for decoded pixmaps
 QPixmapCache.setCacheLimit(64 * 1024)
 
-from ui.icons import get_app_icon, get_icon
+from ui.icons import get_icon
 from core.game_status import update_indicator
 
 

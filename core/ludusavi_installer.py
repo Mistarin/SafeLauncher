@@ -191,4 +191,4 @@ def _download_ludusavi(managed_path: str) -> str:
         try:
             resp.close()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)

@@ -9,18 +9,17 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, QEvent
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QHBoxLayout, QVBoxLayout, QFrame, QGraphicsOpacityEffect,
     QApplication, QSizePolicy
 )
-from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QFont
+from PyQt6.QtGui import QPixmap, QPainter, QColor
 
 from core.logger import get_logger
-from ui.icons import get_icon, get_icon_pixmap
+from ui.icons import get_icon_pixmap
 
 logger = get_logger("AchievementToast")
 

@@ -187,7 +187,7 @@ class FirejailSandboxRunner(ISandboxRunner):
                                 steam_id = val
                                 break
                     except Exception:
-                        pass
+                        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         game_id_env = ""
         if steam_id and str(steam_id).isdigit() and int(steam_id) > 0:

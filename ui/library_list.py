@@ -5,15 +5,19 @@ from typing import Optional, Set, Any
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QPoint
 
 from PyQt6.QtWidgets import (
-    QListWidget, QListWidgetItem, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton,
+    QListWidget, QListWidgetItem, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QSizePolicy,
 )
-from PyQt6.QtGui import QFont, QPixmap, QPainter, QColor, QIcon
+from PyQt6.QtGui import QFont, QPixmap, QPainter, QColor
 
 from core.disk_utils import dir_size_display
 from core.library_controller import LibrarySnapshot
 from core.game_status import update_indicator
-from ui.icons import get_app_icon, get_icon, get_app_icon_pixmap, get_icon_pixmap
+from ui.icons import get_app_icon_pixmap, get_icon_pixmap
+
+from core.logger import get_logger
+
+logger = get_logger("library_list")
 
 
 def _format_playtime_str(seconds: int) -> str:
@@ -352,7 +356,7 @@ class LibraryListItemWidget(QWidget):
                         if not loaded.isNull():
                             pix = loaded
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         # 4. Fallback vector controller icon
         if pix is None:

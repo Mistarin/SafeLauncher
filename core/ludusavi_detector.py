@@ -160,7 +160,7 @@ class LudusaviDetector:
             from core.ludusavi_installer import get_managed_ludusavi_path
             candidates.append(get_managed_ludusavi_path())
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         on_path = shutil.which("ludusavi")
         if on_path:
             candidates.append(on_path)
@@ -655,7 +655,6 @@ class LudusaviDetector:
                         nested_parent = root_child
                     except OSError:
                         candidates_here = []
-                        nested_parent = ""
 
                 for sname in candidates_here:
                     if root_child == sname:

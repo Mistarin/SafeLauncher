@@ -4,21 +4,18 @@ Visual save inspector powered by LudusaviDetector and ZipBackupManager.
 """
 
 import os
-import time
 import json
 from datetime import datetime
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
-    QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QProgressBar,
-    QTabWidget, QApplication
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
+    QFileDialog, QFrame, QScrollArea, QMessageBox, QCheckBox, QTabWidget, QApplication
 )
 from PyQt6.QtWidgets import QToolButton
-from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon, QDesktopServices
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QFont, QDesktopServices
 from PyQt6.QtCore import QUrl
 
 from ui.icons import get_icon, get_app_icon
-from ui.components.sidebar import DialogTitleBar
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from core.ludusavi_detector import LudusaviDetector, SaveLocation

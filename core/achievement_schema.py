@@ -116,7 +116,7 @@ def close_achievement_http_session() -> None:
         try:
             session.close()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 
@@ -259,7 +259,7 @@ def _download_icon(url: str, target_path: Path, timeout: float = 6.0) -> Optiona
             try:
                 resp.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
     return ""
 
 
@@ -310,13 +310,13 @@ def download_achievement_icons_batch(
                     if resp.status_code == 200 and resp.content:
                         _write_asset_atomic(target, resp.content)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                 finally:
                     if resp is not None:
                         try:
                             resp.close()
                         except Exception:
-                            pass
+                            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             if target.is_file() and target.stat().st_size > 0:
                 paths["icon_path"] = str(target)
 
@@ -334,13 +334,13 @@ def download_achievement_icons_batch(
                     if resp.status_code == 200 and resp.content:
                         _write_asset_atomic(target_gray, resp.content)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
                 finally:
                     if resp is not None:
                         try:
                             resp.close()
                         except Exception:
-                            pass
+                            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
             if target_gray.is_file() and target_gray.stat().st_size > 0:
                 paths["icongray_path"] = str(target_gray)
 
@@ -397,7 +397,7 @@ def download_achievement_icons_batch(
                     if result.status in {ResourceStatus.READY, ResourceStatus.STALE} and isinstance(result.value, dict):
                         item.update(result.value)
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
             handle.future.add_done_callback(apply_result)
         return achievements
@@ -428,7 +428,7 @@ def find_local_achievement_schema(game_path: Optional[str] = None, proton_path: 
                 if entry.is_dir():
                     candidate_dirs.append(entry)
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     if proton_path and os.path.isdir(proton_path):
         candidate_dirs.append(Path(proton_path))
@@ -524,7 +524,7 @@ def _fetch_steam_community_html(app_id: str, timeout: float = 8.0, app_icon_dir:
             try:
                 resp.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     achievements: List[Dict[str, Any]] = []
 
@@ -672,7 +672,7 @@ def fetch_steam_achievements_schema(
         try:
             _write_schema_cache(schema_cache_file, _validated_schema(local_achs))
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         return _validated_schema(local_achs)
 
     shared_data = _shared_schema()
@@ -765,7 +765,7 @@ def fetch_steam_achievements_schema(
                 try:
                     resp.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # Try the public XML endpoint before scraping HTML: it supplies canonical
     # API names, and avoids an extra request whenever it succeeds.
@@ -811,7 +811,7 @@ def fetch_steam_achievements_schema(
                 try:
                     resp.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     if xml_achievements:
         achievements = xml_achievements

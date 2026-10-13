@@ -64,5 +64,5 @@ def send_central_telemetry(app_version: str) -> bool:
             try:
                 resp.close()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
     return False

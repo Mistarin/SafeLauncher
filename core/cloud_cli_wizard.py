@@ -13,7 +13,7 @@ import zipfile
 import re
 import time
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Any
 from urllib.parse import urlparse
 
 import requests
@@ -29,6 +29,10 @@ from core.cloud_detector import (
 from core.version import MIN_CONVEX_BACKEND_VERSION, is_version_outdated
 from core.secret_store import get_secret, set_secret, delete_secret
 from core.cloud_backend import normalize_site_url
+
+from core.logger import get_logger
+
+logger = get_logger("cloud_cli_wizard")
 
 
 _SENSITIVE_ENV_KEY_FRAGMENTS = (
@@ -55,7 +59,7 @@ def _close_response(response) -> None:
     try:
         response.close()
     except Exception:
-        pass
+        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 def _is_sensitive_env_key(name: str) -> bool:
@@ -694,7 +698,6 @@ def download_server_repository(
     import shutil
     import subprocess
     import tempfile
-    import zipfile
     from pathlib import Path
 
     if target_dir:
@@ -725,7 +728,7 @@ def download_server_repository(
                     marker.touch()
                 return target
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # Method 2: HTTP ZIP download fallback
     tmp_zip = None
@@ -786,7 +789,6 @@ def deploy_convex_backend(
     ``deployment_env`` lets an ephemeral source checkout deploy to an already
     linked Convex project without copying its private dotenv files.
     """
-    import shutil
     import subprocess
     from pathlib import Path
 
@@ -1138,7 +1140,7 @@ def run_cloud_setup_wizard() -> int:
                     return 0
                 print("")
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     # Step 1: Choose Setup Mode
     banner("[1/3] Choose Setup Mode", CYAN)

@@ -78,7 +78,6 @@ class PluginInstallNoticeDialog(PopupDialog):
         layout.addLayout(btn_box)
 
     def _copy_and_close(self):
-        from PyQt6.QtWidgets import QApplication
         QApplication.clipboard().setText(self.notice_cmd_box.text())
         self.accept()
 

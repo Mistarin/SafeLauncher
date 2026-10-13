@@ -13,19 +13,17 @@ from __future__ import annotations
 
 import os
 import html
-import datetime
-from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QFrame, QProgressBar, QButtonGroup,
-    QComboBox, QGraphicsDropShadowEffect, QSizePolicy, QApplication
+    QComboBox, QSizePolicy
 )
-from PyQt6.QtGui import QPixmap, QColor, QPainter, QFont, QIcon, QPainterPath
+from PyQt6.QtGui import QPixmap, QColor, QPainter, QPainterPath
 
-from database import GameDatabase, GameRecord
+from database import GameDatabase
 from core.achievement_schema import SteamAchievementFetcherWorker
 from core.achievement_providers import AchievementAvailability
 from core.achievement_resource_service import AchievementResourceService, AchievementTarget
@@ -81,17 +79,17 @@ class MetricCard(QFrame):
     def __init__(self, title: str, value: str, subtext: str, accent_color: str = "#35C98A", parent=None):
         super().__init__(parent)
         self.setObjectName("metricCard")
-        self.setStyleSheet(f"""
-            QFrame#metricCard {{
+        self.setStyleSheet("""
+            QFrame#metricCard {
                 background-color: #18181B;
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 12px;
                 padding: 10px 14px;
-            }}
-            QFrame#metricCard:hover {{
+            }
+            QFrame#metricCard:hover {
                 background-color: #202024;
                 border-color: rgba(255, 255, 255, 0.14);
-            }}
+            }
         """)
         
         layout = QVBoxLayout(self)
@@ -114,7 +112,7 @@ class MetricCard(QFrame):
         layout.addLayout(header_layout)
 
         self.val_lbl = QLabel(value)
-        self.val_lbl.setStyleSheet(f"color: #FFFFFF; font-size: 20px; font-weight: 800; background: transparent;")
+        self.val_lbl.setStyleSheet("color: #FFFFFF; font-size: 20px; font-weight: 800; background: transparent;")
         layout.addWidget(self.val_lbl)
 
         self.sub_lbl = QLabel(subtext)

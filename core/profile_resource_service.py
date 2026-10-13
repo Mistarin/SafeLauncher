@@ -243,7 +243,7 @@ class ProfileResourceService:
                 try:
                     response.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     @classmethod
     def download_steam_artwork(cls, app_id: str, token=None, timeout: tuple[int, int] = (2, 6)) -> bytes:

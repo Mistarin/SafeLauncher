@@ -92,7 +92,7 @@ def get_available_screens() -> List[Tuple[str, str]]:
                 label_name = f"{name} (Display {i + 1})" if name in duplicates else name
                 targets.append((value, f"{label_name} ({geo.width()}x{geo.height()})"))
     except Exception:
-        pass
+        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
     targets.append(("all", "All Displays (Combined Desktop)"))
     return targets
 

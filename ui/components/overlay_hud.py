@@ -3,13 +3,11 @@
 import os
 import shutil
 import subprocess
-from typing import Optional
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QApplication
 from PyQt6.QtCore import Qt, QTimer, QRectF, QEvent
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath, QCursor
 
 from core.logger import get_logger
-from core.host_process import host_process_env
 
 logger = get_logger("OverlayHUD")
 
@@ -36,7 +34,7 @@ def play_notification_sound():
                 start_new_session=True,
             )
     except Exception:
-        pass
+        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
 def _resolve_target_screen(target_screen_name: str = "current"):

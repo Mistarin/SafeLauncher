@@ -4,14 +4,11 @@ Allows users to compare local vs. cloud save timestamps and choose which save to
 """
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
-    QFrame, QCheckBox
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QCheckBox
 )
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont
 
-from ui.icons import get_icon, get_app_icon
-from ui.components.sidebar import DialogTitleBar
+from ui.icons import get_app_icon
 from ui.components.popup_shell import PopupDialog
 from ui.components.check_field import CheckField as QCheckBox
 from core.cloud_models import SaveStats

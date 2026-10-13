@@ -249,7 +249,7 @@ async function dispatch(
         throw new ApiError(405, "method_not_allowed", "Method not allowed.");
       let handle = "";
       try {
-        handle = decodeURIComponent(availabilityMatch[1]).trim().toLowerCase();
+        handle = decodeURIComponent(availabilityMatch[1] ?? "").trim().toLowerCase();
       } catch {
         throw new ApiError(400, "invalid_handle", "The profile handle is invalid.");
       }

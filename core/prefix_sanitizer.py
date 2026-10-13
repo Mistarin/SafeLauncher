@@ -77,7 +77,7 @@ def sanitize_wine_prefix(game_path: str) -> bool:
                     try:
                         os.makedirs(target_path, exist_ok=True)
                     except Exception:
-                        pass
+                        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         if sanitized_count > 0:
             logger.info(f"Successfully sanitized {sanitized_count} host symlink(s) in Wine prefix {prefix_dir}.")
@@ -123,9 +123,9 @@ def cleanup_prefix_health(game_path: str) -> int:
                                 except OSError:
                                     pass
                     except Exception:
-                        pass
+                        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         # 2. Clean broken symlinks in dosdevices
         dosdevices = os.path.join(prefix_dir, "dosdevices")
@@ -140,7 +140,7 @@ def cleanup_prefix_health(game_path: str) -> int:
                         except OSError:
                             pass
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         # 3. Prune old temp files inside Windows temp folders (> 1 day old)
         temp_dirs = [
@@ -154,7 +154,7 @@ def cleanup_prefix_health(game_path: str) -> int:
                     if os.path.isdir(u_temp):
                         temp_dirs.append(u_temp)
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         now = os.stat(prefix_dir).st_mtime
         for td in temp_dirs:
@@ -172,7 +172,7 @@ def cleanup_prefix_health(game_path: str) -> int:
                         except OSError:
                             pass
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     if cleaned > 0:
         logger.info(f"Cleaned {cleaned} stale item(s) in prefix for '{os.path.basename(game_path)}'.")
@@ -193,7 +193,7 @@ def cleanup_global_temp_files() -> int:
         from core.cloud_save_sync import CloudSaveSyncEngine
         target_dirs.append(CloudSaveSyncEngine.get_cloud_root())
     except Exception:
-        pass
+        logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     prefixes = (".sl-up-", ".sl-down-", ".safelauncher-zip-", ".sl-sync-")
 
@@ -217,7 +217,7 @@ def cleanup_global_temp_files() -> int:
                     except OSError:
                         pass
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     if cleaned > 0:
         logger.info(f"Pruned {cleaned} orphaned SafeLauncher temporary file(s).")

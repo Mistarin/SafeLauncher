@@ -7,6 +7,10 @@ import time
 from typing import List, Optional, Dict
 from core.host_process import host_process_env
 
+from core.logger import get_logger
+
+logger = get_logger("archive_extractor")
+
 DEFAULT_SANDBOX_DIR = os.path.expanduser("~/Games/Sandbox")
 CONFIG_FILE = ".sandbox-config"
 
@@ -34,7 +38,7 @@ def ensure_sandbox_dir(path: str = DEFAULT_SANDBOX_DIR) -> str:
                 with open(ignore_path, "w") as f:
                     pass
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
     return path
 
 def save_sandbox_config(game_dir: str, executable: str):
@@ -152,7 +156,7 @@ def extract_archive_sandboxed(archive_path: str, dest_dir: str, cancel_callback=
                 for line in iter(pipe.readline, ""):
                     stderr_lines.append(line)
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         process = subprocess.Popen(
             cmd,

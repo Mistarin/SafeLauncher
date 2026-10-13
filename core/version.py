@@ -50,7 +50,6 @@ def is_version_outdated(current: str, required_or_latest: str) -> bool:
 
 def set_version(new_version: str, backend_version: str = "") -> None:
     """Convenience helper to update version definitions directly in this file."""
-    import sys
     from pathlib import Path
 
     file_path = Path(__file__).resolve()

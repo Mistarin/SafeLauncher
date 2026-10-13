@@ -6,8 +6,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QPointF
 from PyQt6.QtGui import QFont, QColor, QPixmap, QPainter, QPainterPath, QPen, QIcon
 
-from ui.icons import get_app_icon, get_icon, get_icon_pixmap, draw_folder_pixmap, LOGO_PATH
-from ui.theme import BG_APP, SURFACE_ELEVATED, TEXT_PRIMARY, TEXT_SECONDARY, ACCENT_PRIMARY
+from ui.icons import get_app_icon, get_icon, draw_folder_pixmap, LOGO_PATH
+from ui.theme import TEXT_PRIMARY
 
 
 def add_soft_shadow(widget, blur=18, y=4, alpha=80):

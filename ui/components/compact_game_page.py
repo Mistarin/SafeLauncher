@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QTextEdit, QFrame, QScrollArea, QSizePolicy,
     QListWidget, QListWidgetItem, QLineEdit, QSplitter, QGridLayout,
-    QComboBox, QToolButton, QMenu
+    QToolButton, QMenu
 )
 from PyQt6.QtGui import (
     QPixmap, QColor, QPainter, QLinearGradient, QFont, QIcon, QPainterPath
@@ -2103,7 +2103,7 @@ class CompactSidebarListItemWidget(QWidget):
                         if not loaded.isNull():
                             pix = loaded
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         if pix is None:
             pix = get_icon_pixmap("ph.game-controller-bold", 24, color="#3B9FE8")
@@ -2415,7 +2415,6 @@ class CompactSidebarListWidget(QFrame):
             else:
                 g = item_data
                 is_missing = False
-                playtime = g[7] if len(g) > 7 and g[7] else 0
                 is_fav = bool(g[8]) if len(g) > 8 and g[8] else False
 
             raw_id = g[0] if hasattr(g, "__getitem__") else getattr(g, "id", 0)

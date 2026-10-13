@@ -51,7 +51,8 @@ class NetworkMonitorControllerTests(unittest.TestCase):
         monitor.probe_now()
 
         self.assertTrue(monitor.transient_unavailable)
-        self.assertEqual(manager.cancelled, 1)
+        # Reachability is an advisory hint; it no longer cancels optional requests.
+        self.assertEqual(manager.cancelled, 0)
         self.assertEqual(len(emitted), 1)
         self.assertFalse(emitted[0]["reachable"])
         self.assertFalse(emitted[0]["had_previous"])

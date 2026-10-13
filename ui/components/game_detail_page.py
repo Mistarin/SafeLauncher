@@ -8,15 +8,15 @@ Displays a dedicated detailed view when a game banner in Grid view is clicked:
 
 import os
 from html import escape
-from typing import Optional, Any, Dict, List
+from typing import Optional, List
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QEvent
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QFrame, QScrollArea, QSizePolicy, QGridLayout
 )
 from PyQt6.QtGui import (
-    QPixmap, QColor, QPainter, QFont, QIcon, QPainterPath, QLinearGradient
+    QPixmap, QColor, QPainter, QFont, QLinearGradient
 )
 
 from ui.icons import get_icon, get_icon_pixmap
@@ -569,13 +569,11 @@ class GameDetailPageWidget(QWidget):
 
         game_id, name, path, exe, mode = game_tuple[:5]
         banner_url = game_tuple[5] if len(game_tuple) > 5 else ""
-        steam_id = game_tuple[6] if len(game_tuple) > 6 else ""
         playtime_seconds = game_tuple[7] if len(game_tuple) > 7 and game_tuple[7] else 0
         is_fav = bool(game_tuple[8]) if len(game_tuple) > 8 and game_tuple[8] else False
         last_played_ts = game_tuple[9] if len(game_tuple) > 9 and game_tuple[9] else 0
         tags_str = game_tuple[10] if len(game_tuple) > 10 and game_tuple[10] else ""
         collection = game_tuple[12] if len(game_tuple) > 12 and game_tuple[12] else ""
-        version_override = game_tuple[14] if len(game_tuple) > 14 and game_tuple[14] else ""
 
         self.current_game_id = game_id
         self.is_favorite = is_fav

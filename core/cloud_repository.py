@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from core.cache_policy import cache_policy
 from core.request_contracts import RequestKey
 
+from core.logger import get_logger
+
+logger = get_logger("cloud_repository")
+
 
 @dataclass(frozen=True, slots=True)
 class CloudGameRef:
@@ -101,7 +105,7 @@ class CloudSaveRepository:
                     self.adopt_listing(listing)
                     return listing
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
         with self._listing_lock:
             if (
                 not force_refresh

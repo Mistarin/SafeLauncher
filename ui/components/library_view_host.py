@@ -14,7 +14,6 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QRect
 from PyQt6.QtWidgets import QLabel, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
 from core.library_controller import LibrarySnapshot
-from ui.components.banner_card import GameBannerWidget
 from ui.components.responsive_grid import ResponsiveGridContainer
 from ui.components.virtual_grid import VirtualizedGameGridView
 from ui.components.compact_game_page import CompactLayoutContainer

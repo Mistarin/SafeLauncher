@@ -1,18 +1,16 @@
 import json
-import math
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List
 from core.logger import get_logger
 from core.game_names import (
     MAX_GAME_NAME_LENGTH, fallback_game_name, display_name_key,
-    is_identity_placeholder_name, local_profile_identity, meaningful_game_name,
+    is_identity_placeholder_name, meaningful_game_name,
     preferred_game_name,
 )
 from .records import GameRecord, GAME_COLUMNS, profile_identity
 from .validation import (
-    _ACHIEVEMENT_DB_LOCK, _ACHIEVEMENT_APP_RE, _valid_achievement_api_name,
-    _normalise_achievement_provenance, _safe_achievement_timestamp,
+    _ACHIEVEMENT_DB_LOCK,
 )
 logger = get_logger("Database")
 

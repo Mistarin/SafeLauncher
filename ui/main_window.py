@@ -6,24 +6,22 @@ import shutil
 import subprocess
 from dataclasses import replace
 from html import escape
-from typing import Optional, List, Dict, Tuple, Any, Set
+from typing import Optional, Any
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QAbstractButton,
-    QGridLayout, QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
-    QComboBox, QFormLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem, QMenu,
-    QApplication, QSystemTrayIcon, QCheckBox, QPlainTextEdit, QProgressBar,
-    QSlider, QSplitter, QDialogButtonBox, QInputDialog, QSizePolicy,
+    QFileDialog, QMessageBox, QDialog, QLabel, QLineEdit,
+    QComboBox, QScrollArea, QFrame, QMenu,
+    QApplication, QSystemTrayIcon, QPlainTextEdit, QSplitter, QInputDialog, QSizePolicy,
     QAbstractSpinBox, QAbstractSlider, QTextEdit, QTextBrowser, QTabBar,
     QProgressDialog
 )
 from PyQt6.QtCore import (
-    Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QEasingCurve, QTimer,
-    QUrl, QSettings, QAbstractAnimation, QEvent,
+    Qt, QSize, QPoint, pyqtSignal, QVariantAnimation, QTimer,
+    QUrl, QEvent,
 )
-from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon, QPainter, QMovie, QDesktopServices, QKeySequence, QShortcut, QGuiApplication, QCursor
+from PyQt6.QtGui import QPixmap, QFont, QIcon, QDesktopServices, QKeySequence, QShortcut, QGuiApplication, QCursor
 from core.interfaces import ISandboxRunner, IBackupManager
-from core.artwork_client import ArtworkClient
 from core.playtime_tracker import PlaytimeTrackerThread
 from core.steam_tags import SteamTagsFetcher
 from core.steam_build_tracker import (
@@ -36,7 +34,7 @@ from core.steam_build_tracker import (
 )
 from core.steam_ids import normalize_steam_app_id
 from core.date_formatting import format_datetime_timestamp, format_timestamp, get_date_format_key
-from core.disk_utils import format_size, get_disk_usage, peek_dir_size, has_fresh_dir_size
+from core.disk_utils import format_size, peek_dir_size, has_fresh_dir_size
 from core.discord_rpc import DiscordRPC
 from core.host_process import host_process_env
 from core.archive_extractor import (
@@ -45,42 +43,23 @@ from core.archive_extractor import (
 )
 from core.archive_installer import ArchiveInstaller
 from core.game_archive_updater import recover_incomplete_game_updates
-from core.proton_manager import GEProtonDownloader
 from database import GameDatabase, _APP_DATA_DIR
 from core.logger import get_logger
-from core.launch_diagnostics import persist_diagnostics
 from core.library_state import LibraryStateStore
 from core.library_controller import LibraryController, LibraryQuery, LibrarySnapshot
 from core.library_service import LibraryService
 from core.game_lifecycle_service import GameLifecycleService
-from core.library_metadata_state import LibraryMetadataState
 from core.game_status import GameStatusState, cloud_indicator, is_cloud_conflict
 from core.launch_session_coordinator import LaunchSessionContext, LaunchSessionCoordinator
 from core.launch_policy import LaunchAction, LaunchPolicy
 from core.compatibility_worker_index import CompatibilityWorkerIndex
-from core.cloud_exit_sync_service import CloudExitSyncResult, CloudExitSyncService
-from core.achievement_persistence_service import AchievementPersistenceService
-from core.save_state import SaveStateStore
-from core.cloud_operations import CloudSyncCoordinator
-from core.cloud_operation_service import CloudOperationService, CloudOperationTarget
-from core.cloud_metadata_service import CloudMetadataService, CloudMetadataTarget
-from core.cloud_account_service import CloudAccountService
-from core.cloud_center_service import CloudCenterService, CloudOverview
-from core.cloud_status_service import CloudStatusService, CloudStatusTarget
+from core.cloud_exit_sync_service import CloudExitSyncResult
+from core.cloud_operation_service import CloudOperationTarget
+from core.cloud_status_service import CloudStatusTarget
 from core.cloud_status_polling_service import CloudStatusPollingService
-from core.achievement_resource_service import AchievementResourceService
-from core.achievement_state_store import AchievementStateStore
-from core.library_achievement_coordinator import LibraryAchievementCoordinator
-from core.artwork_resource_service import ArtworkResourceService
-from core.library_artwork_coordinator import LibraryArtworkCoordinator
-from core.steam_resource_service import SteamResourceService
-from core.library_steam_metadata_coordinator import LibrarySteamMetadataCoordinator
 from core.cache_policy import cache_policy
-from core.game_names import is_placeholder_game_name
-from core.game_status import GameStatusState, cloud_indicator
 from ui.icons import (
-    LOGO_PATH, GIF_PATH, CONFIRM_GIF_PATH, draw_custom_lock_pixmap,
-    get_app_icon, get_icon, get_icon_pixmap,
+    LOGO_PATH, get_app_icon, get_icon, get_icon_pixmap,
 )
 from ui.maintenance_dialogs import PrefixMaintenanceDialog
 from ui.dialogs.achievements_dialog import create_rounded_pixmap
@@ -89,16 +68,13 @@ import html
 logger = get_logger("UI")
 
 from ui.threads import (
-    BannerFetcher, BannerDownloader, ArchiveExtractorThread,
+    ArchiveExtractorThread,
     GameArchiveUpdateThread,
-    UmuBootstrapWorker, SafeLaunchLogReader,
     DiskSizeFetcherThread,
 )
 from core.archive_installer import find_executables
-from core.host_process import host_process_env
 from core.plugins.gpu_screen_recorder import (
     GpuRecorderService, GpuRecorderConfig,
-    WlScreenrecService, WlScreenrecConfig,
     DEFAULT_RECORDINGS_DIR
 )
 from core.global_hotkeys import GlobalHotkeyListener
@@ -110,10 +86,9 @@ from ui.library_navigation_controller import LibraryNavigationController, Librar
 from ui.components.library_view_host import LibraryViewHost
 from ui.components.hero_background import HeroBackgroundWidget
 from ui.components.extraction_spinner import ExtractionSpinner
-from ui.components.loading_spinner import LoadingSpinner
 from ui.components.sort_combo import SortComboBox
-from ui.components.sidebar import LeftSidebarWidget, CustomTitleBar, DialogTitleBar, add_soft_shadow
-from ui.dialogs.proton_dialogs import ProtonSetupWizard, ProtonManagerDialog, UmuRuntimeManagerDialog
+from ui.components.sidebar import LeftSidebarWidget, CustomTitleBar
+from ui.dialogs.proton_dialogs import ProtonManagerDialog, UmuRuntimeManagerDialog
 from ui.dialogs.game_dialogs import (
     AddGameDialog, EditGameDialog, LaunchOptionsDialog, SafeLaunchDialog,
     MissingDependencyDialog, ToastNotification, CustomRemoveDialog,
@@ -127,16 +102,12 @@ from core.cloud_models import SyncStatus
 from core.performance_env import MANAGED_ENV_KEYS
 from ui.theme import (
     get_application_stylesheet, btn_primary_style, btn_secondary_style,
-    btn_tertiary_style, btn_destructive_style, BG_APP, SURFACE, SURFACE_ELEVATED,
+    btn_destructive_style, SURFACE, SURFACE_ELEVATED,
     BORDER, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, ACCENT_PRIMARY
 )
 
 
 import getpass
-from core.playtime_tracker import PlaytimeTrackerThread
-from core.game_session import GameSessionManager
-from core.safe_thread import FunctionWorker, TaskSupervisor, WorkerSupervisor
-from core.operation_registry import OperationRegistry
 from core.secret_store import get_secret
 from core.network_policy import (
     automatic_network_allowed,
@@ -150,16 +121,11 @@ from ui.dialogs.network_dialog import NetworkUnavailableDialog
 from ui.components.activity_drawer import ActivityDrawer
 from ui.components.profile_page import ProfilePageWidget
 from ui.components.cloud_ui import cloud_progress, confirm_restore
-from core.central_auth import CentralAuthSession
 from core.profile_models import load_profile_settings
 from core.profile_service import get_profile_service_url
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
-from core.request_manager import RequestManager
-from core.resource_cache import ResourceCache
-from core.performance_metrics import ResourcePerformanceTracker
 from core.save_history import normalize_history_entries
-from core.steam_client import SteamClient
-from ui.resource_binding import ResourceBinding, bind_resource, bind_request
+from ui.resource_binding import ResourceBinding, bind_request
 from ui.profile_controller import ProfileController
 from ui.achievement_sync_controller import AchievementSyncController
 from ui.app_update_controller import AppUpdateController
@@ -204,7 +170,7 @@ def detect_linux_distro() -> tuple[str, str]:
                 return (name_str, 'sudo apt install firejail')
             return (name_str, 'sudo apt install firejail')
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
     return (os_name, cmd)
 
 
@@ -506,7 +472,7 @@ class MainWindow(QMainWindow):
                 allow_offline=True,
             )
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         self.search_query = ""
         # Central public-profile identity is deliberately separate from the
@@ -2497,7 +2463,6 @@ class MainWindow(QMainWindow):
 
     def _open_sandbox_dir(self):
         """Open ~/Games/Sandbox in the system file manager."""
-        import subprocess
         path = ensure_sandbox_dir()
 
         # Qt handles desktop portals and desktop environments more reliably
@@ -3883,7 +3848,7 @@ class MainWindow(QMainWindow):
                 try:
                     display.close()
                 except Exception:
-                    pass
+                    logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
     @staticmethod
     def _process_contains_pid(process, candidate_pid: Optional[int]) -> bool:
@@ -6800,7 +6765,7 @@ class MainWindow(QMainWindow):
             try:
                 self.tray_icon.hide()
             except Exception:
-                pass
+                logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
         self.cloud_workflow_controller.dispose()
         self.manual_restore_controller.dispose()
@@ -6825,7 +6790,7 @@ class MainWindow(QMainWindow):
             from core.achievement_schema import close_achievement_http_session
             close_achievement_http_session()
         except Exception:
-            pass
+            logger.debug("Ignoring non-fatal error in best-effort step", exc_info=True)
 
 
     def _on_add(self, collection_name: object = ""):
