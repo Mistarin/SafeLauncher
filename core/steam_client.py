@@ -8,6 +8,9 @@ values so UI workers do not need to know Steam's endpoint shapes.
 from __future__ import annotations
 
 from typing import Any
+import html
+import re
+
 import requests
 
 from core.request_contracts import classify_remote_error
@@ -27,6 +30,7 @@ class SteamClient:
     STORE_SEARCH_URL = "https://store.steampowered.com/api/storesearch/"
     APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
     BUILD_INFO_URL = "https://api.steamcmd.net/v1/info"
+    NEWS_URL = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/"
 
     def __init__(self, session: requests.Session | None = None):
         self.session = session or requests.Session()
@@ -100,10 +104,14 @@ class SteamClient:
                     f"Steam build metadata returned HTTP {response.status_code}",
                     response.status_code,
                 )
-            payload = response.json()
-            app_data = payload.get("data", {}).get(app_id, {}) if isinstance(payload, dict) else {}
-            branches = app_data.get("depots", {}).get("branches", {}) if isinstance(app_data, dict) else {}
-            public = branches.get("public", {}) if isinstance(branches, dict) else {}
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise SteamClientError("Steam build metadata was not valid JSON") from exc
+            # Third-party payloads change shape; anything unexpected is a
+            # reportable error, never an AttributeError from deep inside.
+            depots = _object(_object(_object(payload, "data"), app_id), "depots")
+            public = _object(_object(depots, "branches"), "public")
             build_id = str(public.get("buildid", "") or "").strip()
             try:
                 updated = int(public.get("timeupdated", 0) or 0)
@@ -112,6 +120,60 @@ class SteamClient:
             return build_id, updated
         finally:
             response.close()
+
+    def news(self, app_id: str | int, *, count: int = 5, timeout: float = 8) -> list[dict[str, Any]]:
+        """Recent news/patch notes for an app (public ISteamNews endpoint, no key)."""
+        app_id = normalize_steam_app_id(app_id)
+        if not app_id:
+            raise SteamClientError("Steam news requires a numeric AppID")
+        response = self.session.get(
+            self.NEWS_URL,
+            params={"appid": app_id, "count": max(1, min(20, int(count))), "maxlength": 400, "format": "json"},
+            timeout=timeout,
+        )
+        try:
+            if response.status_code != 200:
+                raise SteamClientError(f"Steam news returned HTTP {response.status_code}", response.status_code)
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise SteamClientError("Steam news was not valid JSON") from exc
+            items = _object(payload, "appnews").get("newsitems") or []
+            if not isinstance(items, list):
+                raise SteamClientError("Steam news payload was malformed")
+            return [_news_item(item, app_id) for item in items if isinstance(item, dict)]
+        finally:
+            response.close()
+
+
+_TAG_RE = re.compile(r"\[/?[a-zA-Z0-9_\-=\"' ./:]*\]|<[^>]*>")
+
+
+def _object(container: Any, key: str) -> dict[str, Any]:
+    """Return ``container[key]`` as a dict; a missing or non-dict value means "no data"."""
+    if not isinstance(container, dict):
+        raise SteamClientError("Steam response had an unexpected shape")
+    value = container.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _news_item(item: dict[str, Any], app_id: str) -> dict[str, Any]:
+    """Normalize one news entry into display-safe plain text."""
+    text = html.unescape(_TAG_RE.sub(" ", str(item.get("contents") or "")))
+    text = " ".join(text.split())
+    try:
+        published = int(item.get("date") or 0)
+    except (TypeError, ValueError, OverflowError):
+        published = 0
+    return {
+        "gid": str(item.get("gid") or ""),
+        "title": " ".join(html.unescape(str(item.get("title") or "")).split())[:300],
+        "text": text[:600],
+        "author": str(item.get("author") or "")[:120],
+        "date": published,
+        # Always link to Steam's own news page: external feed URLs are not ours to open.
+        "url": f"https://store.steampowered.com/news/app/{app_id}",
+    }
 
 
 __all__ = ["SteamClient", "SteamClientError"]

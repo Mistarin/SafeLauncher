@@ -227,32 +227,46 @@ class SteamBuildFetcher(SafeQThread):
             self._fail("No valid numeric Steam AppID is configured")
             return
         if self.request_manager is not None:
-            from core.request_contracts import RequestPriority, ResourceStatus
-            client = self.steam_client or SteamClient()
+            self._safe_run_managed()
+            return
+        if not automatic_network_allowed():
+            return
+        self._safe_run_direct(None)
+
+    def _safe_run_managed(self) -> None:
+        from core.request_contracts import RequestPriority, ResourceStatus
+
+        client = self.steam_client or SteamClient()
+        try:
             service = SteamResourceService(self.request_manager, client=client)
             handle = service.request_build(
-                self.steam_id or f"game-{self.game_id}",
+                self.steam_id,
                 priority=RequestPriority.BACKGROUND,
             )
-            key = handle.key
-            result = handle.future.result()
+            try:
+                result = handle.future.result()
+            except Exception as exc:  # the manager resolves futures; this guards a cancelled/broken handle
+                logger.warning("Steam build request for AppID %s did not complete: %s", self.steam_id, exc)
+                self._fail(f"Steam check failed: {exc}")
+                return
             usable = result
             if result.status != ResourceStatus.READY:
-                cached_state = self.request_manager.state(key)
+                cached_state = self.request_manager.state(handle.key)
                 if cached_state.status == ResourceStatus.STALE:
                     usable = cached_state
             if usable.status in {ResourceStatus.READY, ResourceStatus.STALE} and usable.value and not self.isInterruptionRequested():
                 latest_build_id, latest_build_date = usable.value
                 self._emit_build_result(latest_build_id, latest_build_date)
+            elif result.status == ResourceStatus.OFFLINE:
+                # Same offline state as the direct path: not an error to show.
+                if not self.isInterruptionRequested():
+                    self.offline_detected.emit(self.game_id)
             elif result.status not in {ResourceStatus.READY, ResourceStatus.STALE, ResourceStatus.CANCELLED}:
                 logger.debug("Managed Steam build request failed for %s: %s", self.steam_id, result.error)
                 self._fail(f"Steam check failed: {result.error}")
+        finally:
             if self.steam_client is None:
                 client.close()
-            return
-        if not automatic_network_allowed():
-            return
-        self._safe_run_direct(None)
 
     def _emit_build_result(self, latest_build_id: str, latest_build_date: int) -> None:
         if not latest_build_id:

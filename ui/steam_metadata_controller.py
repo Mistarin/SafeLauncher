@@ -1,5 +1,8 @@
 """Steam metadata subscriptions with explicit presentation callbacks."""
 
+import re
+from html import unescape
+
 from PyQt6.QtCore import QObject
 from core.logger import get_logger
 from core.request_contracts import RequestKey, RequestPriority, ResourceStatus
@@ -10,12 +13,23 @@ from ui.resource_binding import bind_resource, bind_request
 
 logger = get_logger("UI.SteamMetadata")
 
+_HTML_TAG_RE = re.compile(r"<[^>]*>")
+
+
+def _plain_text(value) -> str:
+    """Strip Steam's HTML markup so only plain text reaches the UI."""
+    return " ".join(unescape(_HTML_TAG_RE.sub(" ", str(value or ""))).split())
+
 
 class SteamMetadataController(QObject):
     def __init__(self, *, manager, service, coordinator, library_service,
                  on_build, on_failure, on_offline, on_tags, on_network_status,
-                 refresh_library, on_description, accepts_work, parent=None):
+                 refresh_library, on_description, accepts_work, parent=None,
+                 on_updates=None, on_store_facts=None):
         super().__init__(parent)
+        self.on_updates, self.on_store_facts = on_updates, on_store_facts
+        self._news_binding = None
+        self._news_generation = 0
         self.request_manager, self.service, self.coordinator = manager, service, coordinator
         self.library_service = library_service
         self.on_build, self.on_failure, self.on_offline = on_build, on_failure, on_offline
@@ -310,18 +324,55 @@ class SteamMetadataController(QObject):
             self, cancel_on_close=True,
         )
 
+    def request_updates(self, game_id, app_id, *, priority=RequestPriority.NORMAL):
+        """Fetch recent Steam news/patch notes for a linked game."""
+        if self.on_updates is None or self._closed or not self.accepts_work():
+            return
+        normalized = normalize_steam_app_id(app_id)
+        if not normalized:
+            return
+        self._news_generation += 1
+        generation = self._news_generation
+        if self._news_binding is not None:
+            self._news_binding.close()
+            self._news_binding.deleteLater()
+            self._news_binding = None
+        handle = self.service.request_news(normalized, priority=priority, tag="game_updates")
+        self._news_binding = bind_request(
+            self.request_manager, handle,
+            lambda result: self.handle_updates(game_id, generation, result),
+            self, cancel_on_close=True,
+        )
+
+    def handle_updates(self, game_id, generation, result):
+        if self._closed or generation != self._news_generation or not self.accepts_work():
+            return
+        if result.status == ResourceStatus.LOADING:
+            return
+        items = result.value if isinstance(result.value, list) else []
+        self.on_updates(game_id, items)
+
     def handle_description(self, game_id, generation, result):
         if self._closed or generation != self._description_generation or not self.accepts_work():
             return
         if result.status == ResourceStatus.LOADING:
             return
         details = result.value if isinstance(result.value, dict) else {}
-        description = details.get("short_description") or details.get("detailed_description") or ""
+        # short_description is plain text; detailed_description is HTML and is
+        # only used as a fallback after stripping its markup.
+        description = _plain_text(details.get("short_description") or details.get("detailed_description"))
         tags = []
         for group in (details.get("genres", []), details.get("categories", [])):
             if isinstance(group, list):
                 tags.extend(str(item.get("description", "")) for item in group if isinstance(item, dict) and item.get("description"))
         self.on_description(game_id, description, list(dict.fromkeys(tags))[:6])
+        if self.on_store_facts is not None and details:
+            release = details.get("release_date") if isinstance(details.get("release_date"), dict) else {}
+            self.on_store_facts(game_id, {
+                "release_date": str(release.get("date") or "") if not release.get("coming_soon") else "Coming soon",
+                "developers": [str(name) for name in details.get("developers") or [] if isinstance(name, str)],
+                "publishers": [str(name) for name in details.get("publishers") or [] if isinstance(name, str)],
+            })
 
     def dispose(self):
         self._closed = True

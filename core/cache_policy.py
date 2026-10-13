@@ -45,6 +45,7 @@ _POLICIES = {
     "steam-build": CachePolicy("steam-build", 15 * 60),
     "steam-tags": CachePolicy("steam-tags", 7 * 24 * 60 * 60),
     "steam-app-details": CachePolicy("steam-app-details", 7 * 24 * 60 * 60),
+    "steam-news": CachePolicy("steam-news", 6 * 60 * 60),
     "achievement-schema": CachePolicy("achievement-schema", 24 * 60 * 60),
     # The icon files remain materialized outputs; the shared value is their
     # validated path map, so its envelope is JSON rather than image bytes.

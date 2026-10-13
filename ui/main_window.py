@@ -305,6 +305,7 @@ class MainWindow(QMainWindow):
             on_offline=self._on_update_check_offline, on_tags=self._on_steam_tags_found,
             on_network_status=self._set_network_status, refresh_library=self._refresh_library,
             on_description=self._render_detail_description, accepts_work=self._request_manager_accepts_work,
+            on_updates=self._render_detail_updates, on_store_facts=self._render_detail_store_facts,
             parent=self,
         )
         self.cloud_status_controller = CloudStatusController(
@@ -3496,6 +3497,17 @@ class MainWindow(QMainWindow):
 
     def _fetch_detail_page_description(self, game_id: int, game_name: str, steam_id: str):
         self.steam_metadata_controller.request_description(game_id, game_name, steam_id)
+        self.steam_metadata_controller.request_updates(game_id, steam_id)
+
+    def _render_detail_updates(self, game_id, items):
+        page = self.library_view_host.detail_page
+        if page.current_game_id == game_id:
+            page.set_updates(items)
+
+    def _render_detail_store_facts(self, game_id, facts):
+        page = self.library_view_host.detail_page
+        if page.current_game_id == game_id:
+            page.set_store_facts(facts)
 
     def _render_detail_description(self, game_id, description, tags):
         page = self.library_view_host.detail_page

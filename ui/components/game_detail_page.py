@@ -10,13 +10,13 @@ import os
 from html import escape
 from typing import Optional, List
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QUrl, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QFrame, QScrollArea, QSizePolicy, QGridLayout
 )
 from PyQt6.QtGui import (
-    QPixmap, QColor, QPainter, QFont, QLinearGradient
+    QPixmap, QColor, QPainter, QFont, QLinearGradient, QDesktopServices
 )
 
 from ui.icons import get_icon, get_icon_pixmap
@@ -375,9 +375,10 @@ class GameDetailPageWidget(QWidget):
         lbl_desc_hdr.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
         desc_box.addWidget(lbl_desc_hdr)
 
+        # Descriptions come from Steam; render them as plain text, never as HTML.
         self.lbl_description = QLabel("No description available.")
         self.lbl_description.setWordWrap(True)
-        self.lbl_description.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_description.setTextFormat(Qt.TextFormat.PlainText)
         self.lbl_description.setStyleSheet("""
             QLabel {
                 color: #F4F4F5;
@@ -390,7 +391,26 @@ class GameDetailPageWidget(QWidget):
             }
         """)
         desc_box.addWidget(self.lbl_description)
+
+        self.lbl_store_facts = QLabel("")
+        self.lbl_store_facts.setWordWrap(True)
+        self.lbl_store_facts.setTextFormat(Qt.TextFormat.PlainText)
+        self.lbl_store_facts.setStyleSheet("color: #A1A1AA; font-size: 12px; background: transparent;")
+        self.lbl_store_facts.setVisible(False)
+        desc_box.addWidget(self.lbl_store_facts)
         right_column.addLayout(desc_box)
+
+        # Recent updates / patch notes from Steam's news feed.
+        self.updates_box = QVBoxLayout()
+        self.updates_box.setSpacing(6)
+        self.updates_header = QLabel("RECENT UPDATES")
+        self.updates_header.setStyleSheet("color: #A1A1AA; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; background: transparent;")
+        self.updates_header.setVisible(False)
+        self.updates_box.addWidget(self.updates_header)
+        self.updates_list = QVBoxLayout()
+        self.updates_list.setSpacing(6)
+        self.updates_box.addLayout(self.updates_list)
+        right_column.addLayout(self.updates_box)
 
         # 5. Specifications & Stats Card
         self.spec_card = QFrame()
@@ -651,14 +671,74 @@ class GameDetailPageWidget(QWidget):
 
         # Initial description
         self.lbl_description.setText("No description available.")
+        self.set_store_facts({})
+        self.set_updates([])
 
     def set_description(self, text: str):
-        """Set the formatted description text."""
+        """Set the description as plain text."""
         if not text or not str(text).strip():
             self.lbl_description.setText("No description available.")
         else:
-            clean = str(text).strip()
-            self.lbl_description.setText(clean)
+            self.lbl_description.setText(str(text).strip())
+
+    def set_store_facts(self, facts: dict):
+        """Show release date and studio credits from the Steam store page."""
+        parts = []
+        release = str((facts or {}).get("release_date") or "").strip()
+        if release:
+            parts.append(f"Released {release}")
+        developers = [str(name) for name in (facts or {}).get("developers") or [] if str(name).strip()]
+        if developers:
+            parts.append("Developer: " + ", ".join(developers[:3]))
+        publishers = [str(name) for name in (facts or {}).get("publishers") or [] if str(name).strip()]
+        if publishers:
+            parts.append("Publisher: " + ", ".join(publishers[:3]))
+        self.lbl_store_facts.setText("  ·  ".join(parts))
+        self.lbl_store_facts.setVisible(bool(parts))
+
+    def set_updates(self, items: list):
+        """Render up to five recent Steam news entries; an empty list hides the section."""
+        while self.updates_list.count():
+            item = self.updates_list.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                while item.layout().count():
+                    child = item.layout().takeAt(0)
+                    if child.widget():
+                        child.widget().deleteLater()
+        entries = [entry for entry in (items or []) if isinstance(entry, dict) and entry.get("title")][:5]
+        self.updates_header.setVisible(bool(entries))
+        for entry in entries:
+            card = QFrame()
+            card.setObjectName("detailUpdateCard")
+            card.setStyleSheet("QFrame#detailUpdateCard { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; }")
+            layout = QVBoxLayout(card)
+            layout.setContentsMargins(12, 10, 12, 10)
+            layout.setSpacing(3)
+            date_lbl = QLabel(format_timestamp(int(entry.get("date") or 0)) if entry.get("date") else "")
+            date_lbl.setTextFormat(Qt.TextFormat.PlainText)
+            date_lbl.setStyleSheet("color: #71717A; font-size: 11px; background: transparent; border: none;")
+            title_lbl = QLabel(str(entry.get("title")))
+            title_lbl.setTextFormat(Qt.TextFormat.PlainText)
+            title_lbl.setWordWrap(True)
+            title_lbl.setStyleSheet("color: #F4F4F5; font-size: 13px; font-weight: 600; background: transparent; border: none;")
+            body_lbl = QLabel(str(entry.get("text") or ""))
+            body_lbl.setTextFormat(Qt.TextFormat.PlainText)
+            body_lbl.setWordWrap(True)
+            body_lbl.setStyleSheet("color: #A1A1AA; font-size: 12px; background: transparent; border: none;")
+            layout.addWidget(date_lbl)
+            layout.addWidget(title_lbl)
+            if body_lbl.text():
+                layout.addWidget(body_lbl)
+            url = str(entry.get("url") or "")
+            if url.startswith("https://store.steampowered.com/"):
+                open_btn = QPushButton("Open on Steam")
+                open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                open_btn.setStyleSheet("QPushButton { color: #3B9FE8; background: transparent; border: none; text-align: left; padding: 0; font-size: 12px; }")
+                open_btn.clicked.connect(lambda _checked=False, target=url: QDesktopServices.openUrl(QUrl(target)))
+                layout.addWidget(open_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+            self.updates_list.addWidget(card)
 
     def set_tags(self, tags: List[str]):
         """Populate tags pill badges."""

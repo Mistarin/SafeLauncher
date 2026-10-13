@@ -25,6 +25,7 @@ class SteamResourceService:
     BUILD_TTL_SECONDS = cache_policy("steam-build").max_age_seconds
     TAG_TTL_SECONDS = cache_policy("steam-tags").max_age_seconds
     APP_DETAILS_TTL_SECONDS = cache_policy("steam-app-details").max_age_seconds
+    NEWS_TTL_SECONDS = cache_policy("steam-news").max_age_seconds
 
     def __init__(self, request_manager, *, client: SteamClient | None = None):
         self.request_manager = request_manager
@@ -43,6 +44,38 @@ class SteamResourceService:
     @staticmethod
     def app_details_key(app_id: str) -> RequestKey:
         return RequestKey("steam-app-details", normalize_steam_app_id(app_id), "store-v1")
+
+    @staticmethod
+    def news_key(app_id: str) -> RequestKey:
+        return RequestKey("steam-news", normalize_steam_app_id(app_id), "news-v1")
+
+    def news_spec(
+        self,
+        app_id: str,
+        *,
+        priority: RequestPriority = RequestPriority.BACKGROUND,
+        generation: int = 0,
+        tag: str = "",
+    ) -> RequestSpec:
+        app_id = normalize_steam_app_id(app_id)
+        if not app_id:
+            raise ValueError("Steam news requires a numeric AppID")
+        key = self.news_key(app_id)
+
+        def load(token: CancellationToken):
+            token.raise_if_cancelled()
+            value = self.client.news(app_id)
+            token.raise_if_cancelled()
+            return value
+
+        return RequestSpec(
+            key,
+            load,
+            priority=priority,
+            generation=int(generation),
+            metadata={"tag": str(tag), "resource_type": "steam-news"},
+            timeout_seconds=12,
+        )
 
     def build_spec(
         self,
@@ -137,6 +170,10 @@ class SteamResourceService:
     def request_app_details(self, app_id: str, **kwargs):
         spec = self.app_details_spec(app_id, **kwargs)
         return self._request_cached(spec, self.APP_DETAILS_TTL_SECONDS)
+
+    def request_news(self, app_id: str, **kwargs):
+        spec = self.news_spec(app_id, **kwargs)
+        return self._request_cached(spec, self.NEWS_TTL_SECONDS)
 
     def request_description(self, game_name: str, app_id: str = "", *, priority=RequestPriority.NORMAL):
         """Share App Details when linked; cache name-search fallback otherwise."""
