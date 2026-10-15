@@ -192,6 +192,56 @@ class GameNameResolutionTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_profile_merge_collapses_local_alias_with_matching_executable_and_installed_devices(self):
+        merged = _merge_profiles({}, {
+            "games": {
+                "local:permafrost": {
+                    "app_id": "",
+                    "name": "Permafrost",
+                    "executable": "Permafrost/Permafrost.exe",
+                    "devices": {"dev1": {"installed": True, "observed_at": 1000}},
+                    "favorite": True,
+                },
+                "steam:2254990": {
+                    "app_id": "2254990",
+                    "name": "Permafrost",
+                    "executable": "Permafrost/Permafrost.exe",
+                    "devices": {"dev1": {"installed": True, "observed_at": 2000}},
+                },
+            },
+            "achievements": {},
+        })
+        self.assertEqual(set(merged["games"]), {"steam:2254990"})
+        self.assertEqual(merged["games"]["steam:2254990"]["app_id"], "2254990")
+        self.assertTrue(merged["games"]["steam:2254990"]["favorite"])
+        self.assertEqual(merged["games"]["steam:2254990"]["executable"], "Permafrost/Permafrost.exe")
+
+    def test_ensure_cloud_game_matches_existing_installed_steam_game_without_duplicate_row(self):
+        db = GameDatabase(":memory:")
+        try:
+            installed_id = db.add_game(
+                "Permafrost", "/games/Permafrost", "Permafrost/Permafrost.exe", "umu", steam_id="2254990"
+            )
+            self.assertEqual(len(db.get_all_games()), 1)
+
+            # Applying an incoming local:permafrost record must match the installed game
+            # without adding a duplicate pathless placeholder row
+            ensured_id = db.ensure_cloud_game({
+                "identity_key": "local:permafrost",
+                "name": "Permafrost",
+                "executable": "Permafrost/Permafrost.exe",
+                "app_id": "",
+            })
+            self.assertEqual(ensured_id, installed_id)
+            self.assertEqual(len(db.get_all_games()), 1)
+
+            # Subsequent consolidation should find 0 duplicates to remove
+            removed = db.consolidate_duplicate_games(force=True)
+            self.assertEqual(removed, 0)
+            self.assertEqual(len(db.get_all_games()), 1)
+        finally:
+            db.close()
+
     def test_profile_game_migration_recovers_steam_title(self):
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "library.db")

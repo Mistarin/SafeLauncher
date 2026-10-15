@@ -326,6 +326,119 @@ class CloudUiPresentationTests(unittest.TestCase):
             finally:
                 dialog.close()
 
+    def test_account_dialog_preselects_initial_game(self):
+        class CloudServiceStub:
+            @staticmethod
+            def mode():
+                return "convex"
+
+        with patch.object(AccountDialog, "reload", return_value=None), patch(
+            "core.cloud_backend.get_site_url", return_value="https://cloud.example.test"
+        ):
+            dialog = AccountDialog(
+                cloud_account_service=CloudServiceStub(),
+                initial_game_name="Cyberpunk 2077",
+            )
+            try:
+                dialog._apply_data({
+                    "ok": {
+                        "overview": {"devices": []},
+                        "listing": {
+                            "bytesUsed": 100,
+                            "quotaBytes": 1000,
+                            "games": [
+                                {
+                                    "displayName": "Cyberpunk 2077",
+                                    "nameKey": "cyberpunk-2077",
+                                    "totalBytes": 100,
+                                    "latestSourceMtime": 1700000000,
+                                    "versions": [
+                                        {"version": 1, "sizeBytes": 100, "createdAt": 1700000000}
+                                    ],
+                                },
+                                {
+                                    "displayName": "Other Game",
+                                    "nameKey": "other-game",
+                                    "totalBytes": 50,
+                                    "latestSourceMtime": 1600000000,
+                                    "versions": [],
+                                },
+                            ],
+                        },
+                    }
+                })
+                self.assertIsNotNone(dialog.lst_games.currentItem())
+                self.assertIn("Cyberpunk 2077", dialog.lst_games.currentItem().text())
+                self.assertTrue(dialog.btn_restore.isEnabled())
+            finally:
+                dialog.close()
+
+    def test_account_dialog_falls_back_to_direct_snapshot(self):
+        from unittest.mock import MagicMock
+        from core.cloud_account_service import CloudAccountSnapshot
+        from core.request_contracts import ResourceStatus
+
+        mock_svc = MagicMock()
+        mock_svc.mode.return_value = "convex"
+        mock_svc.request_manager = MagicMock()
+        unusable_handle = MagicMock()
+        unusable_result = MagicMock()
+        unusable_result.usable = False
+        unusable_result.status = ResourceStatus.ERROR
+        unusable_result.error = RuntimeError("Queue timeout")
+        unusable_handle.future.result.return_value = unusable_result
+        mock_svc.request_snapshot.return_value = unusable_handle
+
+        fallback_snapshot = CloudAccountSnapshot(
+            {"games": [], "bytesUsed": 100, "quotaBytes": 1000},
+            {"email": "user@example.test", "concurrentDevices": 1},
+        )
+        mock_svc.snapshot.return_value = fallback_snapshot
+
+        mock_rm = MagicMock()
+        mock_state = MagicMock()
+        mock_state.usable = False
+        mock_rm.state.return_value = mock_state
+
+        with patch.object(AccountDialog, "reload", return_value=None), patch(
+            "core.cloud_backend.get_site_url", return_value="https://cloud.example.test"
+        ):
+            dialog = AccountDialog(
+                request_manager=mock_rm,
+                cloud_account_service=mock_svc,
+            )
+            try:
+                payload = dialog._load_worker()
+                self.assertIn("ok", payload)
+                self.assertEqual(payload["ok"]["email"], "user@example.test")
+                mock_svc.snapshot.assert_called_once()
+            finally:
+                dialog.close()
+
+    def test_account_dialog_handles_offline_gracefully(self):
+        from unittest.mock import MagicMock
+
+        mock_svc = MagicMock()
+        mock_svc.mode.return_value = "convex"
+        mock_svc.request_manager = None
+        mock_svc.snapshot.side_effect = ConnectionError("Failed to resolve 'cloud.example.test'")
+
+        with patch.object(AccountDialog, "reload", return_value=None), patch(
+            "core.cloud_backend.get_site_url", return_value="https://cloud.example.test"
+        ):
+            dialog = AccountDialog(cloud_account_service=mock_svc)
+            try:
+                payload = dialog._load_worker()
+                self.assertTrue(payload.get("offline"))
+                self.assertIn("No internet connection", payload.get("error"))
+
+                dialog._apply_data(payload)
+                self.assertEqual(dialog.cloud_status_panel.state, "offline")
+                self.assertEqual(dialog.lbl_email.text(), "Offline")
+            finally:
+                dialog.close()
+
 
 if __name__ == "__main__":
     unittest.main()
+

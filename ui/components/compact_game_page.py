@@ -740,7 +740,7 @@ class CompactSubNavBar(QFrame):
         self.btn_prop.clicked.connect(self.properties_clicked.emit)
         layout.addWidget(self.btn_prop)
 
-        self.btn_save = QPushButton("Local Saves")
+        self.btn_save = QPushButton("Saves")
         self.btn_save.setStyleSheet(nav_style)
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.clicked.connect(self.save_manager_clicked.emit)

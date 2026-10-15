@@ -119,6 +119,15 @@ class ResourceBinding(QObject):
     def _deliver_state(self, result: ResourceResult) -> None:
         if self._closed or sip.isdeleted(self):
             return
+        parent_obj = self.parent()
+        if parent_obj is not None:
+            try:
+                if sip.isdeleted(parent_obj) or getattr(parent_obj, "_closing", False):
+                    self._closed = True
+                    return
+            except RuntimeError:
+                self._closed = True
+                return
         try:
             self.state_changed.emit(result)
         except RuntimeError:
@@ -177,7 +186,21 @@ def bind_resource(
         request_id=request_id,
         generation=generation,
     )
-    binding.state_changed.connect(callback, Qt.ConnectionType.QueuedConnection)
+
+    def _safe_callback(result: ResourceResult) -> None:
+        if parent is not None:
+            try:
+                if sip.isdeleted(parent) or getattr(parent, "_closing", False):
+                    return
+            except RuntimeError:
+                return
+        try:
+            callback(result)
+        except RuntimeError:
+            # Native C++ object deleted during callback execution
+            return
+
+    binding.state_changed.connect(_safe_callback, Qt.ConnectionType.QueuedConnection)
     return binding
 
 

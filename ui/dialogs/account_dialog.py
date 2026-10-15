@@ -76,6 +76,8 @@ class AccountDialog(PopupDialog):
         *,
         cloud_account_service=None,
         cloud_operation_service=None,
+        initial_game_name: str = "",
+        initial_game_id: int | None = None,
     ):
         super().__init__("Cloud Storage & Devices", parent)
         self.setMinimumSize(700, 500)
@@ -84,6 +86,8 @@ class AccountDialog(PopupDialog):
         self._games = []
         self._quota = {}
         self._busy = False
+        self._initial_game_name = str(initial_game_name or "").strip()
+        self._initial_game_id = initial_game_id
         self._task_supervisor = TaskSupervisor(self, logger)
         self.request_manager = request_manager
         self.cloud_account_service = cloud_account_service or CloudAccountService()
@@ -338,36 +342,6 @@ class AccountDialog(PopupDialog):
                 category="Cloud Account",
             )
 
-        if self.request_manager is not None:
-            key = self.cloud_account_service.request_key("cloud-account-task", name)
-            handle = self.request_manager.request(
-                key,
-                lambda token: (token.raise_if_cancelled(), work(), token.raise_if_cancelled())[1],
-                priority=RequestPriority.NORMAL,
-                timeout_seconds=60,
-            )
-            if operation is not None:
-                operation.cancel = handle.cancel
-                operation.retry = lambda: self._start_task(name, work, on_complete)
-            request_id = handle.request_id
-
-            def _deliver(result):
-                if result.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
-                    return
-                binding = self._resource_bindings.pop(request_id, None)
-                if binding is not None:
-                    binding.close()
-                self._deliver_managed_result(operation, on_complete, result)
-
-            self._resource_bindings[request_id] = bind_request(
-                self.request_manager,
-                handle,
-                _deliver,
-                self,
-                cancel_on_close=True,
-            )
-            return handle
-
         def _complete(result):
             if operation is not None:
                 registry.finish_result(operation.operation_id, result)
@@ -474,37 +448,92 @@ class AccountDialog(PopupDialog):
     def _load_worker(self):
         try:
             from core.cloud_backend import get_site_url
+            from core.network_policy import is_offline_mode, automatic_network_allowed
+            from core.request_contracts import is_network_offline_error
+
+            if is_offline_mode() or not automatic_network_allowed():
+                if self.request_manager is not None:
+                    context = self.cloud_account_service.current_context()
+                    state = self.request_manager.state(self.cloud_account_service.snapshot_key(context))
+                    if state.usable and state.value:
+                        snapshot = CloudAccountSnapshot.from_payload(state.value)
+                        return {
+                            "ok": {
+                                "email": snapshot.overview.get("email") or "SafeLauncher Cloud",
+                                "listing": snapshot.listing,
+                                "overview": snapshot.overview,
+                            },
+                            "stale": True,
+                            "offline": True,
+                        }
+                return {
+                    "error": "Offline mode enabled.",
+                    "offline": True,
+                }
+
             site = get_site_url()
             if not site:
                 return {"ok": None}   # not connected state
+
+            snapshot = None
+            is_stale = False
+            is_offline = False
+
             if (
                 self.request_manager is not None
                 and self.cloud_account_service.request_manager is not None
             ):
-                handle = self.cloud_account_service.request_snapshot(
-                    priority=RequestPriority.CRITICAL,
-                    tag="account_dialog",
-                )
-                result = handle.future.result(timeout=25)
-                if not result.usable:
-                    # A stale cache may be exposed through the manager state
-                    # after an offline/error completion, even when the Future
-                    # carries the transport failure state.
-                    state = self.request_manager.state(handle.key)
-                    if state.usable:
-                        result = state
-                if not result.usable:
-                    if result.status == ResourceStatus.OFFLINE:
+                try:
+                    handle = self.cloud_account_service.request_snapshot(
+                        priority=RequestPriority.CRITICAL,
+                        tag="account_dialog",
+                    )
+                    result = handle.future.result(timeout=10)
+                    if not result.usable:
+                        state = self.request_manager.state(handle.key)
+                        if state.usable:
+                            result = state
+                    if result.usable:
+                        snapshot = CloudAccountSnapshot.from_payload(result.value)
+                        is_stale = result.status == ResourceStatus.STALE
+                    elif result.status == ResourceStatus.OFFLINE or is_network_offline_error(result.error):
+                        is_offline = True
+                except Exception as exc:
+                    if is_network_offline_error(exc):
+                        is_offline = True
+                    else:
+                        logger.debug("Managed account snapshot error: %s; falling back to direct snapshot", exc)
+
+            if snapshot is None and not is_offline:
+                try:
+                    snapshot = self.cloud_account_service.snapshot()
+                    is_stale = False
+                except Exception as direct_exc:
+                    if is_network_offline_error(direct_exc):
+                        is_offline = True
+                    else:
+                        raise direct_exc
+
+            if is_offline and snapshot is None:
+                if self.request_manager is not None:
+                    context = self.cloud_account_service.current_context()
+                    state = self.request_manager.state(self.cloud_account_service.snapshot_key(context))
+                    if state.usable and state.value:
+                        snapshot = CloudAccountSnapshot.from_payload(state.value)
                         return {
-                            "error": "Cloud is offline and no account cache is available.",
+                            "ok": {
+                                "email": snapshot.overview.get("email") or "SafeLauncher Cloud",
+                                "listing": snapshot.listing,
+                                "overview": snapshot.overview,
+                            },
+                            "stale": True,
                             "offline": True,
                         }
-                    raise result.error or RuntimeError("Cloud account data unavailable")
-                snapshot = CloudAccountSnapshot.from_payload(result.value)
-                is_stale = result.status == ResourceStatus.STALE
-            else:
-                snapshot = self.cloud_account_service.snapshot()
-                is_stale = False
+                return {
+                    "error": "No internet connection detected.",
+                    "offline": True,
+                }
+
             return {
                 "ok": {
                     "email": snapshot.overview.get("email") or "SafeLauncher Cloud",
@@ -512,10 +541,18 @@ class AccountDialog(PopupDialog):
                     "overview": snapshot.overview,
                 },
                 "stale": is_stale,
+                "offline": is_offline,
             }
         except Exception as e:
-            logger.warning(f"Account data load failed: {e}")
+            from core.request_contracts import is_network_offline_error
             from core.cloud_backend import describe_cloud_error
+            if is_network_offline_error(e):
+                logger.debug("Account data load skipped (offline): %s", e)
+                return {
+                    "error": "No internet connection detected.",
+                    "offline": True,
+                }
+            logger.warning(f"Account data load failed: {e}")
             return {
                 "error": describe_cloud_error(e),
                 "status": getattr(e, "status_code", 0) or getattr(e, "status", 0),
@@ -524,16 +561,19 @@ class AccountDialog(PopupDialog):
     def _apply_data(self, payload: dict):
         self._busy = False
         if "error" in payload:
-            is_missing_endpoint = payload.get("status") == 404
-            self.lbl_email.setText("Backend endpoint missing" if is_missing_endpoint else "Cloud unreachable")
-            self.lbl_subject.setText(
-                "The backend answered, but its SafeLauncher API is not deployed."
-                if is_missing_endpoint else "Check the endpoint and Secret Access Key."
-            )
-            self.lbl_quota_text.setText(payload["error"])
             if payload.get("offline"):
+                self.lbl_email.setText("Offline")
+                self.lbl_subject.setText("No internet connection · offline mode")
+                self.lbl_quota_text.setText(str(payload["error"]))
                 self.cloud_status_panel.set_offline(str(payload["error"]), action_text="")
             else:
+                is_missing_endpoint = payload.get("status") == 404
+                self.lbl_email.setText("Backend endpoint missing" if is_missing_endpoint else "Cloud unreachable")
+                self.lbl_subject.setText(
+                    "The backend answered, but its SafeLauncher API is not deployed."
+                    if is_missing_endpoint else "Check the endpoint and Secret Access Key."
+                )
+                self.lbl_quota_text.setText(payload["error"])
                 self.cloud_status_panel.set_error(
                     str(payload["error"]),
                     title="Cloud account unavailable",
@@ -557,16 +597,19 @@ class AccountDialog(PopupDialog):
         site = get_site_url()
         concurrent = overview.get("concurrentDevices", 1)
         is_stale = bool(payload.get("stale"))
-        self.lbl_email.setText(
-            "Private Cloud Connected · using cached data" if is_stale else "Private Cloud Connected"
-        )
-        if is_stale:
+        is_offline = bool(payload.get("offline"))
+        if is_offline:
+            self.lbl_email.setText("Private Cloud Connected · offline")
+            self.cloud_status_panel.set_offline("Showing cached account data while offline.", action_text="")
+        elif is_stale:
+            self.lbl_email.setText("Private Cloud Connected · using cached data")
             self.cloud_status_panel.set_ready(
                 "Showing cached account data; refresh pending.",
                 stale=True,
                 action_text="",
             )
         else:
+            self.lbl_email.setText("Private Cloud Connected")
             self.cloud_status_panel.set_ready("Account and cloud storage data is current.", action_text="")
         subject_parts = []
         if concurrent:
@@ -681,17 +724,40 @@ class AccountDialog(PopupDialog):
         self._populate_games([])
 
     def _populate_games(self, games):
-        self._games = games
+        self._games = list(games or [])
         self.lst_games.clear()
         self.history_timeline.set_message("Select a game to see its cloud save versions.")
         self.btn_restore.setEnabled(False)
         self.btn_delete_generation.setEnabled(False)
-        if not games:
+
+        initial_key = ""
+        if self._initial_game_name:
+            from core.cloud_save_sync import resolve_name_key
+            initial_norm = self._initial_game_name.strip()
+            initial_key = resolve_name_key(initial_norm)
+            already_in_list = any(
+                str(g.get("nameKey", "")).lower() == initial_key.lower()
+                or str(g.get("displayName", "")).lower() == initial_norm.lower()
+                for g in self._games
+            )
+            if not already_in_list and initial_norm:
+                self._games.append({
+                    "displayName": initial_norm,
+                    "nameKey": initial_key,
+                    "versions": [],
+                    "totalBytes": 0,
+                    "latestSourceMtime": int(time.time()),
+                })
+
+        if not self._games:
             item = QListWidgetItem("No saves uploaded yet.")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             self.lst_games.addItem(item)
             return
-        for g in sorted(games, key=lambda x: x.get("latestSourceMtime", 0), reverse=True):
+
+        sorted_games = sorted(self._games, key=lambda x: x.get("latestSourceMtime", 0), reverse=True)
+        target_row = -1
+        for idx, g in enumerate(sorted_games):
             count = len(g.get("versions", []))
             size_txt = format_bytes(g.get("totalBytes", 0))
             display_name = str(g.get("displayName") or "Unnamed game")
@@ -701,6 +767,14 @@ class AccountDialog(PopupDialog):
             )
             item.setData(Qt.ItemDataRole.UserRole, g.get("nameKey"))
             self.lst_games.addItem(item)
+            if self._initial_game_name and (
+                (initial_key and str(g.get("nameKey", "")).lower() == initial_key.lower())
+                or str(g.get("displayName", "")).lower() == self._initial_game_name.strip().lower()
+            ):
+                target_row = idx
+
+        if target_row >= 0:
+            self.lst_games.setCurrentRow(target_row)
 
     # ------------------------------------------------------------------ #
     # Interactions                                                        #
@@ -726,6 +800,11 @@ class AccountDialog(PopupDialog):
                 "uploaded_at": entry.get("uploadedAt", 0),
             })
             entries.append(entry)
+        if not entries:
+            self.history_timeline.set_message(
+                f"No cloud save versions uploaded yet for {game.get('displayName', 'this game')}."
+            )
+            return
         self.history_timeline.set_entries(entries)
         has_entries = bool(self.history_timeline.entries())
         self.btn_restore.setEnabled(has_entries)

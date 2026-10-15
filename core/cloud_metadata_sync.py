@@ -300,15 +300,7 @@ def _collapse_profile_game_aliases(games: dict) -> dict:
         local_value = collapsed.get(local_identity)
         if not isinstance(local_value, dict) or str(local_value.get("app_id", "") or "").strip():
             continue
-        # A local profile entry that still describes an installed executable
-        # is a real non-Steam game, not a cloud-only identity alias.
-        if str(local_value.get("executable", "") or "").strip():
-            continue
-        if any(
-            bool(state.get("installed"))
-            for state in _normalise_devices(local_value.get("devices")).values()
-        ):
-            continue
+        local_exe = str(local_value.get("executable", "") or "").strip()
         local_name = display_name_key(
             local_value.get("name") or local_value.get("display_name"),
             "",
@@ -324,6 +316,11 @@ def _collapse_profile_game_aliases(games: dict) -> dict:
                 steam_value.get("name") or steam_value.get("display_name"),
                 app_id,
             )
+            steam_exe = str(steam_value.get("executable", "") or "").strip()
+            # If both records have distinct executables, they represent separate
+            # installations/games rather than an identity alias.
+            if local_exe and steam_exe and local_exe.casefold() != steam_exe.casefold():
+                continue
             if app_id and steam_name and steam_name == local_name:
                 matches.append((steam_identity, steam_value))
         if len(matches) != 1:
@@ -696,7 +693,8 @@ class CloudMetadataSync:
                 and now - _PROFILE_SYNC_STATE["synced_at"] < _PROFILE_SYNC_TTL_SECONDS
             ):
                 return True
-            if backend_active():
+            from core.network_policy import is_offline_mode, automatic_network_allowed
+            if backend_active() and automatic_network_allowed() and not is_offline_mode():
                 from core.cloud_save_sync import _backend
                 backend = _backend()
                 # One-time compatibility bridge: promote old per-game cloud
@@ -775,14 +773,21 @@ class CloudMetadataSync:
             return True
         except Exception as exc:
             queue.enqueue(context, "profile", local_digest=local_digest)
-            logger.warning("Achievement profile sync failed: %s", exc)
+            from core.request_contracts import is_network_offline_error
+            from core.network_policy import is_offline_mode
+            if is_network_offline_error(exc) or is_offline_mode():
+                logger.debug("Achievement profile sync skipped while offline / unreachable: %s", exc)
+            else:
+                logger.warning("Achievement profile sync failed: %s", exc)
             return False
 
     @classmethod
     def sync_game(cls, db, game_id: int, game_name: str, app_id: str = "", drop_legacy_achievements: bool = False) -> bool:
         from core.cloud_save_sync import backend_active, resolve_name_key, _cloud_auth_configured
+        from core.network_policy import is_offline_mode, automatic_network_allowed
 
-        if backend_active() and not _cloud_auth_configured():
+        remote_allowed = backend_active() and automatic_network_allowed() and not is_offline_mode()
+        if remote_allowed and not _cloud_auth_configured():
             # Check before resolve_name_key: resolving a cloud key can itself
             # perform a listing request, which is pointless without a secret.
             return False
@@ -790,7 +795,7 @@ class CloudMetadataSync:
         key = f"{resolve_name_key(game_name)}-{str(app_id).strip()}" if str(app_id).strip() else resolve_name_key(game_name)
         local = cls._local_payload(db, game_id, key, app_id, include_legacy_achievements=not drop_legacy_achievements)
         try:
-            if backend_active():
+            if remote_allowed:
                 from core.cloud_save_sync import _backend
                 backend = _backend()
                 for attempt in range(2):
@@ -825,5 +830,10 @@ class CloudMetadataSync:
             cls._apply(db, game_id, merged)
             return True
         except Exception as exc:
-            logger.warning("SafeLauncher metadata sync failed for '%s': %s", game_name, exc)
+            from core.request_contracts import is_network_offline_error
+            from core.network_policy import is_offline_mode
+            if is_network_offline_error(exc) or is_offline_mode():
+                logger.debug("SafeLauncher metadata sync skipped while offline / unreachable for '%s': %s", game_name, exc)
+            else:
+                logger.warning("SafeLauncher metadata sync failed for '%s': %s", game_name, exc)
             return False

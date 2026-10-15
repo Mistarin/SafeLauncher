@@ -1049,7 +1049,7 @@ class MainWindow(QMainWindow):
         self.library_view_host.favorite_requested.connect(self._on_card_favorite_clicked)
         self.library_view_host.edit_requested.connect(self._on_edit)
         self.library_view_host.properties_requested.connect(self._open_game_properties)
-        self.library_view_host.save_manager_requested.connect(self._on_export)
+        self.library_view_host.save_manager_requested.connect(self._open_saves_dialog)
         self.library_view_host.cloud_menu_requested.connect(self._show_game_cloud_menu)
         self.library_view_host.cloud_action_requested.connect(self._on_game_cloud_action)
         self.library_view_host.open_folder_requested.connect(self._open_game_dir_by_id)
@@ -7068,14 +7068,36 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.choice:
             self._apply_game_lifecycle_action(game, dialog.choice)
 
-    def _on_export(self):
-        game = self._get_selected_game()
+    def _open_saves_dialog(self, game_id: int | None = None):
+        """Open Cloud Storage & Devices save interface pre-selected to the given game."""
+        game = self._game_by_id(game_id) if game_id is not None else None
+        if not game:
+            game = self._get_selected_game()
         if not game:
             QMessageBox.warning(self, "Warning", "Please select a game.")
             return
-        steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
-        SaveManagerDialog(game[0], game[1], game[2], steam_id, self, services=self.save_dialog_services).exec()
-        self.refresh_cloud_status_for_game(game[0])
+        game_id_val = int(game[0])
+        game_name = str(game[1])
+        try:
+            from ui.dialogs.account_dialog import AccountDialog
+            dialog = AccountDialog(
+                self,
+                request_manager=self.request_manager,
+                cloud_account_service=self.cloud_account_service,
+                cloud_operation_service=self.cloud_operation_service,
+                initial_game_name=game_name,
+                initial_game_id=game_id_val,
+            )
+            dialog.exec()
+            self.refresh_cloud_status_for_game(game_id_val)
+        except Exception as error:
+            logger.warning("Could not open Cloud Storage & Devices for '%s': %s", game_name, error)
+            steam_id = str(game[6]).strip() if len(game) > 6 and game[6] else ""
+            SaveManagerDialog(game_id_val, game_name, game[2], steam_id, self, services=self.save_dialog_services).exec()
+            self.refresh_cloud_status_for_game(game_id_val)
+
+    def _on_export(self, game_id: int | None = None):
+        self._open_saves_dialog(game_id)
 
     def _game_by_id(self, game_id: int):
         """Resolve a game from the current authoritative library snapshot."""

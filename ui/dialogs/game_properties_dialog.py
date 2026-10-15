@@ -2,6 +2,7 @@ import os
 import subprocess
 from html import escape as html_escape
 from typing import Dict
+from PyQt6 import sip
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QFileDialog, QFrame, QScrollArea, QMessageBox, QGridLayout, QToolButton,
@@ -853,6 +854,14 @@ class GamePropertiesDialog(PopupDialog):
             self._managed_tasks.dispose()
         super().done(result)
 
+    def _is_alive(self) -> bool:
+        if getattr(self, "_closing", False):
+            return False
+        try:
+            return not sip.isdeleted(self)
+        except RuntimeError:
+            return False
+
     def closeEvent(self, event):
         self.reject()
         event.ignore()
@@ -873,11 +882,16 @@ class GamePropertiesDialog(PopupDialog):
         request_id = handle.request_id
 
         def _deliver(resource):
+            if not self._is_alive():
+                return
             if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
                 return
             payload = resource.value if resource.status in {ResourceStatus.READY, ResourceStatus.STALE} else {}
             if isinstance(payload, dict):
-                self.history_timeline.set_devices(payload.get("devices", []))
+                try:
+                    self.history_timeline.set_devices(payload.get("devices", []))
+                except RuntimeError:
+                    return
             if resource.status != ResourceStatus.STALE:
                 binding = self._resource_bindings.pop(request_id, None)
                 if binding is not None:
@@ -929,7 +943,9 @@ class GamePropertiesDialog(PopupDialog):
             }
 
             def finish_if_ready() -> None:
-                if load_generation != self._save_stats_generation:
+                if not self._is_alive():
+                    return
+                if load_generation != getattr(self, "_save_stats_generation", None):
                     return
                 if not state["status_done"] or not state["history_done"]:
                     return
@@ -937,34 +953,45 @@ class GamePropertiesDialog(PopupDialog):
                 # compatibility payload shape is identical for managed and
                 # standalone dialogs. Emitting the tuple as separate Qt
                 # arguments would violate the one-object signal contract.
-                self._save_stats_ready.emit((
-                    state["status"],
-                    state["local"],
-                    state["cloud"],
-                    state["versions"],
-                    state["operation_result"],
-                    state["resource_status"],
-                ))
+                try:
+                    self._save_stats_ready.emit((
+                        state["status"],
+                        state["local"],
+                        state["cloud"],
+                        state["versions"],
+                        state["operation_result"],
+                        state["resource_status"],
+                    ))
+                except RuntimeError:
+                    return
 
             def bind_read(handle, callback) -> None:
                 request_id = handle.request_id
 
                 def deliver(resource):
-                    if load_generation != self._save_stats_generation:
+                    if not self._is_alive():
+                        return
+                    if load_generation != getattr(self, "_save_stats_generation", None):
                         return
                     if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
                         return
                     if resource.status == ResourceStatus.STALE:
                         # Render the usable persisted value, but keep this
                         # binding alive for the manager's revalidation result.
-                        callback(resource)
-                        finish_if_ready()
+                        try:
+                            callback(resource)
+                            finish_if_ready()
+                        except RuntimeError:
+                            return
                         return
                     binding = self._resource_bindings.pop(request_id, None)
                     if binding is not None:
                         binding.close()
-                    callback(resource)
-                    finish_if_ready()
+                    try:
+                        callback(resource)
+                        finish_if_ready()
+                    except RuntimeError:
+                        return
 
                 self._resource_bindings[request_id] = bind_request(
                     self.request_manager,
@@ -1334,15 +1361,23 @@ class GamePropertiesDialog(PopupDialog):
         request_id = handle.request_id
 
         def _deliver(resource):
+            if not self._is_alive():
+                return
             if resource.status in {ResourceStatus.IDLE, ResourceStatus.LOADING}:
                 return
             if resource.status == ResourceStatus.STALE:
-                callback(resource)
+                try:
+                    callback(resource)
+                except RuntimeError:
+                    pass
                 return
             binding = self._resource_bindings.pop(request_id, None)
             if binding is not None:
                 binding.close()
-            callback(resource)
+            try:
+                callback(resource)
+            except RuntimeError:
+                pass
 
         binding = bind_request(
             self.request_manager,

@@ -124,22 +124,31 @@ class GameRepository:
             existing = self.find_game_by_profile_identity(identity)
             if existing is None and not app_id:
                 # Older profile documents may retain a local alias alongside a
-                # later Steam identity.  The alias repair can remove the
-                # local row before this method runs, so match only a unique,
-                # archived, pathless Steam row by its meaningful title.  An
-                # installed game is deliberately excluded to avoid merging
-                # unrelated non-Steam titles.
+                # later Steam identity. Prefer an archived pathless placeholder
+                # first; if none, match an unambiguous Steam game with a compatible
+                # executable rather than materializing a duplicate row that startup
+                # reconciliation will immediately delete.
                 incoming_key = display_name_key(incoming_name, "")
-                candidates = [
+                incoming_exe = str(value.get("executable", "") or "").strip()
+                steam_candidates = [
                     game for game in self.get_all_games()
                     if str(game.steam_id or "").strip()
-                    and bool(game.is_archived)
-                    and not str(game.path or "").strip()
-                    and not str(game.executable or "").strip()
                     and display_name_key(game.name, game.steam_id) == incoming_key
                 ]
-                if len(candidates) == 1:
-                    existing = candidates[0]
+                placeholder_candidates = [
+                    game for game in steam_candidates
+                    if bool(game.is_archived)
+                    and not str(game.path or "").strip()
+                    and not str(game.executable or "").strip()
+                ]
+                if len(placeholder_candidates) == 1:
+                    existing = placeholder_candidates[0]
+                elif len(steam_candidates) == 1:
+                    candidate = steam_candidates[0]
+                    cand_exe = str(candidate.executable or "").strip()
+                    if not incoming_exe or not cand_exe or incoming_exe.casefold() == cand_exe.casefold():
+                        existing = candidate
+                if existing:
                     # Preserve the canonical Steam identity when the legacy
                     # alias is only a projection of the same cloud game.
                     value = dict(value)

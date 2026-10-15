@@ -308,12 +308,14 @@ class GameDetailPageWidget(QWidget):
         self.btn_properties.clicked.connect(lambda: self.current_game_id and self.properties_requested.emit(self.current_game_id))
         sec_grid.addWidget(self.btn_properties, 0, 1)
 
-        self.btn_saves = QPushButton("Local Saves")
+        self.btn_saves = QPushButton("Saves")
         self.btn_saves.setIcon(get_icon("ph.floppy-disk-bold", color="#A1A1AA"))
         self.btn_saves.setIconSize(QSize(14, 14))
         self.btn_saves.setFixedHeight(34)
         self.btn_saves.setStyleSheet(sec_btn_style)
         self.btn_saves.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_saves.setToolTip("Manage storage devices and save versions")
+        self.btn_saves.setAccessibleName("Manage storage devices and saves")
         self.btn_saves.clicked.connect(lambda: self.current_game_id and self.save_manager_requested.emit(self.current_game_id))
         sec_grid.addWidget(self.btn_saves, 0, 2)
 

@@ -137,6 +137,48 @@ def _http_status(error: BaseException | str) -> int:
         return 0
 
 
+import socket
+
+
+def is_network_offline_error(error: BaseException | None) -> bool:
+    """Return True if the error indicates absence of network connection or DNS resolution failure."""
+    if error is None:
+        return False
+    if isinstance(error, socket.gaierror):
+        return True
+    cur: BaseException | None = error
+    while cur is not None:
+        tname = type(cur).__name__
+        tmod = type(cur).__module__ or ""
+        if tname in {
+            "NameResolutionError",
+            "NewConnectionError",
+            "ConnectTimeout",
+            "gaierror",
+        }:
+            return True
+        if tname == "ConnectionError" and (tmod.startswith("requests") or tmod.startswith("urllib3")):
+            return True
+        msg = str(cur)
+        if any(needle in msg for needle in (
+            "NameResolutionError",
+            "Failed to resolve",
+            "getaddrinfo failed",
+            "Temporary failure in name resolution",
+            "Network is unreachable",
+            "Network is down",
+            "No route to host",
+            "Dočasná chyba při vyhodnocování jména",
+            "[Errno -3]",
+            "[Errno 101]",
+            "[Errno 100]",
+            "[Errno 113]",
+        )):
+            return True
+        cur = getattr(cur, "__cause__", None) or getattr(cur, "__context__", None)
+    return False
+
+
 def classify_remote_error(error: BaseException | str | None) -> RemoteErrorCategory:
     """Return the stable category used by UI, diagnostics, and retry policy.
 
@@ -150,6 +192,8 @@ def classify_remote_error(error: BaseException | str | None) -> RemoteErrorCateg
         return RemoteErrorCategory.CANCELLED
     if isinstance(error, RequestTimeout) or isinstance(error, TimeoutError):
         return RemoteErrorCategory.TIMEOUT
+    if isinstance(error, BaseException) and is_network_offline_error(error):
+        return RemoteErrorCategory.OFFLINE
 
     raw = str(
         error
@@ -244,7 +288,11 @@ def is_transient_error(error: BaseException) -> bool:
     """
     if isinstance(error, (RequestCancelled, ValueError, TypeError, KeyError)):
         return False
+    if is_network_offline_error(error):
+        return False
     category = classify_remote_error(error)
+    if category == RemoteErrorCategory.OFFLINE:
+        return False
     if category in {
         RemoteErrorCategory.TRANSIENT,
         RemoteErrorCategory.RATE_LIMITED,
