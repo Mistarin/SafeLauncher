@@ -20,6 +20,7 @@ class WelcomeWizardDialog(PopupDialog):
         super().__init__("Welcome to SafeLauncher", parent)
         self.user_name = user_name
         self.proton_path = proton_path
+        self._show_on_startup = False
 
         if os.path.exists(LOGO_PATH):
             self.setWindowIcon(QIcon(LOGO_PATH))
@@ -152,9 +153,13 @@ class WelcomeWizardDialog(PopupDialog):
             self.proton_input.setText(path)
 
     def _finish(self):
-        if self.name_input.text().strip():
-            self.user_name = self.name_input.text().strip()
-        self.proton_path = self.proton_input.text().strip()
+        try:
+            if self.name_input.text().strip():
+                self.user_name = self.name_input.text().strip()
+            self.proton_path = self.proton_input.text().strip()
+            self._show_on_startup = self.chk_show_startup.isChecked()
+        except RuntimeError:
+            pass
         self.accept()
 
     def get_user_name(self) -> str:
@@ -164,4 +169,4 @@ class WelcomeWizardDialog(PopupDialog):
         return self.proton_path
 
     def should_show_on_startup(self) -> bool:
-        return self.chk_show_startup.isChecked()
+        return self._show_on_startup

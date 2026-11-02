@@ -1183,6 +1183,10 @@ class UserSettingsDialog(PopupDialog):
                 settings.setValue("date_format", self.date_format)
 
             self._cloud_settings_committed = True
+            self.user_name = display_name
+            self.proton_path = self.proton_input.text().strip()
+            self.show_welcome_wizard = self.chk_welcome.isChecked()
+            self.cloud_saves_dir = cloud_dir
             self.accept()
 
     def _browse_proton(self):
@@ -1713,13 +1717,22 @@ class UserSettingsDialog(PopupDialog):
         self.reject()
 
     def get_user_name(self) -> str:
-        return self.name_input.text().strip()
+        try:
+            return self.name_input.text().strip()
+        except RuntimeError:
+            return self.user_name
 
     def get_proton_path(self) -> str:
-        return self.proton_input.text().strip()
+        try:
+            return self.proton_input.text().strip()
+        except RuntimeError:
+            return self.proton_path
 
     def get_show_welcome_wizard(self) -> bool:
-        return self.chk_welcome.isChecked()
+        try:
+            return self.chk_welcome.isChecked()
+        except RuntimeError:
+            return self.show_welcome_wizard
 
     def get_date_format(self) -> str:
         return self.combo_date_format.currentData() if hasattr(self, "combo_date_format") else self.date_format

@@ -338,29 +338,38 @@ class ProfileAdaptiveStack(QStackedWidget):
         QTimer.singleShot(0, self.sync_to_current)
 
     def sync_to_current(self) -> None:
-        current = self.currentWidget()
-        if current is not None:
-            current.updateGeometry()
-            current.adjustSize()
-            self.setFixedHeight(max(1, current.sizeHint().height()))
-        self.updateGeometry()
-        parent = self.parentWidget()
-        if parent is not None:
-            parent.updateGeometry()
+        try:
+            current = self.currentWidget()
+            if current is not None:
+                current.updateGeometry()
+                current.adjustSize()
+                self.setFixedHeight(max(1, current.sizeHint().height()))
+            self.updateGeometry()
+            parent = self.parentWidget()
+            if parent is not None:
+                parent.updateGeometry()
+        except RuntimeError:
+            pass
 
     def sizeHint(self) -> QSize:
-        current = self.currentWidget()
-        if current is not None:
-            hint = current.sizeHint()
-            return QSize(max(0, hint.width()), max(0, hint.height()))
-        return super().sizeHint()
+        try:
+            current = self.currentWidget()
+            if current is not None:
+                hint = current.sizeHint()
+                return QSize(max(0, hint.width()), max(0, hint.height()))
+            return super().sizeHint()
+        except RuntimeError:
+            return QSize(0, 0)
 
     def minimumSizeHint(self) -> QSize:
-        current = self.currentWidget()
-        if current is not None:
-            hint = current.minimumSizeHint()
-            return QSize(max(0, hint.width()), max(0, hint.height()))
-        return super().minimumSizeHint()
+        try:
+            current = self.currentWidget()
+            if current is not None:
+                hint = current.minimumSizeHint()
+                return QSize(max(0, hint.width()), max(0, hint.height()))
+            return super().minimumSizeHint()
+        except RuntimeError:
+            return QSize(0, 0)
 
 
 class ProfilePageWidget(QWidget):
@@ -3260,6 +3269,7 @@ class ProfilePageWidget(QWidget):
         identity: dict[str, Any] | None = None,
         *,
         replace_unpublished: bool = False,
+        publish_after: bool = False,
     ) -> bool:
         """Collect the first public handle without persisting OIDC claims."""
         identity = identity if isinstance(identity, dict) else {}
@@ -3269,14 +3279,17 @@ class ProfilePageWidget(QWidget):
         )
         current_handle = str(local.get("public_handle", "") or "")
         if current_handle and not replace_unpublished:
-            self._reserve_username(current_handle, local, identity)
+            self._reserve_username(current_handle, local, identity, publish_after=publish_after)
             return True
         suggestion = profile_username_suggestion(identity)
         while True:
             dialog = ProfileUsernameDialog(suggestion, self)
-            if dialog.exec() != dialog.DialogCode.Accepted:
-                return False
-            handle = normalize_username_handle(dialog.value)
+            try:
+                if dialog.exec() != dialog.DialogCode.Accepted:
+                    return False
+                handle = normalize_username_handle(dialog.value)
+            finally:
+                dialog.deleteLater()
             if not handle:
                 return False
             suggestion = handle
@@ -3288,7 +3301,7 @@ class ProfilePageWidget(QWidget):
                 **local,
                 "display_name": display_name,
                 "published": False,
-            }, identity)
+            }, identity, publish_after=publish_after)
             return True
 
     def _reserve_username(
@@ -3296,6 +3309,8 @@ class ProfilePageWidget(QWidget):
         handle: str,
         local: dict[str, Any],
         identity: dict[str, Any],
+        *,
+        publish_after: bool = False,
     ) -> None:
         """Reserve a first username through the authenticated public gateway."""
         normalized = normalize_username_handle(handle)
@@ -3323,7 +3338,7 @@ class ProfilePageWidget(QWidget):
                     self._set_profile_action_status(
                         "That username is already taken. Choose another one.", True
                     )
-                    self._setup_username(identity, replace_unpublished=True)
+                    self._setup_username(identity, replace_unpublished=True, publish_after=publish_after)
                 else:
                     self.central_auth.clear()
                     self._set_profile_action_status(
@@ -3343,9 +3358,12 @@ class ProfilePageWidget(QWidget):
                 "published": bool(local.get("published", False)),
             })
             self.profile_changed.emit()
-            self._set_profile_action_status(
-                f"Signed in as @{reserved_handle}. Your username is reserved permanently."
-            )
+            if publish_after:
+                self._publish_current_document()
+            else:
+                self._set_profile_action_status(
+                    f"Signed in as @{reserved_handle}. Your username is reserved permanently."
+                )
 
         if self._start_managed_remote(
             self._profile_resource_key("profile-username-reservation", normalized),
@@ -3743,8 +3761,7 @@ class ProfilePageWidget(QWidget):
             return
         handle = self._profile_settings.get("public_handle")
         if not handle:
-            if not self._setup_username({}):
-                return
+            self._setup_username({}, publish_after=True)
             return
         self._profile_settings = save_profile_settings(self.settings, {**self._profile_settings, "public_handle": handle}, mark_changed=False)
         self._publish_current_document()

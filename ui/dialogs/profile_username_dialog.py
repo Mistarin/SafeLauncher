@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLineEdit, QLabel
 
 from core.profile_models import normalize_username_handle
@@ -14,6 +15,11 @@ class ProfileUsernameDialog(PopupDialog):
 
     def __init__(self, suggestion: str, parent=None):
         super().__init__("Choose profile username", parent)
+        # PopupDialog normally owns deletion after close. This dialog is run
+        # through exec() and callers read the result immediately afterwards,
+        # so disable WA_DeleteOnClose and snapshot the value before accept().
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self._value = ""
         self.setMinimumWidth(480)
 
         layout = self.popup_layout(margins=(24, 20, 24, 20), spacing=14)
@@ -51,7 +57,7 @@ class ProfileUsernameDialog(PopupDialog):
         self.error_label.setVisible(False)
         layout.addWidget(self.error_label)
 
-        hint = QLabel("Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens.")
+        hint = QLabel("Use 4–32 lowercase letters, numbers, dots, underscores, or hyphens.")
         hint.setObjectName("popupHint")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
@@ -84,9 +90,10 @@ class ProfileUsernameDialog(PopupDialog):
         normalized = normalize_username_handle(value)
         if not normalized:
             self._show_error(
-                "Use 3–32 lowercase letters, numbers, dots, underscores, or hyphens."
+                "Use 4–32 lowercase letters, numbers, dots, underscores, or hyphens."
             )
             return
+        self._value = normalized
         self.username_edit.setText(normalized)
         self.accept()
 
@@ -101,4 +108,9 @@ class ProfileUsernameDialog(PopupDialog):
 
     @property
     def value(self) -> str:
-        return self.username_edit.text().strip()
+        if self._value:
+            return self._value
+        try:
+            return self.username_edit.text().strip()
+        except RuntimeError:
+            return self._value

@@ -196,21 +196,30 @@ class ProfileAvatarCatalogDialog(PopupDialog):
         self.btn_select.setEnabled(True)
 
     def _request_visible_thumbnails(self) -> None:
-        visible: list[str] = []
-        viewport_rect = self.table.viewport().rect()
-        for row, avatar_id in ((row, avatar_id) for avatar_id, row in self._rows_by_id.items()):
-            if self.table.isRowHidden(row):
-                continue
-            rect = self.table.visualRect(self.table.model().index(row, 0))
-            if rect.isValid() and rect.intersects(viewport_rect):
-                tile = self._tiles_by_id.get(avatar_id)
-                if tile is not None and tile.isVisible():
-                    visible.append(avatar_id)
-        if visible:
-            self.visible_avatar_ids.emit(visible)
+        try:
+            viewport = self.table.viewport()
+            if viewport is None:
+                return
+            visible: list[str] = []
+            viewport_rect = viewport.rect()
+            for row, avatar_id in ((row, avatar_id) for avatar_id, row in self._rows_by_id.items()):
+                if self.table.isRowHidden(row):
+                    continue
+                rect = self.table.visualRect(self.table.model().index(row, 0))
+                if rect.isValid() and rect.intersects(viewport_rect):
+                    tile = self._tiles_by_id.get(avatar_id)
+                    if tile is not None and tile.isVisible():
+                        visible.append(avatar_id)
+            if visible:
+                self.visible_avatar_ids.emit(visible)
+        except RuntimeError:
+            pass
 
     def set_thumbnail(self, avatar_id: str, pixmap: QPixmap) -> None:
-        tile = self._tiles_by_id.get(avatar_id)
-        if tile is None or pixmap.isNull():
-            return
-        tile.setIcon(QIcon(pixmap))
+        try:
+            tile = self._tiles_by_id.get(avatar_id)
+            if tile is None or pixmap.isNull():
+                return
+            tile.setIcon(QIcon(pixmap))
+        except RuntimeError:
+            pass

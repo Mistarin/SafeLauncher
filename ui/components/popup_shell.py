@@ -659,6 +659,17 @@ class PopupDialog(QDialog):
         self._popup_done_result = 0
         QDialog.done(self, result)
 
+    def exec(self) -> int:
+        """Protect modal callers from reading destroyed widgets before event return."""
+        was_delete_on_close = self.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        if was_delete_on_close:
+            self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        try:
+            return super().exec()
+        finally:
+            if was_delete_on_close:
+                self.deleteLater()
+
     def done(self, result: int) -> None:
         """Protect supervised and managed tasks, including modal accept()."""
         if self._defer_popup_done(result):

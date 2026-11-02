@@ -1205,6 +1205,39 @@ class ProfilePageTests(unittest.TestCase):
             dialog.deleteLater()
             self.app.processEvents()
 
+    def test_profile_username_dialog_preserves_value_after_modal_exec(self):
+        dialog = ProfileUsernameDialog("martin_42")
+        try:
+            QTimer.singleShot(0, dialog.continue_button.click)
+            self.assertEqual(dialog.exec(), dialog.DialogCode.Accepted)
+            self.assertEqual(dialog.value, "martin_42")
+        finally:
+            dialog.deleteLater()
+            self.app.processEvents()
+
+    def test_popup_dialog_exec_defers_deletion_until_caller_finishes(self):
+        from ui.components.popup_shell import PopupDialog
+        from PyQt6.QtWidgets import QLineEdit
+
+        dialog = PopupDialog("Test Dialog")
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        edit = QLineEdit("sample", dialog)
+        QTimer.singleShot(0, dialog.accept)
+        result = dialog.exec()
+        self.assertEqual(result, dialog.DialogCode.Accepted)
+        # Child widget must still be alive and readable immediately after exec()
+        self.assertEqual(edit.text(), "sample")
+        # After event loop processes deferred deletion, widget is cleaned up
+        self.app.processEvents()
+
+    def test_profile_adaptive_stack_sync_to_current_safe_during_destruction(self):
+        from ui.components.profile_page import ProfileAdaptiveStack
+        stack = ProfileAdaptiveStack()
+        # Should execute cleanly without raising RuntimeError
+        stack.sync_to_current()
+        self.assertEqual(stack.sizeHint(), QSize(0, 0))
+        self.assertEqual(stack.minimumSizeHint(), QSize(0, 0))
+
     def test_avatar_decode_removes_only_bad_iccp_chunk(self):
         signature = b"\x89PNG\r\n\x1a\n"
 

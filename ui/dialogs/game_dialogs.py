@@ -1048,6 +1048,7 @@ class LaunchOptionsDialog(PopupDialog):
         mode = (*game_data, 0)[4]
         self.game_data = game_data
         self.selected_mode = None
+        self.is_default = False
 
         self.setFixedWidth(480)
         root_layout = self._popup_root
@@ -1147,6 +1148,10 @@ class LaunchOptionsDialog(PopupDialog):
 
     def _select(self, mode: str):
         self.selected_mode = mode
+        try:
+            self.is_default = self.set_as_default_cb.isChecked()
+        except RuntimeError:
+            pass
         self.accept()
 
 
@@ -2438,6 +2443,7 @@ class ManageCollectionGamesDialog(PopupDialog):
         self.collection_name = collection_name
         self.all_games = all_games
         self.member_ids = set(current_member_ids)
+        self._selected_game_ids: set = set()
         self.resize(520, 560)
         self.setMinimumSize(420, 400)
         self.setSizeGripEnabled(True)
@@ -2549,10 +2555,17 @@ class ManageCollectionGamesDialog(PopupDialog):
 
         btn_save = QPushButton("Save Collection")
         btn_save.setStyleSheet("QPushButton { background: #0284c7; color: #ffffff; border: none; } QPushButton:hover { background: #0369a1; }")
-        btn_save.clicked.connect(self.accept)
+        btn_save.clicked.connect(self._on_save)
         btn_row.addWidget(btn_save)
 
         layout.addLayout(btn_row)
+
+    def _on_save(self):
+        try:
+            self._selected_game_ids = {cb.property("game_id") for cb in self.checkboxes if cb.isChecked()}
+        except RuntimeError:
+            pass
+        self.accept()
 
     def _filter_list(self, query: str):
         q = query.strip().lower()
@@ -2566,7 +2579,12 @@ class ManageCollectionGamesDialog(PopupDialog):
                 cb.setChecked(checked)
 
     def get_selected_game_ids(self) -> set:
-        return {cb.property("game_id") for cb in self.checkboxes if cb.isChecked()}
+        if self._selected_game_ids:
+            return set(self._selected_game_ids)
+        try:
+            return {cb.property("game_id") for cb in self.checkboxes if cb.isChecked()}
+        except RuntimeError:
+            return set(self._selected_game_ids)
 
 
 class CreateCollectionDialog(PopupDialog):
